@@ -1,0 +1,7627 @@
+MASTER SPECIFICATION
+ระบบ POS ขาย + เช่า + สต็อก + ลูกค้า + นัดหมาย + การเงิน + การควบคุม
+ฉบับรวม วิเคราะห์ และเรียบเรียงจากเอกสารต้นทางทั้งหมด
+
+======================================================================
+A. วัตถุประสงค์ของเอกสาร
+======================================================================
+
+เอกสารนี้รวมเนื้อหาจากเอกสารต้นทางทั้งหมดให้เป็นสเปกระบบเดียว โดยจัดระเบียบใหม่เป็น:
+1) หลักการสถาปัตยกรรมกลาง
+2) Flowchart กระบวนการหลัก
+3) Diagram โครงสร้างและความสัมพันธ์
+4) Workflow ตามฝ่าย
+5) Business Rules
+6) Validation / Permission / Audit
+7) Stock / Finance Ledger
+8) Rental Lifecycle
+9) Exception Handling
+10) Security / Backup / Reporting / Day Close
+11) ภาคผนวกข้อมูลดิบจากต้นฉบับทุกไฟล์แบบครบถ้วน
+
+เป้าหมายคือให้เอกสารนี้ใช้เป็นฐานสำหรับ:
+- ออกแบบฐานข้อมูล
+- ออกแบบ UI/UX
+- ออกแบบ Server/RPC
+- เขียน RLS/Permission
+- เขียน Test Cases
+- ตรวจ Business Rule
+- ตรวจความครบถ้วนก่อนพัฒนาจริง
+
+======================================================================
+B. หลักการสถาปัตยกรรมกลาง
+======================================================================
+
+1. หัวบิลเป็นกลาง
+   - บิลเดียวมีทั้ง SALE และ RENTAL ได้
+   - SALE/RENTAL อยู่ระดับ Line Item
+   - สินค้าเดียวกันอยู่ทั้ง SALE และ RENTAL คนละ Line ได้
+
+2. Transaction เดิมต้องไม่ถูกแก้ทับจนสูญเสียประวัติ
+   - Payment ใหม่ = Record ใหม่
+   - Return ใหม่ = Record ใหม่
+   - Refund ใหม่ = Record ใหม่
+   - Renewal = ความสัมพันธ์/ธุรกรรมใหม่
+   - Cancel/Void/Correction = Reversal/Compensating Entry
+
+3. สถานะต้องแยกเป็นหลายมิติ
+   - Bill Status
+   - Payment Status
+   - Return Status
+   - Rental Status
+   - Fulfillment Status
+   - Item Condition
+   - Appointment Status
+   - Notification Status
+
+4. Stock และ Finance ต้องมี Ledger/Movement ของตัวเอง
+
+5. งานที่แก้หลายตารางต้อง Atomic
+   - BEGIN
+   - Validate
+   - Lock
+   - Insert/Update
+   - Audit
+   - COMMIT
+   - หากผิด ROLLBACK
+
+6. Notification ไม่ใช่ Source of Truth
+   - เป็นตัวชี้ไปยัง Entity จริง
+
+7. Product/Customer ที่มีประวัติห้าม Hard Delete
+   - ใช้ active/inactive
+
+8. Permission ต้องตรวจระดับ Action
+   - ไม่ควรอิง Role อย่างเดียว
+
+9. Audit สำคัญต้องแก้/ลบไม่ได้โดย User ปกติ
+
+10. Close Bill ต้องตรวจ:
+   financial_resolved
+   AND merchandise_resolved
+   AND exception_resolved
+
+======================================================================
+C. MASTER DIAGRAM — ความสัมพันธ์ทั้งระบบ
+======================================================================
+
+                               CUSTOMER
+                                  |
+             +--------------------+--------------------+
+             |                                         |
+             v                                         v
+        APPOINTMENT                               QUOTATION
+             |                                         |
+             v                                         v
+       NOTIFICATION                               RESERVATION
+                                                       |
+                                                       v
+                                                     ORDER
+                                                       |
+                                +----------------------+----------------------+
+                                |                                             |
+                                v                                             v
+                           INVENTORY                                      CREDIT/AR
+                                |
+                         +------+------+
+                         |             |
+                         v             v
+                       FULL        BACKORDER
+                         |
+                         v
+                        BILL
+                         |
+          +--------------+-------------------+-------------------+
+          |                                  |                   |
+          v                                  v                   v
+      BILL ITEMS                          PAYMENT            TAX/DISCOUNT
+          |
+      +---+------------------+
+      |                      |
+      v                      v
+   SALE LINE             RENTAL LINE
+      |                      |
+      v                      v
+ DELIVERY/SOLD          RENTAL DETAILS
+                             |
+                             v
+                         RENTED_OUT
+                             |
+            +----------------+----------------+
+            |                |                |
+            v                v                v
+        RETURN           OVERDUE         RENEWAL
+            |
+       +----+----+----------------+
+       |         |                |
+       v         v                v
+     NORMAL    DAMAGED           LOST
+       |         |                |
+       +---------+--------+-------+
+                         |
+                         v
+                    SETTLEMENT
+                         |
+                 +-------+-------+
+                 |       |       |
+                 v       v       v
+                PAY     ZERO   REFUND
+                 |       |       |
+                 +-------+-------+
+                         |
+                         v
+                       CLOSE
+                         |
+               +---------+----------+
+               |                    |
+               v                    v
+             AUDIT               REPORTING
+               |
+               v
+        SECURITY / RLS / RPC
+
+======================================================================
+D. MASTER FLOWCHART — ตั้งแต่ก่อนขายจนปิดงาน
+======================================================================
+
+[เริ่ม]
+   |
+   v
+[เลือก/สร้าง Customer ถ้าจำเป็น]
+   |
+   v
+[Quotation]
+   |
+   v
+<ลูกค้ายืนยัน?>
+   | NO -> EXPIRED / REJECTED
+   | YES
+   v
+[Reservation]
+   |
+   v
+[กัน Availability]
+   |
+   v
+[เปิด POS / Order / Bill]
+   |
+   v
+[เลือก current_mode: SALE หรือ RENTAL]
+   |
+   v
+[เลือกสินค้า]
+   |
+   v
+[ตรวจ Product Capability]
+   |
+   +--> SALE ต้อง can_sell = true
+   |
+   +--> RENTAL ต้อง can_rent = true
+   |
+   v
+[เพิ่ม Line Item]
+   |
+   v
+<เพิ่มสินค้าอีก?>
+   | YES -> เปลี่ยน Mode ได้ -> วนกลับ
+   | NO
+   v
+[ตรวจว่ามี RENTAL Line หรือไม่]
+   |
+   +--> YES -> ต้องมี Customer + Rental Terms
+   |
+   +--> NO -> Walk-in ได้ตามกฎ
+   |
+   v
+[ตรวจ Stock ทุก Line]
+   |
+   v
+<เพียงพอ?>
+   | NO
+   +--> HOLD / BACKORDER / PARTIAL DELIVERY ตาม Policy
+   | YES
+   v
+[คำนวณ Sale Subtotal]
+   |
+   v
+[คำนวณ Rental Subtotal]
+   |
+   v
+[Discount / Shipping / Service Fee / VAT / Deposit]
+   |
+   v
+[Grand Total]
+   |
+   v
+[รับ Payment เต็ม/บางส่วน/Split]
+   |
+   v
+[Atomic Checkout]
+   |
+   v
+[ออกเลขเอกสาร]
+   |
+   v
+[สร้าง Bill + Lines + Stock Movement + Finance Ledger + Audit]
+   |
+   v
+[แยก Lifecycle]
+   |
+   +--> SALE -> Fulfillment -> Delivery -> Sale Complete
+   |
+   +--> RENTAL -> Delivery -> Active Rental
+                       |
+                       v
+                [Return / Overdue / Renewal]
+                       |
+                +------+------+
+                |             |
+                v             v
+             RETURN        OVERDUE
+                |
+       +--------+--------+
+       |        |        |
+       v        v        v
+     NORMAL   DAMAGE    LOST
+       |        |        |
+       +--------+--------+
+                |
+                v
+           Final Settlement
+                |
+        +-------+-------+
+        |       |       |
+        v       v       v
+       PAY     ZERO   REFUND
+        |       |       |
+        +-------+-------+
+                |
+                v
+       [ตรวจ Close Conditions]
+                |
+                v
+              CLOSED
+
+======================================================================
+E. บิลขายและเช่าในใบเดียว
+======================================================================
+
+หลัก:
+- Bill เป็น Header กลาง
+- Bill Item แต่ละรายการมี line_mode
+- line_mode = SALE | RENTAL
+- RENTAL มี Rental Line Detail เพิ่ม
+- SALE และ RENTAL ห้าม merge แม้ product_id เดียวกัน
+
+ตัวอย่าง:
+
+BILL B001
+|
++-- Line 1 SALE
+|   สายไฟ 2 × 500 = 1,000
+|
++-- Line 2 RENTAL
+|   โต๊ะ 10 × 100/วัน × 3 วัน = 3,000
+|
++-- Line 3 RENTAL
+|   เก้าอี้ 20 × 20/วัน × 3 วัน = 1,200
+|
++-- Line 4 SALE
+    ถ่าน AA 4 ชุด
+
+Payment รับรวมที่ Bill ได้
+แต่ Revenue/Stock Lifecycle ต้องแยกตาม Line
+
+======================================================================
+F. การแยกโหมด SALE / RENTAL
+======================================================================
+
+UI:
+[เช่า] [ขาย]
+
+current_mode มีผลกับสินค้าที่จะเพิ่ม "ต่อจากนี้"
+ไม่เปลี่ยน Line เก่าอัตโนมัติ
+
+SALE:
+- ใช้ sale_price
+- สูตร ราคา × จำนวน
+- ไม่มี Rental Terms
+- ไม่มี Return Obligation
+
+RENTAL:
+- ใช้ rental_price
+- มี period_type
+- period_count
+- rental_start_at
+- rental_end_at
+- มี Return Obligation
+
+Product:
+- can_sell
+- can_rent
+
+Validation:
+SALE -> can_sell = true
+RENTAL -> can_rent = true
+
+======================================================================
+G. PAYMENT — ชำระหลายรอบ / Split Payment
+======================================================================
+
+สูตร:
+
+paid_amount
+= SUM(valid payments)
+
+balance_due
+= bill_total
+- paid_amount
+- credit_adjustments
++ debit_adjustments
+
+Status:
+paid = 0 -> UNPAID
+0 < paid < total -> PARTIALLY_PAID
+paid >= total -> PAID
+
+Flow:
+
+[เปิดบิล]
+   |
+   v
+[อ่าน Valid Payments]
+   |
+   v
+[คำนวณ Balance]
+   |
+   v
+<Balance > 0?>
+   | NO -> จบ
+   | YES
+   v
+[รับชำระ]
+   |
+   v
+[เลือก Method]
+   |
+   +--> Cash
+   +--> Transfer
+   +--> Card
+   +--> QR
+   +--> Other
+   |
+   v
+[กรอก Amount]
+   |
+   v
+[Validate]
+   |
+   v
+[BEGIN]
+   |
+   v
+[Insert Payment Record ใหม่]
+   |
+   v
+[Finance Ledger]
+   |
+   v
+[Cash Movement ถ้า Cash]
+   |
+   v
+[Audit]
+   |
+   v
+[Recalculate]
+   |
+   v
+[COMMIT]
+
+ห้าม:
+- Merge หลาย Payment เป็น Record เดียว
+- แก้ยอด Payment เก่าเพื่อทำ Refund
+- Delete Payment
+
+======================================================================
+H. RETURN — รับคืนบางส่วนหลายรอบ
+======================================================================
+
+สูตร:
+
+returned_qty
+= SUM(valid return lines)
+
+remaining_qty
+= delivered_qty - returned_qty
+
+Status:
+0 -> NOT_RETURNED
+0 < returned < delivered -> PARTIALLY_RETURNED
+returned = delivered -> RETURNED
+
+Flow:
+
+[เปิดบิลเช่า]
+   |
+   v
+[อ่าน Delivered Qty]
+   |
+   v
+[อ่าน Return History]
+   |
+   v
+[คำนวณ Remaining]
+   |
+   v
+<Remaining > 0?>
+   | NO -> ห้ามคืนเพิ่ม
+   | YES
+   v
+[รับคืน]
+   |
+   v
+[เลือกสินค้า]
+   |
+   v
+[กรอก Return Qty]
+   |
+   v
+<Qty <= Remaining?>
+   | NO -> Reject
+   | YES
+   v
+[ระบุ Condition]
+   |
+   +--> NORMAL
+   +--> DAMAGED
+   +--> LOST/MISSING
+   |
+   v
+[BEGIN]
+   |
+   v
+[Insert Return Transaction]
+   |
+   v
+[Insert Return Line]
+   |
+   v
+[Stock Movement]
+   |
+   v
+[Audit]
+   |
+   v
+[Recalculate Remaining]
+   |
+   v
+[COMMIT]
+
+======================================================================
+I. RENTAL — คืนก่อนกำหนด
+======================================================================
+
+ต้องเก็บ:
+- Planned End
+- Actual Return
+
+ห้ามแก้ Planned End ให้เท่ากับ Actual Return
+
+กรณีชำระแล้ว:
+[คืนก่อนกำหนด]
+-> รับคืน
+-> ตรวจสภาพ
+-> อ่าน Early Return Policy
+-> คำนวณ Final Amount Due
+-> เปรียบเทียบ Paid
+-> ถ้าจ่ายเกินและ Policy อนุญาต -> Refund
+
+กรณียังไม่ชำระ/ชำระบางส่วน:
+[คืนก่อนกำหนด]
+-> รับคืน
+-> ตรวจสภาพ
+-> Actual Rental Charge
+-> Damage/Lost Charge
+-> Paid Amount
+-> Settlement Balance
+-> Balance > 0 รับเพิ่ม
+-> Balance = 0 เคลียร์
+-> Balance < 0 Refund
+
+======================================================================
+J. OVERDUE / RENEWAL
+======================================================================
+
+ต้องแยก:
+
+RENEWAL
+= ลูกค้าขอเช่าต่อและร้านอนุมัติ
+
+OVERDUE
+= ถึงกำหนดแล้วไม่คืน และไม่มีการต่ออายุที่อนุมัติ
+
+Flow:
+
+[ถึง EndDateTime]
+   |
+   v
+<คืนครบ?>
+   | YES -> Settlement
+   | NO
+   v
+<มีคำขอต่ออายุ?>
+   | YES
+   v
+[Approval]
+   |
+   +--> APPROVE -> สร้างรอบ/บิลใหม่และเชื่อมบิลเดิม
+   |
+   +--> REJECT -> OVERDUE
+   |
+   NO
+   v
+[OVERDUE]
+   |
+   v
+[คำนวณ Late Fee]
+   |
+   v
+[สร้าง Charge]
+   |
+   v
+[แจ้งเตือน]
+   |
+   v
+[รอ Return / Settlement]
+
+Late Policy:
+- grace_period
+- late_fee_type
+- amount/percent
+- minimum
+- maximum
+- period_type
+- rounding_rule
+
+======================================================================
+K. DAMAGE / LOST
+======================================================================
+
+Condition:
+NORMAL
+MINOR_DAMAGE
+REPAIRABLE
+MAJOR_DAMAGE
+TOTAL_LOSS
+LOST
+
+Damage Flow:
+[Return]
+-> Inspect
+-> Damage Assessment
+-> Repair Estimate / Replacement Value
+-> Damage Charge
+-> Apply Deposit
+-> Balance
+-> Pay/Refund
+-> Repair/Write-off
+-> Audit
+
+Lost:
+physical_returned_qty ไม่รวมของหาย
+
+resolved_qty
+= physical_returned_qty
++ approved_lost_qty
++ approved_disposition_qty
+
+remaining_obligation
+= delivered_qty - resolved_qty
+
+LOST ≠ RETURNED
+
+======================================================================
+L. APPOINTMENT
+======================================================================
+
+ประเภท:
+PICKUP
+DELIVERY
+RETURN
+INSTALLATION
+PAYMENT
+FOLLOW_UP
+INSPECTION
+REPAIR
+GENERAL
+
+Status:
+DRAFT
+SCHEDULED
+CONFIRMED
+IN_PROGRESS
+COMPLETED
+CANCELLED
+NO_SHOW
+RESCHEDULED
+
+Flow:
+[สร้างนัด]
+-> เลือกประเภท
+-> ลูกค้า
+-> Bill/Entity
+-> วันเวลา
+-> ผู้รับผิดชอบ
+-> สถานที่
+-> Reminder
+-> ตรวจ Conflict
+-> Create
+-> Audit
+-> Reminder
+-> Execute
+-> Complete/Reschedule/No-show
+
+======================================================================
+M. NOTIFICATION
+======================================================================
+
+Severity:
+INFO
+WARNING
+CRITICAL
+
+Status:
+UNREAD
+READ
+HANDLED
+DISMISSED
+EXPIRED
+
+Flow:
+[Event]
+-> Rule Engine
+-> เข้าเงื่อนไข?
+-> Severity
+-> Recipient
+-> Create Notification
+-> Read
+-> Action
+-> Handled
+-> Audit
+
+Notification ≠ Business State
+
+ตัวอย่าง:
+- Due Soon
+- Overdue
+- Low Stock
+- Out of Stock
+- Damage
+- Lost
+- Refund Requested
+- Cash Variance
+- Transaction Failed
+- Appointment Due
+
+======================================================================
+N. PRODUCT / STOCK
+======================================================================
+
+Product:
+- SKU
+- name
+- category
+- calculation_type
+- unit
+- sale_price
+- rental_price
+- cost
+- reorder_point
+- active
+- can_sell
+- can_rent
+
+Stock State:
+AVAILABLE
+RESERVED
+RENTED_OUT
+DELIVERY_PENDING
+RETURN_PENDING
+INSPECTION
+REPAIR
+DAMAGED
+LOST
+INACTIVE
+
+ห้ามแก้ stock quantity ตรง ๆ
+ใช้ Stock Movement / Adjustment
+
+Physical Count:
+System Qty
+vs
+Physical Qty
+-> Discrepancy
+-> Review
+-> Approval
+-> Adjustment
+-> Ledger/Audit
+
+ของเช่ามูลค่าสูง:
+Product -> Rental Unit -> Serial Number
+
+======================================================================
+O. CUSTOMER
+======================================================================
+
+เช่า:
+ต้องมี Customer
+
+ขาย:
+Walk-in ได้ตามกฎ
+
+ข้อมูลขั้นต่ำ:
+- ชื่อ
+- เบอร์
+- ที่อยู่
+
+ประวัติ:
+- Bill
+- Quotation
+- Appointment
+- Payment
+- Refund
+- Rental
+- Return
+- Outstanding
+- Damage
+- Lost
+- Notes
+
+ห้าม Hard Delete หากมีประวัติ
+
+======================================================================
+P. QUOTATION → RESERVATION → BILL
+======================================================================
+
+Quotation:
+DRAFT
+SENT
+ACCEPTED
+EXPIRED
+REJECTED
+CONVERTED
+
+Reservation:
+PENDING
+ACTIVE
+EXPIRED
+CANCELLED
+CONVERTED
+
+Flow:
+Quotation
+-> Accepted
+-> Reservation
+-> กัน Availability
+-> Expiry
+-> Confirm
+-> Bill/Order
+-> Fulfillment
+
+Quotation ไม่กัน Stock
+Reservation ลด Available แต่ไม่ลด On Hand
+Sale Delivery ลด On Hand
+Rental Delivery เพิ่ม Rented Out
+
+======================================================================
+Q. BACKORDER / PARTIAL DELIVERY
+======================================================================
+
+เก็บ:
+ordered_qty
+allocated_qty
+fulfilled_qty
+delivered_qty
+backorder_qty
+cancelled_qty
+
+Flow:
+Order 10
+Available 6
+-> รอทั้งหมด
+หรือ
+-> ส่ง 6
+-> Backorder 4
+-> Stock มาเพิ่ม
+-> Allocate 4
+-> ส่งอีก 4
+
+======================================================================
+R. DISCOUNT / VAT / SHIPPING / DEPOSIT
+======================================================================
+
+ลำดับคำนวณแนะนำ:
+
+Item Base Amount
+-> Line Discount
+-> Line Net
+-> Bill Discount
+-> Shipping/Service Fee
+-> Taxable Base
+-> VAT
+-> Grand Total
+
+Deposit:
+- แยกจาก Revenue
+- ถือเป็น Liability
+- คืน/หักเมื่อ Return Settlement
+
+======================================================================
+S. CANCEL / VOID / REFUND / REVERSAL
+======================================================================
+
+Cancel = ยกเลิกก่อนสมบูรณ์
+Void = ยกเลิกรายการที่ยืนยันแล้วตามกฎ
+Refund = คืนเงินหลังรับเงินจริง
+Reversal = รายการกลับทิศ
+
+Flow:
+Request
+-> Check Status
+-> Check Permission
+-> Need Approval?
+-> Approve/Reject
+-> Create Reversal/Refund
+-> Reverse Stock/Finance ถ้าจำเป็น
+-> Audit
+
+======================================================================
+T. DOCUMENT NUMBER / PRINT
+======================================================================
+
+Internal ID แยกจาก Document Number
+
+ตัวอย่าง:
+QT-2026-000001
+BL-2026-000001
+RC-2026-000001
+RF-2026-000001
+CN-2026-000001
+AP-2026-000001
+
+เลข Final:
+- Unique
+- ห้าม Recycle
+- Void แล้วยังคงถือว่าใช้เลขแล้ว
+
+Renderer:
+Document Data
+-> A4
+-> 80mm
+-> PDF
+
+Business Logic ห้ามซ้ำใน Renderer
+
+======================================================================
+U. USER / PERMISSION / APPROVAL
+======================================================================
+
+Role:
+OWNER
+MANAGER
+CASHIER
+STOCK
+FINANCE
+
+Permission ตัวอย่าง:
+product.view
+product.edit
+product.edit_price
+product.view_cost
+stock.adjust
+payment.receive
+refund.create
+refund.approve
+bill.cancel
+bill.void
+rental.return
+rental.damage_assess
+rental.lost_approve
+audit.view
+security.manage_roles
+
+Action เสี่ยง:
+-> Approval
+-> Reason
+-> Approver
+-> Audit
+
+======================================================================
+V. SECURITY / RLS / SERVER
+======================================================================
+
+Client
+ |
+ v
+Auth
+ |
+ v
+RLS
+ |
+ v
+Permission
+ |
+ v
+RPC / Server Service
+ |
+ v
+Transaction + Lock
+ |
+ v
+Database
+ |
+ v
+Audit
+
+Action สำคัญควรผ่าน Server:
+- confirm_bill
+- receive_payment
+- refund_payment
+- cancel_bill
+- receive_return
+- stock_adjust
+- approve_lost
+- close_cash_session
+
+ห้าม Client แก้ Inventory/Payment Transaction โดยตรง
+
+======================================================================
+W. CUSTOMER CREDIT / AR
+======================================================================
+
+เก็บ:
+credit_enabled
+credit_limit
+current_balance
+available_credit
+payment_terms_days
+overdue_balance
+account_status
+
+Flow:
+Open Credit Bill
+-> Credit Enabled?
+-> Current + New <= Limit?
+-> Approve/Block
+-> AR
+-> Invoice
+-> Due Date
+-> Payment
+-> Overdue
+-> Notification/Credit Block
+
+======================================================================
+X. CASH SESSION / DAY CLOSE
+======================================================================
+
+OPEN SHIFT
+-> Opening Cash
+-> Cash Sale / Refund / Cash In / Cash Out
+-> Expected Cash
+-> Count Actual
+-> Variance
+-> ถ้า 0 CLOSED
+-> ถ้าไม่ 0 Reason + Approval + Audit
+-> CLOSED WITH VARIANCE
+
+หลังปิด:
+Till
+-> Safe
+-> Bank Deposit
+
+======================================================================
+Y. BACKUP / RESTORE / RETENTION
+======================================================================
+
+Production DB
+-> Automated Backup
+-> Retention
+-> Integrity Check
+-> Periodic Restore Test
+-> Result Recorded
+
+ต้องกำหนด:
+- Frequency
+- Retention
+- RPO
+- RTO
+- Encryption
+- Restore Test
+
+======================================================================
+Z. REPORTING
+======================================================================
+
+SALES:
+- ยอดขาย
+- จำนวนบิล
+- Average Bill
+- Discount
+- VAT
+- Refund
+
+RENTAL:
+- Rental Revenue
+- Active
+- Due Soon
+- Overdue
+- Partial Return
+- Damage
+- Lost
+- Utilization
+
+INVENTORY:
+- On Hand
+- Available
+- Reserved
+- Rented Out
+- Repair
+- Lost
+- Adjustment
+
+FINANCE:
+- Cash
+- Transfer
+- Card
+- QR
+- Revenue
+- Expense
+- Refund
+- AR
+- Deposit Liability
+
+CUSTOMER:
+- Purchase/Rental History
+- Outstanding
+- Damage/Lost
+- Credit Usage
+
+OPERATIONS:
+- Appointment
+- Delivery
+- Return
+- Approval Pending
+- Notification Pending
+
+======================================================================
+AA. WORKFLOW ตามฝ่าย
+======================================================================
+
+ฝ่ายขาย / แคชเชียร์
+- Customer
+- Quotation
+- POS Mode
+- Bill
+- Appointment
+- Payment
+- ดู Notification
+ส่งต่อ:
+- Stock/Fulfillment
+- Finance
+- Manager เมื่อเกินสิทธิ์
+
+คลัง / Stock
+- Reservation
+- Allocation
+- Fulfillment
+- Delivery
+- Return
+- Stock Count
+- Adjustment
+- Damage/Lost
+ส่งต่อ:
+- Finance/Manager กรณี Damage/Lost
+- POS เมื่อ Stock ไม่พอ
+
+ฝ่ายรับคืน
+- ตรวจ Rental Line
+- Partial/Full Return
+- Condition
+- Return Record
+- ส่ง NORMAL/DAMAGE/LOST ไป Workflow ต่อ
+
+ฝ่ายการเงิน
+- Payment
+- Split/Partial Payment
+- Refund
+- Deposit
+- AR
+- Expense
+- Ledger
+- Cash Session
+- Reconciliation
+
+Owner / Manager
+- Approval
+- Refund
+- Lost
+- Damage Override
+- Stock Adjustment
+- Credit Override
+- Cash Variance
+- Permission
+
+ระบบอัตโนมัติ
+- Running Number
+- Notification
+- Overdue
+- Reservation Expiry
+- Low Stock
+- Credit Due
+- Derived Status
+- Backup
+- Audit Integrity
+
+======================================================================
+AB. เงื่อนไขปิดบิล
+======================================================================
+
+CAN_CLOSE =
+financial_resolved
+AND merchandise_resolved
+AND exception_resolved
+
+ตัวอย่าง:
+PAID + PARTIAL_RETURN -> ACTIVE
+PARTIALLY_PAID + RETURNED -> ACTIVE
+PAID + RETURNED + DAMAGE_PENDING -> ACTIVE
+PAID + RETURNED + EXCEPTION_RESOLVED -> CLOSED
+PAID + approved LOST + charge settled -> CLOSED
+Refund Pending -> ยังไม่ CLOSED
+
+======================================================================
+AC. VALIDATION หลัก
+======================================================================
+
+Payment:
+- amount > 0
+- idempotency
+- permission
+- balance valid
+
+Return:
+- qty > 0
+- qty <= remaining
+- item belongs to bill line
+- condition required
+
+Rental:
+- customer required
+- start/end valid
+- period > 0
+- can_rent true
+
+Sale:
+- can_sell true
+- stock sufficient
+
+Stock:
+- no negative without explicit approved rule
+- lock/concurrency control
+
+Refund:
+- refundable amount
+- reason
+- permission
+- approval where required
+
+Document:
+- unique number
+- final number immutable
+
+Credit:
+- limit
+- overdue policy
+
+Cash Close:
+- expected/actual/variance
+
+======================================================================
+AD. ข้อสรุปเชิงสถาปัตยกรรม
+======================================================================
+
+ระบบควรแบ่งเป็น Domain หลัก:
+
+1) MASTER DATA
+   Customer
+   Product
+   Tax
+   Discount
+   Role
+   Permission
+
+2) COMMERCIAL
+   Quotation
+   Reservation
+   Order
+   Bill
+   Receipt
+
+3) RENTAL
+   Rental Terms
+   Rental Delivery
+   Return
+   Overdue
+   Renewal
+   Damage
+   Lost
+   Deposit
+   Settlement
+
+4) INVENTORY
+   Reservation
+   Allocation
+   Stock Movement
+   Count
+   Adjustment
+   Serialized Rental Unit
+
+5) FINANCE
+   Payment
+   Refund
+   Ledger
+   Deposit Liability
+   AR
+   Expense
+   Cash Session
+
+6) OPERATIONS
+   Appointment
+   Notification
+   Approval
+
+7) CONTROL
+   Audit
+   Security
+   RLS
+   RPC
+   Backup
+
+8) REPORTING
+   Sales
+   Rental
+   Stock
+   Finance
+   Customer
+   Operations
+
+กฎสำคัญที่สุด:
+"ข้อมูลต้นฉบับไม่ถูกแก้ทับจนสูญเสียประวัติ
+เหตุการณ์ใหม่สร้าง Record ใหม่
+สถานะปัจจุบันคำนวณจากข้อมูลจริง
+Stock และ Finance มี Ledger
+ทุก Action เสี่ยงผ่าน Permission + Transaction + Audit"
+
+======================================================================
+AE. ภาคผนวก — ข้อมูลดิบจากต้นฉบับทุกไฟล์
+======================================================================
+
+ส่วนนี้แนบข้อความต้นฉบับครบทุกไฟล์เพื่อไม่ให้รายละเอียดเดิมตกหล่น
+
+
+==============================================================================
+SOURCE 1: POS_Appointment_Notification_Product_Customer_Finance_Workflow_TH(1).txt
+==============================================================================
+
+เอกสารสรุปและวิเคราะห์ระบบ POS
+หัวข้อ:
+1. ฟังก์ชันนัดหมาย
+2. แจ้งเตือนระบบ
+3. แจ้งเตือนสินค้า
+4. จัดการสินค้า
+5. จัดการลูกค้า
+6. จัดการรายรับรายจ่ายและการเก็บเงิน
+
+วัตถุประสงค์:
+รวบรวมข้อมูลดิบ กฎธุรกิจ ลำดับการทำงาน ความสัมพันธ์ของข้อมูล
+หน้าที่ของแต่ละฝ่าย และเงื่อนไขสำคัญของระบบ
+เพื่อใช้เป็นต้นแบบสำหรับออกแบบฐานข้อมูล, UI, Workflow, Permission,
+Audit, Validation และ Integration ภายในระบบ POS
+
+======================================================================
+1. หลักการกลางของระบบ
+======================================================================
+
+- ข้อมูลธุรกรรมสำคัญไม่ควรถูกแก้ทับย้อนหลังโดยไม่มีประวัติ
+- ทุกการเปลี่ยนแปลงที่มีผลต่อเงิน สต็อก ลูกค้า หรือสถานะบิล ต้อง Audit ได้
+- สถานะควรเกิดจากข้อมูลจริง ไม่ใช่ผู้ใช้เปลี่ยนเองโดยไม่มีเงื่อนไข
+- งานที่แก้หลายตารางพร้อมกันต้องใช้ Database Transaction
+- ถ้าขั้นตอนใดล้มเหลว ต้อง Rollback ทั้งเหตุการณ์
+- ข้อมูลสินค้าเก่าไม่ลบจริง ใช้ inactive/archived
+- ลูกค้าเช่าต้องมีข้อมูลลูกค้า
+- การขายสามารถเป็น Walk-in ได้ตามกฎระบบ
+- การชำระหลายครั้งต้องเก็บเป็นหลาย Payment Records
+- Refund/Cancel/Correction ใช้ Reversal/Compensating Entry
+- สิทธิ์ต้องแยกตามบทบาท
+- Notification ต้องเชื่อมกับ Event จริง
+- Notification ต้องมีสถานะ unread/read/handled
+- ระบบต้องป้องกัน Double Submit และ Duplicate Transaction
+- ทุกโมดูลต้องมี created_at, created_by และข้อมูล audit ที่จำเป็น
+
+======================================================================
+2. ฟังก์ชันนัดหมาย
+======================================================================
+
+วัตถุประสงค์:
+- นัดรับสินค้า
+- นัดส่งสินค้า
+- นัดคืนสินค้า
+- นัดติดตั้ง
+- นัดเข้าหน้างาน
+- นัดรับชำระ
+- นัดติดตามลูกค้า
+- นัดตรวจสินค้า
+- นัดซ่อม/บริการหลังการขาย
+- นัดทั่วไปที่เกี่ยวกับลูกค้า/บิล/สินค้า
+
+ข้อมูลหลัก:
+appointment
+- id
+- appointment_type
+- customer_id
+- bill_id
+- related_entity_type
+- related_entity_id
+- title
+- description
+- start_datetime
+- end_datetime
+- location
+- contact_name
+- contact_phone
+- assigned_user_id
+- priority
+- status
+- reminder_before_minutes
+- created_by
+- created_at
+- updated_at
+
+ประเภท:
+PICKUP
+DELIVERY
+RETURN
+INSTALLATION
+PAYMENT
+FOLLOW_UP
+INSPECTION
+REPAIR
+GENERAL
+
+สถานะ:
+DRAFT
+SCHEDULED
+CONFIRMED
+IN_PROGRESS
+COMPLETED
+CANCELLED
+NO_SHOW
+RESCHEDULED
+
+FLOWCHART นัดหมาย
+
+[เริ่ม]
+   |
+   v
+[สร้างนัดหมาย]
+   |
+   v
+[เลือกประเภทนัด]
+   |
+   v
+[เลือกลูกค้า]
+   |
+   v
+[เลือกบิล/สินค้า/งานที่เกี่ยวข้อง]
+   |
+   v
+[กำหนดวันเวลา]
+   |
+   v
+[กำหนดผู้รับผิดชอบ]
+   |
+   v
+[กำหนดสถานที่/หมายเหตุ]
+   |
+   v
+[ตั้งเวลาแจ้งเตือน]
+   |
+   v
+<ข้อมูลครบ?>
+   | NO -> [แจ้งแก้ไข] -> กลับไปกรอก
+   |
+   YES
+   |
+   v
+[ตรวจเวลาชน]
+   |
+   v
+<Conflict?>
+   | YES -> [แจ้งเตือนและให้เปลี่ยนเวลา]
+   |
+   NO
+   |
+   v
+[สร้าง Appointment]
+   |
+   v
+[สร้าง Reminder Event]
+   |
+   v
+[Audit]
+   |
+   v
+[SCHEDULED]
+   |
+   v
+[ใกล้ถึงเวลา]
+   |
+   v
+[ส่ง Notification]
+   |
+   v
+<งานเสร็จ?>
+   | NO -> IN_PROGRESS / RESCHEDULE / NO_SHOW
+   |
+   YES
+   |
+   v
+[COMPLETED]
+   |
+   v
+[บันทึกผลนัด]
+   |
+   v
+[จบ]
+
+การเลื่อนนัด:
+- ต้องเก็บ original_start_datetime
+- new_start_datetime
+- reschedule_reason
+- rescheduled_by
+- rescheduled_at
+
+การยกเลิก:
+- cancel_reason
+- cancelled_by
+- cancelled_at
+- ห้าม delete นัดออกจากระบบ
+
+การส่งต่องาน:
+ฝ่ายขาย/แคชเชียร์ -> สร้างนัด
+ระบบ -> ส่ง Reminder
+คลัง/ส่งของ -> รับงาน Pickup/Delivery/Return
+ฝ่ายการเงิน -> รับงาน Payment Appointment
+ผู้จัดการ -> ดูภาพรวมนัดและงานตกค้าง
+
+======================================================================
+3. แจ้งเตือนระบบ
+======================================================================
+
+ตัวอย่าง:
+- มีนัดใกล้ถึงเวลา
+- บิลค้างชำระ
+- บิลเช่าเลยกำหนด
+- คืนไม่ครบ
+- สินค้าคงเหลือต่ำ
+- สินค้าชำรุด
+- สินค้าหาย
+- มีรายการถูกยกเลิก
+- มี Refund
+- Sync ไม่สำเร็จ
+- Transaction ล้มเหลว
+- มีงานรออนุมัติ
+
+ข้อมูล:
+notifications
+- id
+- user_id หรือ role_id
+- notification_type
+- severity
+- title
+- message
+- related_entity_type
+- related_entity_id
+- status
+- created_at
+- read_at
+- handled_at
+- handled_by
+- expires_at
+
+Severity:
+INFO
+WARNING
+CRITICAL
+
+Status:
+UNREAD
+READ
+HANDLED
+DISMISSED
+EXPIRED
+
+FLOWCHART
+
+[เกิด Event]
+   |
+   v
+[Rule Engine ตรวจเงื่อนไข]
+   |
+   v
+<เข้าเงื่อนไข?>
+   | NO -> [ไม่สร้าง Notification]
+   |
+   YES
+   |
+   v
+[กำหนดประเภท + Severity]
+   |
+   v
+[กำหนดผู้รับ]
+   |
+   v
+[สร้าง Notification]
+   |
+   v
+[แสดง Badge / Notification Center]
+   |
+   v
+[ผู้ใช้เปิดอ่าน]
+   |
+   v
+[READ]
+   |
+   v
+<ต้องทำ Action?>
+   | NO -> [จบ]
+   |
+   YES
+   |
+   v
+[เปิด Record ต้นทาง]
+   |
+   v
+[ผู้ใช้ดำเนินการ]
+   |
+   v
+[HANDLED]
+   |
+   v
+[Audit]
+
+กฎ:
+- Notification ไม่ใช่ Source of Truth
+- ข้อมูลจริงอยู่ที่ Bill/Product/Payment/Appointment
+- Notification เป็นตัวชี้ไปยังข้อมูลต้นทาง
+- กดอ่านแล้วห้ามเปลี่ยนสถานะธุรกิจอัตโนมัติ
+- กดจัดการแล้วได้หลัง Action สำเร็จ
+- Critical ไม่ควรถูกซ่อนโดยผู้ใช้ไม่มีสิทธิ์
+
+======================================================================
+4. แจ้งเตือนสินค้า
+======================================================================
+
+ประเภท:
+LOW_STOCK
+OUT_OF_STOCK
+OVER_RESERVED
+DAMAGED_ITEM
+LOST_ITEM
+REPAIR_PENDING
+INACTIVE_PRODUCT_USED
+PRICE_MISSING
+COST_MISSING
+RETURN_OVERDUE
+STOCK_MISMATCH
+EXPIRING_ITEM
+SERVICE_DUE
+
+FLOWCHART LOW STOCK
+
+[Stock Movement]
+   |
+   v
+[คำนวณ Available Qty]
+   |
+   v
+<Available <= Reorder Point?>
+   | NO -> [ไม่แจ้ง]
+   |
+   YES
+   |
+   v
+[สร้าง LOW_STOCK]
+   |
+   v
+<Available = 0?>
+   | YES -> [OUT_OF_STOCK]
+   | NO
+   v
+[จบ]
+
+FLOWCHART สินค้าชำรุด
+
+[Return / Inspection]
+   |
+   v
+[Condition = DAMAGED]
+   |
+   v
+[AVAILABLE -> INSPECTION/REPAIR]
+   |
+   v
+[สร้าง Notification]
+   |
+   v
+[มอบหมายผู้ตรวจ/ซ่อม]
+   |
+   v
+<ซ่อมผ่าน?>
+   | YES -> [AVAILABLE]
+   | NO  -> [WRITE_OFF / DISPOSE / LOST ตามกฎ]
+
+FLOWCHART สินค้าหาย
+
+[ตรวจพบ Missing]
+   |
+   v
+[สร้าง MISSING Event]
+   |
+   v
+[แจ้งผู้รับผิดชอบ]
+   |
+   v
+[ค้นหา/ตรวจสอบ]
+   |
+   v
+<พบ?>
+   | YES -> [คืนสถานะตามของจริง]
+   | NO
+   v
+[ขออนุมัติ LOST]
+   |
+   v
+[สร้าง LOST Event]
+   |
+   v
+[ตัดออกจาก Available]
+   |
+   v
+[ส่งต่อฝ่ายการเงิน]
+   |
+   v
+[คิดค่าชดเชย/Write-off ตามสิทธิ์]
+
+======================================================================
+5. จัดการสินค้า
+======================================================================
+
+ข้อมูล:
+products
+- id
+- sku
+- name
+- category_id
+- item_type
+- calculation_type
+- unit_id
+- rental_price
+- sale_price
+- cost_price
+- reorder_point
+- active
+- created_at
+- created_by
+- updated_at
+
+สูตร:
+SALE = ราคา × จำนวน
+RENTAL_PER_TRANSACTION = ราคาเช่าต่อครั้ง × จำนวน × จำนวนรอบ
+RENTAL_PER_DAY = ราคาเช่าต่อวัน × จำนวน × จำนวนวัน
+
+Stock State:
+AVAILABLE
+RESERVED
+RENTED_OUT
+DELIVERY_PENDING
+RETURN_PENDING
+INSPECTION
+REPAIR
+DAMAGED
+LOST
+INACTIVE
+
+FLOWCHART เพิ่มสินค้า
+
+[เพิ่มสินค้า]
+   |
+   v
+[กรอกชื่อ/หมวด/ประเภท]
+   |
+   v
+[กำหนดสูตร]
+   |
+   v
+[กำหนดหน่วย]
+   |
+   v
+[กำหนดราคา]
+   |
+   v
+[กำหนดต้นทุนตามสิทธิ์]
+   |
+   v
+[กำหนดจำนวนเริ่มต้น]
+   |
+   v
+<ข้อมูลครบ?>
+   | NO -> [แจ้งแก้ไข]
+   | YES
+   v
+[ตรวจ SKU/ชื่อซ้ำ]
+   |
+   v
+<ซ้ำ?>
+   | YES -> [ปฏิเสธ/ให้แก้]
+   | NO
+   v
+[สร้าง Product]
+   |
+   v
+[สร้าง Initial Stock Movement]
+   |
+   v
+[Audit]
+   |
+   v
+[ACTIVE]
+
+FLOWCHART แก้สินค้า
+
+[เปิดสินค้า]
+   |
+   v
+[ตรวจสิทธิ์]
+   |
+   v
+<แก้อะไร?>
+   |
+   +--> ราคา -> ตรวจ Price Edit Permission
+   +--> ต้นทุน -> ตรวจ Cost Permission
+   +--> Stock -> ใช้ Stock Adjustment
+   |
+   v
+[บันทึก]
+   |
+   v
+[Audit Before/After]
+
+ห้ามแก้ Stock Qty ตรง ๆ
+
+stock_adjustments
+- id
+- product_id
+- quantity_delta
+- reason
+- approved_by
+- created_by
+- created_at
+
+ตัวอย่าง:
++10 รับเข้า
+-2 ชำรุด
+-1 สูญหาย
++1 พบคืน
+-3 ตรวจนับแล้วปรับ
+
+ปิดใช้งาน:
+active = false
+
+ผล:
+- ไม่แสดงใน POS รายการใหม่
+- ยังเปิดบิลเก่าได้
+- Audit/Report ได้
+
+======================================================================
+6. จัดการลูกค้า
+======================================================================
+
+กฎ:
+เช่า = ต้องมีลูกค้า
+ขาย = Walk-in ได้
+
+ข้อมูลขั้นต่ำ:
+- ชื่อ
+- เบอร์โทร
+- ที่อยู่
+
+customers
+- id
+- customer_type
+- name
+- phone
+- address
+- tax_id
+- email
+- note
+- active
+- created_at
+- created_by
+- updated_at
+
+ข้อมูลเสริม:
+- contact_person
+- billing_address
+- delivery_address
+- customer_tags
+- credit_note
+- risk_note
+- document_reference
+- last_activity_at
+
+FLOWCHART เพิ่มลูกค้า
+
+[สร้างลูกค้า]
+   |
+   v
+[ชื่อ]
+   |
+   v
+[เบอร์]
+   |
+   v
+[ที่อยู่]
+   |
+   v
+<ข้อมูลขั้นต่ำครบ?>
+   | NO -> [แจ้งให้กรอก]
+   | YES
+   v
+[ตรวจข้อมูลซ้ำ]
+   |
+   v
+<พบชื่อ/เบอร์ใกล้เคียง?>
+   | YES
+   +--> ใช้ลูกค้าเดิม
+   +--> ยืนยันสร้างใหม่
+   |
+   v
+[บันทึก Customer]
+   |
+   v
+[Audit]
+
+FLOWCHART ใช้ลูกค้าในบิลเช่า
+
+[เลือกโหมดเช่า]
+   |
+   v
+<มี Customer?>
+   | NO -> [บังคับเลือก/สร้าง]
+   | YES
+   v
+[ตรวจข้อมูลขั้นต่ำ]
+   |
+   v
+<ครบ?>
+   | NO -> [ให้แก้]
+   | YES
+   v
+[ผูก customer_id กับ Bill]
+
+ประวัติลูกค้า:
+- บิล
+- ใบเสนอราคา
+- นัดหมาย
+- Payment
+- Refund
+- Rental
+- Return
+- สินค้าค้าง
+- ยอดค้าง
+- Damage/Lost
+- Notes
+
+ห้ามลบลูกค้าที่มีประวัติ
+ใช้ active = false
+
+======================================================================
+7. จัดการรายรับรายจ่ายและการเก็บเงิน
+======================================================================
+
+คำสำคัญ:
+Payment = เงินที่ลูกค้าชำระเข้าบิล
+Refund = เงินคืนลูกค้า
+Income = รายรับของกิจการ
+Expense = รายจ่ายของกิจการ
+Cash Movement = เงินสดเข้า/ออกลิ้นชัก
+Finance Ledger = บันทึกทางการเงินตรวจย้อนหลัง
+
+ห้ามใช้แทนกันทั้งหมด
+
+payments
+- id
+- bill_id
+- amount
+- payment_method
+- status
+- reference_no
+- received_by
+- received_at
+- created_at
+
+Payment Methods:
+CASH
+TRANSFER
+CARD
+QR
+OTHER
+
+รองรับ:
+- Split Payment
+- หลาย Payment ต่อบิล
+
+Payment Status:
+PENDING
+COMPLETED
+VOIDED
+REVERSED
+REFUNDED
+
+FLOWCHART รับชำระ
+
+[เปิดบิล]
+   |
+   v
+[อ่านยอดทั้งหมด]
+   |
+   v
+[รวม Payment ที่ Valid]
+   |
+   v
+[คำนวณ Balance]
+   |
+   v
+<Balance > 0?>
+   | NO -> [ไม่ต้องรับเพิ่ม]
+   | YES
+   v
+[กดรับชำระ]
+   |
+   v
+[เลือกช่องทาง]
+   |
+   v
+[กรอกจำนวน]
+   |
+   v
+<จำนวนถูกต้อง?>
+   | NO -> [ปฏิเสธ]
+   | YES
+   v
+[BEGIN TRANSACTION]
+   |
+   v
+[สร้าง Payment]
+   |
+   v
+[สร้าง Finance Ledger]
+   |
+   v
+[สร้าง Cash Movement ถ้าเป็นเงินสด]
+   |
+   v
+[Audit]
+   |
+   v
+[คำนวณ Balance ใหม่]
+   |
+   v
+<Balance = 0?>
+   | YES -> [PAID]
+   | NO  -> [PARTIALLY_PAID]
+   |
+   v
+[COMMIT]
+
+FLOWCHART Refund
+
+[มีเหตุคืนเงิน]
+   |
+   v
+[ตรวจสิทธิ์]
+   |
+   v
+[ตรวจ Payment เดิม]
+   |
+   v
+[คำนวณ Refundable Amount]
+   |
+   v
+[ระบุเหตุผล]
+   |
+   v
+[อนุมัติ]
+   |
+   v
+[สร้าง Refund Record]
+   |
+   v
+[สร้าง Ledger กลับทิศ]
+   |
+   v
+[Cash Movement ถ้าคืนสด]
+   |
+   v
+[Audit]
+   |
+   v
+[Update Refund Status]
+
+ห้าม:
+แก้ Payment 5,000 -> 3,000 เพื่อแทน Refund 2,000
+
+ควร:
+Payment +5,000
+Refund -2,000
+
+Income:
+income_entries
+- id
+- source_type
+- source_id
+- category_id
+- amount
+- payment_method
+- description
+- occurred_at
+- created_by
+
+Expense:
+expense_entries
+- id
+- category_id
+- vendor
+- amount
+- payment_method
+- description
+- attachment_ref
+- occurred_at
+- created_by
+- approved_by
+
+รายรับ:
+- Rental Revenue
+- Sale Revenue
+- Delivery Fee
+- Damage Charge
+- Late Fee
+- Service Fee
+- Other Income
+
+รายจ่าย:
+- ซื้อสินค้า
+- ค่าซ่อม
+- ค่าขนส่ง
+- ค่าแรง
+- ค่าน้ำมัน
+- ค่าอุปกรณ์
+- ค่าใช้จ่ายทั่วไป
+
+หมายเหตุ:
+Refund ไม่ควรถูกนับเป็น Expense ปกติโดยตรงหากระบบบัญชีแยก Refund Ledger
+
+cash_sessions
+- id
+- opened_by
+- opening_balance
+- opened_at
+- closed_by
+- closing_balance
+- expected_balance
+- variance
+- closed_at
+
+cash_movements
+- id
+- cash_session_id
+- type
+- source_type
+- source_id
+- amount
+- created_at
+
+type:
+CASH_IN
+CASH_OUT
+
+FLOWCHART เปิด/ปิดกะเงินสด
+
+[เปิดกะ]
+   |
+   v
+[กรอกเงินตั้งต้น]
+   |
+   v
+[OPEN]
+   |
+   v
+[รับ/จ่ายเงินสดระหว่างวัน]
+   |
+   v
+[บันทึก Cash Movement ทุกครั้ง]
+   |
+   v
+[ปิดกะ]
+   |
+   v
+[นับเงินสดจริง]
+   |
+   v
+[คำนวณ Expected]
+   |
+   v
+[เปรียบเทียบ Actual]
+   |
+   v
+<ตรงกัน?>
+   | YES -> [CLOSED]
+   | NO
+   v
+[บันทึก Variance]
+   |
+   v
+[ขอเหตุผล/อนุมัติ]
+   |
+   v
+[CLOSED WITH VARIANCE]
+
+======================================================================
+8. DIAGRAM ความสัมพันธ์รวม
+======================================================================
+
+                         +------------------+
+                         |    CUSTOMER      |
+                         +--------+---------+
+                                  |
+                   +--------------+--------------+
+                   |                             |
+                   v                             v
+            +-------------+               +-------------+
+            | APPOINTMENT |               |    BILL     |
+            +------+------+               +------+------+
+                   |                             |
+                   v                             +------------------+
+          +----------------+                    |                  |
+          | NOTIFICATION   |                    v                  v
+          +----------------+              +-----------+      +-----------+
+                                          | BILL ITEM |      | PAYMENT   |
+                                          +-----+-----+      +-----+-----+
+                                                |                  |
+                    +---------------------------+                  |
+                    |                                              v
+                    v                                       +-------------+
+              +-----------+                                  | FINANCE     |
+              | PRODUCT   |                                  | LEDGER      |
+              +-----+-----+                                  +------+------+
+                    |                                               |
+        +-----------+-------------+                                 |
+        |           |             |                                 |
+        v           v             v                                 v
+   +---------+ +----------+ +-----------+                    +------------+
+   | STOCK   | | DAMAGE   | | LOST      |                    | CASH       |
+   | MOVEMENT| | /REPAIR  | | EVENT     |                    | MOVEMENT   |
+   +----+----+ +-----+----+ +-----+-----+                    +------------+
+        |            |            |
+        +------------+------------+
+                     |
+                     v
+              +--------------+
+              | NOTIFICATION |
+              +--------------+
+
+ทุกโมดูล
+   |
+   v
++-------------+
+| AUDIT EVENT |
++-------------+
+
+======================================================================
+9. WORKFLOW ตามฝ่าย
+======================================================================
+
+ฝ่ายขาย / แคชเชียร์
+- สร้างลูกค้า
+- เปิดบิล
+- สร้างนัด
+- รับชำระ
+- ดูยอดค้าง
+- ดูสถานะสินค้า
+- ดู Notification
+
+ส่งต่อ:
+- นัดส่งของ -> คลัง/ส่งของ
+- นัดรับคืน -> ฝ่ายรับคืน
+- ยอดค้าง -> การเงิน
+- ปัญหาสินค้า -> คลัง/ผู้จัดการ
+
+ฝ่ายคลัง / สินค้า
+- จัดการสินค้า
+- ตรวจ Stock
+- ปรับ Stock ผ่าน Adjustment
+- รับสินค้าเข้า
+- เตรียมส่ง
+- รับคืน
+- ตรวจชำรุด
+- ตรวจสูญหาย
+- ซ่อม/กักสินค้า
+
+ส่งต่อ:
+- ชำรุด -> ผู้อนุมัติ + การเงิน
+- หาย -> ผู้อนุมัติ + การเงิน
+- Stock ต่ำ -> จัดซื้อ/ผู้จัดการ
+- คืนเสร็จ -> ระบบอัปเดตบิล
+
+ฝ่ายการเงิน
+- รับ Payment
+- ตรวจยอด
+- Refund
+- รายรับ
+- รายจ่าย
+- Cash Session
+- ตรวจ Ledger
+
+ส่งต่อ:
+- รายการผิดปกติ -> ผู้อนุมัติ
+- เงินสดขาด/เกิน -> ผู้จัดการ
+- Refund -> ลูกค้า + Audit
+
+Owner / Manager
+- อนุมัติ Refund
+- อนุมัติ Stock Adjustment สำคัญ
+- อนุมัติ Lost/Write-off
+- ดูรายรับรายจ่าย
+- ดู Critical Notification
+- ดู Audit
+- จัดการ Permission
+
+ระบบอัตโนมัติ
+- คำนวณ Status
+- สร้าง Notification
+- ตรวจ Overdue
+- ตรวจ Low Stock
+- ตรวจ Appointment Reminder
+- ตรวจ Payment Due
+- ตรวจ Return Due
+- ตรวจ Data Consistency
+
+======================================================================
+10. EVENT และ NOTIFICATION RULES
+======================================================================
+
+APPOINTMENT_CREATED -> สร้าง Reminder
+APPOINTMENT_DUE -> แจ้ง assigned user
+PAYMENT_RECEIVED -> อัปเดต Payment Status
+BILL_BALANCE_DUE -> แจ้งแคชเชียร์/การเงิน
+RENTAL_DUE_SOON -> แจ้งคืนสินค้าใกล้ครบกำหนด
+RENTAL_OVERDUE -> Warning/Critical
+LOW_STOCK -> แจ้งคลัง/ผู้จัดการ
+OUT_OF_STOCK -> Critical ตามกฎ
+ITEM_DAMAGED -> แจ้งผู้ตรวจ/ซ่อม
+ITEM_LOST -> แจ้ง Owner/Finance
+REFUND_REQUESTED -> แจ้งผู้อนุมัติ
+CASH_VARIANCE -> แจ้ง Owner/Manager
+
+======================================================================
+11. PERMISSION และ AUDIT
+======================================================================
+
+ตัวอย่าง Permission:
+PRODUCT_VIEW
+PRODUCT_EDIT
+PRODUCT_PRICE_EDIT
+PRODUCT_COST_VIEW
+PRODUCT_COST_EDIT
+STOCK_ADJUST
+CUSTOMER_VIEW
+CUSTOMER_EDIT
+PAYMENT_RECEIVE
+REFUND_CREATE
+REFUND_APPROVE
+EXPENSE_CREATE
+EXPENSE_APPROVE
+CASH_SESSION_CLOSE
+LOST_APPROVE
+DAMAGE_CHARGE
+APPOINTMENT_MANAGE
+NOTIFICATION_MANAGE
+
+Audit:
+- actor_id
+- action
+- entity_type
+- entity_id
+- before
+- after
+- reason
+- created_at
+
+ต้อง Audit:
+- แก้สินค้า
+- แก้ราคา
+- ปรับ Stock
+- แก้ลูกค้า
+- รับเงิน
+- Refund
+- รายจ่าย
+- Lost
+- Damage
+- ปิดกะ
+- ยกเลิกนัด
+- เปลี่ยนวันนัด
+
+======================================================================
+12. VALIDATION สำคัญ
+======================================================================
+
+Appointment
+- ห้าม end < start
+- ห้ามสร้างเวลาไม่ครบ
+- งานที่ต้องมอบหมายต้องมี assigned_user
+- เตือน Conflict
+
+Product
+- quantity ห้ามติดลบ
+- price ห้ามติดลบ
+- sku ห้ามซ้ำถ้ากำหนด Unique
+- inactive product ห้ามใช้รายการใหม่
+
+Customer
+- Rental ต้องมี Customer
+- ชื่อ/เบอร์/ที่อยู่ต้องครบ
+- ตรวจ Duplicate
+
+Payment
+- amount > 0
+- ป้องกัน Double Submit
+- ตรวจ Balance
+- ตรวจ Permission
+- payment method ต้อง valid
+
+Refund
+- refund <= refundable amount
+- ต้องมีเหตุผล
+- ต้องมีสิทธิ์
+- ห้ามลบ Payment เดิม
+
+Expense
+- amount > 0
+- category ต้องมี
+- ต้องมีผู้สร้าง
+- รายการใหญ่ต้อง approval ถ้ากำหนด
+
+Stock
+- adjustment ต้องมี reason
+- ห้าม return เกิน delivered
+- damaged ห้ามเข้า available โดยตรง
+- lost ห้ามเพิ่ม stock
+
+======================================================================
+13. สถานะหลัก
+======================================================================
+
+Appointment:
+DRAFT
+SCHEDULED
+CONFIRMED
+IN_PROGRESS
+COMPLETED
+CANCELLED
+NO_SHOW
+RESCHEDULED
+
+Product:
+AVAILABLE
+RESERVED
+RENTED_OUT
+RETURN_PENDING
+INSPECTION
+REPAIR
+DAMAGED
+LOST
+INACTIVE
+
+Notification:
+UNREAD
+READ
+HANDLED
+DISMISSED
+EXPIRED
+
+Payment:
+UNPAID
+PARTIALLY_PAID
+PAID
+PARTIALLY_REFUNDED
+REFUNDED
+
+Bill:
+DRAFT
+CONFIRMED
+ACTIVE
+CLOSED
+CANCELLED
+
+======================================================================
+14. INTEGRATION ระหว่างโมดูล
+======================================================================
+
+Customer
+-> Bill
+-> Appointment
+-> Payment History
+-> Rental History
+
+Product
+-> Bill Item
+-> Stock
+-> Notification
+-> Damage/Lost
+
+Bill
+-> Payment
+-> Appointment
+-> Product
+-> Customer
+-> Notification
+-> Finance
+
+Payment
+-> Finance Ledger
+-> Cash Movement
+-> Bill Status
+-> Customer History
+
+Expense
+-> Finance Ledger
+-> Cash Movement
+-> Report
+
+Appointment
+-> Customer
+-> Bill
+-> Assigned User
+-> Notification
+
+Notification
+-> ชี้กลับไปยัง Entity ต้นทาง
+
+======================================================================
+15. กรณีผิดปกติ
+======================================================================
+
+Notification ซ้ำ:
+ใช้ event_key / idempotency_key
+
+กดรับเงินสองครั้ง:
+ใช้ idempotency_key และตรวจ Duplicate
+
+Stock ต่ำพร้อมกันหลายเครื่อง:
+ใช้ Transaction + Locking
+
+ลบลูกค้าหรือสินค้าที่มีประวัติ:
+ห้าม Hard Delete
+ใช้ active = false
+
+Appointment ถูกเลื่อนหลายครั้ง:
+เก็บ Appointment History
+
+Refund หลังปิดบิล:
+Bill เดิมไม่ควรถูกแก้
+ใช้ Refund Transaction แยก
+
+รายจ่ายผิด:
+ใช้ Void/Reversal แล้วสร้างใหม่
+
+======================================================================
+16. สรุปสถาปัตยกรรม
+======================================================================
+
+                       SYSTEM
+                          |
+       +------------------+------------------+
+       |                  |                  |
+       v                  v                  v
+   CUSTOMER            PRODUCT            FINANCE
+       |                  |                  |
+       +-------> BILL <----+                  |
+                  |                           |
+                  +------> PAYMENT ----------+
+                  |
+                  +------> APPOINTMENT
+                  |
+                  +------> NOTIFICATION
+                  |
+                  +------> AUDIT
+
+สินค้า:
+Product
+-> Stock Movement
+-> Reservation
+-> Rental Out
+-> Return
+-> Damage
+-> Lost
+-> Repair
+-> Available
+
+ลูกค้า:
+Customer
+-> Bill
+-> Rental
+-> Appointment
+-> Payment
+-> History
+
+การเงิน:
+Bill
+-> Payment
+-> Refund
+-> Income
+-> Expense
+-> Cash Movement
+-> Ledger
+
+นัดหมาย:
+Appointment
+-> Assigned User
+-> Reminder
+-> Notification
+-> Result
+
+Notification:
+Event
+-> Rule
+-> Notification
+-> User Action
+-> Handled
+
+======================================================================
+17. ข้อสรุป
+======================================================================
+
+ระบบทั้ง 6 ส่วนต้องทำงานเชื่อมกัน
+
+แกนหลัก:
+- Customer
+- Product
+- Bill
+- Payment
+- Appointment
+- Notification
+- Finance
+- Audit
+
+หลักสำคัญ:
+1. ลูกค้าเชื่อมบิลและนัดหมาย
+2. สินค้าเชื่อม Stock และ Bill Item
+3. Bill เชื่อม Payment และ Workflow
+4. Payment เชื่อม Finance Ledger
+5. Appointment สร้าง Notification ตามเวลา
+6. Stock Event สร้าง Product Notification
+7. Finance Event สร้าง Financial Notification
+8. ทุก Event สำคัญสร้าง Audit
+9. ห้ามแก้ Transaction เก่าให้สูญเสียประวัติ
+10. ใช้ Derived Status จากข้อมูลจริง
+11. ใช้ Transaction และ Locking ป้องกันข้อมูลพัง
+12. ใช้ Permission แยกงานเสี่ยง
+13. ใช้ Inactive แทนการลบ Product/Customer ที่มีประวัติ
+14. ใช้ Reversal/Refund แทนแก้รายการการเงินย้อนหลัง
+15. Notification เป็นตัวแจ้ง ไม่ใช่ข้อมูลต้นทาง
+
+======================================================================
+18. WORKFLOW รวมแบบย่อ
+======================================================================
+
+[ลูกค้า]
+   |
+   v
+[สร้าง/เลือก Customer]
+   |
+   v
+[สร้าง Bill]
+   |
+   +--> [เลือก Product]
+   |
+   +--> [สร้าง Appointment]
+   |
+   +--> [รับ Payment]
+   |
+   v
+[เกิด Event]
+   |
+   +--> Stock Event
+   +--> Payment Event
+   +--> Appointment Event
+   +--> Customer Event
+   |
+   v
+[Notification Engine]
+   |
+   v
+[แจ้งผู้รับผิดชอบ]
+   |
+   v
+[ดำเนินการ]
+   |
+   v
+[Audit]
+   |
+   v
+[Update Derived Status]
+   |
+   v
+[Report / Dashboard]
+
+======================================================================
+จบเอกสาร
+======================================================================
+
+
+==============================================================================
+SOURCE 2: POS_Partial_Return_Partial_Payment_Workflow_TH(1).txt
+==============================================================================
+
+เอกสารสรุปและวิเคราะห์
+หัวข้อ: รับคืนบางส่วนหลายรอบ (Multiple Partial Returns) และชำระบางส่วนหลายรอบ (Multiple Partial Payments)
+สำหรับระบบ POS เช่า/ขาย
+อ้างอิงแนวคิดสถาปัตยกรรมจาก ARTS ODM 7.3 และกฎธุรกิจของระบบ
+
+======================================================================
+1. วัตถุประสงค์
+======================================================================
+
+เอกสารนี้รวบรวมแนวคิด กฎธุรกิจ ลำดับการทำงาน เงื่อนไข และโครงสร้างข้อมูล
+สำหรับ 2 กระบวนการหลัก ได้แก่
+
+1) การรับคืนสินค้าแบบบางส่วนหลายรอบ
+2) การรับชำระเงินแบบบางส่วนหลายรอบ
+
+หลักสำคัญของทั้งสองกระบวนการคือ
+
+- ไม่แก้ทับประวัติธุรกรรมเดิม
+- ทุกการรับคืนสร้างเหตุการณ์/รายการใหม่
+- ทุกการรับชำระสร้างเหตุการณ์/รายการใหม่
+- สถานะปัจจุบันคำนวณจากรายการเหตุการณ์ทั้งหมด
+- ต้องสามารถตรวจสอบย้อนหลังได้ว่า ใคร ทำอะไร เมื่อไร จำนวนเท่าไร
+- ข้อมูลสต็อกและข้อมูลการเงินต้องไม่เกิดยอดติดลบหรือเกินจริง
+- การดำเนินการสำคัญต้องอยู่ใน Transaction เพื่อป้องกันข้อมูลค้างครึ่งทาง
+- หากขั้นตอนใดล้มเหลว ต้อง Rollback ทั้งเหตุการณ์นั้น
+
+======================================================================
+2. แนวคิดหลักของระบบ
+======================================================================
+
+ระบบต้องแยก "เอกสารต้นฉบับ" ออกจาก "เหตุการณ์ที่เกิดหลังจากนั้น"
+
+ตัวอย่าง:
+
+บิลเช่า B001
+สินค้าโต๊ะ 10 ตัว
+ยอดบิล 10,000 บาท
+
+สิ่งที่ห้ามทำ:
+- แก้จำนวนโต๊ะเดิมจาก 10 เป็น 6 เมื่อคืน 4
+- แก้ paid_amount เดิมไปเรื่อย ๆ โดยไม่มีประวัติรายการชำระ
+- เขียนทับ payment method เดิมเมื่อมีการชำระช่องทางใหม่
+- ลบหรือแก้รายการคืนเก่าเพื่อให้ยอดปัจจุบันดูถูกต้อง
+
+สิ่งที่ควรทำ:
+- บิลต้นฉบับยังเก็บโต๊ะ 10 ตัวเหมือนเดิม
+- รับคืน 4 ตัว = สร้าง Return Event ใหม่
+- รับคืนอีก 3 ตัว = สร้าง Return Event ใหม่อีกครั้ง
+- จ่าย 3,000 = สร้าง Payment ใหม่
+- จ่ายอีก 2,000 = สร้าง Payment ใหม่
+- สถานะและยอดคงเหลือคำนวณจาก SUM ของเหตุการณ์ทั้งหมด
+
+======================================================================
+3. คำศัพท์และสถานะที่ใช้
+======================================================================
+
+3.1 สถานะการชำระเงิน
+
+UNPAID
+= ยังไม่มีการชำระเงินที่มีผล
+
+PARTIALLY_PAID
+= ชำระแล้วบางส่วน แต่ยอดชำระสะสมยังน้อยกว่ายอดที่ต้องชำระ
+
+PAID
+= ยอดชำระที่มีผลเท่ากับยอดที่ต้องชำระ
+
+PARTIALLY_REFUNDED
+= มีการคืนเงินบางส่วน
+
+REFUNDED
+= คืนเงินครบตามยอดที่กำหนด
+
+3.2 สถานะการคืนสินค้า
+
+NOT_RETURNED
+= ยังไม่มีสินค้าถูกคืน
+
+PARTIALLY_RETURNED
+= คืนมาแล้วบางส่วน แต่ยังมีสินค้าค้างอยู่กับลูกค้า
+
+RETURNED
+= คืนครบตามจำนวนที่ส่งมอบ
+
+3.3 สถานะบิลโดยรวม
+
+DRAFT
+= ร่าง
+
+CONFIRMED
+= ยืนยันบิลแล้ว
+
+ACTIVE
+= กำลังดำเนินการ เช่น มีการส่งมอบแล้ว หรือยังมีภาระค้าง
+
+CLOSED
+= สินค้าและการเงินถูกเคลียร์ตามเงื่อนไขแล้ว
+
+CANCELLED
+= ยกเลิกด้วยกระบวนการที่ถูกต้องและมีประวัติ
+
+ข้อสำคัญ:
+Payment Status, Return Status และ Bill Status ต้องแยกกัน
+
+ตัวอย่าง:
+Bill Status    = ACTIVE
+Payment Status = PARTIALLY_PAID
+Return Status  = PARTIALLY_RETURNED
+
+นี่เป็นสถานะที่ถูกต้องและสามารถเกิดขึ้นพร้อมกันได้
+
+======================================================================
+4. สูตรหลัก
+======================================================================
+
+4.1 การเงิน
+
+paid_amount
+= SUM(payment.amount ของ payment ที่ valid)
+
+balance_due
+= bill_total
+- paid_amount
+- credit_adjustments
++ debit_adjustments
+
+กรณีไม่มี adjustment:
+
+balance_due
+= bill_total - paid_amount
+
+เงื่อนไข:
+
+ถ้า paid_amount = 0
+=> UNPAID
+
+ถ้า 0 < paid_amount < bill_total
+=> PARTIALLY_PAID
+
+ถ้า paid_amount >= bill_total
+=> PAID
+
+ระบบต้องมี validation ป้องกัน:
+- จำนวนเงิน <= 0
+- การรับเงินเกินยอดที่อนุญาตโดยไม่มีกฎรองรับ
+- Payment ซ้ำจากการกดปุ่มซ้ำ
+- การแก้หรือลบประวัติการชำระโดยไม่มีสิทธิ์
+- การรวม split payment หลายช่องทางเป็น record เดียว
+
+4.2 การคืนสินค้า
+
+returned_qty
+= SUM(return_line.quantity ของรายการคืนที่ valid)
+
+remaining_qty
+= delivered_qty - returned_qty
+
+เงื่อนไข:
+
+ถ้า returned_qty = 0
+=> NOT_RETURNED
+
+ถ้า 0 < returned_qty < delivered_qty
+=> PARTIALLY_RETURNED
+
+ถ้า returned_qty = delivered_qty
+=> RETURNED
+
+ระบบต้องบังคับ:
+
+return_qty > 0
+
+return_qty <= remaining_qty
+
+returned_qty <= delivered_qty
+
+remaining_qty >= 0
+
+ห้ามรับคืนเกินจำนวนที่ส่งออกจริง
+
+======================================================================
+5. FLOWCHART: รับชำระบางส่วนหลายรอบ
+======================================================================
+
+[เริ่ม]
+   |
+   v
+[เปิดบิล]
+   |
+   v
+[อ่านยอดที่ต้องชำระทั้งหมด]
+   |
+   v
+[อ่าน Payment ที่ valid ทั้งหมด]
+   |
+   v
+[คำนวณ paid_amount และ balance_due]
+   |
+   v
+< balance_due > 0 ? >
+   | YES
+   v
+[ผู้ใช้กด "รับชำระ"]
+   |
+   v
+[เลือกรูปแบบการชำระ]
+   |
+   +--> เงินสด
+   |
+   +--> โอน
+   |
+   +--> บัตร
+   |
+   +--> ช่องทางอื่นที่ระบบรองรับ
+   |
+   v
+[กรอกจำนวนเงิน]
+   |
+   v
+< amount > 0 ? >
+   | NO --------------------> [ปฏิเสธรายการ]
+   |
+   YES
+   |
+   v
+< amount อยู่ในเงื่อนไขยอดคงเหลือหรือไม่? >
+   | NO --------------------> [ปฏิเสธ/ให้แก้จำนวน]
+   |
+   YES
+   |
+   v
+[เริ่ม Database Transaction]
+   |
+   v
+[สร้าง Payment Record ใหม่]
+   |
+   v
+[บันทึก bill_id / amount / method / user / timestamp]
+   |
+   v
+[บันทึก Audit Event]
+   |
+   v
+[คำนวณ paid_amount ใหม่]
+   |
+   v
+[คำนวณ balance_due ใหม่]
+   |
+   v
+< balance_due = 0 ? >
+   | YES
+   v
+[Payment Status = PAID]
+   |
+   +------------------------------+
+   |                              |
+   NO                             |
+   |                              |
+   v                              |
+[Payment Status = PARTIALLY_PAID]|
+   |                              |
+   +---------------+--------------+
+                   |
+                   v
+           [Commit Transaction]
+                   |
+                   v
+         < ต้องรับเงินอีกหรือไม่? >
+             | YES       | NO
+             |           |
+             +------กลับ--+----> [จบกระบวนการรับเงิน]
+
+หมายเหตุ:
+การรับชำระครั้งที่ 2, 3, 4...
+ทำ Flow เดิมทุกครั้ง โดยสร้าง Payment ใหม่ทุกครั้ง
+
+======================================================================
+6. ตัวอย่างชำระบางส่วนหลายรอบ
+======================================================================
+
+ยอดบิล = 10,000
+
+Payment #1
+- เงินสด
+- 3,000
+- paid_amount = 3,000
+- balance_due = 7,000
+- Status = PARTIALLY_PAID
+
+Payment #2
+- โอน
+- 2,000
+- paid_amount = 5,000
+- balance_due = 5,000
+- Status = PARTIALLY_PAID
+
+Payment #3
+- บัตร
+- 5,000
+- paid_amount = 10,000
+- balance_due = 0
+- Status = PAID
+
+ประวัติที่ต้องคงไว้:
+
+P001 | B001 | CASH     | 3,000
+P002 | B001 | TRANSFER | 2,000
+P003 | B001 | CARD     | 5,000
+
+ห้ามรวมเป็น:
+
+P001 | B001 | MIXED | 10,000
+
+เพราะจะเสียประวัติของแต่ละช่องทาง
+
+======================================================================
+7. FLOWCHART: รับคืนบางส่วนหลายรอบ
+======================================================================
+
+[เริ่ม]
+   |
+   v
+[เปิดบิลเช่า]
+   |
+   v
+[อ่านรายการที่ส่งมอบจริง]
+   |
+   v
+[อ่าน Return Lines ที่ valid]
+   |
+   v
+[คำนวณ returned_qty]
+   |
+   v
+[คำนวณ remaining_qty]
+   |
+   v
+< remaining_qty > 0 ? >
+   | NO --------------------> [คืนครบแล้ว / ห้ามคืนเพิ่ม]
+   |
+   YES
+   |
+   v
+[ผู้ใช้กด "รับคืน"]
+   |
+   v
+[เลือกรายการสินค้า]
+   |
+   v
+[ระบบแสดงจำนวนส่งมอบ / คืนแล้ว / คงเหลือ]
+   |
+   v
+[ผู้ใช้กรอก return_qty]
+   |
+   v
+< return_qty > 0 ? >
+   | NO --------------------> [ปฏิเสธ]
+   |
+   YES
+   |
+   v
+< return_qty <= remaining_qty ? >
+   | NO --------------------> [ปฏิเสธ: คืนเกิน]
+   |
+   YES
+   |
+   v
+[ระบุสภาพสินค้า]
+   |
+   +--> ปกติ
+   |
+   +--> ชำรุด
+   |
+   +--> สูญหาย/ขาด
+   |
+   v
+[เริ่ม Database Transaction]
+   |
+   v
+[สร้าง Return Transaction]
+   |
+   v
+[สร้าง Return Line ใหม่]
+   |
+   v
+[เชื่อม Return Line กับ Bill Item ต้นทาง]
+   |
+   v
+[บันทึก qty / condition / user / timestamp]
+   |
+   v
+[ปรับสถานะสต็อกตามสภาพ]
+   |
+   +--> ปกติ  -> available/พร้อมใช้
+   |
+   +--> ชำรุด -> inspection/repair
+   |
+   +--> สูญหาย -> ไม่คืนเข้าสต็อก
+   |
+   v
+[คำนวณ returned_qty ใหม่]
+   |
+   v
+[คำนวณ remaining_qty ใหม่]
+   |
+   v
+< remaining_qty = 0 ? >
+   | YES
+   v
+[Return Status = RETURNED]
+   |
+   +-------------------------------+
+   |                               |
+   NO                              |
+   |                               |
+   v                               |
+[Return Status = PARTIALLY_RETURNED]
+   |                               |
+   +---------------+---------------+
+                   |
+                   v
+          [บันทึก Audit Event]
+                   |
+                   v
+           [Commit Transaction]
+                   |
+                   v
+        < มีสินค้าค้างอีกหรือไม่? >
+             | YES        | NO
+             |            |
+             +---รอคืน----+----> [จบกระบวนการรับคืน]
+
+======================================================================
+8. ตัวอย่างรับคืนบางส่วนหลายรอบ
+======================================================================
+
+ส่งมอบโต๊ะ = 10 ตัว
+
+Return #1
+- คืน 4
+- ปกติ 4
+- returned_qty = 4
+- remaining_qty = 6
+- Return Status = PARTIALLY_RETURNED
+
+Return #2
+- คืน 3
+- ปกติ 2
+- ชำรุด 1
+- returned_qty = 7
+- remaining_qty = 3
+- Return Status = PARTIALLY_RETURNED
+
+Return #3
+- คืน 3
+- ปกติ 3
+- returned_qty = 10
+- remaining_qty = 0
+- Return Status = RETURNED
+
+ประวัติ:
+
+R001 | B001 | TABLE | qty 4 | NORMAL
+R002 | B001 | TABLE | qty 2 | NORMAL
+R003 | B001 | TABLE | qty 1 | DAMAGED
+R004 | B001 | TABLE | qty 3 | NORMAL
+
+หรือจะเก็บ Return Transaction แยกหัวเอกสารและ Return Line ภายในแต่ละรอบก็ได้
+
+======================================================================
+9. DIAGRAM: โครงสร้างข้อมูล
+======================================================================
+
+                           +----------------------+
+                           |        BILL          |
+                           |----------------------|
+                           | id                   |
+                           | customer_id          |
+                           | bill_type            |
+                           | total_amount         |
+                           | bill_status          |
+                           +----------+-----------+
+                                      |
+                     +----------------+----------------+
+                     |                                 |
+                     v                                 v
+            +-------------------+             +-------------------+
+            |    BILL_ITEM      |             |      PAYMENT      |
+            |-------------------|             |-------------------|
+            | id                |             | id                |
+            | bill_id           |             | bill_id           |
+            | product_id        |             | amount            |
+            | qty               |             | payment_method    |
+            | unit_price        |             | status            |
+            | rental/sale       |             | created_by        |
+            +---------+---------+             | created_at        |
+                      |                       +-------------------+
+                      |
+          +-----------+------------+
+          |                        |
+          v                        v
++-------------------+    +-------------------------+
+|  DELIVERY_LINE    |    |   RETURN_TRANSACTION    |
+|-------------------|    |-------------------------|
+| bill_item_id      |    | id                      |
+| delivered_qty     |    | bill_id                 |
+| delivery_time     |    | received_by             |
+| delivered_by      |    | received_at             |
++-------------------+    +------------+------------+
+                                      |
+                                      v
+                            +----------------------+
+                            |     RETURN_LINE      |
+                            |----------------------|
+                            | return_tx_id         |
+                            | bill_item_id         |
+                            | quantity             |
+                            | condition            |
+                            | stock_action         |
+                            +----------------------+
+
+ทุกเหตุการณ์สำคัญ
+        |
+        v
++----------------------+
+|      AUDIT_EVENT     |
+|----------------------|
+| entity_type          |
+| entity_id            |
+| action               |
+| before/after ref     |
+| actor                |
+| timestamp            |
++----------------------+
+
+======================================================================
+10. DIAGRAM: ความสัมพันธ์เชิงธุรกิจ
+======================================================================
+
+BILL
+ |
+ +-- BILL ITEMS
+ |      |
+ |      +-- จำนวนที่สั่ง/เช่า
+ |      |
+ |      +-- DELIVERY
+ |      |      |
+ |      |      +-- จำนวนที่ส่งจริง
+ |      |
+ |      +-- RETURNS
+ |             |
+ |             +-- Return #1
+ |             +-- Return #2
+ |             +-- Return #3
+ |
+ +-- PAYMENTS
+ |      |
+ |      +-- Payment #1
+ |      +-- Payment #2
+ |      +-- Payment #3
+ |
+ +-- REFUNDS / ADJUSTMENTS
+ |
+ +-- AUDIT LOG
+
+ค่าปัจจุบันไม่ใช่ข้อมูลที่ผู้ใช้แก้เองโดยตรง
+
+returned_qty
+= SUM(Return Lines)
+
+remaining_qty
+= Delivered - Returned
+
+paid_amount
+= SUM(Payments)
+
+balance_due
+= Total - Paid +/- Adjustments
+
+======================================================================
+11. WORKFLOW: หน้าที่และการส่งต่องาน
+======================================================================
+
+ฝ่าย/บทบาทที่ 1: ผู้ขาย / แคชเชียร์
+
+หน้าที่:
+- เปิดบิล
+- เลือกสินค้า
+- เลือกเช่าหรือขาย
+- ระบุจำนวนและราคา
+- เลือกลูกค้าตามกฎ
+- รับชำระเงิน
+- เลือกช่องทางการชำระ
+- กรอกจำนวนเงินจริง
+
+การส่งต่องาน:
+- หลังยืนยันบิล -> ระบบบันทึก Bill + Bill Item
+- หลังรับเงิน -> ส่ง Payment ไปยังระบบการเงิน
+- ถ้ายังจ่ายไม่ครบ -> บิลยังเปิดค้างได้ตามกฎ
+- ถ้าสินค้าพร้อมส่ง -> ส่งต่อไปขั้นตอน Delivery
+
+ฝ่าย/บทบาทที่ 2: ระบบการเงิน
+
+หน้าที่:
+- ตรวจยอดบิล
+- ตรวจยอดรับเงินสะสม
+- ตรวจ duplicate payment
+- สร้าง Payment ใหม่ทุกครั้ง
+- คำนวณ balance_due
+- กำหนด Payment Status
+- เก็บ payment method แยกรายการ
+- บันทึก Audit
+
+ส่งต่องาน:
+- ถ้า balance_due > 0
+  -> ส่งสถานะ PARTIALLY_PAID กลับหน้าบิล
+- ถ้า balance_due = 0
+  -> ส่งสถานะ PAID กลับหน้าบิล
+
+ฝ่าย/บทบาทที่ 3: เจ้าหน้าที่ส่งมอบ / คลัง
+
+หน้าที่:
+- ตรวจสินค้า
+- ตรวจจำนวนพร้อมใช้งาน
+- ส่งมอบตามรายการ
+- บันทึก delivered_qty
+- บันทึกผู้ส่งมอบและเวลา
+- ปรับ stock state จากพร้อมใช้เป็นถูกเช่า/ถูกส่งออก
+
+ส่งต่องาน:
+- หลังส่งมอบ -> เปิดภาระ Return ของรายการเช่า
+- ระบบคำนวณ remaining_qty เริ่มต้นจาก delivered_qty
+
+ฝ่าย/บทบาทที่ 4: เจ้าหน้าที่รับคืน
+
+หน้าที่:
+- เปิดบิล
+- ดูรายการที่ยังค้าง
+- ตรวจจำนวนที่คืน
+- ตรวจสภาพสินค้า
+- แยกปกติ/ชำรุด/สูญหาย
+- บันทึก Return Transaction
+- บันทึก Return Lines
+
+ส่งต่องาน:
+- สินค้าปกติ -> ส่งกลับ Stock Available
+- สินค้าชำรุด -> ส่งไป Inspection/Repair
+- สินค้าสูญหาย -> ส่งไปฝ่ายการเงิน/ตรวจค่าเสียหาย
+- หากยังคืนไม่ครบ -> สถานะ PARTIALLY_RETURNED
+- หากคืนครบ -> สถานะ RETURNED
+
+ฝ่าย/บทบาทที่ 5: ระบบสต็อก
+
+หน้าที่:
+- คุมจำนวนที่ส่งออก
+- คุมจำนวนที่คืน
+- ป้องกันจำนวนคืนเกิน
+- ปรับสถานะของชิ้น/จำนวน
+- ไม่ให้สินค้าชำรุดกลับ available โดยอัตโนมัติ
+- ป้องกัน oversell/over-rent ด้วย locking ตามจุดที่ต้องใช้
+
+ฝ่าย/บทบาทที่ 6: ผู้มีสิทธิ์อนุมัติ
+
+ใช้กับ:
+- Refund
+- Cancel
+- Write-off
+- Lost item
+- Damage charge
+- แก้รายการผิด
+- รายการที่ต้อง reverse
+
+หลัก:
+ห้ามลบข้อมูลประวัติ
+ให้สร้าง compensating/reversal entry
+
+ฝ่าย/บทบาทที่ 7: Audit
+
+ต้องทราบ:
+- ใครทำ
+- เมื่อไร
+- ทำกับบิลใด
+- จำนวนเท่าไร
+- ก่อนหน้าเป็นเท่าไร
+- หลังรายการเป็นเท่าไร
+- เหตุผล
+- อุปกรณ์/ช่องทางถ้ามี
+
+======================================================================
+12. WORKFLOW รวมตั้งแต่เปิดบิลจนปิด
+======================================================================
+
+STEP 1: CREATE BILL
+ผู้ใช้สร้างบิล
+ระบบสร้าง Bill + Bill Items
+
+STEP 2: CONFIRM
+ตรวจราคา จำนวน ลูกค้า เงื่อนไข
+ยืนยันบิล
+
+STEP 3: PAYMENT #1
+ลูกค้าจ่ายบางส่วน
+สร้าง Payment #1
+สถานะ = PARTIALLY_PAID
+
+STEP 4: PAYMENT #2 (ถ้ามี)
+สร้าง Payment #2
+รวมยอดใหม่
+ห้ามแก้ Payment #1
+
+STEP 5: DELIVERY
+ส่งสินค้า
+สร้าง Delivery Record
+กำหนด delivered_qty
+
+STEP 6: RETURN #1
+คืนบางส่วน
+สร้าง Return #1
+คำนวณ remaining
+
+STEP 7: RETURN #2
+คืนเพิ่ม
+สร้าง Return #2
+ห้ามแก้ Return #1
+
+STEP 8: DAMAGE / LOST
+ถ้ามีชำรุดหรือสูญหาย
+แยก stock state
+สร้างค่าปรับหรือ adjustment ตามกฎ
+
+STEP 9: PAYMENT เพิ่ม
+ถ้ามียอดคงเหลือหรือค่าเสียหาย
+สร้าง Payment ใหม่
+ห้าม merge
+
+STEP 10: FINAL RETURN
+รับคืนส่วนสุดท้าย
+returned_qty = delivered_qty
+
+STEP 11: FINAL FINANCIAL CHECK
+ตรวจ balance_due
+
+STEP 12: CLOSE
+ปิดได้เมื่อเงื่อนไขทั้งหมดครบ
+
+======================================================================
+13. เงื่อนไขปิดบิลเช่า
+======================================================================
+
+โดยหลักควรตรวจอย่างน้อย:
+
+1. remaining_qty = 0
+หรือมี disposition ที่ถูกต้องสำหรับสินค้าสูญหาย/ตัดจำหน่าย
+
+2. balance_due = 0
+หรือมีสถานะทางการเงินที่อนุมัติแล้วตามกฎ
+
+3. ไม่มี return transaction ค้างบันทึก
+
+4. ไม่มี stock movement ค้างครึ่งทาง
+
+5. รายการชำรุด/สูญหายถูกส่งต่อและบันทึกแล้ว
+
+6. Audit ครบ
+
+เมื่อครบ:
+Bill Status = CLOSED
+
+======================================================================
+14. Validation ที่ห้ามตกหล่น
+======================================================================
+
+การรับเงิน:
+- ห้าม amount = 0
+- ห้าม amount < 0
+- ห้าม payment ซ้ำจาก double click
+- ต้องมี idempotency key หรือวิธีป้องกัน duplicate
+- ต้องแยก payment method
+- ต้องบันทึกผู้รับเงิน
+- ต้องบันทึกเวลา
+- ต้องบันทึกสถานะ payment
+- ถ้ายกเลิก ห้าม delete ตรง ๆ
+- ใช้ reversal/refund/void ตามกฎ
+
+การรับคืน:
+- ห้าม return_qty = 0
+- ห้าม return_qty < 0
+- ห้าม return_qty > remaining_qty
+- ห้ามคืนสินค้าที่ไม่เคยส่ง
+- ห้ามคืนสินค้าคนละ bill item
+- ต้องบันทึก condition
+- ต้องบันทึกผู้รับคืน
+- ต้องบันทึกเวลา
+- สินค้าชำรุดต้องไม่กลับ available
+- สินค้าสูญหายต้องไม่เพิ่ม stock
+
+======================================================================
+15. Transaction / Locking
+======================================================================
+
+ทุกเหตุการณ์สำคัญควรดำเนินการแบบ Atomic
+
+ตัวอย่าง Return:
+
+BEGIN
+
+1. Lock bill item / relevant inventory row
+2. อ่าน delivered_qty
+3. อ่าน returned_qty
+4. คำนวณ remaining_qty
+5. Validate return_qty
+6. Insert return_transaction
+7. Insert return_lines
+8. Insert stock movement
+9. Insert audit event
+10. Update derived/cached status ถ้ามี
+
+COMMIT
+
+หากข้อใดผิด:
+ROLLBACK ทั้งหมด
+
+ตัวอย่าง Payment:
+
+BEGIN
+
+1. Lock bill หรือใช้ concurrency control
+2. อ่านยอดคงเหลือ
+3. Validate amount
+4. Insert payment
+5. Insert finance ledger entry
+6. Insert audit
+7. Recalculate status
+
+COMMIT
+
+หากผิด:
+ROLLBACK
+
+======================================================================
+16. กรณีพิเศษ
+======================================================================
+
+16.1 ลูกค้าคืนของ แต่ยังจ่ายไม่ครบ
+
+ทำได้
+
+ตัวอย่าง:
+Payment Status = PARTIALLY_PAID
+Return Status = PARTIALLY_RETURNED
+
+ระบบต้องแสดงสองสถานะแยกกัน
+
+16.2 ลูกค้าคืนครบ แต่ยังจ่ายไม่ครบ
+
+Return Status = RETURNED
+Payment Status = PARTIALLY_PAID
+Bill = ยังไม่ควร CLOSED หากยังมีหนี้
+
+16.3 ลูกค้าจ่ายครบ แต่ยังคืนไม่ครบ
+
+Payment Status = PAID
+Return Status = PARTIALLY_RETURNED
+Bill = ACTIVE
+
+16.4 คืนบางส่วนและบางชิ้นชำรุด
+
+ตัวอย่าง:
+คืน 5
+- ปกติ 3
+- ชำรุด 2
+
+Return Line อาจแยกเป็น 2 Lines ตาม condition
+เพื่อให้ stock movement ถูกต้อง
+
+16.5 สูญหาย
+
+ไม่ถือว่า "คืนเข้าสต็อก"
+แต่สามารถถือว่า rental obligation ได้รับการ resolve หลังมีขั้นตอนอนุมัติ/คิดค่าเสียหาย
+ต้องแยกจาก returned_qty ที่เป็นของคืนจริง หากต้องการความแม่นยำสูง
+
+16.6 Payment ผิดรายการ
+
+ห้ามแก้ payment เก่าแบบไร้ร่องรอย
+ควรใช้ void/reversal แล้วสร้าง payment ใหม่
+
+======================================================================
+17. แนวทางฐานข้อมูล
+======================================================================
+
+ตารางหลักแนะนำ:
+
+bills
+- id
+- customer_id
+- bill_type
+- subtotal
+- discount
+- shipping
+- vat
+- grand_total
+- bill_status
+- created_at
+- created_by
+
+bill_items
+- id
+- bill_id
+- product_id
+- mode
+- quantity
+- unit_price
+- calculation_type
+- created_at
+
+deliveries
+- id
+- bill_id
+- delivered_at
+- delivered_by
+
+delivery_lines
+- id
+- delivery_id
+- bill_item_id
+- quantity
+
+payments
+- id
+- bill_id
+- amount
+- payment_method
+- status
+- reference_no
+- created_by
+- created_at
+
+return_transactions
+- id
+- bill_id
+- received_by
+- received_at
+- note
+
+return_lines
+- id
+- return_transaction_id
+- bill_item_id
+- quantity
+- condition
+- note
+
+stock_movements
+- id
+- product_id
+- source_type
+- source_id
+- quantity_delta
+- stock_state
+- created_at
+
+audit_events
+- id
+- entity_type
+- entity_id
+- action
+- actor_id
+- reason
+- created_at
+
+refunds / financial_adjustments
+- ตามขอบเขตระบบ
+
+======================================================================
+18. Derived Values
+======================================================================
+
+ค่าต่อไปนี้ควรเป็นค่าที่ระบบคำนวณ:
+
+paid_amount
+balance_due
+returned_qty
+remaining_qty
+payment_status
+return_status
+
+สามารถ cache ลงตาราง bills เพื่อประสิทธิภาพได้
+แต่ควรมีแหล่งจริงจาก Payment / Return Records
+
+หาก cache กับ transaction history ไม่ตรงกัน:
+ให้ transaction history เป็นฐานสำหรับ reconcile
+
+======================================================================
+19. หน้าจอที่ผู้ใช้ควรเห็น
+======================================================================
+
+หน้าบิลควรแสดง:
+
+การเงิน:
+ยอดรวม
+ชำระแล้ว
+คงเหลือ
+Payment Status
+ประวัติการชำระแต่ละครั้ง
+
+การคืน:
+จำนวนส่งมอบ
+คืนแล้ว
+คงเหลือ
+Return Status
+ประวัติการคืนแต่ละครั้ง
+
+ตัวอย่าง:
+
+บิล B001
+
+ยอดเงิน
+ยอดรวม       10,000
+ชำระแล้ว      5,000
+คงเหลือ       5,000
+สถานะ         PARTIALLY_PAID
+
+สินค้าโต๊ะ
+ส่งมอบ        10
+คืนแล้ว         7
+คงเหลือ         3
+สถานะ         PARTIALLY_RETURNED
+
+ประวัติเงิน
+#1 เงินสด 3,000
+#2 โอน    2,000
+
+ประวัติคืน
+#1 คืน 4 ปกติ
+#2 คืน 3 (ปกติ 2 / ชำรุด 1)
+
+======================================================================
+20. กฎสำคัญสำหรับ UI
+======================================================================
+
+- ปุ่ม "รับชำระ" เปิด modal/section สำหรับสร้าง Payment ใหม่
+- ปุ่ม "รับคืน" เปิดเฉพาะสินค้าที่ยังคงเหลือ
+- แสดง remaining_qty ชัดเจนก่อนกรอก
+- input return_qty ต้อง max = remaining_qty
+- อย่าซ่อนประวัติเดิม
+- ต้องมี receipt/reference ต่อ payment ถ้าระบบต้องใช้
+- คืนหลายรายการในรอบเดียวได้ แต่ต้องแยก line ต่อสินค้า/condition
+- ปุ่มยกเลิกรายการสำคัญต้องเช็คสิทธิ์
+
+======================================================================
+21. กฎสำคัญเชิงสถาปัตยกรรม
+======================================================================
+
+กฎที่ 1:
+Original Transaction ต้องรักษาไว้
+
+กฎที่ 2:
+Mutation ทางธุรกิจที่มีความหมายต้องสร้าง Event/Transaction ใหม่
+
+กฎที่ 3:
+สถานะเป็นผลลัพธ์จากข้อมูล ไม่ใช่ความจริงแหล่งเดียว
+
+กฎที่ 4:
+Stock และ Finance ต้องแยก ledger/transaction ของตัวเอง
+
+กฎที่ 5:
+Return และ Payment เป็นคนละมิติ
+
+กฎที่ 6:
+ทุกเหตุการณ์ต้อง Audit ได้
+
+กฎที่ 7:
+Cancel/Refund/Correction ใช้ compensating entry
+
+กฎที่ 8:
+งานที่แก้หลายตารางพร้อมกันต้องอยู่ใน database transaction
+
+กฎที่ 9:
+ป้องกัน concurrent update ด้วย locking / atomic transaction
+
+กฎที่ 10:
+ห้ามให้ stock หรือ balance กลายเป็นค่าที่ไม่สมเหตุผล
+
+======================================================================
+22. สรุปภาพใหญ่
+======================================================================
+
+รูปแบบที่ถูกต้อง:
+
+BILL
+ |
+ +--> PAYMENT #1
+ +--> PAYMENT #2
+ +--> PAYMENT #3
+ |
+ +--> DELIVERY
+ |
+ +--> RETURN #1
+ +--> RETURN #2
+ +--> RETURN #3
+ |
+ +--> ADJUSTMENT / REFUND ถ้ามี
+ |
+ +--> AUDIT
+
+รูปแบบที่ไม่ควรใช้:
+
+BILL
+ |
+ +--> แก้ paid_amount ไปเรื่อย ๆ
+ +--> แก้ returned_qty ไปเรื่อย ๆ
+ +--> เขียนทับ status
+ +--> ลบ record เดิม
+
+เหตุผล:
+เพราะจะสูญเสีย traceability, audit, stock history และ finance history
+
+======================================================================
+23. ตัวอย่างสถานการณ์รวม
+======================================================================
+
+วันที่ 1
+เปิดบิลเช่าโต๊ะ 10 ตัว
+ยอด 10,000
+
+รับเงิน 3,000
+Payment #1
+Payment Status = PARTIALLY_PAID
+
+ส่งของ 10
+remaining_qty = 10
+
+วันที่ 2
+รับเงินเพิ่ม 2,000
+Payment #2
+ยอดชำระสะสม = 5,000
+ยอดค้าง = 5,000
+
+วันที่ 3
+รับคืน 4
+Return #1
+remaining = 6
+
+วันที่ 4
+รับคืน 3
+- ปกติ 2
+- ชำรุด 1
+Return #2
+remaining = 3
+
+วันที่ 5
+รับเงิน 5,000
+Payment #3
+Payment Status = PAID
+
+วันที่ 6
+คืนอีก 3
+Return #3
+remaining = 0
+Return Status = RETURNED
+
+ตรวจ:
+Payment = PAID
+Return = RETURNED
+Damage = ได้รับการจัดการแล้ว
+Audit = ครบ
+
+Bill = CLOSED
+
+======================================================================
+24. ข้อสรุปสุดท้าย
+======================================================================
+
+หลักการของระบบรับคืนบางส่วนหลายรอบและชำระบางส่วนหลายรอบควรเป็น:
+
+"บิลหนึ่งใบสามารถมีเหตุการณ์ชำระเงินหลายรายการ
+และเหตุการณ์รับคืนหลายรายการ
+โดยไม่แก้ทับประวัติเดิม"
+
+Payment แต่ละครั้งต้องเป็น record แยก
+Return แต่ละครั้งต้องเป็น record แยก
+
+ระบบคำนวณสถานะจากข้อมูลจริงทั้งหมด
+
+การเงิน:
+Bill -> Payments -> SUM -> Balance -> Payment Status
+
+สินค้า:
+Bill Item -> Delivery -> Returns -> Remaining -> Return Status
+
+การปิดบิล:
+สินค้า + การเงิน + รายการผิดปกติ + Audit
+ต้องอยู่ในสภาพที่ระบบอนุญาตให้ปิด
+
+นี่คือโครงสร้างที่รองรับ:
+- Partial Payment หลายรอบ
+- Split Payment
+- Partial Return หลายรอบ
+- คืนคนละวัน
+- คืนคนละจำนวน
+- สินค้าชำรุด
+- สินค้าสูญหาย
+- Refund
+- Cancel
+- Audit
+- Stock Ledger
+- Finance Ledger
+- Transaction / Rollback
+- Concurrency Control
+- การตรวจสอบย้อนหลัง
+======================================================================
+
+
+==============================================================================
+SOURCE 3: POS_Rental_EarlyReturn_Overdue_Refund_Damage_Lost_Workflow_TH(1).txt
+==============================================================================
+
+เอกสารสรุป วิเคราะห์ และเรียบเรียงระบบเช่า
+หัวข้อ:
+1) คืนสินค้าก่อนกำหนดแบบชำระแล้ว / ยังไม่ชำระ
+2) สินค้าเช่าเลยกำหนดแบบคิดรายวัน: ต่ออายุหรือค่าปรับ
+3) การคืนเงินและการรับชำระ
+4) สินค้าชำรุดและสูญหาย
+
+อ้างอิงแนวคิดจาก ARTS ODM 7.3 และปรับให้อยู่ในรูปแบบที่นำไปใช้กับ POS เช่า/ขายได้จริง
+
+======================================================================
+1. หลักการพื้นฐานของระบบ
+======================================================================
+
+ระบบควรแยกข้อมูลออกเป็นหลายมิติ ไม่ใช้ status เดียวครอบทุกอย่าง
+
+มิติที่ 1: สถานะบิล
+- DRAFT
+- CONFIRMED
+- ACTIVE
+- CLOSED
+- CANCELLED
+
+มิติที่ 2: สถานะการชำระ
+- UNPAID
+- PARTIALLY_PAID
+- PAID
+- PARTIALLY_REFUNDED
+- REFUNDED
+
+มิติที่ 3: สถานะการคืนสินค้า
+- NOT_RETURNED
+- PARTIALLY_RETURNED
+- RETURNED
+
+มิติที่ 4: สถานะการเช่า
+- SCHEDULED
+- ACTIVE
+- OVERDUE
+- RETURNED
+- RESOLVED
+- CLOSED
+
+มิติที่ 5: สภาพสินค้า
+- NORMAL
+- DAMAGED
+- LOST
+- UNDER_INSPECTION
+- UNDER_REPAIR
+- WRITTEN_OFF
+
+หลักสำคัญ:
+- ไม่แก้ทับประวัติเดิม
+- ทุก Payment สร้างรายการใหม่
+- ทุก Refund สร้างรายการใหม่
+- ทุก Return สร้างรายการใหม่
+- ทุก Damage/Loss สร้างเหตุการณ์ใหม่
+- ทุก Renewal สร้างความสัมพันธ์ใหม่ ไม่แก้ประวัติเดิม
+- ค่าปัจจุบันคำนวณจากเหตุการณ์ทั้งหมด
+- ทุกเหตุการณ์สำคัญต้อง Audit ได้
+
+======================================================================
+2. โครงสร้างข้อมูลเชิงแนวคิด
+======================================================================
+
+RENTAL BILL
+  |
+  +-- BILL ITEMS
+  |      |
+  |      +-- RENTAL TERMS
+  |      |      |
+  |      |      +-- start datetime
+  |      |      +-- end datetime
+  |      |      +-- rental period type
+  |      |      +-- rental charge per period
+  |      |      +-- deposit
+  |      |      +-- late penalty
+  |      |      +-- early return policy
+  |      |
+  |      +-- DELIVERY
+  |      |
+  |      +-- RETURNS
+  |             |
+  |             +-- NORMAL
+  |             +-- DAMAGED
+  |             +-- LOST / MISSING
+  |
+  +-- PAYMENTS
+  |
+  +-- REFUNDS
+  |
+  +-- DEPOSITS
+  |
+  +-- FINANCIAL ADJUSTMENTS
+  |
+  +-- RENEWALS
+  |
+  +-- AUDIT EVENTS
+
+======================================================================
+3. สูตรหลักที่ใช้ทั้งระบบ
+======================================================================
+
+3.1 การเงิน
+
+valid_paid_amount
+= SUM(valid payments)
+
+valid_refund_amount
+= SUM(valid refunds)
+
+net_paid
+= valid_paid_amount - valid_refund_amount
+
+final_amount_due
+= actual_rental_charge
++ renewal_charge
++ late_penalty
++ damage_charge
++ lost_charge
++ other_authorized_charges
+- discounts
+- credits
+
+settlement_balance
+= final_amount_due
+- net_paid
+- deposit_applied
+
+ผลลัพธ์:
+
+ถ้า settlement_balance > 0
+=> ลูกค้ายังต้องชำระ
+
+ถ้า settlement_balance = 0
+=> การเงินเคลียร์
+
+ถ้า settlement_balance < 0
+=> ร้านต้องคืนเงินลูกค้า
+
+3.2 สินค้า
+
+physical_returned_qty
+= SUM(ของที่กลับมาจริง)
+
+approved_lost_qty
+= SUM(ของที่ยืนยันว่าหายและผ่านอนุมัติ)
+
+resolved_qty
+= physical_returned_qty
++ approved_lost_qty
++ approved_disposition_qty
+
+remaining_obligation
+= delivered_qty - resolved_qty
+
+ข้อสำคัญ:
+ห้ามใช้ lost = returned
+เพราะของหายไม่ได้กลับเข้าสต็อกจริง
+
+======================================================================
+4. FLOWCHART รวมวงจรเช่า
+======================================================================
+
+[เริ่ม]
+   |
+   v
+[สร้างบิลเช่า]
+   |
+   v
+[กำหนด Rental Terms]
+   |
+   +--> วันเริ่ม
+   +--> วันสิ้นสุด
+   +--> ค่าบริการต่อวัน/รอบ
+   +--> เงินมัดจำ
+   +--> Late Penalty
+   +--> Early Return Policy
+   |
+   v
+[ยืนยันบิล]
+   |
+   v
+[รับชำระเต็ม / บางส่วน / ยังไม่รับ]
+   |
+   v
+[ส่งมอบสินค้า]
+   |
+   v
+[Rental Status = ACTIVE]
+   |
+   v
+< ถึงเหตุการณ์คืนสินค้า >
+   |
+   +---------------------------------------------+
+   |                                             |
+   v                                             v
+[คืนก่อนกำหนด]                              [ถึง/เลยกำหนด]
+   |                                             |
+   v                                             v
+[ตรวจ Early Return Policy]                 < คืนครบหรือยัง? >
+   |                                             |
+   v                                      YES ---+--- NO
+[รับคืน + ตรวจสภาพ]                             |       |
+   |                                             |       v
+   v                                             | [ต่ออายุได้รับอนุมัติ?]
+[คำนวณ Final Charge]                            |       |
+   |                                             |   YES + NO
+   v                                             |       |
+[Settlement]                                     |       v
+   |                                             |   [OVERDUE]
+   v                                             |       |
+[จบ / รอภาระอื่น]                               |       v
+                                                 | [Late Penalty]
+                                                 |       |
+                                                 +-------+
+                                                         |
+                                                         v
+                                                [รับคืนภายหลัง]
+                                                         |
+                                                         v
+                                               [ตรวจสภาพสินค้า]
+                                                         |
+                                                         v
+                                                   [Settlement]
+                                                         |
+                                                         v
+                                                        [จบ]
+
+======================================================================
+5. คืนสินค้าก่อนกำหนด
+======================================================================
+
+นิยาม:
+ลูกค้านำสินค้ากลับก่อน RentalPeriodEndDateTime
+
+ตัวอย่าง:
+เริ่มเช่า 1 ต.ค.
+กำหนดคืน 5 ต.ค.
+คืนจริง 3 ต.ค.
+
+ระบบต้องบันทึก 2 ค่าแยก:
+- Planned End = 5 ต.ค.
+- Actual Return = 3 ต.ค.
+
+ห้ามแก้ Planned End ให้กลายเป็น 3 ต.ค.
+เพราะจะทำให้ไม่รู้ว่าลูกค้าคืนก่อนกำหนด
+
+======================================================================
+6. FLOWCHART: คืนก่อนกำหนด — ชำระครบแล้ว
+======================================================================
+
+[ลูกค้านำของมาคืนก่อนกำหนด]
+   |
+   v
+[ค้นหาบิลและรายการเช่า]
+   |
+   v
+[ตรวจว่ารายการยัง ACTIVE]
+   |
+   v
+[ตรวจจำนวนที่ค้าง]
+   |
+   v
+[รับคืนสินค้า]
+   |
+   v
+[ตรวจสภาพ]
+   |
+   +--> ปกติ
+   +--> ชำรุด
+   +--> สูญหายบางส่วน
+   |
+   v
+[บันทึก Actual Return]
+   |
+   v
+[อ่าน Early Return Policy]
+   |
+   v
+< นโยบายคืนเงินค่าเช่าก่อนกำหนดหรือไม่? >
+   |
+   +-------------------------+
+   |                         |
+  NO                        YES
+   |                         |
+   v                         v
+[ใช้ยอดตามสัญญาเดิม]   [คำนวณจากวันใช้จริง]
+   |                         |
+   +------------+------------+
+                |
+                v
+[คำนวณ Final Amount Due]
+                |
+                v
+[เปรียบเทียบกับ Paid Amount]
+                |
+        +-------+--------+
+        |                |
+   paid = due        paid > due
+        |                |
+        v                v
+      [จบ]           [Refund]
+                         |
+                         v
+                 [สร้าง Refund ใหม่]
+                         |
+                         v
+                       [Audit]
+
+======================================================================
+7. FLOWCHART: คืนก่อนกำหนด — ยังไม่ชำระ / ชำระบางส่วน
+======================================================================
+
+[ลูกค้าคืนก่อนกำหนด]
+   |
+   v
+[รับคืนสินค้า]
+   |
+   v
+[ตรวจสภาพ]
+   |
+   v
+[บันทึก Actual Return]
+   |
+   v
+[อ่าน Early Return Policy]
+   |
+   v
+[คำนวณ Actual Rental Charge]
+   |
+   v
+[รวม Damage/Lost Charge ถ้ามี]
+   |
+   v
+[อ่าน Paid Amount]
+   |
+   v
+[คำนวณ Settlement Balance]
+   |
+   +--------------------------------+
+   |                |               |
+ Balance > 0     Balance = 0     Balance < 0
+   |                |               |
+   v                v               v
+[รับเงินเพิ่ม]   [เคลียร์]       [Refund]
+   |
+   v
+[สร้าง Payment ใหม่]
+
+ข้อสำคัญ:
+สินค้าอาจคืนครบแล้ว แต่เงินยังไม่ครบได้
+
+ตัวอย่าง:
+Return Status = RETURNED
+Payment Status = PARTIALLY_PAID
+Bill Status = ACTIVE
+
+======================================================================
+8. เลยกำหนดของสินค้าเช่ารายวัน
+======================================================================
+
+ต้องแยก 2 เหตุการณ์:
+1) ต่ออายุ
+2) เลยกำหนด
+
+ต่ออายุ:
+ลูกค้าขอเช่าต่อและร้านอนุมัติ
+
+เลยกำหนด:
+ถึงเวลาคืนแล้ว ลูกค้ายังไม่คืน และไม่มีการอนุมัติต่ออายุ
+
+======================================================================
+9. FLOWCHART: ต่ออายุ vs เลยกำหนด
+======================================================================
+
+[ถึง EndDateTime]
+   |
+   v
+< คืนครบหรือยัง? >
+   |
+   +----------------------+
+   |                      |
+  YES                    NO
+   |                      |
+   v                      v
+[Settlement]      < มีการขอต่ออายุหรือไม่? >
+                          |
+                   +------+------+
+                   |             |
+                  YES           NO
+                   |             |
+                   v             v
+           [ตรวจอนุมัติ]      [OVERDUE]
+                   |             |
+             +-----+-----+       v
+             |           |   [Late Penalty]
+           APPROVE     REJECT
+             |           |
+             v           v
+      [สร้างบิลใหม่]   [OVERDUE]
+             |
+             v
+ [เชื่อมกับบิลเดิมเป็น Renewal]
+
+======================================================================
+10. รูปแบบการต่ออายุ
+======================================================================
+
+Bill #1
+วันที่ 1–5
+
+ถ้าต่อ:
+Bill #2
+วันที่ 6–8
+
+เชื่อมด้วย:
+- renewal_of
+- parent_rental_id
+- previous_rental_id
+
+ข้อดี:
+- ไม่แก้ประวัติเดิม
+- Audit ชัด
+- ราคาใหม่แยกได้
+- รอบเช่าใหม่มี payment ของตัวเองได้
+
+======================================================================
+11. รูปแบบการเลยกำหนด
+======================================================================
+
+เมื่อ:
+current_time > rental_end_time
+และ remaining_obligation > 0
+และไม่มี Renewal ที่ได้รับอนุมัติ
+
+ให้:
+Rental Status = OVERDUE
+
+นโยบายอาจเป็น:
+- Late Penalty 100 บาท/วัน
+- Late Penalty 10%/วัน
+- คิดค่าเช่ารายวันต่อเนื่อง
+- ค่าเช่ารายวัน + ค่าปรับ
+
+ระบบต้องเก็บแยก:
+rental_charge
+late_penalty
+
+ตัวอย่าง:
+daily_rate = 500
+late_penalty_per_day = 100
+overdue_days = 2
+
+extended_usage_charge = 1,000
+late_penalty = 200
+additional_due = 1,200
+
+ต้องกำหนดเพิ่ม:
+- วันปฏิทินหรือทุก 24 ชั่วโมง
+- ปัดขึ้นหรือไม่
+- grace period
+- timezone
+
+======================================================================
+12. การรับชำระและคืนเงิน
+======================================================================
+
+Payment และ Refund เป็นคนละธุรกรรม
+
+ถูกต้อง:
+Payment #1 +5,000
+Refund #1  -2,000
+Net Paid = 3,000
+
+ห้าม:
+แก้ Payment #1 เหลือ 3,000
+
+======================================================================
+13. FLOWCHART: การรับชำระ
+======================================================================
+
+[มี Balance Due > 0]
+   |
+   v
+[ผู้ใช้กดรับชำระ]
+   |
+   v
+[เลือกวิธี]
+   |
+   +--> CASH
+   +--> TRANSFER
+   +--> CARD
+   +--> OTHER
+   |
+   v
+[กรอกจำนวน]
+   |
+   v
+< amount > 0 ? >
+   |
+ NO ------> [Reject]
+   |
+ YES
+   |
+   v
+[ตรวจยอดคงเหลือ]
+   |
+   v
+[สร้าง Payment Record]
+   |
+   v
+[สร้าง Finance Ledger Entry]
+   |
+   v
+[Audit]
+   |
+   v
+[คำนวณ Payment Status ใหม่]
+
+======================================================================
+14. FLOWCHART: การคืนเงิน
+======================================================================
+
+[ระบบพบว่าร้านต้องคืนเงิน]
+   |
+   v
+[คำนวณ refundable amount]
+   |
+   v
+[ตรวจสิทธิ์ผู้อนุมัติ]
+   |
+   v
+[เลือกวิธีคืนเงิน]
+   |
+   v
+[สร้าง Refund Record]
+   |
+   v
+[สร้าง Ledger Entry ฝั่งเงินออก]
+   |
+   v
+[เชื่อม Refund กับ Payment/Bill]
+   |
+   v
+[Audit]
+   |
+   v
+[คำนวณ Net Paid ใหม่]
+
+======================================================================
+15. เงินมัดจำ
+======================================================================
+
+Deposit ต้องแยกจาก Rental Revenue
+
+ตัวอย่าง:
+ค่าเช่า 3,000
+มัดจำ 2,000
+ลูกค้าจ่ายรวม 5,000
+
+ควรแยก:
+Rental Revenue = 3,000
+Deposit Liability = 2,000
+
+เมื่อคืนสินค้า:
+- ปกติ -> คืน Deposit ตามนโยบาย
+- ชำรุด -> อาจหัก Damage Charge
+- หาย -> อาจหัก Lost Charge
+- ถ้ายังเหลือ -> Refund ส่วนที่เหลือ
+
+======================================================================
+16. FLOWCHART: Deposit Settlement
+======================================================================
+
+[มี Deposit]
+   |
+   v
+[รับคืนสินค้า]
+   |
+   v
+[ตรวจสภาพ]
+   |
+   +-------------------------------+
+   |              |                |
+ NORMAL         DAMAGED           LOST
+   |              |                |
+   v              v                v
+[คืนเต็ม]   [คำนวณ Damage]   [คำนวณ Lost]
+                  |                |
+                  +-------+--------+
+                          |
+                          v
+                 [Deposit Applied]
+                          |
+                          v
+               < Deposit เหลือหรือไม่? >
+                    |           |
+                   YES         NO
+                    |           |
+                    v           v
+                 [Refund]    [ตรวจยอดค้าง]
+                                  |
+                          +-------+------+
+                          |              |
+                        มีค้าง          ไม่ค้าง
+                          |              |
+                          v              v
+                     [รับเพิ่ม]        [จบ]
+
+======================================================================
+17. สินค้าชำรุด
+======================================================================
+
+ห้ามถือว่า Return = Available ทันที
+
+ตัวอย่าง:
+ส่ง 10
+คืน 10
+ปกติ 8
+ชำรุด 2
+
+physical_returned_qty = 10
+available_return_qty = 8
+damaged_qty = 2
+
+======================================================================
+18. FLOWCHART: สินค้าชำรุด
+======================================================================
+
+[รับคืน]
+   |
+   v
+[ตรวจสภาพ]
+   |
+   v
+< ปกติหรือไม่? >
+   |
+   +---------------------+
+   |                     |
+  YES                   NO
+   |                     |
+   v                     v
+[Available]          [DAMAGED]
+                         |
+                         v
+                 [Quarantine / Inspection]
+                         |
+                         v
+                 [ประเมินความเสียหาย]
+                         |
+           +-------------+--------------+
+           |                            |
+         ซ่อมได้                    เสียหายถาวร
+           |                            |
+           v                            v
+      [Repair Queue]              [Disposition]
+           |                            |
+           v                            v
+       [Repair Cost]             [Replacement/Loss]
+           |                            |
+           +-------------+--------------+
+                         |
+                         v
+                  [Damage Charge]
+                         |
+                         v
+               [Deposit / Payment]
+                         |
+                         v
+                       [Audit]
+
+======================================================================
+19. สินค้าหาย
+======================================================================
+
+Lost ไม่ใช่ Returned
+
+ส่ง 10
+กลับมา 9
+หาย 1
+
+ถูกต้อง:
+physical_returned = 9
+lost = 1
+resolved = 10
+
+ผิด:
+returned = 10
+
+======================================================================
+20. FLOWCHART: สินค้าหาย
+======================================================================
+
+[ถึงวันคืน / รับคืน]
+   |
+   v
+[พบจำนวนขาด]
+   |
+   v
+[MISSING]
+   |
+   v
+[ตรวจค้น / ยืนยันกับลูกค้า]
+   |
+   v
+< พบสินค้าไหม? >
+   |
+   +-------------------+
+   |                   |
+  YES                 NO
+   |                   |
+   v                   v
+[รับคืนปกติ]        [LOST]
+                        |
+                        v
+                [ผู้มีสิทธิ์อนุมัติ]
+                        |
+                        v
+                 [คำนวณ Lost Charge]
+                        |
+                        v
+                  [ใช้ Deposit]
+                        |
+                        v
+              < ยังมียอดค้างหรือไม่? >
+                   |             |
+                  YES           NO
+                   |             |
+                   v             v
+              [รับชำระ]      [เคลียร์]
+                   |
+                   v
+            [ปรับทะเบียนสินค้า]
+                   |
+                   v
+                 [Audit]
+
+======================================================================
+21. Lost Charge และ Write-off
+======================================================================
+
+Lost Charge อาจมาจาก:
+- ราคาทดแทน
+- ราคาขาย
+- ราคาทุน
+- ค่าเสื่อม
+- เปอร์เซ็นต์ตามอายุ
+- Flat Fee
+- Contract Replacement Value
+
+ต้องเก็บ:
+- charge basis
+- amount
+- approved_by
+- reason
+- timestamp
+
+Write-off ใช้เมื่อ:
+- ร้านยอมรับภาระขาดทุน
+- ไม่สามารถเรียกเก็บลูกค้า
+- มีผู้อนุมัติ
+- ต้องปิด ledger ให้สมดุล
+
+ห้าม:
+Lost -> Write-off อัตโนมัติ
+
+ควร:
+Lost -> Charge -> Collection/Deposit -> Approval -> Write-off
+
+======================================================================
+22. WORKFLOW ตามฝ่าย
+======================================================================
+
+ฝ่าย 1: แคชเชียร์ / Front Desk
+- เปิดบิล
+- เลือกสินค้า
+- เลือก Rental Terms
+- รับเงิน
+- คืนเงินตามสิทธิ์
+- ดูยอดคงเหลือ
+- ส่งต่อไปคลังเมื่อพร้อมส่ง
+- ส่งต่อเพื่ออนุมัติเมื่อเกินสิทธิ์
+
+ฝ่าย 2: คลัง / Delivery
+- ตรวจ stock
+- ส่งมอบ
+- บันทึก delivered_qty
+- บันทึกเวลา
+- ปรับ stock state
+- หลังส่งให้ Rental = ACTIVE
+
+ฝ่าย 3: รับคืน / Inspection
+- ตรวจจำนวน
+- ตรวจสภาพ
+- แยก Normal / Damaged / Lost
+- บันทึก Return
+- เปิด Damage Case
+- เปิด Missing/Lost Case
+- Normal -> Available
+- Damaged -> Inspection/Repair
+- Lost -> Approval/Finance
+
+ฝ่าย 4: Finance
+- Payment
+- Refund
+- Deposit
+- Adjustment
+- Late Penalty
+- Damage Charge
+- Lost Charge
+- Reconcile
+- ถ้ามียอดค้าง -> Collection
+- ถ้าเงินเกิน -> Refund
+- ถ้า 0 -> Settled
+
+ฝ่าย 5: Manager / Owner / Authorized User
+- อนุมัติ Refund
+- อนุมัติ Damage
+- อนุมัติ Lost
+- อนุมัติ Write-off
+- อนุมัติ Correction
+- อนุมัติ Renewal ตามกฎ
+
+ฝ่าย 6: Audit / System
+- actor
+- timestamp
+- entity
+- action
+- amount
+- quantity
+- reason
+- reversal linkage
+
+======================================================================
+23. Workflow: คืนก่อนกำหนด
+======================================================================
+
+Front Desk
+-> ค้นบิล
+-> ส่งให้ Return/Inspection
+
+Return/Inspection
+-> ตรวจจำนวน
+-> ตรวจสภาพ
+-> บันทึก Actual Return
+-> ส่งข้อมูลไป Finance
+
+Finance
+-> อ่าน Early Return Policy
+-> คำนวณ Final Rental Charge
+-> รวม Damage/Lost ถ้ามี
+-> หัก Payment
+-> หัก Deposit ตามกฎ
+
+ถ้ายอด > 0 -> รับเงิน
+ถ้ายอด < 0 -> Refund
+
+Manager
+-> อนุมัติรายการที่เกินสิทธิ์
+
+Audit
+-> เก็บประวัติทั้งหมด
+
+======================================================================
+24. Workflow: เลยกำหนด
+======================================================================
+
+System Scheduler / On Read
+-> ตรวจ current time > rental_end
+
+ถ้า:
+remaining_obligation > 0
+และไม่มี renewal approved
+
+-> Rental Status = OVERDUE
+
+System
+-> คำนวณ overdue period
+-> อ่าน late policy
+-> สร้าง charge preview
+
+Front Desk
+-> เห็น overdue
+-> ติดต่อ/รับคืน/รับชำระ
+
+ถ้าลูกค้าขอต่อ:
+-> ส่ง Approval
+-> สร้าง Rental Bill ใหม่
+-> เชื่อม Renewal
+
+ถ้าไม่ต่อ:
+-> ค่าปรับคงอยู่
+-> รับคืนภายหลัง
+-> Final Settlement
+
+======================================================================
+25. Workflow: ชำรุด
+======================================================================
+
+Return Desk
+-> รับสินค้า
+-> Condition = DAMAGED
+
+System
+-> ไม่คืน Available
+
+Inspection
+-> ประเมิน
+
+Repair Team
+-> ประเมินค่าซ่อม
+
+Finance
+-> Damage Charge
+
+Deposit
+-> Apply
+
+ถ้ายังขาด -> Payment
+ถ้าเงินเกิน -> Refund
+
+Manager
+-> Approval
+
+Audit
+-> Complete
+
+======================================================================
+26. Workflow: สูญหาย
+======================================================================
+
+Return Desk
+-> พบจำนวนไม่ครบ
+-> MISSING
+
+System
+-> เปิด Case
+
+Staff
+-> ตรวจสอบ
+
+ถ้าพบ -> Return
+
+ถ้าไม่พบ -> LOST
+
+Manager
+-> Approve
+
+Finance
+-> Lost Charge
+-> Apply Deposit
+-> Receive Payment
+
+Inventory
+-> Remove/Dispose Rental Unit
+-> ไม่เพิ่มกลับ stock
+
+ถ้าเก็บเงินไม่ได้
+-> Approval
+-> Write-off
+
+Audit
+-> Complete
+
+======================================================================
+27. Validation สำคัญ
+======================================================================
+
+Early Return
+- Actual Return ห้ามก่อน Delivery
+- ห้ามคืนเกิน delivered_qty
+- ต้องอ่าน Policy ก่อนคิด Refund
+- Refund ห้ามเกินยอดที่มีสิทธิ์คืน
+
+Overdue
+- ต้องเทียบ timezone ให้ถูก
+- ต้องกำหนด rounding rule
+- ต้องมี grace period rule ถ้าใช้
+- ห้าม renewal อัตโนมัติ
+- ห้ามคิด penalty ซ้ำช่วงเดียวกัน
+
+Payment
+- amount > 0
+- ป้องกัน double submit
+- แยก method
+- มี reference
+- มี actor
+
+Refund
+- amount > 0
+- ต้องเชื่อมเหตุผล
+- ต้องมี approval ตามสิทธิ์
+- ห้าม refund เกิน refundable balance
+
+Damage
+- ต้องมี condition
+- ต้องมี inspection
+- ห้าม available อัตโนมัติ
+
+Lost
+- ต้องมี missing state ก่อน
+- ต้องมี approval
+- ห้ามเพิ่ม stock
+- ห้าม mark returned
+
+======================================================================
+28. Transaction / Atomicity
+======================================================================
+
+Return:
+
+BEGIN
+1. Lock bill item
+2. Read delivered/resolved qty
+3. Validate return
+4. Insert return transaction
+5. Insert return lines
+6. Insert stock movements
+7. Insert audit
+8. Recalculate status
+COMMIT
+
+ถ้าผิด:
+ROLLBACK
+
+Payment:
+
+BEGIN
+1. Lock bill/finance aggregate
+2. Validate balance
+3. Insert payment
+4. Insert ledger
+5. Insert audit
+6. Recalculate
+COMMIT
+
+Damage:
+
+BEGIN
+1. Insert damage case
+2. Change stock state
+3. Insert condition record
+4. Insert audit
+COMMIT
+
+======================================================================
+29. เงื่อนไขปิดบิล
+======================================================================
+
+ปิดบิลได้เมื่อ:
+1. remaining_obligation = 0
+2. financial balance = 0 หรือมี approved write-off
+3. Damage Cases ถูก resolve
+4. Lost Cases ถูก resolve
+5. Deposit ถูกคืน/หัก/เคลียร์แล้ว
+6. ไม่มี Refund ค้าง
+7. ไม่มี Payment pending
+8. Audit ครบ
+
+จากนั้น:
+Bill Status = CLOSED
+
+======================================================================
+30. Diagram รวม
+======================================================================
+
+                         RENTAL BILL
+                             |
+           +-----------------+------------------+
+           |                                    |
+       RENTAL ITEMS                           FINANCE
+           |                                    |
+   +-------+--------+                  +--------+--------+
+   |                |                  |                 |
+DELIVERY        RENTAL TERMS        PAYMENTS         DEPOSIT
+   |                |                  |                 |
+   |         +------+-------+          |                 |
+   |         |      |       |          |                 |
+   |       RATE   EARLY   LATE         |                 |
+   |              RETURN  POLICY       |                 |
+   |                                    \             /
+   v                                     \           /
+RETURNS                                    SETTLEMENT
+   |                                           |
++--+------+---------+                   +------+------+
+|         |         |                   |             |
+NORMAL  DAMAGED    LOST                PAY          REFUND
+|         |         |                   |             |
+|      INSPECTION  LOSS CHARGE          +------+------+
+|         |         |                          |
+|       REPAIR      |                        AUDIT
+|         |         |
++---------+---------+
+          |
+      INVENTORY
+
+======================================================================
+31. สรุปเชิงสถาปัตยกรรม
+======================================================================
+
+คืนก่อนกำหนด ≠ ต้องคืนเงินเสมอ
+ขึ้นกับ Early Return Policy
+
+เลยกำหนด ≠ ต่ออายุ
+
+ต่ออายุ = ธุรกรรมใหม่ที่ได้รับอนุมัติ
+
+เลยกำหนด = Overdue + Late Policy
+
+Payment ≠ Refund
+
+Deposit ≠ Rental Revenue
+
+Damaged ≠ Available
+
+Lost ≠ Returned
+
+ทุกเหตุการณ์:
+- สร้าง record ใหม่
+- เชื่อมกับ record เดิม
+- Audit ได้
+- Rollback ได้
+
+======================================================================
+32. ตัวอย่างสถานการณ์รวม
+======================================================================
+
+วันที่ 1
+เช่าโต๊ะ 10 ตัว
+วันละ 500
+เช่า 5 วัน
+Deposit 2,000
+ชำระค่าเช่า 1,500
+
+Payment Status = PARTIALLY_PAID
+
+วันที่ 3
+ลูกค้าคืน 6 ตัวก่อนกำหนด
+5 ปกติ
+1 ชำรุด
+
+Return Status = PARTIALLY_RETURNED
+
+ระบบ:
+- บันทึก actual return ของ 6
+- ตรวจ Early Return Policy
+- เปิด Damage Case 1 ตัว
+
+วันที่ 5
+ถึงกำหนด
+ยังมีค้าง 4 ตัว
+ไม่มี Renewal
+
+Rental Status = OVERDUE
+
+วันที่ 7
+คืน 3
+ยังหาย 1
+
+overdue = 2 วัน
+
+ระบบ:
+- คำนวณค่าเกินกำหนด
+- Missing 1
+
+ภายหลังยืนยัน Lost
+
+ระบบ:
+- Lost Charge
+- ใช้ Deposit
+- คำนวณ Settlement
+
+ผลสุดท้าย:
+ถ้ายอดค้าง > 0 -> รับเพิ่ม
+ถ้าจ่ายเกิน -> Refund
+
+เมื่อ:
+สินค้าทั้งหมด resolved
+การเงิน = 0
+Damage resolved
+Lost resolved
+Deposit settled
+
+-> CLOSED
+
+======================================================================
+33. ข้อสรุปสุดท้าย
+======================================================================
+
+ระบบที่ถูกต้องต้องมองการเช่าเป็น "วงจรเหตุการณ์"
+
+Open Rental
+-> Payment
+-> Delivery
+-> Active Rental
+-> Early Return / Normal Return / Overdue
+-> Condition Check
+-> Damage/Lost Resolution
+-> Final Settlement
+-> Payment/Refund
+-> Close
+
+ไม่ควรใช้แนวคิดว่าเปิดบิลแล้วแก้ค่าต่าง ๆ ในบิลไปเรื่อย ๆ
+
+แนวที่ถูกต้องคือ:
+Original Transaction + Linked Events + Derived Status
+
+======================================================================
+จบเอกสาร
+======================================================================
+
+
+==============================================================================
+SOURCE 4: เอกสารข้อความใหม่ (7).txt
+==============================================================================
+
+เอกสารสรุปและวิเคราะห์ระบบ POS
+หัวข้อ:
+1. การออกบิลขายสินค้าและเช่าในใบเดียวกัน
+2. การแยกโหมดขายสินค้าและเช่าสินค้า
+
+วัตถุประสงค์:
+ใช้เป็นสเปกเชิงระบบสำหรับออกแบบ UI, Database, Workflow, Stock, Payment,
+Validation, Permission, Audit และการเชื่อมโยงระหว่างสินค้าแบบขายและสินค้าแบบเช่า
+ภายใต้บิลเดียวกัน โดยอิงแนวคิดจาก ARTS ODM 7.3
+และปรับให้เหมาะกับระบบ POS เช่า/ขาย
+
+======================================================================
+1. แนวคิดหลัก
+======================================================================
+
+ระบบควรมี "หัวบิลเดียว" แต่ให้แต่ละรายการสินค้าในบิลกำหนดโหมดของตัวเอง
+
+ตัวอย่าง:
+
+BILL B001
+|
++-- Line 1 = SALE
+|   สายไฟ 2 ชิ้น
+|
++-- Line 2 = RENTAL
+|   โต๊ะ 10 ตัว / 3 วัน
+|
++-- Line 3 = RENTAL
+|   เก้าอี้ 20 ตัว / 3 วัน
+|
++-- Line 4 = SALE
+    ถ่าน AA 4 แพ็ก
+
+หลักสำคัญ:
+- หัวบิลไม่ควรบังคับว่าต้องเป็น SALE หรือ RENTAL อย่างใดอย่างหนึ่ง
+- SALE / RENTAL ควรอยู่ที่ระดับ Bill Item / Line Item
+- UI สามารถมีปุ่ม [เช่า] [ขาย]
+- ปุ่มดังกล่าวเป็น "current mode" สำหรับสินค้าที่จะเพิ่มต่อไป
+- เปลี่ยนโหมดกลางบิลได้
+- สินค้าเดียวกันสามารถขายและเช่าคนละจำนวนในบิลเดียวกันได้
+- Line ที่เป็น SALE และ RENTAL ห้าม merge เข้าด้วยกัน
+- หลัง Checkout แต่ละ Line ต้องเดิน Lifecycle ของตัวเอง
+- Payment สามารถรับที่ระดับ Bill เดียวได้
+
+======================================================================
+2. ความสอดคล้องเชิงโครงสร้างกับ ARTS ODM 7.3
+======================================================================
+
+RetailTransaction
+    |
+    +-- RetailTransactionLineItem
+            |
+            +-- SaleReturnLineItem
+                    |
+                    +-- RentalModifier (เฉพาะกรณีเช่า)
+
+ดังนั้น:
+- SALE ใช้ SaleReturnLineItem ปกติ
+- RENTAL ใช้ SaleReturnLineItem และเพิ่ม RentalModifier
+- ข้อมูลเฉพาะการเช่า เช่น Start, End, Period, Rate อยู่ที่ RentalModifier
+- ยอดของ Rental Line ยังคงรวมเข้า Retail Transaction ได้
+
+จุดสำคัญ:
+"การเช่า" เป็นการขยายความหมายของ Line Item
+ไม่จำเป็นต้องแยกระบบเช่าออกจาก Retail Transaction ทั้งชุด
+
+======================================================================
+3. โครงสร้างข้อมูลระดับสูง
+======================================================================
+
+BILLS
+- id
+- customer_id
+- status
+- subtotal
+- discount
+- shipping
+- vat
+- grand_total
+- payment_status
+- created_at
+- created_by
+
+BILL_ITEMS
+- id
+- bill_id
+- product_id
+- line_mode
+- quantity
+- unit_price
+- extended_amount
+- fulfillment_status
+- created_at
+
+line_mode:
+SALE
+RENTAL
+
+RENTAL_LINE_DETAILS
+- id
+- bill_item_id
+- rental_rate
+- rental_period_type
+- rental_period_count
+- rental_start_at
+- rental_end_at
+- rental_contract_id
+- return_status
+
+PRODUCTS
+- id
+- name
+- sku
+- can_sell
+- can_rent
+- sale_price
+- rental_price
+- rental_calculation_type
+- active
+
+PAYMENTS
+- id
+- bill_id
+- amount
+- payment_method
+- status
+- created_at
+- created_by
+
+STOCK_MOVEMENTS
+- id
+- product_id
+- source_type
+- source_id
+- movement_type
+- quantity_delta
+- stock_state
+- created_at
+
+AUDIT_EVENTS
+- id
+- entity_type
+- entity_id
+- action
+- actor_id
+- before_data
+- after_data
+- created_at
+
+======================================================================
+4. PRODUCT CAPABILITY
+======================================================================
+
+สินค้าแต่ละรายการต้องบอกว่าใช้โหมดใดได้บ้าง
+
+ตัวอย่าง:
+
+โต๊ะ
+can_sell = true
+can_rent = true
+
+น้ำดื่ม
+can_sell = true
+can_rent = false
+
+เครื่องมือพิเศษ
+can_sell = false
+can_rent = true
+
+ดังนั้นระบบต้องตรวจก่อนเพิ่มสินค้า:
+
+current_mode = SALE
+-> product.can_sell ต้องเป็น true
+
+current_mode = RENTAL
+-> product.can_rent ต้องเป็น true
+
+======================================================================
+5. FLOWCHART: การเลือกโหมดขาย / เช่า
+======================================================================
+
+[เปิดหน้า POS]
+   |
+   v
+[ค่าเริ่มต้น current_mode]
+   |
+   +--> SALE
+   หรือ
+   +--> RENTAL
+   |
+   v
+[ผู้ใช้กดปุ่ม "ขาย" หรือ "เช่า"]
+   |
+   v
+[current_mode ถูกเปลี่ยน]
+   |
+   v
+[เลือกสินค้า]
+   |
+   v
+<current_mode = SALE?>
+   | YES
+   v
+<product.can_sell = true?>
+   | NO
+   v
+[แจ้ง "สินค้านี้ขายไม่ได้"]
+   |
+   +--> กลับไปเลือกสินค้า
+   |
+   YES
+   |
+   v
+[สร้าง SALE Line]
+   |
+   v
+[ใช้ sale_price]
+   |
+   v
+[คำนวณ ราคา × จำนวน]
+   |
+   v
+[เพิ่มเข้า Cart]
+
+กรณี current_mode = RENTAL:
+
+[เลือกสินค้า]
+   |
+   v
+<product.can_rent = true?>
+   | NO
+   v
+[แจ้ง "สินค้านี้เช่าไม่ได้"]
+   |
+   +--> กลับ
+   |
+   YES
+   |
+   v
+[สร้าง RENTAL Line]
+   |
+   v
+[ใช้ rental_price]
+   |
+   v
+[กำหนด Period]
+   |
+   v
+[กำหนด Start / End]
+   |
+   v
+[คำนวณ ราคาเช่า × จำนวน × รอบ]
+   |
+   v
+[เพิ่มเข้า Cart]
+
+======================================================================
+6. FLOWCHART: การสร้างบิลผสม
+======================================================================
+
+[เริ่ม]
+   |
+   v
+[เปิด Cart]
+   |
+   v
+[เลือก current_mode]
+   |
+   v
+[เพิ่มสินค้า]
+   |
+   v
+<ต้องเพิ่มสินค้าอีก?>
+   | YES
+   |
+   +--> เปลี่ยน mode ได้
+   |
+   +--> เพิ่ม SALE Line
+   |
+   +--> เพิ่ม RENTAL Line
+   |
+   +--> กลับมาตรวจ
+   |
+   NO
+   |
+   v
+[ตรวจ Cart]
+   |
+   v
+<มี RENTAL Line หรือไม่?>
+   | NO
+   v
+[อนุญาต Walk-in ตามกฎ]
+   |
+   +-------------------------+
+                             |
+   YES                       |
+   |                         |
+   v                         |
+<มี Customer หรือยัง?>       |
+   | NO                      |
+   v                         |
+[บังคับเลือก/สร้าง Customer]|
+   |                         |
+   YES                       |
+   |                         |
+   +------------+------------+
+                |
+                v
+[ตรวจ Stock ทุก Line]
+                |
+                v
+<Stock เพียงพอทุก Line?>
+   | NO
+   v
+[ปฏิเสธ Checkout]
+   |
+   v
+[แจ้งรายการที่ไม่พอ]
+   |
+   +--> กลับไปแก้ Cart
+   |
+   YES
+   |
+   v
+[ตรวจข้อมูล Rental]
+   |
+   v
+<Rental Start/End/Period ครบ?>
+   | NO
+   v
+[แจ้งให้กรอก]
+   |
+   YES
+   |
+   v
+[คำนวณยอด]
+   |
+   v
+[แสดง Sale Subtotal]
+   |
+   v
+[แสดง Rental Subtotal]
+   |
+   v
+[คำนวณ Discount / Fee / VAT]
+   |
+   v
+[Grand Total]
+   |
+   v
+[รับ Payment]
+   |
+   v
+[BEGIN TRANSACTION]
+   |
+   v
+[สร้าง BILL]
+   |
+   v
+[สร้าง BILL_ITEMS]
+   |
+   +--> SALE Lines
+   |
+   +--> RENTAL Lines
+   |
+   v
+[สร้าง Rental Details เฉพาะ RENTAL]
+   |
+   v
+[สร้าง Stock Movements]
+   |
+   v
+[สร้าง Payment]
+   |
+   v
+[สร้าง Audit]
+   |
+   v
+<ทุกขั้นตอนสำเร็จ?>
+   | NO
+   v
+[ROLLBACK]
+   |
+   v
+[แจ้งข้อผิดพลาด]
+   |
+   YES
+   |
+   v
+[COMMIT]
+   |
+   v
+[ออก Bill / Receipt]
+   |
+   v
+[เข้าสู่ Post-Checkout Workflow]
+
+======================================================================
+7. สูตรคำนวณ
+======================================================================
+
+SALE Line:
+line_total = sale_price × quantity
+
+RENTAL Line แบบต่อครั้ง:
+line_total = rental_price_per_transaction × quantity × period_count
+
+RENTAL Line แบบรายวัน:
+line_total = rental_price_per_day × quantity × number_of_days
+
+sale_subtotal = SUM(extended_amount ของ SALE)
+rental_subtotal = SUM(extended_amount ของ RENTAL)
+subtotal = sale_subtotal + rental_subtotal
+
+grand_total = subtotal - discount + shipping + fees + vat
+
+======================================================================
+8. DIAGRAM: โครงสร้างบิล
+======================================================================
+
+                         +----------------------+
+                         |        BILL          |
+                         +----------+-----------+
+                                    |
+               +--------------------+--------------------+
+               |                                         |
+               v                                         v
+        +---------------+                         +---------------+
+        |   BILL ITEM   |                         |    PAYMENT    |
+        +-------+-------+                         +---------------+
+                |
+         +------+------+
+         |             |
+         v             v
+   +-----------+   +-------------+
+   | SALE LINE |   | RENTAL LINE |
+   +-----------+   +------+------+
+                         |
+                         v
+                +---------------------+
+                | RENTAL LINE DETAIL  |
+                +---------------------+
+                | start_at            |
+                | end_at              |
+                | period_type         |
+                | period_count        |
+                | rental_rate         |
+                +---------------------+
+
+======================================================================
+9. DIAGRAM: ความสัมพันธ์สินค้าและโหมด
+======================================================================
+
+                          PRODUCT
+                             |
+             +---------------+---------------+
+             |                               |
+             v                               v
+        can_sell                         can_rent
+             |                               |
+             v                               v
+          SALE MODE                      RENTAL MODE
+             |                               |
+             v                               v
+        sale_price                       rental_price
+             |                               |
+             v                               v
+        SALE LINE                       RENTAL LINE
+                                             |
+                                             v
+                                      Rental Detail
+
+======================================================================
+10. DIAGRAM: Lifecycle หลัง Checkout
+======================================================================
+
+                         BILL
+                          |
+             +------------+------------+
+             |                         |
+             v                         v
+          SALE LINE                RENTAL LINE
+             |                         |
+             v                         v
+         RESERVED                   RESERVED
+             |                         |
+             v                         v
+        SOLD/DELIVERED             RENTED_OUT
+             |                         |
+             v                         v
+       Sale Fulfilled             Await Return
+                                       |
+                          +------------+------------+
+                          |                         |
+                          v                         v
+                    Partial Return              Full Return
+                          |                         |
+                          v                         v
+                    Remaining Qty                Inspection
+                          |                         |
+                          +------------+------------+
+                                       |
+                                       v
+                              Normal/Damage/Lost
+
+======================================================================
+11. STOCK WORKFLOW
+======================================================================
+
+SALE:
+AVAILABLE -> RESERVED -> SOLD/DELIVERED
+On Hand ลดจริงเมื่อขาย/ส่งมอบตามกฎ
+
+RENTAL:
+AVAILABLE -> RESERVED -> RENTED_OUT -> RETURN_PENDING -> RETURNED -> INSPECTION
+INSPECTION -> NORMAL -> AVAILABLE
+INSPECTION -> DAMAGED -> REPAIR
+INSPECTION -> LOST -> LOST/WRITE-OFF
+
+ตัวอย่าง:
+มีโต๊ะ 20
+ขาย 2
+เช่า 10
+
+On Hand หลังขาย = 18
+ใน 18:
+AVAILABLE = 8
+RENTED_OUT = 10
+
+ห้ามสรุปว่า quantity = 8 อย่างเดียว
+
+======================================================================
+12. สินค้าเดียวกันขายและเช่าในบิลเดียว
+======================================================================
+
+Product = TABLE-A
+
+Line 1:
+mode = SALE
+qty = 1
+price = 2,500
+
+Line 2:
+mode = RENTAL
+qty = 10
+rate = 100/day
+period = 3 days
+
+ห้าม merge เพราะ:
+- ความหมายธุรกิจต่างกัน
+- สูตรราคาไม่เหมือนกัน
+- Stock Lifecycle ไม่เหมือนกัน
+- Return Obligation ไม่เหมือนกัน
+- Revenue Classification ไม่เหมือนกัน
+
+======================================================================
+13. PAYMENT WORKFLOW
+======================================================================
+
+Payment รับที่ระดับ Bill ได้
+
+ตัวอย่าง:
+Sale Subtotal = 1,200
+Rental Subtotal = 4,200
+Grand Total = 5,400
+
+Payment:
+Cash = 2,000
+Transfer = 3,400
+
+ไม่จำเป็นต้องแยกว่า Payment for Sale / Payment for Rental ในการรับเงิน
+แต่ระบบควรเก็บ Revenue Classification ภายในเพื่อ Report
+
+[Grand Total]
+   |
+   v
+[เลือกช่องทาง]
+   |
+   v
+[รับเงิน]
+   |
+   v
+[สร้าง Payment Record]
+   |
+   v
+[สร้าง Finance Ledger]
+   |
+   v
+[Payment Status]
+   |
+   +--> PARTIALLY_PAID
+   +--> PAID
+
+======================================================================
+14. CUSTOMER RULE
+======================================================================
+
+ถ้ามี RENTAL Line อย่างน้อย 1 รายการ -> ต้องมี Customer
+ถ้ามีเฉพาะ SALE -> Walk-in ได้ตามกฎ
+
+[Cart]
+   |
+   v
+<มี RENTAL Line?>
+   | NO
+   v
+[Walk-in Allowed]
+   |
+   YES
+   |
+   v
+<มี Customer?>
+   | NO
+   v
+[บังคับเลือก/สร้าง]
+   |
+   YES
+   |
+   v
+[Checkout]
+
+======================================================================
+15. BILL STATUS และ LINE STATUS
+======================================================================
+
+ห้ามใช้ Bill Status ตัวเดียวบอกทุกอย่าง
+
+ตัวอย่าง:
+Line 1 SALE = DELIVERED
+Line 2 RENTAL = RENTED_OUT
+Payment = PAID
+Bill = ACTIVE
+
+ควรมี:
+- Bill Status
+- Payment Status
+- Line Fulfillment Status
+- Rental Return Status
+
+ตัวอย่าง:
+Bill Status = ACTIVE
+Payment Status = PAID
+
+Line 1:
+mode = SALE
+fulfillment = DELIVERED
+
+Line 2:
+mode = RENTAL
+fulfillment = RENTED_OUT
+return_status = PARTIALLY_RETURNED
+
+======================================================================
+16. WORKFLOW ตามฝ่าย
+======================================================================
+
+ฝ่ายขาย / แคชเชียร์
+- เปิด POS
+- เลือก SALE / RENTAL
+- เลือกสินค้า
+- ระบุจำนวน
+- กำหนด Period สำหรับ RENTAL
+- ตรวจ Customer
+- ตรวจยอด
+- รับ Payment
+- ยืนยัน Checkout
+
+ส่งต่อ:
+SALE -> คลัง/ส่งมอบ
+RENTAL -> คลัง/ส่งมอบ + Return Workflow
+Payment -> การเงิน
+ปัญหา Stock -> คลัง/ผู้จัดการ
+
+ฝ่ายคลัง
+- ตรวจ Stock
+- Reserve
+- เตรียมสินค้า
+- แยก SALE กับ RENTAL
+- ส่งมอบ
+- อัปเดต Stock State
+
+ส่งต่อ:
+SALE -> Delivered
+RENTAL -> Rented Out / Await Return
+
+ฝ่ายรับคืน
+เกี่ยวข้องเฉพาะ RENTAL
+- ตรวจบิล
+- ดู Rental Lines
+- รับคืน
+- ตรวจจำนวน
+- ตรวจสภาพ
+- บันทึก Partial Return / Full Return
+
+ส่งต่อ:
+NORMAL -> Stock Available
+DAMAGED -> Repair
+LOST -> Manager/Finance
+
+ฝ่ายการเงิน
+- ตรวจ Grand Total
+- รับ Payment
+- Split Payment
+- Partial Payment
+- Refund
+- Ledger
+- Revenue Classification
+
+ผู้จัดการ / Owner
+- ดู Audit
+- อนุมัติ Correction
+- อนุมัติ Refund
+- อนุมัติ Stock Adjustment
+- อนุมัติ Lost/Write-off
+
+======================================================================
+17. VALIDATION สำคัญ
+======================================================================
+
+SALE:
+- product.can_sell ต้อง true
+- qty > 0
+- sale_price >= 0
+- Stock เพียงพอ
+
+RENTAL:
+- product.can_rent ต้อง true
+- qty > 0
+- rental_rate >= 0
+- period_count > 0
+- start_at ต้องมี
+- end_at ต้องมี
+- end_at > start_at
+- ต้องมี Customer
+
+Mixed Bill:
+- Validate ทุก Line ก่อน Commit
+- ถ้า Line ใดผิด ต้องห้าม Checkout
+- ห้าม Commit แค่บาง Line
+
+Stock:
+- Lock ตอน Checkout
+- ป้องกัน Oversell
+- ป้องกัน Over-rent
+
+Payment:
+- amount > 0
+- ป้องกัน Double Submit
+- รองรับหลาย Payment
+
+======================================================================
+18. DATABASE TRANSACTION
+======================================================================
+
+Checkout ควรทำแบบ Atomic
+
+BEGIN
+1. Validate Bill
+2. Validate Customer
+3. Validate Product Capability
+4. Lock Stock
+5. Validate Stock
+6. Create Bill
+7. Create Bill Items
+8. Create Rental Details
+9. Create Stock Movements
+10. Create Payment
+11. Create Finance Ledger
+12. Create Audit
+
+ถ้าทุกอย่างผ่าน: COMMIT
+ถ้ามีข้อผิดพลาด: ROLLBACK
+
+ตัวอย่าง:
+สายไฟขายได้ แต่โต๊ะเช่าไม่พอ
+ห้ามสร้าง SALE สำเร็จแต่ RENTAL ล้มเหลว
+ควร ROLLBACK ทั้ง Checkout
+
+======================================================================
+19. UI WORKFLOW
+======================================================================
+
+หน้าจอหลัก:
+[เช่า] [ขาย]
+
+Current Mode ต้องแสดงชัดเสมอ
+
+เมื่อกด SALE:
+- ใช้ราคาขาย
+- ซ่อน Rental Fields
+- แสดงจำนวน
+
+เมื่อกด RENTAL:
+- ใช้ราคาเช่า
+- แสดง Period
+- แสดง Start/End
+- แสดงจำนวน
+
+Cart แต่ละ Row ต้องเห็น Mode ชัดเจน
+
+ตัวอย่าง:
+1 | SALE   | สายไฟ | 2  | 500             | 1,000
+2 | RENTAL | โต๊ะ   | 10 | 100/day × 3     | 3,000
+
+ควรมี Badge SALE / RENTAL
+
+======================================================================
+20. การแก้ไข Line ใน Cart
+======================================================================
+
+เปลี่ยน SALE -> RENTAL:
+- ตรวจ product.can_rent
+- เปลี่ยน pricing rule
+- ขอ Rental Period
+- Recalculate
+- เปลี่ยน Stock Reservation Type
+
+เปลี่ยน RENTAL -> SALE:
+- ตรวจ product.can_sell
+- ล้าง rental-only fields ใน draft
+- ใช้ sale_price
+- Recalculate
+- เปลี่ยน Reservation Type
+
+หลังยืนยัน Bill:
+ไม่ควรแก้ line_mode แบบไม่มีประวัติ
+ถ้าจำเป็นต้องแก้ ใช้ Cancel/Correction/Reversal ตามกฎ
+
+======================================================================
+21. AUDIT
+======================================================================
+
+ต้อง Audit:
+- สร้าง Bill
+- เพิ่ม SALE Line
+- เพิ่ม RENTAL Line
+- เปลี่ยน Mode
+- เปลี่ยนราคา
+- เปลี่ยนจำนวน
+- เปลี่ยน Rental Period
+- รับ Payment
+- ยกเลิก
+- Refund
+- Stock Movement
+- Return
+
+ข้อมูล:
+actor
+action
+entity
+before
+after
+timestamp
+reason
+
+======================================================================
+22. REPORTING
+======================================================================
+
+บิลเดียวต้องแยกรายงานได้
+
+Sale Revenue
+Rental Revenue
+
+ตัวอย่าง:
+Bill Total = 5,400
+Sale Revenue = 1,200
+Rental Revenue = 4,200
+
+Report:
+- ยอดขาย
+- ยอดเช่า
+- Mixed Bills
+- จำนวน SALE Lines
+- จำนวน RENTAL Lines
+- Revenue per Mode
+- Stock Movement per Mode
+
+======================================================================
+23. FLOWCHART รวมทั้งระบบ
+======================================================================
+
+[เปิด POS]
+   |
+   v
+[เลือก SALE / RENTAL]
+   |
+   v
+[เลือกสินค้า]
+   |
+   v
+[ตรวจ Product Capability]
+   |
+   v
+[เพิ่ม Line]
+   |
+   v
+<เพิ่มอีก?>
+   | YES -> เปลี่ยน Mode ได้ -> เพิ่มต่อ
+   | NO
+   v
+[ตรวจ Mixed Cart]
+   |
+   v
+<มี RENTAL?>
+   | YES -> [ตรวจ Customer]
+   | NO/ผ่าน
+   v
+[ตรวจ Stock ทุก Line]
+   |
+   v
+[คำนวณ Sale Subtotal]
+   |
+   v
+[คำนวณ Rental Subtotal]
+   |
+   v
+[Discount/Fee/VAT]
+   |
+   v
+[Grand Total]
+   |
+   v
+[Payment]
+   |
+   v
+[Atomic Checkout]
+   |
+   v
+[แยก Post-Checkout]
+   |
+   +--> SALE Workflow
+   +--> RENTAL Workflow
+   |
+   v
+[Audit / Report]
+
+======================================================================
+24. DIAGRAM ภาพรวมสุดท้าย
+======================================================================
+
+                         POS CART
+                            |
+                +-----------+-----------+
+                |                       |
+                v                       v
+             SALE MODE              RENTAL MODE
+                |                       |
+                v                       v
+           SALE LINE               RENTAL LINE
+                |                       |
+                |                RENTAL DETAILS
+                |                       |
+                +-----------+-----------+
+                            |
+                            v
+                           BILL
+                            |
+              +-------------+-------------+
+              |                           |
+              v                           v
+           PAYMENT                    STOCK
+                                          |
+                                 +--------+--------+
+                                 |                 |
+                                 v                 v
+                              SALE             RENTAL
+                                 |                 |
+                                 v                 v
+                             DELIVERED         RENTED_OUT
+                                                   |
+                                                   v
+                                                RETURN
+                                                   |
+                                          +--------+--------+
+                                          |        |        |
+                                        NORMAL   DAMAGE    LOST
+
+======================================================================
+25. ข้อสรุปสุดท้าย
+======================================================================
+
+1. หัวบิลเป็นกลาง
+2. SALE / RENTAL อยู่ระดับ Line
+3. UI Mode ใช้กำหนดวิธีเพิ่มสินค้าเท่านั้น
+4. Product กำหนด can_sell / can_rent
+5. สินค้าเดียวกันอยู่ทั้ง SALE และ RENTAL ได้
+6. ห้าม merge line ต่างโหมด
+7. Payment รับรวมที่ระดับ Bill
+8. Revenue แยกตาม Mode สำหรับ Report
+9. SALE และ RENTAL มี Stock Lifecycle ต่างกัน
+10. มี RENTAL Line ต้องมี Customer
+11. Bill Status, Payment Status, Line Status และ Return Status แยกกัน
+12. Checkout ต้อง Atomic
+13. ใช้ Transaction + Locking ป้องกัน Oversell/Over-rent
+14. หลัง Checkout แต่ละ Line เดิน Workflow ของตัวเอง
+15. Audit ทุกการเปลี่ยนแปลงสำคัญ
+
+แกนสถาปัตยกรรม:
+
+BILL
+ |
+ +-- BILL_ITEM [SALE]
+ |
+ +-- BILL_ITEM [RENTAL]
+ |       |
+ |       +-- RENTAL_DETAIL
+ |
+ +-- PAYMENT
+ |
+ +-- STOCK_MOVEMENT
+ |
+ +-- AUDIT
+
+หลักสำคัญที่สุด:
+
+"ขายและเช่าสามารถอยู่ในบิลเดียวกันได้
+โดยแยกความหมายและ Lifecycle ที่ระดับ Line Item
+ไม่ควรบังคับประเภทของทั้งบิลให้เป็น SALE หรือ RENTAL เพียงอย่างเดียว"
+
+======================================================================
+จบเอกสาร
+======================================================================
+
+
+==============================================================================
+SOURCE 5: POS_Master_Spec_Completion_17_Areas_TH(1).txt
+==============================================================================
+
+เอกสารสรุปและวิเคราะห์ระบบ POS / Retail Operations
+หัวข้อ: ส่วนที่ต้องเก็บให้ครบก่อนถือว่าสเปกระบบสมบูรณ์
+
+ครอบคลุม:
+1. เลขเอกสารทุกชนิด
+2. เอกสารพิมพ์จริง
+3. กฎส่วนลด / VAT / ค่าขนส่ง / มัดจำ
+4. ค่าปรับและค่าเสียหาย
+5. Cancel / Void / Refund
+6. เงื่อนไขปิดบิลทุกกรณี
+7. สิทธิ์ผู้ใช้
+8. Quotation → Reservation → Bill
+9. Backorder / ของไม่พอ / ส่งบางส่วน
+10. การนับสต็อกจริง
+11. รายงาน
+12. Backup / Restore / Retention
+13. Security / RLS / Server-side Rules
+14. Audit Retention
+15. Notification Policy
+16. Customer Credit / หนี้ค้าง
+17. ปิดวัน / ปิดกะ / กระทบยอด
+
+แนวคิด:
+เอกสารนี้ใช้เป็น Master Specification สำหรับเชื่อม Business Rule,
+Database, UI, Permission, Audit, Stock, Finance และ Workflow
+เข้าด้วยกัน
+
+======================================================================
+1. หลักการกลาง
+======================================================================
+
+1. ห้ามแก้ทับประวัติธุรกรรมสำคัญแบบไม่มีร่องรอย
+2. ทุกเหตุการณ์สำคัญต้อง Audit ได้
+3. Document Number ต้องแยกจาก Internal Database ID
+4. Status ควรคำนวณจากข้อมูลจริง ไม่ใช่เปลี่ยนเองโดยไม่มีเงื่อนไข
+5. Transaction สำคัญต้อง Atomic
+6. ใช้ Transaction + Locking สำหรับ Stock/Payment/Refund/Settlement
+7. Cancel/Refund/Correction ใช้ Reversal/Compensating Entry
+8. Product/Customer ที่มีประวัติห้าม Hard Delete
+9. Permission ต้องแยกตาม Action ไม่ใช่แค่ Role อย่างเดียว
+10. Notification เป็นตัวแจ้ง ไม่ใช่ Source of Truth
+11. Backup ต้องมี Restore Test
+12. Settlement และ Close ต้องตรวจทั้งสินค้า การเงิน และ Exception
+13. Quotation ไม่เท่ากับ Sale
+14. Reservation ไม่เท่ากับ Delivery
+15. Backorder ต้องแยกจาก Delivered Quantity
+16. Physical Stock Count ต้องสร้าง Adjustment ไม่แก้ Quantity ตรง ๆ
+17. Cash Close ต้องมี Expected, Actual และ Variance
+
+======================================================================
+2. เลขเอกสารทุกชนิด
+======================================================================
+
+เอกสารหลัก:
+- Quotation
+- Reservation
+- Bill
+- Receipt
+- Refund
+- Credit Note
+- Appointment
+- Stock Adjustment
+- Payment Receipt
+- Cash Session
+- Inventory Count
+
+หลักการ:
+
+Internal ID:
+- ใช้ UUID หรือ Internal Key
+- ห้ามใช้เลขเอกสารเป็น Primary Key ทางธุรกิจ
+
+Document Number:
+- สำหรับผู้ใช้และเอกสารพิมพ์
+- ต้อง Unique ตาม Document Type
+- เลขที่ออกแล้วห้ามนำกลับมาใช้ใหม่
+
+ตัวอย่าง:
+
+Quotation   QT-2026-000001
+Bill        BL-2026-000001
+Receipt     RC-2026-000001
+Refund      RF-2026-000001
+Credit Note CN-2026-000001
+Appointment AP-2026-000001
+
+นโยบายแนะนำ:
+- Reset รายปี
+- Running ต่อเนื่องในปีเดียว
+- Void แล้วเลขนั้นยังคงถูกใช้แล้ว
+- ห้าม Recycle
+
+FLOWCHART
+
+[สร้าง Draft]
+   |
+   v
+[ยังไม่ออกเลข Final]
+   |
+   v
+[ผู้ใช้กด Confirm/Post]
+   |
+   v
+[เริ่ม Transaction]
+   |
+   v
+[Lock Sequence]
+   |
+   v
+[ขอเลขถัดไป]
+   |
+   v
+[บันทึก Document Number]
+   |
+   v
+[Commit]
+   |
+   v
+[เลข Final ถูก Lock]
+   |
+   v
+[จบ]
+
+กรณีผิด:
+- ขอเลขแล้ว Transaction ล้มเหลว
+=> ต้องกำหนดว่าจะยอมให้เลขขาดช่วงหรือไม่
+=> แนวทางที่ปลอดภัย: ยอมให้เลขขาดช่วง แต่ห้ามใช้ซ้ำ
+
+======================================================================
+3. เอกสารพิมพ์จริง
+======================================================================
+
+รูปแบบ:
+- A4
+- 80mm
+- PDF
+- Email/Shareable PDF
+- สำเนา
+
+หลัก:
+Document Data ต้องแยกจาก Renderer
+
+โครงสร้าง:
+
+Document Data
+    |
+    +--> A4 Renderer
+    |
+    +--> 80mm Renderer
+    |
+    +--> PDF Renderer
+
+ข้อมูลที่ควรมี:
+- Logo
+- Company Name
+- Tax ID
+- Address
+- Phone
+- Document Number
+- Customer
+- Items
+- Sale/Rental Mode
+- Rental Period
+- Discount
+- VAT
+- Shipping
+- Deposit
+- Grand Total
+- Payment Summary
+- Signature
+- QR
+- Footer Text
+- Copy Number
+
+FLOWCHART
+
+[Transaction Confirmed]
+   |
+   v
+[สร้าง Document Data]
+   |
+   v
+[เลือก Output Format]
+   |
+   +--> A4
+   +--> 80mm
+   +--> PDF
+   |
+   v
+[Render]
+   |
+   v
+[Print / Save / Share]
+   |
+   v
+[บันทึก Document Reference]
+
+กฎ:
+- ห้ามมี Business Logic ซ้ำใน Renderer
+- Renderer อ่านค่าที่คำนวณแล้ว
+- เอกสารย้อนหลังต้องสร้างซ้ำได้จากข้อมูลเดิม
+
+======================================================================
+4. กฎส่วนลด / VAT / ค่าขนส่ง / มัดจำ
+======================================================================
+
+4.1 ลำดับคำนวณแนะนำ
+
+Item Base Amount
+   |
+   v
+Line Discount
+   |
+   v
+Line Net
+   |
+   v
+Bill Discount
+   |
+   v
+Shipping / Service Fee
+   |
+   v
+Taxable Base
+   |
+   v
+VAT
+   |
+   v
+Grand Total
+
+4.2 Discount
+
+ต้องรองรับ:
+- Line Discount
+- Bill Discount
+- Fixed Amount
+- Percentage
+
+ต้องกำหนด:
+- ลดก่อน VAT หรือหลัง VAT
+- Discount สูงสุด
+- ใครแก้ได้
+- ใคร Override ได้
+
+4.3 VAT
+
+ต้องมี:
+- vat_enabled
+- vat_rate
+- tax_inclusive / tax_exclusive
+- taxable amount
+- vat amount
+
+กฎระบบ:
+VAT switch ที่ POS และ Settings ต้องเป็น state เดียวกัน
+
+4.4 Shipping
+
+ต้องแยก:
+- delivery_fee
+- installation_fee
+- service_fee
+
+ไม่ควรซ่อนใน Unit Price
+
+4.5 Deposit
+
+Deposit ไม่ใช่ Revenue
+
+ตัวอย่าง:
+Rental Revenue = 3,000
+Deposit = 2,000
+Cash Received = 5,000
+
+ตอนคืน:
+Deposit 2,000
+- Damage 500
+= Refund 1,500
+
+DIAGRAM
+
+Payment
+ |
+ +--> Revenue
+ |
+ +--> Deposit Liability
+
+Return
+ |
+ +--> Normal -> Refund Deposit
+ |
+ +--> Damage -> Deduct
+ |
+ +--> Lost -> Deduct/Charge More
+
+======================================================================
+5. ค่าปรับและค่าเสียหาย
+======================================================================
+
+5.1 Late Fee
+
+ข้อมูล:
+- grace_period_minutes/hours
+- late_fee_type
+- late_fee_amount
+- late_fee_percent
+- minimum_fee
+- maximum_fee
+- period_type
+- rounding_rule
+
+FLOWCHART
+
+[ถึงกำหนดคืน]
+   |
+   v
+<คืนครบ?>
+   | YES -> [ไม่คิด Late]
+   |
+   NO
+   |
+   v
+[ตรวจ Grace Period]
+   |
+   v
+<ยังอยู่ใน Grace?>
+   | YES -> [Warning]
+   | NO
+   v
+[OVERDUE]
+   |
+   v
+[คำนวณ Late Period]
+   |
+   v
+[คำนวณ Late Charge]
+   |
+   v
+[สร้าง Charge Record]
+   |
+   v
+[แจ้งลูกค้า/ผู้รับผิดชอบ]
+
+5.2 Damage
+
+ระดับแนะนำ:
+NORMAL
+MINOR_DAMAGE
+REPAIRABLE
+MAJOR_DAMAGE
+TOTAL_LOSS
+LOST
+
+FLOWCHART
+
+[รับคืน]
+   |
+   v
+[ตรวจสภาพ]
+   |
+   v
+<Condition?>
+   |
+   +--> NORMAL -> Available
+   |
+   +--> MINOR/REPAIRABLE
+   |      ↓
+   |   Inspection
+   |      ↓
+   |   Estimate Repair
+   |      ↓
+   |   Damage Charge
+   |
+   +--> TOTAL LOSS
+   |      ↓
+   |   Replacement Charge
+   |
+   +--> LOST
+          ↓
+      Loss Charge
+
+Damage Charge
+   |
+   v
+[ตรวจ Deposit]
+   |
+   v
+[หัก Deposit]
+   |
+   v
+<ยังขาด?>
+   | YES -> รับเพิ่ม
+   | NO  -> Refund ส่วนเหลือ
+
+======================================================================
+6. Cancel / Void / Refund
+======================================================================
+
+แยกความหมาย:
+
+Cancel
+= ยกเลิกก่อนธุรกรรมสมบูรณ์
+
+Void
+= ยกเลิกรายการที่ถูก Post/ยืนยันแล้วตามกฎ
+
+Refund
+= คืนเงินหลังรับเงินแล้ว
+
+Reversal
+= บันทึกรายการกลับทิศเพื่อแก้ผลเดิม
+
+สถานะตัวอย่าง:
+
+DRAFT
+-> Cancel ได้
+
+CONFIRMED ยังไม่ชำระ
+-> Void/Cancel ตามสิทธิ์
+
+PAID
+-> Refund/Reversal
+
+CLOSED
+-> ห้ามแก้ต้นฉบับ
+-> ใช้ Adjustment/Refund Transaction
+
+FLOWCHART
+
+[ขอยกเลิก/Refund]
+   |
+   v
+[ตรวจสถานะ]
+   |
+   v
+[ตรวจ Permission]
+   |
+   v
+<ต้อง Approval?>
+   | YES
+   v
+[ส่ง Manager]
+   |
+   v
+<Approved?>
+   | NO -> Reject
+   | YES
+   v
+[สร้าง Reversal/Refund]
+   |
+   v
+[ย้อน Stock ถ้าจำเป็น]
+   |
+   v
+[ย้อน Finance Ledger]
+   |
+   v
+[Audit]
+   |
+   v
+[จบ]
+
+กฎ:
+- ห้าม Delete Payment
+- ห้ามลดค่า Payment เดิมเพื่อแทน Refund
+- ต้องเก็บ Reason
+- ต้องเก็บ Approver
+
+======================================================================
+7. เงื่อนไขปิดบิล
+======================================================================
+
+สูตรแนวคิด:
+
+CAN_CLOSE =
+financial_resolved
+AND merchandise_resolved
+AND exception_resolved
+
+กรณี:
+
+1) จ่ายครบ แต่ยังไม่คืน
+Payment = PAID
+Return = PARTIAL
+Bill = ACTIVE
+
+2) คืนครบ แต่ค้างเงิน
+Return = RETURNED
+Payment = PARTIAL
+Bill = ACTIVE
+
+3) ของหาย
+Lost = APPROVED
+Charge = CREATED
+Payment = PAID
+=> Resolved
+
+4) Damage
+Damage Assessment = DONE
+Charge/Repair = RESOLVED
+Payment = PAID
+=> Resolved
+
+5) Refund ค้าง
+Refund Status != COMPLETED
+=> ยังไม่ปิด
+
+6) Write-off
+ต้อง Approved ก่อน
+
+FLOWCHART
+
+[ขอ Close Bill]
+   |
+   v
+[ตรวจ Payment]
+   |
+   v
+[ตรวจ Return/Delivery]
+   |
+   v
+[ตรวจ Damage/Lost]
+   |
+   v
+[ตรวจ Refund/Adjustment]
+   |
+   v
+[ตรวจ Audit/Exception]
+   |
+   v
+<ครบทุกเงื่อนไข?>
+   | NO -> [ACTIVE / PENDING]
+   | YES
+   v
+[CLOSED]
+
+======================================================================
+8. สิทธิ์ผู้ใช้
+======================================================================
+
+Role แนะนำ:
+OWNER
+MANAGER
+CASHIER
+STOCK
+FINANCE
+
+Permission ตัวอย่าง:
+
+product.view
+product.edit
+product.edit_price
+product.view_cost
+product.edit_cost
+
+stock.view
+stock.adjust
+stock.count
+stock.approve_adjustment
+
+customer.view
+customer.edit
+
+payment.receive
+payment.void
+
+refund.create
+refund.approve
+
+bill.cancel
+bill.void
+
+rental.return
+rental.damage_assess
+rental.damage_charge
+rental.lost_approve
+
+finance.view
+finance.expense_create
+finance.expense_approve
+
+audit.view
+security.manage_roles
+
+DIAGRAM
+
+User
+ |
+ v
+Role
+ |
+ v
+Permissions
+ |
+ v
+Resource / Action
+
+กฎ:
+- อย่าเช็คแค่ role == owner
+- เช็ค Permission ที่ Action
+- งานเสี่ยงต้อง Approval
+- Approval ต้องคนละสิทธิ์กับผู้สร้างได้ถ้าต้องการ Separation of Duties
+
+======================================================================
+9. Quotation → Reservation → Bill
+======================================================================
+
+สถานะ:
+
+Quotation
+DRAFT
+SENT
+ACCEPTED
+EXPIRED
+REJECTED
+CONVERTED
+
+Reservation
+PENDING
+ACTIVE
+EXPIRED
+CANCELLED
+CONVERTED
+
+FLOWCHART
+
+[สร้าง Quotation]
+   |
+   v
+[ส่งลูกค้า]
+   |
+   v
+<ลูกค้ายืนยัน?>
+   | NO -> EXPIRED/REJECTED
+   | YES
+   v
+[สร้าง Reservation]
+   |
+   v
+[กัน Availability]
+   |
+   v
+[กำหนด Expiry]
+   |
+   v
+<ถึง Expiry โดยไม่ Confirm?>
+   | YES
+   v
+[Release Reservation]
+   |
+   NO
+   |
+   v
+[Convert to Bill/Order]
+   |
+   v
+[Lock ข้อมูลสำคัญ]
+   |
+   v
+[ดำเนิน Fulfillment]
+
+Stock:
+
+Quotation
+-> ไม่กัน Stock
+
+Reservation
+-> Reserved เพิ่ม
+-> Available ลด
+-> On Hand เท่าเดิม
+
+Delivery/Sale
+-> On Hand ลดจริงสำหรับ Sale
+
+Rental Delivery
+-> Rented Out เพิ่ม
+
+======================================================================
+10. Backorder / ของไม่พอ / ส่งบางส่วน
+======================================================================
+
+ข้อมูลที่ควรมี:
+
+ordered_qty
+allocated_qty
+fulfilled_qty
+delivered_qty
+backorder_qty
+cancelled_qty
+
+FLOWCHART
+
+[Order Qty = 10]
+   |
+   v
+[Available = 6]
+   |
+   v
+<Policy?>
+   |
+   +--> รอทั้งหมด
+   |      ↓
+   |   HOLD
+   |
+   +--> ส่งบางส่วน
+          ↓
+       Deliver 6
+          ↓
+       Backorder 4
+          ↓
+       Stock Available
+          ↓
+       Allocate 4
+          ↓
+       Deliver Remaining
+
+กฎ:
+- Partial Delivery ต้องมี Delivery Records แยก
+- Backorder ห้ามนับว่า Delivered
+- Bill Line ต้องเก็บ Ordered Quantity เดิม
+
+======================================================================
+11. การนับสต็อกจริง
+======================================================================
+
+กระบวนการ:
+
+System Qty = 100
+Physical Count = 97
+Discrepancy = -3
+
+ห้าม:
+products.quantity = 97
+
+ควร:
+
+[สร้าง Stock Count]
+   |
+   v
+[Freeze/กำหนด Snapshot]
+   |
+   v
+[นับจริง]
+   |
+   v
+[บันทึก Count Lines]
+   |
+   v
+[คำนวณ Discrepancy]
+   |
+   v
+<ต่างหรือไม่?>
+   | NO -> Close Count
+   | YES
+   v
+[Review]
+   |
+   v
+[Approval]
+   |
+   v
+[Stock Adjustment]
+   |
+   v
+[Ledger + Audit]
+
+ของเช่ารายชิ้น:
+
+Product
+ |
+ +-- Rental Unit A001
+ +-- Rental Unit A002
+ +-- Rental Unit A003
+
+เหมาะกับ:
+- ของมูลค่าสูง
+- ต้องรู้ Serial
+- ต้องติดตามสภาพรายชิ้น
+
+ของจำนวนมาก:
+ใช้ Quantity Based Inventory ได้
+
+======================================================================
+12. รายงาน
+======================================================================
+
+SALES:
+- ยอดขาย
+- จำนวนบิล
+- Average Bill
+- Sale Revenue
+- Discount
+- VAT
+- Refund
+
+RENTAL:
+- Rental Revenue
+- Active Rentals
+- Due Soon
+- Overdue
+- Returned
+- Partial Return
+- Damage
+- Lost
+- Utilization Rate
+
+INVENTORY:
+- On Hand
+- Available
+- Reserved
+- Rented Out
+- Repair
+- Damaged
+- Lost
+- Adjustment
+- Stock Discrepancy
+
+FINANCE:
+- Cash
+- Transfer
+- Card
+- QR
+- Revenue
+- Expense
+- Refund
+- Outstanding Receivable
+- Deposit Liability
+
+CUSTOMER:
+- Purchase History
+- Rental History
+- Outstanding Balance
+- Overdue History
+- Damage/Lost History
+- Credit Usage
+
+OPERATION:
+- Appointment
+- Delivery
+- Return
+- Employee Activity
+- Approval Pending
+- Notification Pending
+
+======================================================================
+13. Backup / Restore / Retention
+======================================================================
+
+หลัก:
+Backup ไม่ใช่ ARTS Business Function โดยตรง
+ต้องกำหนด Infrastructure Policy เอง
+
+ควรกำหนด:
+- Backup Frequency
+- Retention Days
+- PITR ถ้ามี
+- Offsite Copy
+- Encryption
+- Restore Test Frequency
+- RPO
+- RTO
+
+WORKFLOW
+
+[Production DB]
+   |
+   v
+[Automated Backup]
+   |
+   v
+[Retention]
+   |
+   v
+[Integrity Check]
+   |
+   v
+[Periodic Restore Test]
+   |
+   v
+<Restore สำเร็จ?>
+   | NO -> Alert + Fix
+   | YES -> Record Test
+
+กฎ:
+Backup ที่ไม่เคย Restore Test
+ยังไม่ถือว่ารับประกันกู้คืนได้
+
+======================================================================
+14. Security / RLS / Server-side Rules
+======================================================================
+
+3 Layers:
+
+Layer 1: RLS
+- ใครอ่าน row ไหนได้
+- ใครเขียน row ไหนได้
+
+Layer 2: Permission
+- ใครทำ Action ไหนได้
+
+Layer 3: RPC / Server Transaction
+- งานสำคัญต้องทำฝั่ง Server
+
+Action ที่ควรผ่าน Server:
+- confirm_bill
+- receive_payment
+- refund_payment
+- cancel_bill
+- receive_return
+- stock_adjust
+- approve_lost
+- close_cash_session
+
+ห้าม Client ทำตรง:
+UPDATE inventory SET qty = ...
+UPDATE payments SET amount = ...
+DELETE transaction ...
+
+DIAGRAM
+
+Client
+  |
+  v
+Auth
+  |
+  v
+RLS
+  |
+  v
+RPC / Service
+  |
+  v
+Transaction + Lock
+  |
+  v
+DB
+  |
+  v
+Audit
+
+======================================================================
+15. Audit Retention
+======================================================================
+
+Audit Event:
+
+- id
+- actor_id
+- action
+- entity_type
+- entity_id
+- before_data
+- after_data
+- reason
+- device/workstation
+- timestamp
+
+ต้อง Audit:
+- Bill Confirm
+- Payment
+- Refund
+- Cancel
+- Void
+- Price Override
+- Stock Adjustment
+- Count Adjustment
+- Customer Edit
+- Damage
+- Lost
+- Approval
+- Cash Close
+- Permission Change
+
+Retention Policy:
+ต้องกำหนดเอง เช่น
+- 3 ปี
+- 5 ปี
+- 7 ปี
+- ตลอดอายุระบบ
+
+กฎ:
+- User ปกติห้ามลบ Audit
+- User ปกติห้ามแก้ Audit
+- Audit export/report ได้ตามสิทธิ์
+
+======================================================================
+16. Notification Policy
+======================================================================
+
+โครงสร้าง:
+
+EVENT
+  |
+  v
+RULE
+  |
+  v
+RECIPIENT
+  |
+  v
+CHANNEL
+  |
+  v
+NOTIFICATION
+
+ตัวอย่าง:
+
+Rental Due Soon
+T-24h
+-> CASHIER + OWNER
+
+Rental Due
+T-0
+-> WARNING
+
+Rental Overdue
+T+1 day
+-> CRITICAL
+
+Low Stock
+Available <= Reorder Point
+-> STOCK + MANAGER
+
+Refund Requested
+-> MANAGER/OWNER
+
+Cash Variance
+-> OWNER
+
+สถานะ:
+UNREAD
+READ
+HANDLED
+DISMISSED
+EXPIRED
+
+กฎ:
+- Notification ไม่เปลี่ยน Business Status
+- อ่านแจ้งเตือนไม่ได้แปลว่าปัญหาถูกแก้
+- Action สำเร็จจึงค่อย HANDLED
+
+======================================================================
+17. Customer Credit / หนี้ค้าง
+======================================================================
+
+ข้อมูล:
+
+credit_enabled
+credit_limit
+current_balance
+available_credit
+payment_terms_days
+overdue_balance
+account_status
+
+FLOWCHART
+
+[เปิดบิลเครดิต]
+   |
+   v
+[ตรวจ Customer]
+   |
+   v
+<Credit Enabled?>
+   | NO -> ไม่อนุญาต
+   | YES
+   v
+[คำนวณ Current + New]
+   |
+   v
+<= Credit Limit?
+   | NO
+   v
+[Block หรือส่ง Approval]
+   |
+   YES
+   |
+   v
+[สร้าง AR]
+   |
+   v
+[Invoice]
+   |
+   v
+[Due Date]
+   |
+   v
+<ชำระทันเวลา?>
+   | YES -> ลด AR
+   | NO
+   v
+[OVERDUE]
+   |
+   v
+[Notification / Credit Block ตาม Policy]
+
+กฎ:
+- ลูกค้าค้างเงินได้หรือไม่ได้ต้องกำหนด
+- เปิดบิลใหม่ได้หรือไม่ต้องกำหนด
+- ถ้าเกิน Credit Limit ต้อง Block หรือ Approval
+
+======================================================================
+18. ปิดวัน / ปิดกะ / กระทบยอด
+======================================================================
+
+โครงสร้าง:
+
+Workstation Period
+   |
+   v
+Operator Sign-on
+   |
+   v
+Till Assignment
+   |
+   v
+Transactions
+   |
+   v
+Till Settlement
+   |
+   v
+Sign-off
+   |
+   v
+Period End
+
+FLOWCHART
+
+[OPEN SHIFT]
+   |
+   v
+[Opening Cash]
+   |
+   v
+[Cash Transactions]
+   |
+   +--> Cash Sale
+   +--> Cash Refund
+   +--> Cash In
+   +--> Cash Out
+   |
+   v
+[Expected Cash]
+   |
+   v
+[Count Actual Cash]
+   |
+   v
+[Variance = Actual - Expected]
+   |
+   v
+<Variance = 0?>
+   | YES
+   v
+[CLOSED]
+   |
+   NO
+   |
+   v
+[ระบุ Reason]
+   |
+   v
+[Manager Approval]
+   |
+   v
+[Audit]
+   |
+   v
+[CLOSED WITH VARIANCE]
+
+หลังปิดกะ:
+
+Till
+  |
+  v
+Safe
+  |
+  v
+Bank Deposit
+
+ต้องกำหนด:
+- เวลาตัดวันบัญชี
+- ใครปิดกะได้
+- Variance เท่าไรต้อง Approval
+- เงินสดขาด/เกินบันทึกอย่างไร
+
+======================================================================
+19. DIAGRAM รวมความสัมพันธ์ระบบ
+======================================================================
+
+                          CUSTOMER
+                             |
+                             v
+                         QUOTATION
+                             |
+                             v
+                        RESERVATION
+                             |
+                             v
+                           ORDER
+                             |
+               +-------------+-------------+
+               |                           |
+               v                           v
+           INVENTORY                  CUSTOMER CREDIT
+               |                           |
+               v                           v
+          ALLOCATION                       AR
+               |
+         +-----+------+
+         |            |
+         v            v
+      FULL        BACKORDER
+         |
+         v
+        BILL
+         |
+   +-----+------+------------------+
+   |            |                  |
+   v            v                  v
+ ITEM       TAX/DISCOUNT        PAYMENT
+   |                               |
+   v                               v
+FULFILLMENT                   FINANCE LEDGER
+   |                               |
+   v                               v
+DELIVERY                       CASH/TILL
+   |
+   +--> SALE -> COMPLETE
+   |
+   +--> RENTAL
+          |
+          +--> RETURN
+          +--> OVERDUE
+          +--> DEPOSIT
+          +--> DAMAGE
+          +--> LOST
+                 |
+                 v
+             SETTLEMENT
+                 |
+          +------+------+
+          |      |      |
+         PAY    ZERO   REFUND
+          |      |      |
+          +------+------+
+                 |
+                 v
+               CLOSE
+                 |
+                 v
+               AUDIT
+                 |
+                 v
+              REPORTING
+
+======================================================================
+20. WORKFLOW ตามฝ่าย
+======================================================================
+
+ฝ่ายขาย / แคชเชียร์
+- Quotation
+- Reservation
+- Bill
+- รับ Payment
+- ตรวจ Credit
+- ดู Notification
+- เริ่ม Refund Request
+
+ส่งต่อ:
+- Reservation -> Stock
+- Bill -> Fulfillment
+- Payment -> Finance
+- Credit Exception -> Manager
+
+คลัง / Stock
+- Allocation
+- Reservation
+- Fulfillment
+- Backorder
+- Stock Count
+- Adjustment
+- Rental Out
+- Return
+- Damage/Lost
+
+ส่งต่อ:
+- Damage -> Finance/Manager
+- Lost -> Manager/Finance
+- Discrepancy -> Approval
+
+ฝ่ายการเงิน
+- Payment
+- Refund
+- Deposit
+- Customer Credit
+- AR
+- Expense
+- Cash Close
+- Reconciliation
+
+ส่งต่อ:
+- Refund -> Manager
+- Variance -> Manager
+- Credit Limit Override -> Manager
+
+Owner / Manager
+- Approval
+- Refund
+- Lost
+- Damage Charge Override
+- Stock Adjustment
+- Cash Variance
+- Credit Override
+- Permission
+
+ระบบอัตโนมัติ
+- Running Number
+- Notification
+- Overdue
+- Reservation Expiry
+- Credit Due
+- Low Stock
+- Backup
+- Audit
+- Derived Status
+
+======================================================================
+21. VALIDATION สำคัญ
+======================================================================
+
+Document:
+- number unique
+- ห้าม recycle
+- Final แล้วห้ามแก้เลข
+
+Tax/Discount:
+- ห้ามส่วนลดเกิน policy
+- VAT rate ต้อง valid
+- calculation order ต้องแน่นอน
+
+Deposit:
+- ห้ามนับเป็น Revenue
+- Refund ต้องตรวจ Damage/Lost
+
+Late Fee:
+- ต้องใช้ Due Date จริง
+- ต้องใช้ Grace Period
+- ห้ามคิดซ้ำ
+
+Refund:
+- refund <= refundable amount
+- ต้องมี reason
+- ต้องมี permission/approval
+
+Close Bill:
+- merchandise resolved
+- finance resolved
+- exception resolved
+
+Reservation:
+- expiry ต้องมี
+- release stock เมื่อหมดอายุ
+
+Backorder:
+- ห้ามนับเป็น delivered
+- partial delivery ต้องมี record
+
+Stock Count:
+- adjustment ต้องมาจาก discrepancy
+- ต้อง audit
+
+Credit:
+- ตรวจ limit
+- ตรวจ overdue
+
+Cash Close:
+- expected vs actual
+- variance ต้องบันทึก
+
+======================================================================
+22. BUSINESS RULE ที่ยังต้องล็อกเอง
+======================================================================
+
+รายการที่ ARTS ไม่กำหนดตายตัวและเราต้องเลือก:
+
+1. รูปแบบเลขเอกสาร
+2. Reset running รายปี/รายเดือน
+3. A4/80mm layout
+4. ข้อความท้ายเอกสาร
+5. Discount order
+6. VAT inclusive/exclusive
+7. Shipping tax treatment
+8. Deposit calculation
+9. Grace period
+10. Late fee formula
+11. Damage charge formula
+12. Lost charge formula
+13. Approval threshold
+14. Reservation expiry
+15. Partial delivery policy
+16. Credit limit
+17. Credit block rule
+18. Notification timing
+19. Backup frequency
+20. Backup retention
+21. Audit retention
+22. Day close time
+23. Cash variance threshold
+
+======================================================================
+23. ข้อสรุปสถาปัตยกรรม
+======================================================================
+
+หลังเติมหัวข้อทั้ง 17 เรื่อง ระบบควรมีแกนดังนี้:
+
+MASTER DATA
+- Customer
+- Product
+- Role
+- Permission
+- Tax Rule
+- Discount Rule
+
+COMMERCIAL
+- Quotation
+- Reservation
+- Order
+- Bill
+- Receipt
+
+INVENTORY
+- Allocation
+- Backorder
+- Fulfillment
+- Delivery
+- Stock Count
+- Adjustment
+- Rental State
+
+FINANCE
+- Payment
+- Refund
+- Deposit
+- AR
+- Credit
+- Expense
+- Cash Session
+- Ledger
+
+CONTROL
+- Notification
+- Approval
+- Audit
+- Backup
+- Security/RLS
+
+REPORTING
+- Sales
+- Rental
+- Stock
+- Finance
+- Customer
+- Operations
+
+หลักสุดท้าย:
+
+"Transaction เดิมต้องตรวจสอบย้อนหลังได้
+การแก้ไขใช้เหตุการณ์ใหม่
+Stock และ Finance ต้องมี Ledger
+ทุก Action สำคัญต้องมี Permission และ Audit
+และการปิดงานต้องตรวจทั้งสินค้า การเงิน และ Exception"
+
+======================================================================
+จบเอกสาร
+======================================================================
