@@ -1,792 +1,915 @@
 # PROJECT RULES MASTER (CURRENT)
 
-**STATUS: CURRENT / PRIMARY / SINGLE SOURCE OF TRUTH**
-**Version:** 2.3.0
-**Last Updated:** 2026-09-22
-
-> **คำประกาศความถูกต้องและอำนาจสูงสุด:**
-> “เอกสารนี้คือกฎธุรกิจและกฎการทำงานหลักฉบับล่าสุดของ Rental POS
-> หากเอกสารหรือกฎเดิมขัดกับไฟล์นี้ ให้ยึดไฟล์นี้
-> ห้ามใช้เอกสารกฎเก่าเป็นกฎปัจจุบัน”
-
-**Change Summary (v2.3.0):**
-- Added unified Bill/Payment/Revenue relationship
-- Separated Bill Outstanding from Earned Outstanding
-- Added Advance/Deferred Revenue rules
-- Added rental revenue recognition by actual service
-- Added financial/revenue lifecycle examples
+**STATUS:** CURRENT — Master Rules ของระบบ POS ขาย + เช่า + สต็อก + ลูกค้า + นัดหมาย + การเงิน + การควบคุม
+**Architecture Business Rules:** LOCKED
+**Version:** 4.1.0
+**Last Updated:** 2026-10-01
+**ฐานเนื้อหา:** `POS_MASTER_ALL_IN_ONE_COMPLETE_SPEC_TH.txt` (Master Spec) + คำตัดสินของเจ้าของระบบ + Architecture Decisions ที่ล็อกแล้ว
+**แทนที่:** ร่างเดิมทั้งหมดของไฟล์นี้ และ `docs/archive/PROJECT_RULES_MASTER_v2.3.0.md` (เก็บไว้เป็น Reference เท่านั้น)
 
 ---
 
-## 1. Document Authority & Hierarchy (ลำดับการบังคับใช้กฎ)
+## 0. Source of Truth / Authority
 
-1. **`docs/PROJECT_RULES_MASTER_CURRENT.md`** เป็น Single Source of Truth ฉบับเดียวของทั้งโครงการ มีอำนาจบังคับใช้สูงสุดเหนือเอกสารทุกฉบับ
-2. **ห้ามเหลือกฎ CURRENT มากกว่า 1 ชุด:** ไม่มีเอกสารกฎฉบับอื่นที่อยู่ในสถานะ CURRENT หรือ PRIMARY อีก หากมีเอกสารเก่าที่ยังคงอยู่ในระบบให้ถือเป็น `ARCHIVED / SUPERSEDED` ทั้งสิ้น
-3. **Source Code / Schema / Tests:** ใช้เป็น Implementation ในการทำงานจริง หากพบว่า Logic โค้ดหรือ Test ขัดแย้งกับ Master Rules ฉบับนี้ ให้ยึด Master Rules ฉบับนี้เป็นหลักเกณฑ์ที่ถูกต้องเสมอ
+### 0.1 ลำดับอำนาจ
 
----
+เมื่อข้อความจากแหล่งต่าง ๆ ขัดกัน ให้ใช้ลำดับนี้ (ข้อบนชนะข้อล่าง):
 
-## 2. Core System Rules (ระบบและสถาปัตยกรรมหลัก)
+| ลำดับ | แหล่ง | สถานะ |
+|---|---|---|
+| 1 | คำตัดสินล่าสุดของเจ้าของระบบ | กำหนดกฎ |
+| 2 | Architecture Decisions ที่ล็อกแล้ว (รวมอยู่ในไฟล์นี้) | กำหนดกฎ |
+| 3 | `POS_MASTER_ALL_IN_ONE_COMPLETE_SPEC_TH.txt` ส่วน A–AD (Master Spec) | กำหนดกฎ เว้นแต่ถูก Override โดยข้อ 1–2 |
+| 4 | กฎเก่า (`docs/archive/*`) และภาคผนวก AE (ข้อมูลดิบ) ของ Master Spec | Reference เท่านั้น |
+| 5 | โค้ด / Migration / Database ปัจจุบัน | Implementation เดิม ใช้ตรวจสอบเท่านั้น **ไม่ใช่ตัวกำหนดกฎ** |
 
-1. **ระบบร้านเดียว (Single-Store System):**
-   * ออกแบบและทำงานเป็นระบบร้านเดียว (Single-Tenant / Single-Store)
-2. **บทบาทผู้ใช้งาน (User Roles):**
-   * บทบาทในระบบมีเพียง 2 ระดับอย่างเข้มงวด:
-     - **OWNER:** ผู้ดูแลสูงสุดของร้าน มีสิทธิ์เต็มทุกส่วนในระบบ
-     - **USER:** พนักงานทั่วไป ได้รับสิทธิ์ตามตารางสิทธิ์ (Configurable Permissions) ที่กำหนดโดย OWNER
-   * **ข้อห้ามเด็ดขาด:** ไม่มีบทบาท "Manager" ในระบบโดยเด็ดขาด
-3. **การใช้งานข้ามอุปกรณ์ (Multi-Device Support):**
-   * รองรับการทำงานพร้อมกันหลายอุปกรณ์ ทั้ง PC (Desktop/Laptop), iPad Portrait และ iPad Landscape
-4. **แหล่งข้อมูลจริงส่วนกลาง (Central Database Truth):**
-   * ข้อมูลทางธุรกิจทั้งหมด (Business Data) ต้องจัดเก็บและอ่านจากฐานข้อมูลกลาง Supabase (PostgreSQL) เท่านั้น
-   * **ข้อห้ามเด็ดขาด:** ห้ามใช้ `localStorage` ของ Browser เป็น Business Source of Truth โดยเด็ดขาด (อนุญาตให้เก็บเฉพาะ Preferences ส่วนบุคคล เช่น การจำลองธีม Light/Dark)
-   * ตะกร้าสินค้า (Cart) ที่ต้องใช้งานข้ามอุปกรณ์ หรือส่งต่อระหว่างพนักงาน ต้องจัดเก็บที่ฐานข้อมูลกลางและผูกกับ User
-5. **ธุรกรรมหลักต้อง Online (Online-Only Core Transactions):**
-   * ธุรกรรมหลักของระบบ ได้แก่ การออกบิล, การชำระเงิน, การตัดสต็อก, การจอง, และการรับคืน ต้องทำแบบ Online เชื่อมต่อฐานข้อมูลกลางแบบ Real-time
-   * **ข้อห้ามเด็ดขาด:** ห้ามทำ Offline Transaction แล้วนำมาซิงก์ (Sync) ย้อนหลังภายหลัง
-6. **การแบ่งบทบาทสถาปัตยกรรม (System Components):**
-   * **POS / ระบบหลัก:** ทำหน้าที่เป็น "ศูนย์ควบคุมงาน" (Command Center) สำหรับการบริหารจัดการ, ออกบิล, มอบหมายงาน, ตรวจสอบสถานะ และการเงิน
-   * **Supabase / PostgreSQL:** เป็น "แหล่งข้อมูลจริงและสถานะจริง" (Single Source of Data Truth) สำหรับ Transaction, Bills, Jobs, Stock, Finance และ Audit Logs
-   * **Supabase Storage:** แหล่งจัดเก็บไฟล์ภาพและหลักฐานจริง (Photos, Proofs, Documents)
-   * **LINE (LINE Official Account + Messaging API / Webhook):** เป็น "ช่องทางรับงานสำหรับพนักงาน" (Execution Channel) ไม่ใช่ฐานข้อมูลหลัก
-   * **AI (Generative / Social AI):** เป็น "ระบบเสริมหลังงานเสร็จสิ้น" (Post-operation Assistant) เช่น ร่าง Caption, สรุปผลงาน
+### 0.2 วิธีใช้ไฟล์นี้
+
+- ไฟล์นี้คือ **Master Rules** ที่รวมข้อ 1–3 แล้ว และแก้ conflict ที่รู้ผลแล้วเรียบร้อย
+- ถ้าไฟล์นี้กับ Master Spec ขัดกัน ให้ถือไฟล์นี้ (เพราะไฟล์นี้บันทึกคำตัดสินข้อ 1–2 ไว้แล้ว)
+- Architecture Business Rules = **LOCKED** (หมวด 36) — ค่า Policy/Configuration ที่ยังไม่กำหนดอยู่ในหมวด 37 ห้าม hard-code ค่าตามการเดา ให้ทำเป็นค่าตั้งค่า
+- โค้ดที่ขัดกับไฟล์นี้ ถือเป็น Implementation Gap ที่ต้องแก้ ไม่ใช่เหตุผลให้แก้กฎ
 
 ---
 
-## 3. Product Rules (สินค้าและราคาหลัก)
+## 1. คำศัพท์และความหมายที่ล็อกแล้ว
 
-1. **ประเภทสินค้า (Product Types):**
-   * สินค้าในแค็ตตาล็อกแบ่งออกเป็น 3 ประเภท:
-     - `RENT`: สินค้าสำหรับเช่าเท่านั้น
-     - `SALE`: สินค้าสำหรับขายขาดเท่านั้น
-     - `BOTH`: สินค้าที่รองรับทั้งการขายและการเช่า
-2. **ราคาหลัก (Master Price):**
-   * ราคาที่กำหนดไว้ใน Product Master Catalog เป็นราคาหลักตั้งต้นของระบบ
-3. **การปรับเปลี่ยนราคาเฉพาะบิล (Bill Line Item Override):**
-   * ผู้มีสิทธิ์สามารถ Override ราคาในระดับรายการสินค้าของบิลได้ (Line-level Price Override)
-   * การ Override มีผลเฉพาะบิลนั้นเท่านั้น **ห้าม**ส่งผลย้อนกลับไปเปลี่ยน Master Price ในแค็ตตาล็อกสินค้า
-4. **การตรวจสอบการแก้ราคา (Price Override Audit):**
-   * ทุกครั้งที่มีการ Override ราคา ต้องมีการบันทึก Audit Log: Before, After, Actor (ผู้แก้ไข), Approver (ผู้อนุมัติ ถ้ามี), Timestamp, และ Reason
-5. **การคงอยู่ของสินค้าที่มีประวัติ (No Hard Delete):**
-   * สินค้าที่เคยมีประวัติการทำธุรกรรม (Transaction) ในระบบแล้ว **ห้ามลบถาวร (Hard Delete)** ออกจากฐานข้อมูล
-   * ให้ใช้วิธีปิดการใช้งาน (Inactive) หรือเก็บเข้าคลังประวัติ (Archive) แทน
-6. **สินค้าราคา 0 บาทที่ต้องส่งคืน:**
-   * สินค้าหรืออุปกรณ์ที่มีราคา 0 บาท (เช่น อุปกรณ์แถม, อุปกรณ์เสริมยืมใช้) แต่มีเงื่อนไขว่าต้องส่งคืนร้าน **ต้องใช้ Rental Flow** เท่านั้น เพื่อให้ระบบสามารถติดตามสต็อกและการรับคืนได้
+| คำ | ความหมาย |
+|---|---|
+| **Rental Contract (สัญญาเช่า)** | Entity สัญญาเช่าที่ผูกกับ Customer มีเลขสัญญาของตัวเอง มีหลาย Version ได้ |
+| **Contract Version** | ข้อกำหนดของสัญญา ณ ช่วงเวลาหนึ่ง แก้ไม่ได้ (immutable) |
+| **Bill (บิล)** | เอกสาร/ธุรกรรมการขาย-เช่า เป็นหัวบิลกลางที่มี Line แบบ SALE และ RENTAL — **Bill ไม่ใช่ Contract** |
+| **การเช่าต่อ (Rental Continuation)** | ลูกค้าขอเช่าของต่อจากช่วงเดิม → สร้าง **บิลเช่าใหม่** สำหรับช่วงถัดไป อ้างอิงบิลเดิม — **ไม่ใช่การต่อหรือแก้ Contract** |
+| **Carry Forward (การส่งต่อภาระ)** | การบันทึกว่าของที่ยังอยู่กับลูกค้าจาก Line ของบิลเดิม ถูกติดตามต่อที่ Line ของบิลใหม่ |
+| **Renewal / ต่ออายุ** (คำใน Master Spec และภาคผนวก) | ให้อ่านเป็น "การเช่าต่อ" ตามนิยามข้างบนเสมอ ห้ามตีความเป็นการต่อ Contract |
+| **Deposit (เงินมัดจำ)** | หนี้สิน (Liability) ระดับ Rental Contract ไม่ใช่รายได้ |
+| **Correction** | การแก้ข้อมูลที่บันทึกผิดจริง ตามสิทธิ์ พร้อม Audit — ไม่ใช่เครื่องมือยืดระยะเวลาเช่า |
+| **Adjustment / Reversal / Compensating Entry** | รายการใหม่ที่ใช้แก้ผลของรายการเดิม โดยไม่แก้หรือลบรายการเดิม |
+
+**คำที่ห้ามใช้** ในเอกสาร UI และข้อความระบบ เมื่อหมายถึงการเช่าต่อ: "ต่อสัญญา", "ต่ออายุสัญญา", "บิลต่อสัญญา", "แก้สัญญาเดิม" — ให้ใช้ "เช่าต่อ" / "บิลเช่าต่อ" / "สร้างบิลเช่าต่อ"
 
 ---
 
-## 4. Sale Rules (การขายและการส่งมอบ)
+## 2. หลักสถาปัตยกรรมกลาง
 
-1. **รูปแบบการขายและการส่งมอบ (Sale & Delivery Models):**
-   * **A. ซื้อและรับของทันทีหน้าร้าน (Immediate Purchase & Handover):**
-     - ยืนยันการขาย + รับของทันทีหน้าร้าน
-     - ระบบสามารถทำ Auto-Dispatch ได้
-     - ตัดสต็อกคงเหลือจริง (On-Hand Stock) ทันทีเมื่อส่งมอบ
-   * **B. ซื้อแล้วรับของภายหลัง / จัดส่งภายหลัง (Later Pickup / Delivery):**
-     - เมื่อยืนยันบิล (Confirm Bill) ให้ทำการจองสต็อก (Reserve Quantity)
-     - จำนวนพร้อมใช้ (Available Stock) ลดลงทันที แต่สต็อกคงเหลือจริง (On-Hand Stock) ยังไม่ลด
-     - สถานะของบิล/สินค้าแสดงเป็น `Awaiting Delivery` (หรือ `Paid - Awaiting Delivery` หากชำระเงินครบแล้วแต่ยังไม่ได้รับของ)
-     - สต็อกคงเหลือจริง (On-Hand Stock) จะลดลงก็ต่อเมื่อเกิดการส่งมอบสินค้าจริง (Actual Delivery / Handover) เท่านั้น
-   * **C. การส่งมอบสินค้าขายบางส่วน (Partial Sale Delivery):**
-     - ระบบต้องรองรับการส่งของหลายครั้ง
-     - ต่อรายการสินค้าขาย (Sale Line Item) ระบบต้องติดตามและแสดงข้อมูล:
-       * `Ordered Qty` (จำนวนที่สั่งซื้อตามบิล)
-       * `Reserved Qty` (จำนวนที่จองไว้)
-       * `Delivered Qty` (จำนวนที่ส่งมอบแล้วสะสม)
-       * `Deliver Now Qty` (จำนวนที่ส่งมอบในรอบปัจจุบัน)
-       * `Remaining Qty` (จำนวนคงเหลือค้างส่ง)
-     - ทุกครั้งที่มีการส่งมอบ ต้องบันทึก: จำนวนที่ส่งจริง (Actual Delivered Qty), Timestamp (วันเวลาจริง), Actor (ผู้ส่งมอบ), Bill/Line Reference (รหัสบิลและรายการอ้างอิง), และประวัติการส่งมอบ (Delivery History)
-     - หากยังมีสินค้าค้างส่ง: สถานะการจัดส่งคือ `Partial Delivered`
-     - เมื่อส่งมอบครบทุกรายการ: สถานะการจัดส่งปรับเป็น `Delivered`
-2. **การยกเลิกบิลขายก่อนส่งของ (Sale Cancellation & Release):**
-   * หากยกเลิกบิลขายก่อนเกิดการส่งมอบจริง ระบบต้องทำการคืนยอดจอง (Release Reserved Qty) กลับเข้าสู่ Available Stock ทันที
-3. **บิลผสมขายและเช่า (Mixed Bill Line Separation):**
-   * บิลผสมต้องติดตาม Delivery ของสินค้า SALE แยกจาก Rental Status ของสินค้า RENT อย่างชัดเจน สินค้าขายที่ส่งมอบแล้วไม่ทำให้สถานะการเช่าปิดตามไปด้วย
+1. **หัวบิลเป็นกลาง** — บิลเดียวมีทั้ง SALE และ RENTAL ได้ โหมดอยู่ที่ระดับ Line สินค้าเดียวกันอยู่ได้ทั้ง SALE และ RENTAL คนละ Line
+2. **ข้อมูลต้นฉบับไม่ถูกแก้ทับจนสูญเสียประวัติ** — เหตุการณ์ใหม่ = Record ใหม่
+   - Payment ใหม่ = Record ใหม่
+   - Return ใหม่ = Record ใหม่
+   - Refund ใหม่ = Record ใหม่
+   - การเช่าต่อ = บิลใหม่ + Carry Forward Record ใหม่
+   - Deposit เคลื่อนไหว = Deposit Movement ใหม่
+   - Cancel / Void / Correction = Reversal / Compensating Entry
+3. **สถานะแยกหลายมิติ** — Bill, Payment, Return, Rental, Fulfillment, Item Condition, Contract, Appointment, Notification (หมวด 9)
+4. **สถานะปัจจุบันคำนวณจากข้อมูลจริง** (Derived) — ค่า cache ได้ แต่ถ้าไม่ตรงกัน ให้ประวัติธุรกรรมเป็นฐานในการ reconcile
+5. **Stock และ Finance มี Ledger/Movement ของตัวเอง** — Deposit มี Ledger แยกจาก Income/Expense
+6. **งานที่แก้หลายตารางต้อง Atomic** — BEGIN → Validate → Lock → Insert/Update → Audit → COMMIT; ผิดพลาด → ROLLBACK ทั้งเหตุการณ์
+7. **Notification ไม่ใช่ Source of Truth** — เป็นตัวชี้ไปยัง Entity จริง
+8. **Entity ที่มีประวัติห้าม Hard Delete** — ใช้ active/inactive หรือสถานะ
+9. **Permission ตรวจระดับ Action** — ไม่อิง Role อย่างเดียว
+10. **Audit สำคัญแก้/ลบไม่ได้โดยผู้ใช้ปกติ**
+11. **Close Bill ต้องตรวจ** `financial_resolved AND merchandise_resolved AND exception_resolved`
+12. **ป้องกัน Double Submit / Duplicate Transaction** ด้วย idempotency key
+13. **ทุก Record มี** `created_at`, `created_by` และข้อมูล Audit ที่จำเป็น
+
+กฎสำคัญที่สุด:
+> ข้อมูลต้นฉบับไม่ถูกแก้ทับจนสูญเสียประวัติ — เหตุการณ์ใหม่สร้าง Record ใหม่ — สถานะปัจจุบันคำนวณจากข้อมูลจริง — Stock, Finance และ Deposit มี Ledger — ทุก Action เสี่ยงผ่าน Permission + Transaction + Audit
 
 ---
 
-## 5. Rental Rules (การเช่าและการรับคืน)
+## 3. Identity, Document Number และความคงทนของข้อมูล
 
-1. **การตัดสต็อกสินค้าเช่า (Rental Stock Depletion):**
-   * สินค้าเช่าจะถูกตัดออกจากสต็อกพร้อมใช้ (Available Stock) เมื่อเกิดการส่งมอบจริง (Actual Handover / Dispatch) เท่านั้น
-   * **ข้อห้ามเด็ดขาด:** การสร้างบิล, การชำระเงิน, หรือการถึงวันที่เริ่มต้นสัญญาเช่า **ไม่ถือว่า**เป็นการส่งของ และยังไม่ตัดสต็อก
-2. **การคืนสต็อกเมื่อรับคืนจริง (Actual Return):**
-   * สินค้าเช่าจะกลับคืนเข้าสู่สต็อกพร้อมใช้ (Available Stock) ก็ต่อเมื่อเกิดการรับคืนจริง (Actual Return) ที่ร้านเท่านั้น
-3. **รองรับการคืนหลายครั้งและคืนบางส่วน (Multiple & Partial Returns):**
-   * ระบบต้องรองรับการรับคืนบางส่วน (Partial Return) และการคืนหลายครั้ง โดยคำนวณจำนวนที่คืนสะสมและจำนวนที่ยังค้างคืน (Outstanding Return Quantity) อย่างแม่นยำทุกครั้ง
-4. **การคัดแยกสภาพสินค้าเมื่อรับคืน (Condition-Based Stock Return):**
-   * **Normal (สภาพปกติ):** คืนกลับสู่สต็อกพร้อมใช้ (Available Stock) ทันที
-   * **Damaged (ชำรุด):** ย้ายเข้าสู่สถานะซ่อมแซม/ไม่พร้อมใช้ (Repair / Unavailable) เพื่อรอการตรวจสภาพ ห้ามนำกลับเข้าสต็อกพร้อมใช้ทันที
-   * **Lost (สูญหาย):** ตัดลดสต็อกคงคลังจริง (On-Hand Stock) พร้อมบันทึกประวัติการตัดจำหน่าย (Write-off History) โดยห้ามลบ Master Product
-5. **การคืนช้ากว่ากำหนด (Overdue / Late Return):**
-   * เมื่อเกินกำหนดวันคืน ระบบจะแสดงการแจ้งเตือน (Alert) เท่านั้น
-   * **ข้อห้ามเด็ดขาด:** ห้ามคิดค่าปรับคืนช้าอัตโนมัติ (No Auto Late Fee) ค่าปรับหรือยอดเรียกเก็บเพิ่มต้องเกิดจากการคำนวณและกดยืนยันโดยผู้ใช้เท่านั้น
-6. **การจัดการค่าชำรุด/สูญหายกับเงินมัดจำ (Damage/Lost Fee & Deposit Settlement):**
-   * ระบบดึง Default Damage Fee / Default Lost Fee ของสินค้ามาคำนวณเป็นยอดเสนอเริ่มต้น
-   * ผู้ใช้งานที่มีสิทธิ์สามารถกำหนดยอดที่เรียกเก็บจริง (Actual Charge) เองได้
-   * ก่อนนำยอด Damage/Lost ไปหักจากเงินมัดจำ ต้องให้ผู้ใช้งานตรวจสอบและกดยืนยัน (Manual Confirmation)
-   * **ข้อห้ามเด็ดขาด:** ห้าม Auto-offset เงินมัดจำโดยไม่มีการตรวจสอบและยืนยันโดยเด็ดขาด
-   * ถ้าเงินมัดจำมากกว่ายอดที่หัก ส่วนที่เหลือต้องเป็นยอดคืนลูกค้า (Deposit Refund Due)
-   * ถ้าเงินมัดจำน้อยกว่ายอดค่าเสียหาย ส่วนต่างเป็นยอดที่ลูกค้าต้องชำระเพิ่ม (Outstanding Balance Due)
-   * ต้องบันทึก Audit Log เสมอ: Default Amount, Actual Charge, Deposit Applied, Actor, Approver (ถ้ามี), Timestamp, Reason
+### 3.1 Internal ID
+- ทุกตาราง ใช้ **UUID** เป็น Primary Key และ Foreign Key ภายใน อย่างสม่ำเสมอ
+- ห้ามยึดชนิด `TEXT` ของ schema เดิมเป็นมาตรฐาน
+- ห้ามใช้เลขเอกสารเป็น Primary Key
 
----
+### 3.2 Document Number
+- Document Number มีไว้สำหรับผู้ใช้และเอกสารพิมพ์ **แยกจาก Internal ID**
+- Unique ตาม Document Type และแต่ละชนิดใช้ **ชุดเลขของตัวเอง**
+- เอกสารที่มีเลข: Quotation, Reservation, Bill, **Rental Contract**, Receipt / Payment Receipt, Refund, Credit Note, Appointment, Stock Adjustment, Cash Session, Inventory Count
+- **Contract Number แยกชุดจาก Bill Number**
+- Draft ยังไม่ออกเลข Final — ออกเลขเมื่อ Confirm/Post ภายใน Transaction ที่ Lock Sequence
+- เลขที่ออกแล้วห้ามนำกลับมาใช้ (No Recycle) — เอกสารที่ Void แล้วถือว่าใช้เลขแล้ว
+- Transaction ล้มเหลวหลังขอเลข: ยอมให้เลขขาดช่วงได้ แต่ห้ามใช้ซ้ำ
+- เลข Final ห้ามแก้
 
-## 6. Extension Rules (การต่ออายุสัญญาเช่า)
+ตัวอย่างรูปแบบ (รูปแบบจริงตั้งค่าได้ — ดูหมวด 37): `QT-2026-000001`, `BL-2026-000001`, `RC-2026-000001`, `RF-2026-000001`, `CN-2026-000001`, `AP-2026-000001`
 
-1. **ห้ามแก้ทับช่วงเช่าเดิม (No Overwriting Original Rental Period):**
-   * การต่ออายุสัญญาเช่า ห้ามเข้าไปแก้ไขทับวันที่เริ่มหรือวันที่คืนเดิมในบิลเดิมโดยเด็ดขาด
-2. **ต้องสร้างบิลใหม่สำหรับการต่ออายุ (New Bill for Extension):**
-   * การต่ออายุสัญญาเช่าต้องสร้างเป็นบิลใหม่ (New Extension Bill) สำหรับช่วงเวลาที่ขยายออกไป
-3. **การเชื่อมโยงบิล (Linked Bill Hierarchy):**
-   * บิลใหม่สำหรับการต่ออายุต้องบันทึกรหัสบิลเดิม (Original Bill ID / Parent Bill) ไว้อ้างอิงเสมอ
-4. **สถานะของบิลเดิม (Original Bill Status):**
-   * บิลเดิมจะต้องได้รับการปรับสถานะเป็น `Renewed` หรือ `Extended`
-5. **ห้ามสร้างธุรกรรมปลอม (No Fake Transactions):**
-   * **ข้อห้ามเด็ดขาด:** ห้ามสร้างการรับคืนปลอม (Fake Return) หรือการส่งมอบปลอม (Fake Dispatch) ในระบบ เพื่อจำลองการต่ออายุสัญญาเช่า
+### 3.3 การลบและ Foreign Key
+- Business Entity ที่มีประวัติ (Customer, Product, Contract, Bill, Payment, Refund, Deposit Movement, Stock Movement, Audit ฯลฯ) **ห้าม Hard Delete**
+- **ห้าม `ON DELETE CASCADE`** จาก Bill (หรือ Entity หลักอื่น) ไปทำลาย Payment / Refund / Deposit / Ledger / Stock Movement / Audit
+- ใช้ `ON DELETE RESTRICT` หรือ `NO ACTION` ตามความเหมาะสม
+- Audit เป็น polymorphic (`entity_type` + `entity_id`) ไม่ต้องมี FK และห้ามลบ
+- Draft ที่ยังไม่มีธุรกรรมใด ๆ ยกเลิกได้ด้วยสถานะ ไม่ต้องลบ
 
 ---
 
-## 7. Reservation Rules (การจองและใบเสนอราคา)
+## 4. User / Role / Permission / Approval
 
-1. **การจองสินค้าเช่า (Rental Reservation):**
-   * การจองสินค้าเช่าเป็นการกันคิวตามช่วงวัน/เวลา (Date/Time Period Allocation)
-   * สินค้าที่มีรายการจองในอนาคต สามารถนำไปปล่อยเช่าให้ลูกค้ารายอื่นก่อนถึงช่วงจองนั้นได้ หากกำหนดการคืนของรอบแรกเสร็จสิ้นก่อนเริ่มรอบจองถัดไป
-2. **การจองสินค้าขาย (Sale Reservation):**
-   * การจองสินค้าขายเป็นการกันตามจำนวนสินค้า (Quantity Allocation) โดยตัดลด Available Stock ทันทีที่ยืนยันบิล
-3. **ใบเสนอราคา (Quotation Rules):**
-   * **ข้อห้ามเด็ดขาด:** ใบเสนอราคา (Quotation) ไม่มีการจองสต็อก (Do NOT Reserve Stock) ใด ๆ ทั้งสิ้น
-   * Quotation สามารถแปลงเป็นบิล (Convert to Bill) ได้โดยตรงในระบบ โดยไม่ต้องกรอกข้อมูลใหม่ซ้ำ
+### 4.1 Role
+- Role หลักมีเพียง **`OWNER`** และ **`USER`**
+- `OWNER` มีสิทธิ์ทั้งหมด และเป็นผู้กำหนดสิทธิ์ของ `USER`
+- `USER` ได้สิทธิ์ตาม **Permission ราย Action** ที่ OWNER กำหนด
+- MANAGER / CASHIER / STOCK / FINANCE ใน Master Spec **ไม่ใช้เป็น Role** — ให้อ่านเป็น "หน้าที่งาน" ที่ควบคุมด้วย Permission ราย Action (หมวด 4.3)
 
----
+### 4.2 หลักการตรวจสิทธิ์
+- ห้ามตรวจแค่ `role == OWNER` ในงานธุรกิจ — ตรวจ Permission ที่ Action เสมอ (OWNER ได้ทุก Permission)
+- ตรวจสิทธิ์ที่ฝั่ง Server/RPC ไม่พึ่ง UI อย่างเดียว
 
-## 8. Stock Rules (สต็อกสินค้าและความปลอดภัย)
+### 4.3 Permission (ชุดตั้งต้น)
 
-1. **กฎสต็อกห้ามติดลบ (Stock Non-Negative Rule):**
-   * สต็อกสินค้าทุกรายการ ทั้งจำนวนจริง (On-Hand) และจำนวนพร้อมใช้ (Available) ต้องไม่ต่ำกว่า 0
-   * หากสินค้าไม่เพียงพอ ระบบต้องบล็อกการทำรายการทันทีและแจ้งเตือนผู้ใช้
-2. **การจัดการความขัดแย้งเมื่อแย่งสินค้าชิ้นสุดท้าย (Concurrency Control):**
-   * กรณีมีหลายเครื่อง/ผู้ใช้พยายามทำรายการสินค้าชิ้นสุดท้ายพร้อมกัน:
-     - ธุรกรรมที่บันทึกลงฐานข้อมูลกลางสำเร็จก่อน จะได้สิทธิ์ในสินค้านั้น
-     - ธุรกรรมที่มาทีหลังจะต้องถูกปฏิเสธ (Reject) ทันที พร้อมแสดงข้อความแจ้งเตือนว่าสินค้าไม่เพียงพอ
-3. **ความเป็นหนึ่งเดียวของธุรกรรม (Multi-Step Transaction Atomicity):**
-   * ธุรกรรมที่มีหลายขั้นตอน (เช่น สร้างบิล + จองสต็อก + บันทึกการเงิน) ต้องทำงานแบบ All-or-Nothing หากขั้นตอนใดล้มเหลว ระบบต้องทำการ Rollback ทั้งหมดเพื่อป้องกันข้อมูลตกค้างครึ่งทาง
+รหัสจาก Master Spec:
 
----
+| กลุ่ม | รหัส |
+|---|---|
+| Product | `product.view`, `product.edit`, `product.edit_price`, `product.view_cost`, `product.edit_cost` |
+| Stock | `stock.view`, `stock.adjust`, `stock.count`, `stock.approve_adjustment` |
+| Customer | `customer.view`, `customer.edit` |
+| Payment / Refund | `payment.receive`, `payment.void`, `refund.create`, `refund.approve` |
+| Bill | `bill.cancel`, `bill.void` |
+| Rental | `rental.return`, `rental.damage_assess`, `rental.damage_charge`, `rental.lost_approve` |
+| Finance | `finance.view`, `finance.expense_create`, `finance.expense_approve` |
+| Control | `audit.view`, `security.manage_roles` |
 
-## 9. Payment, Finance & Revenue Recognition Rules (การเงินและการรับรู้รายได้)
+รหัสที่เพิ่มตาม Architecture Decisions:
 
-1. **ขอบเขตการรับชำระเงิน (Single-Bill Scope):**
-   * ระบบมุ่งเน้นการจัดการธุรกรรมระดับบิลเดี่ยว (Single Bill Scope)
-   * **ข้อห้ามเด็ดขาด:** ระบบไม่รองรับ Multi-Bill Payment Allocation, การตัดยอดแบบ FIFO ข้ามหลายบิล, หรือการรับเงินก้อนเดียวแล้วแบ่งหลายบิล (ไม่อยู่ใน Scope ของระบบ และห้ามออกแบบ Logic นี้ไว้ในระบบ)
-   * ระบบต้องรองรับ:
-     - การชำระบางส่วนของบิลเดียว (Partial Payment)
-     - การชำระเงินหลายครั้งของบิลเดียว (Multiple Payments)
-     - การชำระหลายช่องทางในบิลเดียว (Split / Multi-Channel Payment เช่น เงินสดร่วมกับเงินโอน)
-2. **การบันทึกประวัติการรับเงิน (Payment Transaction Event):**
-   * ทุกช่องทางการชำระต้องบันทึกเป็น 1 Transaction Event แยกกันอย่างชัดเจน โดยมีข้อมูล: Amount, Channel, Timestamp, Receiver/Actor, Bill Reference
-   * **ข้อห้ามเด็ดขาด:** ห้ามรวมยอดชำระหลายช่องทางจนเหลือช่องทางแรกเพียงช่องทางเดียว
-   * **ข้อห้ามเด็ดขาด:** ห้ามแก้ไขหรือลบประวัติการรับเงินเดิมเพียงเพราะยอดบิลเปลี่ยนแปลง
-   * ผู้รับเงิน (Receiver) ต้องผูกกับ User Account ที่ล็อกอินใช้งานจริงในขณะนั้น
-3. **นิยามและความสัมพันธ์ของตัวเลขทางการเงิน (Unified Financial Entities):**
-   ระบบต้องแยกข้อมูลต่อไปนี้ออกจากกันอย่างชัดเจน แต่คำนวณเชื่อมโยงสัมพันธ์กันจากบิลและประวัติธุรกรรมเดียวกัน:
-   * **Bill Amount (ยอดบิล):** ยอดปัจจุบันที่ลูกค้าต้องรับผิดชอบตามบิลล่าสุดที่ได้รับการยืนยัน (`Current Confirmed Bill Amount`)
-   * **Net Paid (เงินรับสุทธิ):** ผลรวมของ Payment Transactions ที่สำเร็จ หักด้วยรายการ Refund/Reversal ที่มีผลแล้ว **โดยไม่รวมเงินมัดจำ (Deposit)**
-   * **Revenue Recognized (รายได้ที่รับรู้แล้ว):** รายได้ที่เกิดจากสินค้าขายที่ส่งมอบแล้ว หรือบริการเช่าที่เกิดขึ้นจริงแล้ว
-   * **Bill Outstanding (ยอดค้างชำระตามบิล):** ยอดของทั้งบิลที่ยังไม่ได้รับชำระเงิน คำนวณจาก:
-     $$\text{Bill Outstanding} = \max(\text{Current Confirmed Bill Amount} - \text{Net Paid}, 0)$$
-   * **Earned Outstanding / Receivable (รายได้ค้างรับ / ลูกหนี้บริการจริง):** รายได้ที่เกิดขึ้นจริงแล้วแต่ยังไม่ได้รับเงินจริง สำหรับบิลที่มีการเช่าคำนวณจาก:
-     $$\text{Earned Outstanding} = \max(\text{Revenue Recognized} - \text{Net Paid}, 0)$$
-     *(ข้อห้าม: Deposit ไม่นำมาปนในสูตรนี้ และห้ามนำยอดนี้ไปสับสนกับ Bill Outstanding)*
-   * **Advance / Deferred Amount (เงินรับล่วงหน้า / รายได้รอการรับรู้):** เงินที่รับมาแล้วแต่บริการเช่ายังไม่เกิดขึ้นจริง คำนวณจาก:
-     $$\text{Advance / Deferred} = \max(\text{Net Paid} - \text{Revenue Recognized}, 0)$$
-     *(โดยยอดต้องไม่เกินมูลค่าบริการที่ยังไม่เกิดขึ้นจริง)*
-   * **Overpayment (ยอดชำระเกิน):**
-     $$\text{Overpayment} = \max(\text{Net Paid} - \text{Current Confirmed Bill Amount}, 0)$$
-   * **Deposit (เงินมัดจำ):** เงินประกันความเสียหายที่ต้องแยกบัญชีออกจาก Revenue และ Net Paid ของค่าบริการอย่างเด็ดขาด
-4. **หลักการสำคัญที่สุด: ความเป็นคนละเหตุการณ์ (Decoupled Events):**
-   * **“การรับเงิน” (Cash/Payment)**, **“การเกิดรายได้” (Revenue Recognition)**, และ **“การส่ง/คืนสินค้า” (Delivery/Return)** เป็นคนละเหตุการณ์กัน
-   * ทั้งหมดต้องเชื่อมโยงด้วย Bill / Transaction Reference เดียวกัน แต่ **ห้ามใช้สถานะใดสถานะหนึ่งแทนทั้งหมด**
-   * *ตัวอย่าง:* ลูกค้าชำระเงินครบแล้ว แต่ทางร้านยังไม่ได้ส่งมอบของให้ลูกค้า:
-     - `Financial Status` = `Paid`
-     - `Rental Status` = `Not Started / Awaiting Handover`
-     - `Revenue Recognized` = `0 บาท`
-     - `Advance / Deferred Amount` = `Net Paid`
-5. **สูตรสถานะทางการเงิน (Financial Status Formula):**
-   คำนวณสถานะทางการเงินจากประวัติธุรกรรมจริงเสมอ (ห้ามแก้ไข Payment เก่าย้อนหลังเมื่อยอดบิลเปลี่ยน):
-   * `Net Paid = 0` $\rightarrow$ **`Unpaid`**
-   * `0 < Net Paid < Current Confirmed Bill Amount` $\rightarrow$ **`Partially Paid`**
-   * `Net Paid = Current Confirmed Bill Amount` $\rightarrow$ **`Paid`**
-   * `Net Paid > Current Confirmed Bill Amount` $\rightarrow$ **`Overpaid / Refund Due`** (ตามกรณี)
-6. **กฎการรับรู้รายได้ของ Rental (Rental Revenue Recognition):**
-   * **ก่อนเกิด Actual Handover / Actual Dispatch:** `Revenue Recognized = 0` เสมอ แม้ว่าจะออกบิลแล้ว, รับเงินแล้ว, ลูกค้าจ่ายครบแล้ว, หรือถึงวันเริ่มตามปฏิทินแล้วก็ตาม จนกว่าจะมีการส่งมอบสินค้าจริง
-   * **เมื่อเกิด Actual Handover:** `Rental Status` ปรับเป็น `Renting` และเริ่มรับรู้ Revenue ตามบริการที่เกิดขึ้นจริง
-   * **สินค้ารายวัน (Daily Rental):**
-     - Revenue ต้องสัมพันธ์กับจำนวนวันบริการที่เกิดขึ้นจริงหลัง Actual Handover ตามสูตร: `ราคาต่อวัน × จำนวนสินค้า × จำนวนวันที่เกิดจริง`
-     - ไม่รับรู้รายได้ของวันที่ยังไม่เกิดขึ้นล่วงหน้า
-     - เงินส่วนที่รับเกินกว่าบริการที่เกิดขึ้นแล้วถือเป็น `Advance / Deferred Amount`
-   * **สินค้าต่อรอบ (Round-based Rental):**
-     - Revenue รับรู้ตามรอบบริการที่เกิดขึ้นจริงและได้รับการยืนยัน ตามสูตร: `ราคาต่อรอบ × จำนวนสินค้า × จำนวนรอบจริง`
-     - ห้ามถือว่ารอบในอนาคตทั้งหมดเกิด Revenue เพียงเพราะออกบิลไว้ล่วงหน้า
-   * **เงินรับล่วงหน้า (Advance / Deferred Amount):**
-     - เมื่อลูกค้าจ่ายเงินก่อนบริการเกิด: เงินที่รับบันทึกเป็น Cash/Payment Received แต่ส่วนที่บริการยังไม่เกิดถือเป็น `Advance / Deferred Amount` ยังไม่ใช่ Revenue
-     - เมื่อบริการเกิดขึ้นจริง: ค่อยทยอยย้ายส่วนที่เกี่ยวข้องจาก Deferred เข้าสู่ Revenue Recognized
-     - **ข้อห้ามเด็ดขาด:** ห้ามใช้วันที่ตามปฏิทินเพียงอย่างเดียวเป็น Trigger ในการรับรู้รายได้
-7. **การจัดการเงินมัดจำร่วมกับค่าเสียหาย/สูญหาย (Deposit Settlement):**
-   * Deposit ไม่ใช่ Revenue
-   * เมื่อสิ้นสุดการเช่าหรือรับคืนของ: ระบบดึง Default Damage Fee / Default Lost Fee ของสินค้ามาคำนวณเป็นยอดเสนอเริ่มต้น
-   * ผู้ใช้งานที่มีสิทธิ์สามารถกำหนดยอดที่เรียกเก็บจริง (Actual Charge) เองได้
-   * ก่อนนำยอด Damage/Lost ไปหักจากเงินมัดจำ **ต้องให้ผู้ใช้งานตรวจสอบและกดยืนยัน (Manual Confirmation)**
-   * **ข้อห้ามเด็ดขาด:** ห้าม Auto-offset เงินมัดจำโดยไม่มีการตรวจสอบและยืนยันโดยเด็ดขาด
-   * เมื่อได้รับการยืนยันแล้ว จึงสร้าง Transaction การหักเงินและบันทึก Audit Log เสมอ: Default Amount, Actual Charge, Deposit Applied, Actor, Approver (ถ้ามี), Timestamp, Reason
-   * ถ้าเงินมัดจำมากกว่ายอดที่หัก ส่วนที่เหลือต้องเป็นยอดคืนลูกค้า (Deposit Refund Due)
-   * ถ้าเงินมัดจำน้อยกว่ายอดค่าเสียหาย ส่วนต่างเป็นยอดที่ลูกค้าต้องชำระเพิ่ม (Outstanding Balance Due)
-8. **การคืนเงิน (Refund):**
-   * การคืนเงินต้องอ้างอิงกับ Transaction การรับเงินเดิม (Original Payment Reference)
-   * ยอดคืนเงินต้องไม่เกินยอดเงินที่เคยรับมาจริง
-   * ช่องทางการคืนเงิน (Refund Channel) ให้ใช้ช่องทางเดิมที่รับมาเป็น Default แต่ผู้มีสิทธิ์สามารถ Override เลือกช่องทางอื่นได้
-   * สิทธิ์ในการยกเลิกบิล (Cancel Permission) และสิทธิ์ในการคืนเงิน (Refund Permission) ต้องแยกเป็นคนละสิทธิ์กันอย่างเด็ดขาด
-9. **ตัวอย่างบังคับใน MASTER (Mandatory Financial & Revenue Scenarios):**
-   * **กรณี A (จ่ายล่วงหน้า ยังไม่ส่งของ):**
-     - บิล 10,000 บาท ลูกค้าจ่ายล่วงหน้า 10,000 บาท ทางร้านยังไม่ส่งของ
-     - `Net Paid` = 10,000 บาท
-     - `Financial Status` = `Paid`
-     - `Revenue Recognized` = 0 บาท
-     - `Advance / Deferred Amount` = 10,000 บาท
-     - `Bill Outstanding` = 0 บาท
-     - `Rental Status` = `Not Started / Awaiting Handover`
-   * **กรณี B (บริการเกิดบางส่วน จ่ายบางส่วน):**
-     - บิล 10,000 บาท บริการเกิดจริงแล้ว 4,000 บาท ลูกค้าจ่ายแล้ว 3,000 บาท
-     - `Revenue Recognized` = 4,000 บาท
-     - `Net Paid` = 3,000 บาท
-     - `Earned Outstanding` = 1,000 บาท (รายได้ที่เกิดขึ้นแล้วแต่ยังไม่ได้รับเงินจริง)
-     - `Bill Outstanding` = 7,000 บาท (ยอดของทั้งบิลที่ยังไม่ได้รับชำระ)
-     - `Financial Status` = `Partially Paid`
-     *(หมายเหตุสำคัญ: 1,000 บาท คือ "รายได้ที่เกิดแล้วแต่ยังไม่ได้รับ" ส่วน 7,000 บาท คือ "ยอดของทั้งบิลที่ยังไม่ได้ชำระ" ห้ามใช้สองยอดนี้แทนกัน)*
-   * **กรณี C (จ่ายครบ บริการเกิดบางส่วน):**
-     - บิล 10,000 บาท บริการเกิดจริงแล้ว 4,000 บาท ลูกค้าจ่ายแล้ว 10,000 บาท
-     - `Financial Status` = `Paid`
-     - `Revenue Recognized` = 4,000 บาท
-     - `Advance / Deferred Amount` = 6,000 บาท
-     - `Bill Outstanding` = 0 บาท
-   * **กรณี D (บริการเกิดแล้ว ยังไม่จ่ายเงิน):**
-     - บริการเกิดจริงแล้ว 4,000 บาท ลูกค้ายังไม่จ่ายเงินเลย
-     - `Revenue Recognized` = 4,000 บาท
-     - `Net Paid` = 0 บาท
-     - `Earned Outstanding` = 4,000 บาท
-     - `Bill Outstanding` = ตามยอดบิล
-     - `Financial Status` = `Unpaid`
-   * **กรณี E (ยอดบิลลดลงหลังสรุปบริการจริง เกิดยอดคืนเงิน):**
-     - บิลเดิมเคยรับเงินไว้ 10,000 บาท หลังสรุปบริการจริงยอดสุดท้ายเหลือ 8,000 บาท
-     - ห้ามแก้ประวัติการรับเงิน 10,000 บาทเดิม
-     - `Current Confirmed Bill Amount` = 8,000 บาท
-     - `Net Paid` = 10,000 บาท
-     - `Refund Due` = 2,000 บาท (ต้องสร้าง Refund/Reversal Transaction ตามกฎเดิม)
+| รหัส | Action |
+|---|---|
+| **`rental.continue`** | สร้างบิลเช่าต่อ / Carry Forward (ชื่อล็อกแล้ว — แทนชื่อเดิม `rental.extend`) |
+| `contract.create`, `contract.new_version`, `contract.end`, `contract.void` | จัดการ Rental Contract |
+| `deposit.receive`, `deposit.apply`, `deposit.refund` | Deposit Movements |
+| `bill.correct` | Correction |
+| `rental.additional_charge_confirm` | ยืนยันค่าใช้จ่ายเพิ่มกรณีเกินกำหนด |
+
+> ชื่อรหัสในตารางที่สอง (ยกเว้น `rental.continue`) ปรับได้ตอนออกแบบ schema แต่ต้องคง Action แยกกันตามตาราง
+
+### 4.4 Approval
+- Action เสี่ยงต้องมี: เหตุผล + ผู้ทำ + ผู้อนุมัติ (ถ้ามี) + Audit
+- Action เสี่ยงอย่างน้อย: Refund, Cancel/Void, Lost, Write-off, Stock Adjustment, Price Override, Damage Charge Override, Credit Override, Cash Variance, Correction, การเช่าต่อ, ค่าใช้จ่ายเพิ่มกรณีเกินกำหนด, Contract End/Void, Deposit Apply/Refund, เปลี่ยนสิทธิ์
+- ผู้อนุมัติคนละคนกับผู้สร้างได้ เมื่อต้องการ Separation of Duties
+- เกณฑ์ว่าเรื่องใดต้องอนุมัติเมื่อไร (Approval Threshold) — ดูหมวด 37
 
 ---
 
-## 10. Bill Rules, Actual Return & Final Settlement (การจัดการบิล การคืนของ และการปิดบิล)
+## 5. Customer
 
-1. **ห้ามลบบิลที่มีประวัติ (No Hard Delete for Bills):**
-   * บิลที่เคยมี Transaction, การชำระเงิน หรือการตัดสต็อกแล้ว **ห้ามลบถาวร (Hard Delete)** ออกจากฐานข้อมูล
-   * หากต้องการยกเลิก ให้เปลี่ยนสถานะเป็น `Cancel` หรือ `Void`
-   * ห้ามลบประวัติการเงินและสต็อกเดิม แต่ให้สร้างรายการปรับปรุงยอด/หักล้าง (Adjustment / Reversal)
-2. **การยกเลิกบิลเช่าขณะของยังอยู่กับลูกค้า:**
-   * หากยกเลิกบิลเช่า (Cancel Rental) ในขณะที่สินค้ายังอยู่ที่ลูกค้า **ห้าม**คืนสต็อกกลับเข้าระบบโดยอัตโนมัติ ต้องรอให้มีกระบวนการติดตามของคืนจริงก่อน
-3. **บทบาทของการรับคืนสินค้าจริง (Actual Return):**
-   * Actual Return **ไม่ใช่ Trigger ในการเริ่มรับรู้ Revenue**
-   * Actual Return ทำหน้าที่สำหรับ:
-     - หยุดและสรุประยะเวลาการให้บริการจริง
-     - ตรวจนับจำนวนสินค้าและคัดแยกสภาพ (Normal / Damaged / Lost)
-     - คำนวณยอดสุดท้ายของบิล (Final Bill Amount)
-     - ประเมินค่าชำรุดหรือสูญหาย (Damage/Lost Charge)
-     - ดำเนินการจัดการเงินมัดจำ (Deposit Settlement)
-     - สรุปยอดปิดบัญชี (Final Settlement)
-4. **บทบาทของการปิดบิล (Bill Closure):**
-   * การปิดบิลเป็นขั้นตอนสรุปงานและเคลียร์ภาระผูกพันสุดท้ายของบิล
-   * **การปิดบิลไม่ใช่เหตุการณ์เดียวที่ทำให้เกิดรายได้** รายได้ค่าเช่าทยอยเกิดขึ้นตามบริการจริงตั้งแต่ Actual Handover
+- บิลที่มี **RENTAL Line อย่างน้อย 1 รายการ ต้องมี Customer** (รวม Mixed Bill)
+- บิลที่มีเฉพาะ SALE เป็น Walk-in ได้
+- ข้อมูลขั้นต่ำ: ชื่อ, เบอร์โทร, ที่อยู่
+- ข้อมูลเสริม: `customer_type`, `tax_id`, `email`, `contact_person`, `billing_address`, `delivery_address`, tags, `credit_note`, `risk_note`, `document_reference`, `last_activity_at`, `note`
+- ตรวจข้อมูลซ้ำ (ชื่อ/เบอร์ใกล้เคียง) → ให้เลือกใช้ลูกค้าเดิม หรือยืนยันสร้างใหม่
+- ประวัติลูกค้า: Contract, Bill, Quotation, Appointment, Payment, Refund, Rental, Return, ของค้าง, ยอดค้าง, Deposit, Damage/Lost, Notes
+- ห้าม Hard Delete ลูกค้าที่มีประวัติ — ใช้ `active = false`
+- ทุกการแก้ไขลูกค้าต้อง Audit
 
 ---
 
-## 11. Sale Return Rules (การรับคืนสินค้าขาย)
+## 6. Rental Contract และ Contract Version
 
-1. **การรับคืนสินค้าสภาพปกติ:**
-   * สินค้าขายขาดที่อยู่ในสภาพปกติ สามารถรับคืนได้ตามนโยบายของทางร้าน
-   * ผู้มีสิทธิ์ต้องตรวจสอบและอนุมัติการรับคืน (Inspection & Approval by Authorized User)
-   * รองรับการรับคืนบางส่วน (Partial Sale Return) และการรับคืนทั้งหมด (Full Sale Return)
-   * *(ข้อห้าม: ห้ามบังคับกฎว่า "ต้องไม่เคยใช้งานเท่านั้น" หากไม่มีนโยบายร้านกำหนดเพิ่มเติม)*
-2. **การจัดการสต็อกจากการรับคืน:**
-   * จำนวนสินค้าที่รับคืนในสภาพขายได้ ให้คืนกลับเข้าสู่สต็อกพร้อมขาย (Available Sale Stock) ทันที
-3. **การคืนเงินค่าสินค้าขาย (Refund):**
-   * การคำนวณยอดคืนเงิน ต้องอ้างอิงจากราคาจริงที่ลูกค้าชำระ (Actual Price Paid) หลังจากหักส่วนลดแล้ว
-4. **สินค้าชำรุดไม่รับคืน:**
-   * สินค้าขายที่ลูกค้าทำชำรุดเสียหาย ทางร้านไม่รับคืนเด็ดขาด
-5. **ขอบเขตการเคลม:**
-   * ใน Scope ปัจจุบัน ระบบไม่รองรับ Manufacturer Claim หรือ Warranty Claim System
+### 6.1 โครงสร้าง
+- ความสัมพันธ์: **Customer → Rental Contract → Bills**
+- Contract 1 ฉบับ มีหลาย Bill ได้ / Bill เช่า 1 ใบ ใช้ Contract เดียว
+- ลูกค้า 1 คน มี Contract ที่ `ACTIVE` พร้อมกันได้หลายฉบับ (เช่น หลายงาน/หลายโครงการ)
+- ไม่ผูก Contract ที่ระดับ Rental Line (ช่อง `rental_contract_id` ใน `RENTAL_LINE_DETAILS` ของ Master Spec ถูก Override — ผูกที่ Bill)
 
----
+**`rental_contracts`** — ตัวตนของสัญญา
+- `id` (UUID), `contract_no` (Unique, ชุดเลขของสัญญา), `customer_id`
+- `status`: `ACTIVE` / `ENDED` / `VOID`
+- `created_at`, `created_by`
+- `ended_at`, `ended_by`, `end_reason`
+- `voided_at`, `voided_by`, `void_reason`
 
-## 12. VAT Rules (ระบบภาษีมูลค่าเพิ่ม)
+**`rental_contract_versions`** — ข้อกำหนดของสัญญา (immutable)
+- `id`, `rental_contract_id`, `version_no` (Unique ต่อ Contract)
+- `terms_snapshot`, `template_id`, `effective_from` (`timestamptz`)
+- `created_at`, `created_by`
 
-1. **Global VAT Switch ตัวเดียว:**
-   * ระบบต้องมี Global VAT Switch ควบคุมเพียงจุดเดียวสำหรับทั้งระบบ
-   * หน้า POS และหน้า Settings ต้องใช้ State เดียวกัน (Single Source of Truth) ห้ามแยก State
-2. **พฤติกรรมของสวิตช์:**
-   * **OFF:** ไม่คิด VAT, ไม่แยกแสดงภาษี, และไม่นำภาษีมาคำนวณในบิล
-   * **ON:** ใช้งาน VAT Module นำภาษีมาคำนวณและแสดงแยกในบิล
-3. **การตั้งค่าจากหน้า Settings เท่านั้น:**
-   * อัตราภาษี (VAT Rate)
-   * รูปแบบราคารวมภาษี/แยกภาษี (Inclusive / Exclusive)
-   * กฎสินค้าที่ต้องเสียภาษี (Taxable Rules)
-   * การปัดเศษทศนิยม (Rounding Rules)
-   * ค่าทั้งหมดนี้ต้องตั้งจากหน้า Settings เท่านั้น
-4. **ข้อห้ามเด็ดขาด:**
-   * ห้ามกระจาย Hard-code ค่า VAT ในโค้ดหลายจุด
-   * POS ต้องไม่มีชุดการตั้งค่า VAT (VAT Configuration) แยกต่างหากคนละชุดกับหน้า Settings
+### 6.2 กฎ
+- Contract ID และ Contract Number **คงเดิมตลอดอายุสัญญา**
+- เปลี่ยนเงื่อนไข = สร้าง **Version ใหม่** — ห้ามแก้ Version เก่า
+- Contract **ไม่มีวันหมดอายุตามรอบของ Bill** — วันคืนสินค้าอยู่ที่ Rental Bill/Line
+- **การเช่าต่อไม่ทำให้เกิดการต่อ Contract และไม่สร้าง Contract Version ใหม่โดยอัตโนมัติ**
+- เนื้อหาสัญญาที่พิมพ์ต้องสร้างซ้ำได้จาก `terms_snapshot` ของ Version ที่ใช้
 
----
+### 6.3 การผูกกับ Bill
+- Bill เก็บ **`rental_contract_id`** และ **`rental_contract_version_id`** ที่ใช้ตอนออกบิล
+- บิลที่มี RENTAL Line ต้อง **เลือกหรือสร้าง Contract ก่อน Confirm** (Draft ยังว่างได้)
+- Contract ต้อง `ACTIVE` และเป็นของ Customer เดียวกับ Bill
+- Version ต้องเป็นของ Contract นั้น และเป็น Version ที่มีผล ณ เวลาออกบิล
 
-## 13. Permission, PIN & Audit Rules (สิทธิ์ รหัสผ่าน และการตรวจสอบ)
-
-1. **การควบคุมสิทธิ์ (Role-Based Access Control):**
-   * `OWNER`: มีสิทธิ์ทั้งหมดในระบบ
-   * `USER`: มีสิทธิ์ตามที่ OWNER กำหนด
-2. **รหัส PIN 6 หลัก (Approval PIN):**
-   * PIN 6 หลักใช้เป็น **Extra Approval / Secondary Verification** สำหรับการอนุมัติการกระทำสำคัญเฉพาะจุดเท่านั้น (เช่น ปรับราคา, ให้ส่วนลดพิเศษ, ยกเลิกบิล, คืนเงิน)
-   * **ข้อห้ามเด็ดขาด:** PIN ไม่ใช่รหัสผ่านสำหรับเข้าสู่ระบบ (Not Login Password)
-   * OWNER เป็นผู้กำหนดว่า Action ใดบ้างในระบบที่จำเป็นต้องใส่ PIN อนุมัติ
-3. **ระเบียบการบันทึก Audit Log:**
-   * Audit Log ต้องบันทึกข้อมูลอย่างน้อย: Actor (ผู้ทำรายการ), Approver (ผู้อนุมัติ), Timestamp, Action Name, ข้อมูล Before และ After
-   * โครงสร้าง Audit Log ต้องเป็นแบบ **Append-Only** เท่านั้น
-   * **ข้อห้ามเด็ดขาด:** ห้ามแก้ไขหรือลบ Audit Log โดยเด็ดขาด
+### 6.4 สถานะและการสิ้นสุด
+- **`ENDED`**: ทำได้เมื่อ
+  - ไม่มี Bill ภายใต้ Contract ที่ยังไม่ปิด
+  - ไม่มีภาระสินค้าค้าง (Σ `obligation_held_here` = 0)
+  - Deposit Liability ของ Contract = 0
+  - ระบบ validate ครบแล้ว ผู้มีสิทธิ์ `contract.end` ยืนยัน + Audit
+- **`VOID`**: ใช้ได้เฉพาะเมื่อยังไม่มีธุรกรรมจริงที่ต้องรักษา หรือหลังทำ Reversal/Compensating Entry ของธุรกรรมที่เกี่ยวข้องถูกต้องครบแล้ว — ผู้มีสิทธิ์ `contract.void` + เหตุผล + Audit
+- ห้าม Hard Delete Contract และ Contract Version
 
 ---
 
-## 14. Work Order & LINE Integration Rules (ใบสั่งงานและการเชื่อมต่อ LINE)
+## 7. Product
 
-1. **Job ID เป็นแกนกลาง:**
-   * ทุกงานบริการ/นัดหมาย ต้องใช้ `Job ID` เป็นแกนกลางเชื่อมโยง: Appointment, Customer, Job Items, Assigned Employees, LINE Events, Bill ID, Media/Photos, Delivery Dispatch, Pickup และ Return
-2. **การมอบหมายงาน (Employee Assignment):**
-   * หนึ่ง Job สามารถมอบหมายพนักงานได้มากกว่า 1 คน
-   * ทุก Action ที่เกิดขึ้นต้องระบุตัวตนพนักงานผู้กระทำจริง (Actor) เสมอ
-3. **บทบาทของ POS และ LINE:**
-   * **POS** คือศูนย์ควบคุมหลัก (Control Center)
-   * **LINE** คือช่องทางการปฏิบัติงาน (Execution Channel) ไม่ใช่ Source of Truth
-   * การแจ้งเตือนงานต้องแสดงในระบบ POS ก่อนเสมอ
-   * **ข้อห้ามเด็ดขาด:** ห้ามส่ง LINE อัตโนมัติเพียงเพราะถึงกำหนดเวลา ผู้ใช้ใน POS ต้องเป็นผู้ตรวจสอบงาน → เลือกพนักงาน → และกดปุ่มสั่งงานด้วยตนเอง
-   * พนักงานเป็นผู้กดอัปเดตสถานะงานแต่ละขั้นตอนผ่าน LINE ด้วยตนเอง
-4. **Checklist การตรวจรับส่งสินค้า:**
-   * Delivery Checklist และ Pickup Checklist ต้องบันทึกจำนวนที่ตรวจนับได้จริง (Actual Quantity)
-   * การเก็บของกลับบางส่วน (Partial Pickup) ต้องคงยอดค้างรับ (Remaining Quantity) ไว้ในระบบเสมอ
-5. **การจัดการรูปภาพหน้างาน:**
-   * รูปภาพทุกรูปต้องผูกกับ Job ID
-   * แยกประเภทรูปภาพชัดเจน: Delivery (ส่งของ), Pickup (รับคืน), Damage (ชำรุด)
-   * ไฟล์รูปภาพจริงต้องอัปโหลดและจัดเก็บที่ **Supabase Storage**
-6. **การเปลี่ยนสถานะการเช่า:**
-   * สถานะของสินค้าเช่าจะเปลี่ยนเป็น `Renting` หลังจากการส่งมอบสินค้าจริง (Actual Delivery) เท่านั้น
-7. **การเชื่อมโยง Job กับบิล:**
-   * หน้า Job สามารถกดปุ่ม `[สร้างบิล]` เพื่อส่งข้อมูลไปยัง POS ได้
-   * บิลที่สร้างแล้วต้องบันทึกเชื่อมโยงกลับมายัง Job ID
-   * ปุ่ม `[สถานะบิล]` ในหน้า Job ต้องนำทางไปยังบิลจริง เลื่อนหน้าจอไปยังแถวดังกล่าว และทำ Highlight ชัดเจน
+- ข้อมูล: `sku`, `name`, `category`, `item_type`, `calculation_type`, `unit`, `sale_price`, `rental_price`, `cost_price`, `reorder_point`, `active`, `can_sell`, `can_rent`
+- **Product Capability**: SALE ต้อง `can_sell = true` / RENTAL ต้อง `can_rent = true`
+- สูตร:
+  - SALE = ราคาขาย × จำนวน
+  - RENTAL ต่อครั้ง/ต่อรอบ = ราคาเช่าต่อครั้ง × จำนวน × จำนวนรอบ
+  - RENTAL รายวัน = ราคาเช่าต่อวัน × จำนวน × จำนวนวัน
+- แก้ราคา → ต้องมีสิทธิ์ `product.edit_price` / แก้ต้นทุน → `product.edit_cost` — Audit Before/After ทุกครั้ง
+- **ห้ามแก้ Stock Quantity ตรง ๆ** — ใช้ Stock Movement / Adjustment
+- สร้างสินค้าใหม่: ตรวจ SKU/ชื่อซ้ำ → สร้าง Product → Initial Stock Movement → Audit
+- ปิดใช้งาน `active = false`: ไม่แสดงใน POS รายการใหม่ แต่ยังเปิดบิลเก่าและรายงานได้ — สินค้า inactive ห้ามใช้ในรายการใหม่
+- ราคา/จำนวนห้ามติดลบ
+
+### 7.1 สินค้าติดตามรายชิ้น (Serialized Rental Unit)
+- ของมูลค่าสูง / ต้องรู้ Serial / ต้องติดตามสภาพรายชิ้น: Product → Rental Unit → Serial Number (`product_units`)
+- การส่งมอบ การรับคืน และ **Carry Forward** ของสินค้ารายชิ้น ต้องทำที่ระดับ Unit/Serial
+- ของจำนวนมากใช้ Quantity-Based Inventory
 
 ---
 
-## 15. Independent Status Separation (การแยกมิติสถานะอิสระ)
+## 8. Bill และ Line
 
-ระบบต้องแยกสถานะออกจากกันอย่างน้อย 6 มิติอย่างอิสระ ห้ามใช้ Status เดียวแทนทุกอย่าง:
-1. **Work Status:** สถานะการดำเนินงานของ Job (เช่น Draft, Assigned, In Progress, Completed, Cancelled)
-2. **Delivery Status:** สถานะการขนส่ง/ส่งมอบ (เช่น Pending, Awaiting Delivery, Out for Delivery, Delivered, Partial Delivered)
-3. **Rental Status:** สถานะสัญญาเช่า (เช่น Reserved, Renting, Extended, Overdue, Returned)
-4. **Return Status:** สถานะการรับคืนสินค้า (เช่น Not Returned, Partial Returned, Complete Return)
-5. **Bill Status:** สถานะของเอกสารบิล (เช่น Active, Void, Cancelled, Renewed)
-6. **Financial Status:** สถานะทางการเงิน (เช่น Unpaid, Partially Paid, Paid, Overpaid, Refund Due, Refunded)
+### 8.1 โครงสร้าง
+- Bill เป็นหัวบิลกลาง — Bill Item แต่ละรายการมี `line_mode` = `SALE` | `RENTAL`
+- RENTAL Line มีรายละเอียดเช่า: `rental_rate`, `rental_calculation_type`, `period_type`, `period_count`, `rental_start_at`, `rental_end_at` (`timestamptz`)
+- SALE และ RENTAL **ห้าม merge** แม้เป็น `product_id` เดียวกัน (ความหมาย สูตรราคา Stock Lifecycle ภาระการคืน และการจัดประเภทรายได้ต่างกัน)
+- Payment รับรวมที่ระดับ Bill ได้ แต่ Revenue และ Stock Lifecycle แยกตาม Line
+- หลัง Checkout แต่ละ Line เดิน Lifecycle ของตัวเอง
 
-**กฎสำคัญ:**
-* **Revenue State / Revenue Amount ต้องไม่ถูกอนุมานจาก Financial Status เพียงอย่างเดียว**
-  - `Paid` ไม่ได้แปลว่า Revenue เกิดขึ้นครบแล้ว (เช่น จ่ายล่วงหน้าแต่ยังไม่ส่งของ Revenue = 0)
-  - `Unpaid` ไม่ได้แปลว่าไม่มี Revenue (เช่น ส่งของแล้ว ให้บริการแล้ว แต่ยังค้างเงิน Earned Outstanding > 0)
-* สถานะการเงินต้องแยกจาก Product / Return Status อย่างเด็ดขาด
+### 8.2 ความสัมพันธ์ของบิลเช่า
+- Bill เก็บ `customer_id`, `rental_contract_id`, `rental_contract_version_id` (หมวด 6.3)
+- Bill Lineage (หมวด 17): `parent_bill_id` = บิลก่อนหน้าทันที / `original_bill_id` = บิลแรกสุดของสาย
 
-**ตัวอย่างสถานะที่ระบบต้องรองรับได้อย่างถูกต้อง:**
-* ส่งของให้ลูกค้าแล้ว แต่ลูกค้ายังจ่ายเงินไม่ครบ (`Delivery: Delivered`, `Financial: Partially Paid`, `Earned Outstanding > 0`)
-* ลูกค้านำของมาคืนครบแล้ว แต่ยังมียอดค้างชำระ (`Return: Complete Return`, `Financial: Unpaid / Due`)
-* ลูกค้าชำระเงินครบแล้ว แต่ยังไม่ได้ส่งของ (`Financial: Paid`, `Delivery: Awaiting Delivery`, `Revenue: 0`, `Deferred > 0`)
+### 8.3 POS Mode
+- UI มีปุ่ม [เช่า] [ขาย] เป็น `current_mode` สำหรับสินค้าที่จะเพิ่ม "ต่อจากนี้" — ไม่เปลี่ยน Line เดิมอัตโนมัติ
+- Current Mode ต้องแสดงชัดเสมอ และทุก Row ใน Cart ต้องมี Badge SALE / RENTAL
+- เปลี่ยนโหมดของ Line ใน Cart (ก่อนยืนยัน): ตรวจ Capability → เปลี่ยน pricing rule → (RENTAL) ขอ Period → Recalculate → เปลี่ยน Reservation Type
+- หลังยืนยันบิล ห้ามแก้ `line_mode` แบบไม่มีประวัติ — ใช้ Cancel/Correction/Reversal ตามกฎ
 
----
+### 8.4 สูตรคำนวณ
+- `sale_subtotal` = Σ extended_amount ของ SALE
+- `rental_subtotal` = Σ extended_amount ของ RENTAL
+- ลำดับคำนวณ: Item Base Amount → Line Discount → Line Net → Bill Discount → Shipping/Service Fee → Taxable Base → VAT → Grand Total
+- Discount: รองรับ Line/Bill และ Fixed/Percentage — มีเพดานตาม Policy และสิทธิ์ Override
+- VAT: `vat_enabled`, `vat_rate`, inclusive/exclusive, taxable amount, vat amount — **สวิตช์ VAT ที่ POS และ Settings ต้องเป็น state เดียวกัน**
+- ค่าบริการแยกเป็น `delivery_fee`, `installation_fee`, `service_fee` — ห้ามซ่อนใน Unit Price
+- Deposit **ไม่รวม** ใน Grand Total ของรายได้ (บันทึกเป็น Deposit Movement ระดับ Contract — หมวด 18)
 
-## 16. AI & Social Rules (ปัญญาประดิษฐ์และโซเชียล)
-
-1. **หน้าที่ของ AI:**
-   * AI Social มีหน้าที่ช่วยร่างข้อความสรุปผลงานหรือโพสต์โซเชียล (Draft Caption / Summary) หลังงานเสร็จสิ้นเท่านั้น
-2. **การอนุมัติโดยมนุษย์ (Human-in-the-loop):**
-   * ทุกเนื้อหาที่ AI สร้างขึ้น ต้องผ่านการตรวจสอบและอนุมัติจากผู้ใช้ (Human Review & Approval) ก่อน Publish เสมอ
-3. **ข้อห้ามเด็ดขาดสำหรับ AI:**
-   * AI ห้ามเข้าถึง แก้ไข หรือเปลี่ยนแปลง Bill, Stock, Finance หรือสถานะงานในระบบโดยเด็ดขาด
-   * ห้ามส่งข้อมูลส่วนตัวของลูกค้า (PII) ที่ไม่จำเป็นไปยังระบบ AI
-
----
-
-## 17. Data & Go-Live Regulations (ข้อมูลและการขึ้นระบบจริง)
-
-1. **ความถูกต้องของรายงาน (Reporting Truth):**
-   * รายงานสรุปทุกประเภท (Reports & Analytics) ต้องอ่านและประมวลผลจากข้อมูลจริงชุดเดียวกันในฐานข้อมูลกลาง Supabase
-2. **ขั้นตอนก่อน Go-Live ระบบจริง:**
-   * ลบเฉพาะข้อมูลธุรกรรมทดสอบ (Test / Demo Transactions)
-   * **ข้อห้ามเด็ดขาด:** ห้ามลบข้อมูลสินค้าหลัก (Product Catalog), หมวดหมู่สินค้า (Categories), หน่วยนับ (Units), ราคา (Prices), หรือการตั้งค่าของร้าน (Settings/Configs) จริงโดยเด็ดขาด
+### 8.5 Checkout (Atomic)
+BEGIN → Validate Bill → Validate Customer (+ Contract ถ้ามี RENTAL) → Validate Product Capability → Lock Stock → Validate Stock → Create Bill → Bill Items → Rental Details → Stock Movements (ตามกฎ Reservation/Delivery) → Payment (ถ้ามี) → Finance Ledger → Audit → COMMIT
+- Line ใดผิด ห้าม Checkout — **ห้าม Commit เพียงบาง Line**
 
 ---
 
-## 18. PENDING Rules (หัวข้อที่ยังไม่ล็อกเป็นกฎ)
+## 9. สถานะ (แยกมิติ)
 
-*สถานะปัจจุบัน:* **Current Pending Business Rules: NONE**
-(ไม่มีกฎธุรกิจที่ค้างรอการยืนยัน — กฎทั้งหมดเรื่อง Deposit Damage/Lost Settlement, Sale Delivery Models & Partial Delivery, และ Rental Revenue Recognition ได้รับการยืนยันและล็อกเป็นข้อกำหนดมาตรฐานเรียบร้อยแล้ว ส่วน Multi-Bill Payment Allocation ถูกตัดออกจาก Scope ระบบอย่างถาวร)
+| มิติ | ค่า |
+|---|---|
+| Bill Status | `DRAFT`, `CONFIRMED`, `ACTIVE`, `CLOSED`, `CANCELLED`, `VOID` |
+| Payment Status (ระดับบิล) | `UNPAID`, `PARTIALLY_PAID`, `PAID`, `PARTIALLY_REFUNDED`, `REFUNDED` |
+| Payment Record Status | `PENDING`, `COMPLETED`, `VOIDED`, `REVERSED`, `REFUNDED` |
+| Return Status (ระดับ Line) | `NOT_RETURNED`, `PARTIALLY_RETURNED`, `RETURNED` |
+| Rental Status (ระดับ Line) | `SCHEDULED`, `ACTIVE`, `OVERDUE`, `RETURNED`, `RESOLVED`, `CLOSED` |
+| Fulfillment Status (ระดับ Line) | เช่น `RESERVED`, `DELIVERED`, `RENTED_OUT`, `BACKORDER` |
+| Item Condition | `NORMAL`, `MINOR_DAMAGE`, `REPAIRABLE`, `MAJOR_DAMAGE`, `TOTAL_LOSS`, `LOST` (สถานะงาน: `UNDER_INSPECTION`, `UNDER_REPAIR`, `WRITTEN_OFF`) |
+| Contract Status | `ACTIVE`, `ENDED`, `VOID` |
+| Quotation | `DRAFT`, `SENT`, `ACCEPTED`, `EXPIRED`, `REJECTED`, `CONVERTED` |
+| Reservation | `PENDING`, `ACTIVE`, `EXPIRED`, `CANCELLED`, `CONVERTED` |
+| Appointment | `DRAFT`, `SCHEDULED`, `CONFIRMED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`, `NO_SHOW`, `RESCHEDULED` |
+| Notification | `UNREAD`, `READ`, `HANDLED`, `DISMISSED`, `EXPIRED` |
+| Cash Session | `OPEN`, `CLOSED`, `CLOSED_WITH_VARIANCE` |
 
----
-
-## 19. Confirmed 50 Business Rules (กฎธุรกิจหลัก 50 ข้อ)
-
-*(เนื้อหากฎ 50 ข้อเดิมที่ได้รับการตรวจสอบและปรับปรุงให้สอดคล้องกับกฎหลักล่าสุด)*
-
-### 1. วันที่ออกบิล
-ทุกบิลต้องมีวันที่ออกบิล ใช้สำหรับแสดงบนเอกสารและเป็นวันที่อ้างอิงของบิล วันที่นี้ไม่ใช่วันที่ใช้คำนวณจำนวนวันเช่าของสินค้า
-
-### 2. วันที่กำหนดวันเช่า
-ทุกบิลที่เกี่ยวกับการเช่าต้องมีวันที่กำหนดวันเช่า ใช้แสดงบนบิล ใช้ติดตามงาน และใช้สำหรับการแจ้งเตือน แต่ไม่ใช่วันที่บังคับให้สินค้าเช่ารายวันนำไปคิดเงิน
-
-### 3. วันที่กำหนดวันคืน
-ทุกบิลที่มีการเช่าต้องมีวันที่กำหนดวันคืน ใช้แสดงบนบิล ใช้เตือนว่าบิลไหนถึงกำหนดคืนหรือเกินกำหนด และใช้ติดตามงานของร้าน
-
-### 4. วันที่สำหรับคิดเงินของสินค้ารายวัน
-สินค้าที่กำหนดวิธีคิดแบบรายวันต้องมีวันเริ่มคิดเงินและวันสิ้นสุดคิดเงินของรายการสินค้านั้นเอง วันที่ชุดนี้ใช้คำนวณเงินจริง และต้องแยกจากวันที่กำหนดวันเช่าและวันคืนที่อยู่ระดับบิล
-
-### 5. วันที่ระดับบิลกับวันที่คิดเงินต้องแยกกัน
-วันที่ออกบิล วันกำหนดเช่า และวันกำหนดคืน เป็นข้อมูลของบิล ส่วนวันเริ่มและวันสิ้นสุดที่ใช้คิดค่าเช่ารายวันเป็นข้อมูลของสินค้าแต่ละรายการ แม้บางครั้งวันที่จะตรงกันก็ต้องเก็บคนละหน้าที่
-
-### 6. วิธีนับวันของสินค้ารายวัน
-วันที่ที่ผู้ใช้กำหนดให้เป็นวันเริ่มเช่า ให้เริ่มคิดเงินตั้งแต่วันนั้นทันที หรือวันเริ่มต้นนับเป็นวันที่ 1 (Inclusive Counting) เช่น เริ่มวันที่ 1 และคืนวันที่ 1 เท่ากับ 1 วัน, เริ่มวันที่ 1 คืนวันที่ 2 เท่ากับ 2 วัน
-
-### 7. สูตรสินค้ารายวัน
-คิดจาก `ราคาต่อวัน × จำนวนสินค้า × จำนวนวันที่คิดจริง` โดยระบบต้องคำนวณจำนวนวันให้อัตโนมัติตามช่วงวันที่ของรายการนั้น
-
-### 8. สูตรสินค้าต่อรอบ
-คิดจาก `ราคาต่อรอบ × จำนวนสินค้า × จำนวนรอบ` จำนวนรอบสามารถเปลี่ยนได้ภายหลัง ถ้าการใช้งานจริงไม่ตรงกับตอนออกบิล
-
-### 9. สูตรสินค้าขาย
-สินค้าขายคิดจาก `ราคาขาย × จำนวนสินค้า` ไม่มีจำนวนวันหรือจำนวนรอบเข้ามาเกี่ยวข้อง
-
-### 10. วิธีคิดของสินค้าอ้างอิงจากหน้าสินค้า
-ตอนเพิ่มหรือแก้สินค้า ต้องกำหนดว่าสินค้านั้นคิดแบบใด เช่น ต่อรอบ รายวัน หรือขาย เมื่อนำสินค้าไปใช้ใน POS ระบบต้องรู้วิธีคิดของสินค้านั้นโดยอัตโนมัติ
-
-### 11. การคำนวณใหม่ไม่ใช่สิ่งบังคับ
-บิลที่มีการเช่าไม่จำเป็นต้องถูกคำนวณใหม่ทุกบิล ถ้าลูกค้าใช้งานตรงตามที่คิดไว้แต่แรก ให้ใช้ยอดเดิมต่อได้
-
-### 12. สินค้าต่อรอบสามารถคิดรอบเพิ่มได้
-ตัวอย่าง ออกบิลไว้ 1 รอบ แต่วันคืนตกลงกันแล้วว่าใช้งานจริง 2 รอบ ผู้ให้เช่าสามารถเปลี่ยนเป็น 2 รอบแล้วให้ระบบคำนวณยอดใหม่ได้
-
-### 13. สินค้ารายวันสามารถคิดวันเพิ่มได้
-ถ้าของยังไม่คืน ระบบต้องคำนวณจำนวนวันที่ผ่านไปและยอดที่ควรเป็นให้อัตโนมัติ และต้องรองรับให้ผู้ใช้กำหนดช่วงวันที่หรือยอดใหม่ได้
-
-### 14. ยอดที่ระบบคำนวณอัตโนมัติสามารถกำหนดใหม่ได้
-ระบบช่วยคำนวณจากข้อมูลจริงก่อน แต่ผู้ให้เช่าสามารถกำหนดใหม่ได้ตามข้อตกลงกับลูกค้า การเปลี่ยนค่าในบิลนั้นต้องมีผลเฉพาะบิลนั้น ไม่ย้อนกลับไปเปลี่ยนราคาตั้งต้นของสินค้า
-
-### 15. ไม่คิดค่าปรับคืนช้าอัตโนมัติ
-การเกินวันคืนไม่ควรสร้างค่าปรับเองโดยไม่มีการยืนยัน ระบบสามารถเตือนและคำนวณจำนวนวันที่ผ่านไปของสินค้ารายวันได้ แต่ค่าปรับหรือยอดพิเศษต้องเกิดจากการกำหนดหรือการยืนยันของผู้ใช้เท่านั้น
-
-### 16. การคำนวณใหม่ใช้บิลเดิมที่ยังไม่ปิด
-เมนูจัดการบิลนำรายการจากบิลเดิมที่ยังเปิดอยู่มาคำนวณปรับปรุงยอดได้ โดยคง Bill ID เดิม แต่ห้าม overwrite ประวัติยอดเดิม ต้องสร้าง Revision/History บันทึก Before / After / Who / When / Reason เสมอ
-*(หมายเหตุ: ข้อนี้ใช้สำหรับการคำนวณปรับปรุงยอดของบิลเดิมระหว่างเช่าเท่านั้น หากเป็นการต่ออายุสัญญาเช่า ต้องปฏิบัติตามกฎหมวด EXTENSION คือสร้างบิลใหม่เชื่อมโยงบิลเดิม ห้ามแก้ทับช่วงเช่าเดิม)*
-
-### 17. ห้ามทำประวัติยอดเดิมหาย
-ถ้ายอดเดิม 1,000 บาท แล้วคำนวณใหม่เป็น 1,500 บาท ต้องตรวจย้อนหลังได้ว่าเดิมเท่าไร เปลี่ยนเป็นเท่าไร เมื่อใด เพราะอะไร และใครเป็นผู้ดำเนินการ
-
-### 18. บิลขายล้วน
-ถ้าบิลมีแต่สินค้าขาย ไม่มีของที่ต้องคืน เมื่อชำระครบและส่งมอบของแล้ว ให้ปิดบิลได้ทันทีและถือว่างานของบิลนั้นเสร็จสมบูรณ์
-
-### 19. บิลเช่าล้วน
-เมื่อออกบิลแล้วให้บิลยังเปิดอยู่ เพราะยังมีของของร้านอยู่กับลูกค้า ต้องดำเนินการคืนของและการเงินให้ครบก่อนปิดบิล
-
-### 20. บิลผสมขายและเช่า
-ถ้าบิลเดียวมีทั้งสินค้าขายและสินค้าเช่า ให้ถือว่าบิลทั้งใบยังเปิดอยู่ เพราะยังมีรายการเช่าที่ต้องติดตามการคืน
-
-### 21. สินค้าขายในบิลผสมไม่ทำให้บิลปิด
-แม้ส่วนขายจะส่งมอบแล้ว แต่ถ้ายังมีสินค้าเช่าค้างอยู่ บิลทั้งใบยังต้องอยู่ในเมนูจัดการบิลจนกระบวนการเช่าจบ
-
-### 22. สามารถรับคืนบางส่วนได้
-ตัวอย่าง เช่า 10 ชิ้น วันนี้คืน 4 ชิ้น ระบบต้องรับคืน 4 ชิ้นได้ทันที ไม่บังคับให้รอครบ 10 ชิ้น
-
-### 23. ทุกครั้งที่คืนต้องรู้จำนวนที่คืนในครั้งนั้น
-ระบบต้องเก็บว่าในครั้งนั้นคืนกี่ชิ้น แยกจากยอดคืนสะสม เพื่อให้ตรวจสอบย้อนหลังได้
-
-### 24. ต้องรู้ยอดคืนสะสม
-ถ้าเช่า 10 ชิ้น ครั้งแรกคืน 4 ชิ้น ครั้งต่อมาคืน 3 ชิ้น ระบบต้องรู้ว่าคืนสะสม 7 ชิ้น และเหลือค้างคืน 3 ชิ้น
-
-### 25. ต้องแสดงจำนวนค้างคืน
-ทุกครั้งหลังรับคืน ระบบต้องคำนวณให้เห็นชัดเจนว่ายังเหลือสินค้าอีกกี่ชิ้นที่ลูกค้าต้องคืน (Outstanding Quantity)
-
-### 26. สินค้าปกติที่รับคืนต้องคืนสต็อกทันที
-คืนมาเท่าไรก็คืนสต็อกเฉพาะจำนวนสินค้าที่กลับมาในสภาพปกติทันที ไม่ต้องรอให้ทั้งบิลปิด
-
-### 27. คืนบางส่วนแล้วบิลยังเปิด
-ถ้ายังมีสินค้าเหลืออยู่กับลูกค้า บิลต้องยังอยู่ในสถานะงานที่ต้องจัดการต่อ
-
-### 28. สินค้ารายวันคืนบางส่วนต้องคิดแยกตามส่วนที่คืน
-ตัวอย่าง เช่า 10 ชิ้น คืน 4 ชิ้นก่อน ระบบสามารถคิดและรับชำระของ 4 ชิ้นนั้นได้ ส่วนอีก 6 ชิ้นต้องแสดงจำนวนค้างคืนและยอดที่ระบบคำนวณว่าต้องชำระต่อ
-
-### 29. สินค้าต่อรอบคืนบางส่วนต้องรองรับ
-ถ้าสินค้าบางส่วนใช้จำนวนรอบไม่เท่ากัน ระบบต้องสามารถแยกคิดตามจำนวนสินค้าที่เกี่ยวข้อง เช่น 4 ชิ้นใช้ 1 รอบ อีก 6 ชิ้นใช้ 2 รอบ
-
-### 30. คืนครบไม่ได้แปลว่าปิดบิลทันที
-ถ้าของทุกชิ้นถูกจัดการครบแล้ว แต่ยังมีเงินค้าง หรือยังมีเงินมัดจำที่ต้องจัดการ บิลยังไม่ปิด
-
-### 31. ชำระบางส่วนได้
-ระบบต้องเก็บว่าได้รับเงินแล้วเท่าไร และยังเหลือยอดที่ต้องชำระเท่าไร โดยไม่ลบหรือแก้ประวัติเงินที่รับก่อนหน้า
-
-### 32. คำนวณใหม่หลังจ่ายเงินแล้วให้คิดส่วนต่าง
-ตัวอย่าง ยอดเดิม 1,000 บาท ลูกค้าจ่ายแล้ว 1,000 บาท แต่คำนวณใหม่เป็น 1,500 บาท ระบบต้องแสดง รับแล้ว 1,000 บาท และค้างเพิ่ม 500 บาท โดยไม่แก้ประวัติเงินเดิม
-
-### 33. คำนวณใหม่แล้วราคาลดลงให้เกิดยอดคืนเงิน
-ตัวอย่าง ลูกค้าจ่ายแล้ว 1,500 บาท แต่ยอดใหม่เหลือ 1,200 บาท ระบบต้องรู้ว่าเคยรับเงินจริง 1,500 บาท และมีเงินที่ต้องคืนลูกค้า 300 บาท (Refund Due) ไม่ย้อนแก้ประวัติเงินเดิม
-
-### 34. ของครบแต่เงินยังไม่ครบ บิลยังเปิด
-สถานะการคืนสามารถบอกว่าของครบแล้ว แต่ถ้ายังมียอดค้างชำระ บิลต้องอยู่ในงานที่ต้องจัดการต่อ
-
-### 35. เงินครบแต่ของยังไม่ครบ บิลยังเปิด
-การชำระครบไม่ได้ทำให้บิลเช่าปิด ถ้ายังมีของของร้านอยู่กับลูกค้า
-
-### 36. ไม่ต้องคำนวณใหม่เพื่อให้ปิดบิล
-การคำนวณใหม่เป็นทางเลือก ถ้าไม่มีอะไรเปลี่ยนจากยอดเดิม ก็สามารถใช้ยอดเดิมชำระและปิดงานได้
-
-### 37. ใช้ยอดล่าสุดของบิลเป็นยอดที่ต้องชำระ
-ถ้ามีการคำนวณใหม่หลายครั้ง ให้ยอดล่าสุดที่ได้รับการยืนยันเป็นยอดปัจจุบันของบิล และใช้ยอดนี้ตรวจว่าลูกค้าชำระครบหรือยัง
-
-### 38. เงื่อนไขปิดบิลอัตโนมัติ
-สำหรับบิลที่มีการเช่า ต้องครบ 3 เงื่อนไขตามที่เกี่ยวข้องกับบิลนั้น คือ:
-1. จัดการสถานะสินค้าครบ (ครบทุกชิ้นและรู้สภาพ)
-2. ชำระยอดล่าสุดครบถ้วน
-3. เงินมัดจำถูกจัดการเรียบร้อย (ถ้าบิลนั้นมีเงินมัดจำ)
-เมื่อครบทั้ง 3 เงื่อนไขแล้ว ระบบจึงปิดบิลอัตโนมัติ
-
-### 39. บิลปิดแล้วต้องออกจากเมนูจัดการบิล
-เมนูจัดการบิลใช้สำหรับงานที่ยังไม่จบ เมื่อปิดบิลแล้วต้องไม่แสดงปะปนอยู่ในรายการงานที่ต้องทำ
-
-### 40. บิลปิดแล้วไปอยู่ประวัติลูกค้า
-บิลที่จบแล้วต้องยังค้นดูได้จากประวัติบิลของลูกค้าคนนั้น พร้อมรายการสินค้า ยอดเงิน การคืน และประวัติการดำเนินการ
-
-### 41. ห้ามลบบิลเมื่อปิด
-การที่บิลหายออกจากเมนูจัดการหมายถึงเปลี่ยนสถานะไปเป็นประวัติ (Closed/Completed) ไม่ใช่ลบข้อมูลบิล
-
-### 42. ต้องเก็บประวัติการคืนทุกครั้ง
-ต้องสามารถตรวจย้อนหลังได้ว่าแต่ละครั้งคืนวันไหน คืนกี่ชิ้น เป็นของปกติ ชำรุด หรือสูญหายเท่าไร และหลังจากครั้งนั้นเหลือค้างเท่าไร
-
-### 43. ของหายและของชำรุดถือว่าตรวจรับครบได้
-ตัวอย่าง จาก 10 ชิ้น ปกติ 8 ชิ้น ชำรุด 1 ชิ้น สูญหาย 1 ชิ้น ให้ถือว่าได้จัดการสถานะของครบทั้ง 10 ชิ้นแล้ว ไม่ถือว่าลูกค้ายังค้างคืนสินค้า 2 ชิ้น
-
-### 44. ของหาย
-เมื่อยืนยันว่าเป็นของสูญหาย ให้ตัดลดจำนวนสต็อกจริงออกจากคลัง และบันทึกประวัติ พร้อมเข้าสู่กระบวนการคิดเงินตามราคาของหายที่กำหนด
-
-### 45. ของชำรุด
-เมื่อรับคืนเป็นของชำรุด ไม่ตัดออกจากสต็อกถาวรทันที แต่ส่งเข้าเมนูสินค้าชำรุดเพื่อรอการตัดสินใจภายหลังว่าจะใช้งานต่อ ดัดแปลง หรือจัดการแบบอื่น
-
-### 46. การจัดการสินค้าชำรุดหลังปิดบิล
-ถ้าลูกค้าจัดการเงินครบแล้ว บิลสามารถปิดได้แม้สินค้าชำรุดยังอยู่ระหว่างการตัดสินใจภายในร้าน
-* ถ้าใช้งานต่อ: ให้กลับเป็นสินค้าปกติในสต็อก
-* ถ้าดัดแปลง: ให้ลดสต็อกสินค้าขนาดเดิมและเพิ่มสต็อกสินค้าขนาดใหม่ที่ดัดแปลงไปเป็น
-
-### 47. ค่าของหายและค่าชำรุดอ้างอิงจากหน้าสินค้า
-* หน้าเพิ่มสินค้าและหน้าแก้สินค้าเป็นจุดกำหนดราคาตั้งต้นสำหรับของหายและของชำรุด
-* เมื่อรับคืน ระบบดึงราคาของสินค้านั้นมาเป็นราคาเริ่มต้น
-* ในหน้าจัดการบิล ผู้ใช้สามารถกำหนดราคาที่คิดจริงใหม่ได้
-* ราคาที่กำหนดใหม่ในบิลนั้นต้องมีผลเฉพาะบิลนั้น และไม่ย้อนกลับไปเปลี่ยนค่าตั้งต้นของสินค้า
-
-### 48. เงินมัดจำ
-* เงินมัดจำต้องแยกจากรายได้เสมอ
-* เมื่อสิ้นสุดการเช่าหรือตรวจรับคืน: ระบบจะดึง Default Damage Fee / Default Lost Fee ของสินค้ามาเป็นยอดเสนอเริ่มต้น
-* ผู้ใช้งานที่มีสิทธิ์สามารถกำหนดยอดเรียกเก็บจริง (Actual Charge) ได้ตามความเหมาะสม
-* ก่อนนำยอด Damage/Lost ไปหักกลบลบจากเงินมัดจำ ต้องให้ผู้ใช้งานตรวจสอบและกดยืนยัน (Manual Confirmation)
-* **ข้อห้ามเด็ดขาด:** ห้าม Auto-offset เงินมัดจำโดยไม่มีการยืนยันจากผู้ใช้
-* ถ้าเงินมัดจำมากกว่ายอดที่หัก ส่วนที่เหลือเป็นยอดที่ต้องคืนลูกค้า (Deposit Refund Due)
-* ถ้าเงินมัดจำน้อยกว่ายอดค่าเสียหาย ส่วนต่างเป็นยอดที่ลูกค้าต้องชำระเพิ่ม (Outstanding Balance Due)
-* ต้องบันทึก Audit Log ทุกครั้ง: Default Amount, Actual Charge, Deposit Applied, Actor, Approver (ถ้ามี), Timestamp, Reason
-* บิลยังคงอยู่ในสถานะค้างคืนมัดจำและยังไม่ปิด จนกว่าเงินมัดจำจะได้รับการจัดการครบถ้วน
-
-### 49. รายได้ของบิลและการแยกส่วนเงิน
-* **บิลขายล้วน:** เมื่อชำระครบและส่งมอบของแล้วจึงรับรู้เป็นรายได้
-* **บิลที่มีการเช่า รวมถึงบิลผสมขายและเช่า:**
-  - เงินที่รับก่อนเริ่มบริการเช่า = `Advance / Deferred Amount` ยังไม่ถือเป็นรายได้ทันที
-  - การถึงวันที่ในปฏิทินเพียงอย่างเดียวไม่ทำให้เงินกลายเป็นรายได้ ต้องมีเหตุการณ์เริ่มบริการเช่าจริง เช่น Actual Rental Handover หรือ Confirmed Rental Start
-  - ก่อนเกิด Actual Handover / Actual Dispatch ยอด `Revenue Recognized` = 0
-  - เมื่อเริ่มให้บริการเช่าจริงแล้ว จึงเริ่มรับรู้รายได้ค่าเช่าตามบริการและช่วงเวลาที่เกิดขึ้นจริง (สินค้ารายวันรับรู้ตามจำนวนวันจริงที่ผ่านไป สินค้าต่อรอบรับรู้ตามจำนวนรอบจริงที่ยืนยัน)
-  - **ไม่จำเป็นต้องรอให้ลูกค้าคืนของครบและปิดบิล จึงค่อยเริ่มรับรู้รายได้ทั้งหมด**
-  - การปิดบิลมีหน้าที่สรุปยอดสุดท้าย (Final Settlement) ไม่ใช่เหตุการณ์เดียวที่ทำให้เกิดรายได้
-* **การแยกประเภทรายได้ในบิลผสม:** เมื่อปิดบิลผสมแล้ว ต้องแยกรายได้อย่างน้อยเป็น:
-  - รายได้จากการขาย
-  - รายได้จากการเช่า
-  แม้จะอยู่ในบิลเดียวกัน
-* **เงินมัดจำ (Deposit):** ต้องแยกออกจากรายได้เสมอ
-
-### 50. ค่าขนส่ง ส่วนลด ภาษี และการแยกยอดของบิล
-ระบบต้องเก็บยอดแยกเป็นส่วน ๆ ได้แก่:
-- ยอดขาย
-- ยอดเช่า
-- ค่าขนส่ง
-- ส่วนลด
-- ภาษี
-- ยอดสุทธิของบิล
-
-* **การเปิด/ปิด:** ค่าขนส่ง ส่วนลด และภาษี ต้องเปิดหรือปิดการใช้งานแยกจากกันได้
-  - ถ้าปิด: ไม่แสดงในหน้าทำบิล ไม่นำมาคำนวณ และไม่สร้างยอดในบิล
-  - ถ้าเปิด: ระบบแสดงรายการ ผู้ใช้ใช้งานได้ นำไปคำนวณ และเก็บยอดแยกจากส่วนอื่น
-* **ค่าขนส่ง:** เป็นยอดเพิ่มของบิล และต้องเก็บแยกจากยอดขายและยอดเช่า
-* **ส่วนลด:** เป็นยอดหัก และต้องเก็บยอดส่วนลดแยก ไม่ลดตัวเลขรายได้หรือราคาสินค้าจนตรวจย้อนหลังไม่ได้
-* **ภาษี:** ต้องเก็บเป็นส่วนภาษีแยก ไม่รวมเป็นรายได้จากการขายหรือรายได้จากการเช่า
-* การเปิดใช้งานหมายถึงอนุญาตให้ใช้ ไม่ได้หมายความว่าทุกบิลต้องมีเงิน เช่น เปิดค่าขนส่งไว้ แต่ลูกค้ารับของเอง บิลนั้นยอดขนส่งเป็น 0 ได้
-* กฎนี้ต้องใช้เหมือนกันทั้งตอนออกบิลใน POS และตอนคำนวณใหม่ในเมนูจัดการบิล
-* เมื่อรวมยอดขาย ยอดเช่า ค่าขนส่ง ส่วนลด และภาษีแล้ว ยอดรวมสุดท้ายต้องตรงกับยอดสุทธิจริงของบิลเสมอ
+กฎ:
+- **ไม่มี `EXTENDED` เป็น Business Status** — การมีบิลเช่าต่อเป็น Derived Relation/Flag (`has_continuation`) จากข้อมูล Carry Forward จริง
+- สถานะหลายมิติเกิดพร้อมกันได้ เช่น Bill `ACTIVE` + Payment `PARTIALLY_PAID` + Return `PARTIALLY_RETURNED`
+- Line ที่ `obligation_held_here = 0` เพราะส่งต่อไปบิลใหม่ แสดงผลเป็น "ส่งต่อไปบิล …" (derived) — **ไม่ใช่ `RETURNED`**
+- สถานะเปลี่ยนตามเงื่อนไขจากข้อมูล ห้ามผู้ใช้เปลี่ยนเองโดยไม่มีเงื่อนไข
 
 ---
 
-## 20. Summary of Key Operational Principles (สรุปหลักการปฏิบัติงาน)
+## 10. Quotation → Reservation → Bill
 
-### หลักการปิดบิล
-* ของยังไม่ครบ + เงินยังไม่ครบ = **บิลยังเปิด**
-* ของครบ + เงินยังไม่ครบ = **บิลยังเปิด**
-* เงินครบ + ของยังไม่ครบ = **บิลยังเปิด**
-* ของครบ + เงินครบ + มีเงินมัดจำที่ยังไม่ได้จัดการ = **บิลยังเปิด (ค้างคืนมัดจำ)**
-* ของครบ + เงินครบ + เงินมัดจำจัดการครบ = **ปิดบิลอัตโนมัติ**
-*(คำว่า "ของครบ" หมายถึงรู้สถานะของสินค้าครบทุกชิ้น ไม่จำเป็นว่าทุกชิ้นจะกลับมาในสภาพปกติ เช่น เช่า 10 ชิ้น -> ปกติ 8, ชำรุด 1, หาย 1 ถือว่าจัดการสถานะครบ 10 ชิ้นแล้ว)*
-
-### หลักการเงินและการรับรู้รายได้
-* **ความเป็นอิสระของเหตุการณ์:** การรับเงิน (Payment), การเกิดรายได้ (Revenue), และการส่ง/คืนสินค้า (Delivery/Return) เป็นคนละเหตุการณ์กัน เชื่อมโยงด้วย Bill ID เดียวกัน
-* **การบันทึกเงิน:** เงินที่รับแต่ละครั้งต้องบันทึกเป็น Transaction จริง ห้ามแก้ประวัติการรับเงินเดิมเพียงเพราะยอดบิลเปลี่ยน
-* **ยอดบิลเปลี่ยน:**
-  - ถ้ายอดบิลเพิ่ม ให้คำนวณยอดค้างชำระตามบิล (Bill Outstanding) จากยอดล่าสุดลบด้วย Net Paid
-  - ถ้ายอดบิลลดจน Net Paid มากกว่ายอดบิลล่าสุด ให้สร้างยอดที่ต้องคืนลูกค้า (Refund Due)
-* **การรับรู้รายได้ค่าเช่า (Rental Revenue):**
-  - ก่อนส่งมอบจริง (Actual Handover) รายได้เป็น 0 เสมอ แม้รับเงินแล้วหรือถึงวันปฏิทิน
-  - เริ่มรับรู้รายได้เมื่อส่งมอบของจริง (Actual Handover) และทยอยรับรู้ตามบริการจริง (วันจริง/รอบจริง)
-  - ไม่จำเป็นต้องรอให้คืนของครบและปิดบิลจึงจะรับรู้รายได้ การปิดบิลมีหน้าที่สรุปยอดสุดท้าย (Final Settlement)
-* **การแยกยอดค้างชำระ:** ระบบต้องแยก Bill Outstanding (ยอดบิลที่ยังไม่ได้จ่าย) ออกจาก Earned Outstanding (รายได้บริการจริงที่ยังไม่ได้รับเงิน) อย่างเด็ดขาด
-* **เงินมัดจำ (Deposit):** ต้องแยกออกจากรายได้และยอดชำระค่าบริการเสมอ
-
-### หลักการสต็อก
-* สินค้าปกติที่รับคืน = คืนเข้าสต็อกพร้อมใช้ทันที
-* สินค้าสูญหาย = ตัดออกจากสต็อกจริง บันทึกประวัติ
-* สินค้าชำรุด = ไม่ตัดออกถาวรทันที และไม่ถือเป็นสินค้าพร้อมใช้ ส่งไปเมนูสินค้าชำรุด
-* สินค้าชำรุดที่ตรวจแล้วใช้งานต่อได้ = ปรับกลับเป็นสินค้าปกติ
-* สินค้าชำรุดที่ดัดแปลง = ลดจำนวนจากสินค้าเดิม และเพิ่มจำนวนให้สินค้าขนาดหรือประเภทใหม่ที่ดัดแปลงไปเป็น
-* การปิดบิลลูกค้าไม่จำเป็นต้องรอให้ร้านจัดการสินค้าชำรุดจนเสร็จ ถ้าความรับผิดชอบและยอดเงินของลูกค้าได้รับการจัดการครบแล้ว
+- Quotation **ไม่กัน Stock** — Quotation ≠ Sale
+- Reservation: Reserved เพิ่ม, Available ลด, On Hand เท่าเดิม — Reservation ≠ Delivery
+- Reservation ต้องมี Expiry — ถึง Expiry โดยไม่ Confirm → Release Reservation
+- Convert เป็น Bill/Order → Lock ข้อมูลสำคัญ → Fulfillment
+- Sale Delivery ลด On Hand / Rental Delivery เพิ่ม Rented Out
 
 ---
 
-## 21. Appointment & Daily Work Layout Standards (มาตรฐานหน้าจอนัดหมายและงานประจำวัน)
+## 11. Stock
 
-1. **UI Tabs มาตรฐาน:** หน้า Appointment / Daily Job ต้องมี 4 แท็บหลัก:
-   - ปฏิทิน (Calendar View)
-   - งานวันนี้ (Today Jobs)
-   - งานพรุ่งนี้ (Tomorrow Jobs)
-   - งานทั้งหมด (All Jobs)
-2. **Data Table Layout:**
-   - แท็บ "งานวันนี้", "งานพรุ่งนี้" และ "งานทั้งหมด" ต้องแสดงผลแบบ Data Table
-   - กฎ 1 Row = 1 Job
-   - คอลัมน์ที่ต้องแสดง: ประเภทงาน, ลูกค้า, สถานที่, วัน/เวลานัดหมาย, สถานะงาน, พนักงานที่ได้รับมอบหมาย (ถ้ามี)
-3. **Primary Action Buttons (การกระทำหลัก):**
-   - Action buttons หลักต้องมองเห็นได้ชัดเจนบน Row ได้แก่:
-     - `[ดูข้อมูล]`
-     - `[สั่งงาน]`
-     - `[สร้างบิล]` (ถ้ายังไม่มีบิล) หรือ `[สถานะบิล]` (ถ้ามีบิลแล้ว)
-     - `[สถานะงาน]`
-   - **ข้อห้ามเด็ดขาด:** ห้ามซ่อน Action หลักเหล่านี้ไว้ในเมนูจุดไข่ปลา (3-dot menu)
-4. **Navigation ไปยังบิล (`[สถานะบิล]`):**
-   * เมื่อผู้ใช้กดปุ่ม `[สถานะบิล]` จากหน้า Job/Appointment:
-     - ระบบต้องนำทางไปยังหน้า Bill Management
-     - ค้นหาแถวของ `Bill ID` นั้นโดยอัตโนมัติ
-     - เลื่อนหน้าจอ (Scroll) ไปยังแถวดังกล่าว
-     - ทำการกะพริบเน้นแถว (Blink/Highlight) 2–3 ครั้ง และแสดงแถบสีค้างไว้สั้น ๆ เพื่อให้ผู้ใช้สังเกตเห็นได้ทันที
-     - ต้องมีปุ่มหรือลิงก์ย้อนกลับไปยัง Job ต้นทางได้โดยสะดวก
+### 11.1 Stock State
+`AVAILABLE`, `RESERVED`, `RENTED_OUT`, `DELIVERY_PENDING`, `RETURN_PENDING`, `INSPECTION`, `REPAIR`, `DAMAGED`, `LOST`, `INACTIVE`
 
----
+Lifecycle:
+- SALE: `AVAILABLE → RESERVED → SOLD/DELIVERED`
+- RENTAL: `AVAILABLE → RESERVED → RENTED_OUT → RETURN_PENDING → INSPECTION` แล้ว
+  - NORMAL → `AVAILABLE`
+  - DAMAGED → `REPAIR`
+  - LOST → `LOST` / Write-off
 
-## 22. Timeline & Checklist Rules (กฎประวัติเส้นทางเวลาและการตรวจนับ)
+### 11.2 กฎ
+- ทุกการเปลี่ยนจำนวนหรือสถานะ Stock ต้องเป็น **Stock Movement** (`product_id`, `source_type`, `source_id`, `movement_type`, `quantity_delta`, `stock_state`)
+- ห้าม Client แก้ Inventory ตรง
+- Stock ห้ามติดลบ เว้นแต่มีกฎที่อนุมัติไว้ชัด
+- ใช้ Lock/Concurrency Control ป้องกัน Oversell / Over-rent
+- ของชำรุดห้ามเข้า Available โดยตรง / ของหายห้ามเพิ่ม Stock
+- **Carry Forward ของการเช่าต่อ ไม่สร้าง Stock Movement** (ของไม่ได้เคลื่อนจริง)
 
-1. **Job Timeline UI:**
-   * เมื่อกดปุ่ม `[สถานะงาน]` ให้แสดงเป็น Stepper / Timeline Component (ไม่ใช่หน้าแผนที่ Map)
-   * ต้องแสดงสถานะ 4 กลุ่มชัดเจน: Completed (เสร็จแล้ว), Current (กำลังทำ), Upcoming (ขั้นตอนถัดไป), Problem (มีปัญหา/ติดขัด)
-   * แต่ละ Event สามารถคลิกเปิดดูรายละเอียดได้: ใครเป็นผู้ทำ (Actor), เวลาไหน (Time), หมายเหตุ (Note), รูปภาพประกอบ (Photo) และสินค้าที่เกี่ยวข้อง (Related Items)
-2. **Delivery Checklist (ตรวจตอนส่ง):**
-   * รายการที่ต้องบันทึกต่อ Item: ชื่อสินค้า, Expected Qty (จำนวนตามบิล), Actual Qty (จำนวนที่ส่งจริง), ผลตรวจครบ/ไม่ครบ, Note และ Photo
-   * หากส่งไม่ครบ: ห้ามปรับ Job เป็น "ส่งครบ" โดยเด็ดขาด และต้องแสดงยอดค้างส่ง (Remaining Qty)
-3. **Pickup / Return Checklist (ตรวจตอนรับคืน):**
-   * รายการที่ต้องบันทึกต่อ Item: ชื่อสินค้า, Expected Pickup Qty, Actual Pickup Qty, Remaining Qty, Normal Qty (จำนวนปกติ), Damaged Qty (จำนวนชำรุด), Lost Qty (จำนวนสูญหาย), Note และ Photo
-   * *กฎสมดุลสภาพสินค้า:* `Normal Qty + Damaged Qty + Lost Qty` ต้องสัมพันธ์และเท่ากับจำนวนที่ตรวจรับจริงในครั้งนั้น
-   * ห้ามบันทึก Return Qty เป็นตัวเลขรวมโดยไม่แยกสภาพสินค้า
-   * หากยังมีสินค้าเหลือค้างคืน ต้องคงสถานะเพื่อติดตามต่อ
+### 11.3 Backorder / Partial Delivery
+- เก็บ `ordered_qty`, `allocated_qty`, `fulfilled_qty`, `delivered_qty`, `backorder_qty`, `cancelled_qty`
+- Partial Delivery ต้องมี Delivery Record แยก — Backorder ห้ามนับว่า Delivered — Line ต้องเก็บ Ordered Quantity เดิม
+- นโยบาย (รอทั้งหมด / ส่งบางส่วน) — หมวด 37
+
+### 11.4 Physical Count
+- สร้าง Stock Count → Snapshot → นับจริง → Count Lines → Discrepancy → Review → Approval → Stock Adjustment → Ledger + Audit
+- ห้ามตั้ง `quantity` ตามที่นับได้โดยตรง — Adjustment ต้องมาจาก Discrepancy และต้องมีเหตุผล
 
 ---
 
-## 23. UI/UX Standards (มาตรฐานส่วนต่อประสานผู้ใช้)
+## 12. Delivery / Fulfillment
 
-1. **UI Must Match Real Logic (UI ต้องตรงกับความจริง):**
-   * ทุกการกระทำบน UI ต้องผูกกับระบบจริง: `UI Action → Business Rule → Service/Logic → Database Effect → Audit/History → UI Result`
-   * **ข้อห้ามเด็ดขาด:** ห้ามทำ UI หลอกตาที่ดูเหมือนกดทำงานได้แต่ไม่มี Logic รองรับ (หากยังไม่ต่อระบบ ต้องระบุป้ายเตือนชัดเจน เช่น `UI ONLY / NOT CONNECTED`)
-   * ห้ามสร้างข้อมูลปลอม (Mock Data) มาฝังเพื่อให้ UI ดูสมบูรณ์
-2. **Component Reuse & Standards:**
-   * ก่อนสร้าง Component ใหม่ ต้องสำรวจ Component ส่วนกลางที่มีอยู่ก่อนเสมอ ให้ใช้ซ้ำ (Reuse) เป็นอันดับแรก
-   * ห้ามสร้าง Component ซ้ำซ้อน (Duplicate) โดยไม่จำเป็น
-   * ห้ามติดตั้ง Library / Plugin เพิ่มเติมโดยไม่ได้รับอนุญาต
-   * รองรับ Responsive: PC, iPad Portrait และ iPad Landscape
-   * รูปแบบ Pattern หลัก: Data Table, AppModal/Dialog, Searchable Select, Stepper/Timeline, Tabs, Badge และ Toast Notifications
+- การส่งมอบคือเหตุการณ์ Delivery จริง (Delivery + Delivery Lines) ที่สร้าง Stock Movement
+- การสร้างบิล การชำระเงิน หรือการถึงวันเริ่มเช่า **ไม่ถือเป็นการส่งมอบ**
+- หลังส่งมอบ RENTAL Line → Rental Status `ACTIVE`
+- สินค้ารายชิ้นต้องระบุ Unit ที่ส่งมอบ
 
 ---
 
-## 24. Development Rules & Validation Checklist (ระเบียบการพัฒนาและตรวจสอบ)
+## 13. Payment
 
-1. **Project Directory:** `C:\Users\THISPC\Desktop\TONG_JEERAKIT`
-2. **คำสั่งการทำงานทุกครั้งต้อง:**
-   * ระบุเป้าหมายชัดเจน
-   * ระบุชื่อไฟล์เป้าหมาย (ถ้ารู้)
-   * ระบุฟังก์ชัน/ของเดิมที่ต้องคงไว้
-   * ระบุสิ่งที่ห้ามแตะต้อง
-   * ระบุ Test ที่เกี่ยวข้อง
-3. **โหมดประหยัดเครดิตและประสิทธิภาพ:**
-   * ถ้ารู้ไฟล์เป้าหมายแล้ว ห้ามรัน Audit/Explore กว้าง ๆ ใหม่
-   * เปิดเฉพาะไฟล์ที่เกี่ยวข้องโดยตรง
-   * นำผลตรวจเดิมมาใช้ซ้ำ
-   * รัน Test เฉพาะชุดที่เกี่ยวข้องกับงาน
-   * รายงานผลอย่างกระชับ ตรงประเด็น
-4. **ข้อห้ามเด็ดขาดสำหรับระบบอัตโนมัติ:** ห้ามรัน `git commit`, `git push` หรือ `deploy` โดยอัตโนมัติโดยเด็ดขาด
-5. **เกณฑ์การตรวจสอบก่อนส่งงาน (Validation Checklist 12 ข้อ):**
-   1. Original Requirement (ตรงตามข้อกำหนดเดิมครบถ้วน)
-   2. Changed Files (ไฟล์ที่แก้ถูกต้องตรงตามแผน)
-   3. Diff (ตรวจความเปลี่ยนแปลงทุกบรรทัด)
-   4. Old Conflicting Logic (ไม่มี Logic เก่าขัดแย้งตกค้าง)
-   5. Out-of-scope Files (ไม่มีไฟล์นอกขอบเขตถูกแก้)
-   6. Side Effects (ไม่เกิดผลข้างเคียงต่อส่วนอื่น)
-   7. TypeScript (คอมไพล์ผ่าน ไม่ติด Type Error)
-   8. Relevant Tests (Unit/Integration Tests ที่เกี่ยวข้องผ่านหมด)
-   9. Build / CI (Build ผ่านถ้าเกี่ยวข้อง)
-   10. Supabase จริง (ตรวจสอบผลลัพธ์บน Database ถ้ามีการแก้ DB)
-   11. UI / Flow จริง (ตรวจสอบการแสดงผลและการคลิกบนหน้าจอ)
-   12. LINE Event จริง (ตรวจสอบการรับส่งข้อความและ Webhook)
-6. **การรายงานสถานะการตรวจ:** ใช้เฉพาะ 4 คำมาตรฐาน: `PASS`, `FAIL`, `PENDING`, `NOT CHECKED`
-7. **ลำดับขั้นตอนการพัฒนาระบบ (Development Order):**
-   1. Verify current baseline
-   2. Shared UI/UX components
-   3. Today / Tomorrow / All Job Data Table
-   4. Job Actions (`[ดูข้อมูล]`, `[สั่งงาน]`, `[สร้างบิล]`/`[สถานะบิล]`, `[สถานะงาน]`)
-   5. Job Detail modal & views
-   6. Assignment & Employee selection
-   7. Timeline view (Stepper)
-   8. Job Items management
-   9. Job → POS → Bill flow
-   10. Bill Status Navigation (Scroll & Highlight)
-   11. Employees + LINE Binding
-   12. Flex Message & Webhook handling
-   13. Employee Events & State Transition
-   14. Delivery Checklist
-   15. Pickup Checklist
-   16. Job Photos integration (Supabase Storage)
-   17. Pickup / Return Logic
-   18. Bill / Finance / Stock Integration
-   19. Dashboard & Reports
-   20. AI Social (Draft Caption/Script)
-   21. Full Integration Validation
+- สูตร:
+  - `paid_amount` = Σ valid payments
+  - `balance_due` = `bill_total − paid_amount − credit_adjustments + debit_adjustments`
+  - สถานะ: paid = 0 → `UNPAID` / 0 < paid < total → `PARTIALLY_PAID` / paid ≥ total → `PAID`
+- ช่องทาง: `CASH`, `TRANSFER`, `CARD`, `QR`, `OTHER`
+- รองรับ Split Payment และหลาย Payment ต่อบิล — **แต่ละช่องทางแต่ละครั้งเป็น Record แยก**
+- Flow: Validate → BEGIN → Insert Payment ใหม่ → Finance Ledger → Cash Movement (ถ้าเงินสด) → Audit → Recalculate → COMMIT
+- Validation: `amount > 0`, idempotency, permission, balance valid, method valid, บันทึกผู้รับเงิน/เวลา/สถานะ/reference
+- ห้าม: รวมหลาย Payment เป็น Record เดียว, แก้ยอด Payment เก่าเพื่อทำ Refund, Delete Payment
+- Payment ผิด → Void/Reversal แล้วสร้าง Payment ใหม่
+- รับเงินเกินยอดได้เฉพาะเมื่อมีกฎรองรับ
+
+---
+
+## 14. Return, Damage, Lost
+
+### 14.1 สูตรภาระสินค้า (ระดับ Line)
+
+| ค่า | สูตร / ความหมาย |
+|---|---|
+| `delivered_qty` | ส่งมอบจริงของ Line นี้ |
+| `carried_in_qty` | Σ Carry Forward ที่เข้ามาที่ Line นี้ (ไม่นับที่ถูก Reverse) |
+| `physical_returned_qty` | Σ ของที่กลับมาจริง |
+| `approved_lost_qty` | Σ ของที่ยืนยันว่าหายและผ่านอนุมัติ |
+| `approved_disposition_qty` | Σ disposition ที่อนุมัติ (เฉพาะสูญหาย/ตัดจำหน่าย) |
+| `resolved_qty` | `physical_returned_qty + approved_lost_qty + approved_disposition_qty` |
+| `remaining_obligation` | `delivered_qty + carried_in_qty − resolved_qty` — **ค่าประวัติ** ตามเหตุการณ์ของ Line นี้ |
+| `carried_forward_qty` | Σ Carry Forward ที่ออกจาก Line นี้ไปบิลลูก (ไม่นับที่ถูก Reverse) |
+| `obligation_held_here` | `remaining_obligation − carried_forward_qty` — **จำนวนที่บิลนี้ยังต้องติดตามเอง** (ต้อง ≥ 0) |
+
+- `resolved_qty` **ไม่รวม** Carry Forward — **ห้ามใช้ disposition เพื่อทำให้ภาระเป็น 0 จากการเช่าต่อ**
+- ยอด "ของที่ยังอยู่กับลูกค้า" ระดับลูกค้า/Contract ใช้ **Σ `obligation_held_here`** เท่านั้น (ห้ามรวม `remaining_obligation` เพราะนับซ้ำตามสายบิล)
+- Return Status: returned = 0 → `NOT_RETURNED` / บางส่วน → `PARTIALLY_RETURNED` / ครบ → `RETURNED`
+
+### 14.2 รับคืน (บางส่วนหลายรอบ)
+- รับคืนได้ที่ Line ที่มี `obligation_held_here > 0`
+- Validation: `qty > 0`, `qty ≤ obligation_held_here`, สินค้าเป็นของ Line นั้น, ต้องระบุ Condition, ผู้รับคืน, เวลา, ห้ามคืนของที่ไม่เคยส่ง, ห้ามคืนคนละ Bill Item
+- สินค้ารายชิ้นต้องระบุ Unit ที่คืน
+- คืนหลายรายการในรอบเดียวได้ แต่แยก Return Line ตามสินค้า/Condition
+- Atomic: Lock Line → อ่านภาระ → Validate → Return Transaction → Return Lines → Stock Movements → Audit → Recalculate → COMMIT
+- ห้ามแก้จำนวนใน Line ต้นฉบับเมื่อมีการคืน
+
+### 14.3 Damage
+- Return ≠ Available ทันที — ของชำรุดเข้า Inspection/Quarantine
+- Flow: รับคืน → ตรวจสภาพ → Damage Case → ประเมิน (ซ่อมได้ → Repair Queue + Repair Cost / เสียหายถาวร → Replacement) → Damage Charge (ยืนยันโดยผู้มีสิทธิ์ `rental.damage_charge`) → ชำระด้วยเงินหรือ Deposit Apply → Audit
+- งานซ่อมภายในร้านไม่ขวางการปิดบิลเมื่อ Charge ถูกกำหนดและเคลียร์แล้ว
+
+### 14.4 Lost
+- **Lost ≠ Returned** — ของหายไม่เพิ่ม Stock และห้าม mark returned
+- Flow: พบจำนวนขาด → `MISSING` → ตรวจสอบ → พบ = รับคืนปกติ / ไม่พบ = ขออนุมัติ LOST (`rental.lost_approve`) → Lost Charge → ชำระด้วยเงินหรือ Deposit Apply → ปรับทะเบียนสินค้า → Audit
+- ต้องผ่าน `MISSING` ก่อน LOST
+- Lost Charge Basis (ราคาทดแทน/ขาย/ทุน/ค่าเสื่อม/% ตามอายุ/Flat Fee/Replacement Value ตาม Contract Version) — เก็บ basis, amount, approved_by, reason, timestamp
+- **Write-off**: ใช้เมื่อร้านยอมรับภาระขาดทุน/เรียกเก็บไม่ได้ ต้องมีผู้อนุมัติ — ห้าม Lost → Write-off อัตโนมัติ (ลำดับ: Lost → Charge → Collection/Deposit → Approval → Write-off)
+
+---
+
+## 15. คืนก่อนกำหนด (Early Return)
+
+- เก็บ **Planned End** และ **Actual Return** แยกกัน — ห้ามแก้ Planned End ให้เท่ากับ Actual Return
+- Actual Return ห้ามก่อน Delivery
+- คิดค่าเช่าตาม **Early Return Policy** (คิดเต็มตามเดิม หรือคิดตามวันใช้จริง) — ค่า Policy ดูหมวด 37
+- ชำระแล้วและจ่ายเกิน + Policy อนุญาต → Refund (Record ใหม่)
+- ยังไม่ชำระ/ชำระบางส่วน → Settlement (หมวด 21): > 0 รับเพิ่ม / = 0 เคลียร์ / < 0 Refund
+- Refund ห้ามเกินยอดที่มีสิทธิ์คืน
+
+---
+
+## 16. เกินกำหนด (Overdue)
+
+- เงื่อนไข: `current_time > rental_end_at` **และ** `obligation_held_here > 0` **และ** ไม่มีการเช่าต่อที่อนุมัติสำหรับภาระนั้น → Rental Status `OVERDUE`
+- **ระบบแจ้งเตือนและให้ผู้ใช้ตรวจสอบเท่านั้น**
+- **ห้ามสร้าง Late Fee / Charge / ค่าเช่าเพิ่มอัตโนมัติ** ไม่ว่ากรณีใด
+- ระบบแสดงระยะเวลาเกินกำหนดเป็นข้อมูลประกอบได้ — ถ้าแสดงยอดประมาณ ต้องระบุชัดว่า **ไม่ใช่ยอดเรียกเก็บ** และไม่บันทึกเป็นยอดค้าง/รายได้
+- **หากมีค่าใช้จ่ายเพิ่ม** ผู้มีสิทธิ์ (`rental.additional_charge_confirm`) ต้องตรวจและกดยืนยันก่อน จึงบันทึกเป็น Charge Record แยก (ไม่แก้ยอดบิลเดิม) พร้อมเหตุผล ผู้ยืนยัน เวลา และ Audit
+- ห้ามคิดค่าใช้จ่ายซ้ำช่วงเดียวกัน — รวมถึงช่วงที่ถูกคิดเป็นค่าเช่าในบิลลูกแบบย้อนหลังแล้ว (หมวด 17.4.1)
+- เทียบเวลาใช้ **timezone ของร้าน**
+- **เลยกำหนด ≠ เช่าต่อ** — ห้ามเช่าต่ออัตโนมัติ รวมถึงเมื่อเลยกำหนด
+- การเช่าต่อหลังเลยกำหนด: ผู้มีสิทธิ์เลือกวิธีเริ่มบิลลูกเองทุกครั้ง (หมวด 17.4.1)
+  - เลือกเริ่ม ณ เวลาที่อนุมัติ → ช่วงตั้งแต่ `rental_end_at` เดิมถึงเวลาอนุมัติ **ยังเป็น OVERDUE ของบิลเดิม** และใช้กฎหมวดนี้ทั้งหมด
+  - เลือกเริ่มย้อนหลัง → ช่วงนั้นเป็น Rental Period ของบิลลูก ไม่ถือเป็นช่วงเกินกำหนดที่ต้องตรวจค่าใช้จ่ายเพิ่มที่บิลเดิม
+- การคืนเกินกำหนดที่พนักงานยังไม่ตรวจเรื่องค่าใช้จ่ายเพิ่ม ถือเป็น Exception ค้าง (หมวด 21)
+
+---
+
+## 17. การเช่าต่อ (Rental Continuation) และ Carry Forward
+
+### 17.1 หลักการ
+- ลูกค้าเช่าต่อ → **สร้างบิลเช่าใหม่** สำหรับช่วงถัดไป
+- บิลใหม่อ้างอิงบิลเดิม เพื่อดูประวัติย้อนหลังได้
+- **ห้ามแก้วันที่ / ยอด / รายการ / จำนวน ของบิลเดิมเพื่อยืดช่วงเช่า** — บิลเดิมเก็บข้อมูลเดิมไว้
+- **ห้าม Fake Return / Fake Delivery / Fake Stock Movement**
+- ของที่ยังอยู่กับลูกค้าถูกติดตามต่อที่บิลใหม่ผ่าน Carry Forward
+- ต้องผ่านการอนุมัติ และผู้ทำต้องมีสิทธิ์ **`rental.continue`**
+- **ห้ามเช่าต่ออัตโนมัติ**
+- การเช่าต่อไม่ใช่การต่อ Contract และไม่สร้าง Contract Version ใหม่
+
+### 17.2 Bill Lineage
+- `parent_bill_id` = บิลก่อนหน้าทันที
+- `original_bill_id` = บิลแรกสุดของสาย (`= parent.original_bill_id ?? parent.id`)
+- ตัวอย่าง A → B → C: `B.parent = A`, `B.original = A`, `C.parent = B`, `C.original = A`
+- ทั้งสองค่าว่างพร้อมกัน หรือมีค่าพร้อมกัน
+- บิลลูกใช้ **`rental_contract_id` เดียวกับบิลแม่** และใช้ Contract Version ที่มีผล ณ เวลาออกบิลลูก
+- บิลแม่ 1 ใบ มีบิลลูกได้หลายใบ — **ห้ามรวมการเช่าต่อจากหลายบิลแม่เป็นบิลเดียว** (เวอร์ชันนี้)
+- `has_continuation` ของบิล = มี Carry Forward (ที่ไม่ถูก Reverse) ออกจากบิลนั้น
+
+### 17.3 `rental_carry_forwards` (Source of Truth ของ Line/จำนวนที่ส่งต่อ)
+- `id`, `from_bill_id`, `from_line_id`, `to_bill_id`, `to_line_id`, `product_id`, `quantity` (> 0)
+- `approved_by`, `reason`, `created_by`, `created_at`, `correlation_id`
+- Append-only — ห้ามแก้/ลบ
+- กฎ:
+  - `to_bill.parent_bill_id = from_bill_id`
+  - สินค้าเดียวกันทั้งสอง Line
+  - Lock Line ต้นทาง แล้วตรวจ `quantity ≤ obligation_held_here` ณ เวลาบันทึก — คุมผลรวมเมื่อมีบิลลูกหลายใบ
+- **`rental_carry_forward_units`** (สินค้ารายชิ้น): `carry_forward_id`, `product_unit_id` — จำนวนแถว = `quantity` และ Unit ต้องอยู่ในความรับผิดชอบของ Line ต้นทาง
+- **`rental_carry_forward_reversals`**: `carry_forward_id` (Unique — กลับรายการเต็มจำนวนต่อ Record), `reason`, `approved_by`, `created_by`, `created_at`, `correlation_id`
+
+### 17.4 วันเริ่มของรอบเช่าต่อ (ห้ามซ้อนรอบเดิม)
+- เก็บช่วงเช่าเป็น `timestamptz` — สูตรรายวันคำนวณตาม **timezone ของร้าน** โดยนับวันแรกเป็นวันที่ 1 (Inclusive)
+- **รายวัน**: เริ่มวันถัดจากวันสิ้นสุดรอบเดิม — รอบเดิม 1–5 → รอบใหม่เริ่ม 6
+- **ต่อครั้ง/ต่อรอบ**: **ผู้ใช้กำหนดรอบถัดไปเองตอนสร้างการเช่าต่อ** — ระบบตรวจแค่ว่าไม่ซ้อนรอบเดิม ห้ามเดาเอง
+- ห้ามใช้กฎ +1 วันแบบเดียวกันกับทุก calculation type
+
+#### 17.4.1 เช่าต่อหลังเลยกำหนด (อนุมัติหลัง `rental_end_at` เดิม)
+ผู้มีสิทธิ์ต้อง **เลือกเองทุกครั้ง** ตอนอนุมัติ — **ห้ามระบบเลือกให้** และห้ามเช่าต่ออัตโนมัติ
+
+| ทางเลือก | ค่าใน `continuation_start_mode` | ผล |
+|---|---|---|
+| 1. เริ่มย้อนหลัง | `FROM_PREVIOUS_END` | บิลลูกเริ่มถัดจาก `rental_end_at` เดิม (รายวัน: วันถัดไป / ต่อครั้ง-ต่อรอบ: รอบถัดไปที่ผู้ใช้กำหนด) — ช่วงย้อนหลังเป็น **Rental Period ของบิลลูก** คิดตามราคาที่ผู้มีสิทธิ์ยืนยัน — **ห้ามสร้าง Charge เกินกำหนดซ้ำกับช่วงเดียวกัน** |
+| 2. เริ่ม ณ เวลาที่อนุมัติ | `FROM_APPROVAL` | บิลลูกเริ่มที่วันที่/เวลาที่อนุมัติ — ช่วงก่อนอนุมัติ **ยังเป็น OVERDUE ของบิลเดิม** และใช้กฎหมวด 16 |
+
+บันทึกที่บิลลูก (ทุกการเช่าต่อหลังเลยกำหนด):
+- `continuation_start_mode`, `continuation_reason`, `continuation_approved_by`, `continuation_approved_at`
+- Audit (ผู้ทำ, ผู้อนุมัติ, ทางเลือก, เหตุผล, ช่วงเวลาที่มีผล)
+
+การเช่าต่อที่อนุมัติก่อนหรือ ณ `rental_end_at` เดิม ใช้กฎวันเริ่มปกติด้านบน (ไม่ต้องเลือกทางเลือก)
+
+### 17.5 Flow สร้างการเช่าต่อ
+1. ผู้มีสิทธิ์ `rental.continue` เลือกบิลแม่ → เลือก Line และจำนวน (หรือ Unit สำหรับสินค้ารายชิ้น)
+2. ขออนุมัติ — ถ้าอนุมัติหลัง `rental_end_at` เดิม ผู้อนุมัติต้องเลือกวิธีเริ่มตามหมวด 17.4.1 พร้อมเหตุผล
+3. Transaction เดียว:
+   - Lock Line ต้นทาง
+   - ตรวจ `quantity ≤ obligation_held_here`
+   - สร้างบิลลูก (Contract เดียวกัน + Version ที่มีผล, `parent_bill_id`, `original_bill_id`)
+   - สร้าง Line ของบิลลูก (ราคาและช่วงเช่าใหม่)
+   - สร้าง `rental_carry_forwards` (+ `rental_carry_forward_units`)
+   - Audit
+4. ไม่แก้บิลแม่ ไม่มี Stock Movement ไม่มี Return/Delivery ปลอม ไม่มี Deposit Movement
+5. ราคาและการชำระของช่วงใหม่อยู่ที่บิลลูก — สินค้าใหม่ที่เพิ่มในบิลลูกต้องส่งมอบจริงตามปกติ
+6. สาย B → C ใช้ Flow เดียวกัน
+
+### 17.6 รับคืนหลังการเช่าต่อ
+- รับคืนที่บิลที่ `obligation_held_here > 0` (ปลายสายที่ถือของอยู่)
+- Return/Stock Movement อ้างอิงบิลนั้น และย้อนดูการส่งมอบเดิมได้ผ่านสาย Carry Forward
+
+### 17.7 ยกเลิกการเช่าต่อ
+1. ถ้าบิลลูกมี Payment / Charge / Refund แล้ว ต้อง Reverse/Settle ตามกฎก่อน
+2. ถ้าบิลลูกมีการรับคืน สูญหาย หรือส่งมอบจริงแล้ว ต้องกลับรายการเหล่านั้นตามกฎก่อน (Carry Forward ถูก Reverse ได้เมื่อจำนวนนั้นยังอยู่ใน `obligation_held_here` ของบิลลูก)
+3. สร้าง `rental_carry_forward_reversals` ครบทุก Record — `obligation_held_here` กลับไปที่บิลแม่เองตามสูตร
+4. บิลลูกเป็น `CANCELLED` หรือ `VOID` ตามกฎหมวด 20 + Audit — **ห้ามลบ**
+
+---
+
+## 18. Deposit (ระดับ Rental Contract)
+
+### 18.1 หลักการ
+- Deposit เป็น **Liability ระดับ Rental Contract** — ไม่ใช่ Revenue และไม่ใช่ยอดของบิล
+- ใช้ **Deposit Holding + Deposit Movements**
+- ห้ามแก้ Payment/Deposit Transaction เก่า — แก้ผิดด้วย `REVERSAL`
+- Movement ต้องอ้างอิง Bill ที่เป็นเหตุได้ (`RECEIVE` / `APPLY` ต้องมีบิลเสมอ — `REFUND` อ้างอิงบิลที่เกี่ยวข้องเมื่อมี)
+- การเช่าต่อ A → B → C **ไม่ต้องโอนมัดจำระหว่างบิล** (อยู่ใต้ Contract เดียวกัน)
+- เปลี่ยน Contract Version **ไม่ต้องย้ายมัดจำ** (Holding ผูกกับ `rental_contract_id`)
+- Deposit ยังคงเป็น **Liability จนกว่าจะ `REFUND` หรือ `APPLY` อย่างถูกต้อง**
+
+### 18.2 โครงสร้าง
+**`deposit_holdings`**: `id`, `rental_contract_id` (Unique) — ต้อง Lock Holding ทุกครั้งที่บันทึก Movement
+
+**Deposit Available** (คำนวณจาก Movements ห้ามติดลบ):
+`Σ RECEIVE − Σ APPLY − Σ REFUND` (ปรับด้วย `REVERSAL` ของรายการที่ถูกกลับ)
+
+**`deposit_movements`** (Append-only):
+- `id`, `holding_id`, `movement_type`, `amount` (> 0)
+- `bill_id` — บิลที่เป็นเหตุ / บิลเป้าหมายของ `APPLY` (ต้องอยู่ใต้ Contract เดียวกัน)
+- `charge_id` — Charge เป้าหมาย (สำหรับ `APPLY` ที่ชำระ Charge เฉพาะรายการ)
+- `cash_movement_id` — การรับ/จ่ายเงินจริง (สำหรับ `RECEIVE` / `REFUND` เท่านั้น)
+- `reverses_movement_id`
+- `reason`, `approved_by`, `created_by`, `created_at`, `correlation_id`
+
+| `movement_type` | ความหมาย | เงินจริงเข้า/ออก |
+|---|---|---|
+| `RECEIVE` | รับมัดจำ (อ้างอิงบิลที่ขอมัดจำ) | เข้า — สร้าง Cash/Bank Movement |
+| `APPLY` | ใช้มัดจำชำระยอดที่ต้องชำระของบิลใต้ Contract เดียวกัน (Settlement) | ไม่มี — ไม่ใช่รายรับ/รายจ่าย |
+| `REFUND` | คืนมัดจำ (บางส่วนหรือทั้งหมด) | ออก — สร้าง Cash/Bank Movement |
+| `REVERSAL` | กลับรายการที่บันทึกผิด | ตามรายการที่กลับ |
+
+### 18.3 `APPLY` — ใช้มัดจำชำระยอด
+- นำไปชำระ **ยอดที่ต้องชำระใด ๆ ภายใต้ Rental Contract เดียวกัน** ได้ (ยอดค้างของบิล หรือ Charge รายการใดก็ได้) — ไม่จำกัดเฉพาะ Damage/Lost หรือ Charge บางประเภท
+- **ห้าม `APPLY` อัตโนมัติ**
+- ผู้มีสิทธิ์ `deposit.apply` ต้อง: เลือกรายการเป้าหมาย → ระบุ amount → ยืนยัน → ระบุ Reason → Audit
+- `amount > 0` และ **`amount ≤ Deposit Available`** และไม่เกินยอดค้างของรายการเป้าหมาย
+- `APPLY` เป็น Settlement — รายได้ของ Charge รับรู้เมื่อ Charge ถูกยืนยัน/earned ตามกฎรายได้ ไม่ใช่ตอน `APPLY`
+- Deposit Available ไม่พอ → ส่วนที่เหลือยังเป็นยอดที่ลูกค้าต้องชำระที่รายการนั้น
+
+### 18.4 `REFUND` บางส่วนระหว่าง Contract `ACTIVE`
+- **อนุญาต**
+- ต้องมี Permission `deposit.refund` / Approval ตามกฎ
+- `0 < amount ≤ Deposit Available` — ห้ามคืนจำนวนที่ถูก `APPLY` หรือใช้ไปแล้ว
+- สร้าง Deposit `REFUND` Movement ใหม่ + Cash/Bank Movement ตามเงินจริงที่ออก + Audit
+- การคืนที่ทำให้ Deposit Available เหลือ 0 ถือเป็น **Full/Final Refund** และต้องผ่านเงื่อนไขหมวด 18.5
+- ยอดมัดจำขั้นต่ำที่ต้องคงไว้เพื่อค้ำของที่ยังอยู่กับลูกค้า **ไม่ hard-code** — เป็น Configurable Policy ถ้าร้านต้องการใช้ (หมวด 37)
+
+### 18.5 `REFUND` ทั้งหมด (Full/Final)
+คืนได้เมื่อครบทุกข้อ:
+- Σ `obligation_held_here` ของ Contract = 0
+- ไม่มีสินค้า/Unit ค้างกับลูกค้า
+- ไม่มียอดค้างชำระภายใต้ Contract
+- ไม่มี Charge ที่ pending / ยังไม่ยืนยัน / ยังไม่ชำระ
+- ไม่มี Damage / Lost / Refund / Exception ที่ยังไม่ resolve
+
+ต้องมี Permission/Approval, สร้าง `REFUND` Movement + Cash/Bank Movement + Audit เช่นเดียวกับหมวด 18.4
+
+### 18.6 กฎร่วม
+- Audit ทุก Movement: ยอด, บิล/Charge เป้าหมาย, ผู้ทำ, ผู้อนุมัติ, เวลา, เหตุผล
+- **Deposit ที่ยังถืออยู่ไม่ทำให้ Bill ต้องค้างเปิด** — Deposit Liability ต้องเป็น 0 ก่อน Contract `ENDED` (หมวด 6.4)
+- จำนวนมัดจำที่ต้องเรียกเก็บ (Deposit Calculation) — หมวด 37
+
+---
+
+## 19. Charges, Adjustments และ Correction
+
+### 19.1 Charges
+- ค่าใช้จ่ายที่เกิดหลังออกบิล (Damage, Lost, ค่าใช้จ่ายเพิ่มกรณีเกินกำหนด, Service อื่น) บันทึกเป็น **Charge Record แยก** ที่บิลซึ่งเป็นเหตุ — ไม่แก้ยอดบิลเดิม
+- Charge ต้องยืนยันโดยผู้มีสิทธิ์ก่อนนับเป็นยอดค้างชำระและรายได้
+- Charge ที่ยังไม่ยืนยัน/ยังไม่กำหนด ถือเป็น Exception ค้าง
+
+### 19.2 Adjustments
+- ปรับยอดระหว่างเช่าหรือหลังยืนยันใช้ Credit/Debit Adjustment ที่เก็บ Before / After / ผู้ทำ / เวลา / เหตุผล
+- ยอดล่าสุดที่ยืนยันแล้วเป็นยอดที่ต้องชำระ
+
+### 19.3 Correction
+- ใช้แก้ข้อมูลที่ **บันทึกผิดจริง** เท่านั้น — ผู้มีสิทธิ์ `bill.correct` + Reason + Audit Before/After
+- **ห้ามใช้ Correction เพื่อ:**
+  - ยืดระยะเวลาเช่าจริง (ต้องใช้การเช่าต่อ)
+  - เพิ่มจำนวนที่ส่งมอบแล้ว
+  - เปลี่ยนยอดย้อนหลังเพื่อแทนการเช่าต่อ
+  - แก้ขัดกับ Carry Forward ที่มีอยู่
+- ถ้ากระทบธุรกรรมเงินหรือ Stock ที่เกิดจริงแล้ว ใช้ Adjustment / Reversal / Compensating Entry
+- ตรวจที่ Service/RPC (UI เป็นเพียงด่านแรก)
+
+---
+
+## 20. Cancel / Void / Refund / Reversal
+
+- **Cancel** = ยกเลิกก่อนธุรกรรมสมบูรณ์ / **Void** = ยกเลิกรายการที่ยืนยันแล้วตามกฎ / **Refund** = คืนเงินหลังรับเงินจริง / **Reversal** = รายการกลับทิศ
+
+| สถานะ | การจัดการ |
+|---|---|
+| Draft | Cancel ได้ ไม่มีผลต่อ Stock/Finance |
+| Confirmed ยังไม่ส่งมอบ/ยังไม่ชำระ | Cancel หรือ Void ตามสิทธิ์ (`bill.cancel` / `bill.void`) → Release Reservation |
+| มีธุรกรรม/ส่งมอบแล้ว | Void + Reversal ของ Stock/Finance ตามจำเป็น |
+| มีเงินรับแล้ว | Refund Record (`refund.create` / `refund.approve`) — **ห้ามคืนเงินอัตโนมัติตอนยกเลิก** |
+| ของเช่ายังอยู่กับลูกค้า | ห้ามคืน Stock อัตโนมัติ ต้องรับคืนจริง |
+| Closed | ห้ามแก้ต้นฉบับ ใช้ Adjustment/Refund Transaction |
+
+- Flow: Request → ตรวจสถานะ → ตรวจสิทธิ์ → Approval (ถ้าต้อง) → Reversal/Refund → ย้อน Stock/Finance ถ้าจำเป็น → Audit
+- Refund: `amount > 0`, ≤ refundable amount, ต้องมีเหตุผล, สิทธิ์/อนุมัติ, เชื่อมกับ Payment/Bill, สร้าง Ledger ฝั่งเงินออก + Cash Movement ถ้าคืนสด
+- Refund ช่องทางเดิมเป็นค่าเริ่มต้น ผู้มีสิทธิ์เลือกช่องทางอื่นได้
+- `net_paid = valid_paid − valid_refund`
+- ห้าม Delete Payment / ห้ามลดค่า Payment เดิมแทน Refund / เก็บ Reason และ Approver เสมอ
+- ห้ามลบบิล — เลขเอกสารของบิลที่ Void ถือว่าใช้แล้ว
+
+---
+
+## 21. Settlement และการปิดบิล
+
+### 21.1 Settlement (ระดับบิล)
+- `final_amount_due` = `actual_rental_charge + damage_charge + lost_charge + confirmed_additional_charges + other_authorized_charges − discounts − credits` (Charge ที่ยืนยันแล้วเท่านั้น)
+- `settlement_balance` = `final_amount_due − net_paid − deposit_applied_to_this_bill`
+- > 0 ลูกค้าต้องชำระ / = 0 เคลียร์ / < 0 ร้านต้อง Refund
+- ค่าเช่าของช่วงเช่าต่ออยู่ที่บิลลูก ไม่รวมในบิลแม่
+
+### 21.2 เงื่อนไขปิดบิล
+`CAN_CLOSE = financial_resolved AND merchandise_resolved AND exception_resolved`
+
+- **merchandise_resolved**: ทุก RENTAL Line `obligation_held_here = 0` (คืนจริง / สูญหายที่อนุมัติ / disposition ที่อนุมัติ / Carry Forward ไปบิลลูกอย่างถูกต้องครบ) และทุก SALE Line ส่งมอบครบหรือยกเลิกส่วนที่เหลือ
+- **financial_resolved**: `balance_due = 0` ของบิลนี้ (รวมการชำระด้วย Deposit `APPLY`) หรือมี Write-off ที่อนุมัติแล้ว และไม่มี Refund Due/Pending, ไม่มี Payment ค้างสถานะ
+- **exception_resolved**: ไม่มี Missing ที่ยังไม่อนุมัติ, Damage/Lost Case ที่ยังไม่ resolve, Charge ที่ยังไม่กำหนด/ยืนยัน, การเกินกำหนดที่ยังไม่ตรวจ, Return/Stock Movement ค้างครึ่งทาง
+- **Deposit ไม่อยู่ในเงื่อนไขปิดบิล** (Deposit เป็นของ Contract)
+- ครบทุกเงื่อนไข → ระบบปิดบิลอัตโนมัติ (`CLOSED`)
+- งานซ่อมภายในร้านไม่ขวางการปิดบิล
+- บิลที่ปิดแล้วออกจากงานค้าง แต่ค้นได้จากประวัติ — ห้ามลบ
+
+| ตัวอย่าง | ผล |
+|---|---|
+| จ่ายครบ + ของยังคืนไม่ครบ | ACTIVE |
+| ของครบ + เงินยังไม่ครบ | ACTIVE |
+| ของครบ + ชำรุดแต่ยังไม่กำหนด/ไม่เก็บค่าเสียหาย | ACTIVE |
+| ของครบ + ชำรุดและเก็บค่าเสียหายแล้ว + เงินครบ | CLOSED |
+| ของหายที่อนุมัติแล้ว + Charge เคลียร์ + ครบทุกอย่าง | CLOSED |
+| มี Refund ค้าง | ACTIVE |
+| คืนเกินกำหนดครบแล้ว แต่ยังไม่ตรวจเรื่องค่าใช้จ่ายเพิ่ม | ACTIVE |
+| ส่งต่อของทั้งหมดไปบิลลูกแล้ว + เงินของบิลเดิมเคลียร์ + ไม่มี Exception | CLOSED (บิลลูกติดตามของต่อ) |
+| เช่ากล้อง 2 ตัว ส่งต่อ 1 ตัว คืนจริง 1 ตัว + เงินเคลียร์ | CLOSED |
+| ของครบ + เงินครบ + มัดจำของ Contract ยังถืออยู่ | CLOSED (มัดจำไม่ขวางบิล) |
+
+---
+
+## 22. Finance Ledger, Revenue, Income/Expense
+
+- คำที่ห้ามใช้แทนกัน: Payment, Refund, Income, Expense, Cash Movement, Finance Ledger, Deposit Movement
+- Stock และ Finance มี Ledger ของตัวเอง — **Deposit Ledger แยกจาก Income/Expense**
+  - `RECEIVE` / `REFUND` ที่มีเงินจริงเข้าออก → สร้าง Cash/Bank Movement
+  - Allocation/Application ภายใน Contract (`APPLY`) ไม่ใช่รายรับ/รายจ่าย
+- Revenue Classification แยกตาม Mode (Sale Revenue / Rental Revenue) แม้รับเงินรวมที่บิล
+- รายได้ของ Charge รับรู้เมื่อ Charge ถูกยืนยัน/earned
+- รายรับ: Rental Revenue, Sale Revenue, Delivery Fee, Damage Charge, ค่าใช้จ่ายเพิ่มที่ยืนยันแล้ว, Service Fee, Other Income
+- รายจ่าย (`expense_entries`): ซื้อสินค้า, ค่าซ่อม, ค่าขนส่ง, ค่าแรง, ค่าน้ำมัน, ค่าอุปกรณ์, ค่าใช้จ่ายทั่วไป — `amount > 0`, ต้องมี category และผู้สร้าง, รายการใหญ่ต้อง approval ถ้ากำหนด
+- Refund ไม่นับเป็น Expense ปกติ
+- รายการผิด → Void/Reversal แล้วสร้างใหม่
+
+---
+
+## 23. Customer Credit / AR
+
+- ข้อมูล: `credit_enabled`, `credit_limit`, `current_balance`, `available_credit`, `payment_terms_days`, `overdue_balance`, `account_status`
+- Flow: เปิดบิลเครดิต → Credit Enabled? → Current + New ≤ Limit? (ไม่ผ่าน → Block หรือ Approval) → AR → Invoice → Due Date → ชำระ → Overdue → Notification/Credit Block ตาม Policy
+- หนี้ผูกกับแต่ละบิล
+- ค่า Credit Limit / Credit Block Rule — หมวด 37
+
+---
+
+## 24. Cash Session / ปิดกะ / ปิดวัน
+
+- OPEN SHIFT → Opening Cash → Cash Sale / Refund / Cash In / Cash Out (ทุกครั้งเป็น Cash Movement) → Expected Cash → Count Actual → `Variance = Actual − Expected`
+- Variance = 0 → `CLOSED` / ≠ 0 → Reason + Approval + Audit → `CLOSED_WITH_VARIANCE`
+- หลังปิด: Till → Safe → Bank Deposit
+- Cash Movement ของ Deposit (`RECEIVE`/`REFUND` เงินสด) นับใน Expected Cash
+- เวลาตัดวันบัญชี / ผู้ปิดกะ / เกณฑ์ Variance — หมวด 37
+
+---
+
+## 25. เอกสารพิมพ์
+
+- รูปแบบ: A4, 80mm, PDF, Email/Shareable PDF, สำเนา
+- **Document Data แยกจาก Renderer** — Renderer อ่านค่าที่คำนวณแล้วเท่านั้น ห้ามมี Business Logic ซ้ำใน Renderer
+- เอกสารย้อนหลังต้องสร้างซ้ำได้จากข้อมูลเดิม
+- ข้อมูลที่ควรมี: Logo, Company, Tax ID, Address, Phone, Document Number, Customer, Items, Sale/Rental Mode, Rental Period, Discount, VAT, Shipping, Deposit (แสดงแยกจากรายได้), Grand Total, Payment Summary, Signature, QR, Footer, Copy Number
+- **เอกสารสัญญาเช่า** ใช้ `contract_no` และ `terms_snapshot` ของ Contract Version — ไม่ใช้เลขบิลแทนเลขสัญญา
+- บันทึก Document Reference ทุกครั้งที่ Print/Save/Share
+
+---
+
+## 26. Appointment
+
+- ประเภท: `PICKUP`, `DELIVERY`, `RETURN`, `INSTALLATION`, `PAYMENT`, `FOLLOW_UP`, `INSPECTION`, `REPAIR`, `GENERAL`
+- ข้อมูล: `appointment_type`, `customer_id`, `bill_id`, `related_entity_type/id`, `title`, `description`, `start_datetime`, `end_datetime`, `location`, `contact_name/phone`, `assigned_user_id`, `priority`, `status`, `reminder_before_minutes`
+- Flow: สร้าง → ประเภท → ลูกค้า → Bill/Entity → วันเวลา → ผู้รับผิดชอบ → สถานที่ → Reminder → ตรวจ Conflict → Create → Audit → Reminder → Execute → Complete/Reschedule/No-show
+- เลื่อนนัด: เก็บ `original_start_datetime`, `new_start_datetime`, `reschedule_reason`, `rescheduled_by`, `rescheduled_at` + Appointment History
+- ยกเลิก: `cancel_reason`, `cancelled_by`, `cancelled_at` — ห้ามลบนัด
+- Validation: ห้าม end < start, ห้ามเวลาไม่ครบ, งานที่ต้องมอบหมายต้องมี `assigned_user_id`, เตือน Conflict
+
+---
+
+## 27. Notification
+
+- Severity: `INFO`, `WARNING`, `CRITICAL`
+- Flow: Event → Rule → เข้าเงื่อนไข? → Severity → Recipient → Channel → Notification → Read → Action → Handled → Audit
+- **Notification ≠ Business State** — อ่านแล้วไม่ได้แปลว่าปัญหาถูกแก้ และห้ามเปลี่ยนสถานะธุรกิจอัตโนมัติ — `HANDLED` ได้หลัง Action สำเร็จ
+- Critical ห้ามถูกซ่อนโดยผู้ไม่มีสิทธิ์
+- กันซ้ำด้วย `event_key` / idempotency key
+- ผู้รับกำหนดตาม **ผู้ใช้ที่มอบหมาย / Permission ที่เกี่ยวข้อง / OWNER** (ไม่ใช้ Role MANAGER/CASHIER/STOCK/FINANCE)
+- ตัวอย่าง Event: Rental Due Soon, Rental Due, Rental Overdue, Return ไม่ครบ, Bill ค้างชำระ, Low Stock (Available ≤ Reorder Point), Out of Stock, Over Reserved, Damage, Lost, Repair Pending, Refund Requested, Cash Variance, Transaction Failed, Sync Failed, Approval Pending, Appointment Due, Price/Cost Missing, Inactive Product Used, Stock Mismatch
+- Rental Overdue แจ้งเตือนเท่านั้น (หมวด 16)
+- เวลาแจ้งเตือน — หมวด 37
+
+---
+
+## 28. Security / RLS / Server-side / Transaction
+
+### 28.1 3 Layers
+1. **RLS** — ใครอ่าน/เขียน row ไหนได้
+2. **Permission** — ใครทำ Action ไหนได้
+3. **RPC / Server Transaction** — งานสำคัญทำฝั่ง Server
+
+### 28.2 Action ที่ต้องผ่าน Server/RPC
+`confirm_bill`, `receive_payment`, `refund_payment`, `cancel_bill`, `void_bill`, `deliver`, `receive_return`, `approve_lost`, `confirm_charge`, `stock_adjust`, `close_bill`, `close_cash_session`, `create_rental_continuation`, `reverse_carry_forward`, `deposit_receive`, `deposit_apply`, `deposit_refund`, `contract_create`, `contract_new_version`, `contract_end`, `contract_void`, `correct_bill`
+
+### 28.3 ห้าม Client ทำตรง
+- `UPDATE inventory SET qty = …`
+- `UPDATE payments SET amount = …`
+- `DELETE` ธุรกรรมใด ๆ
+
+### 28.4 Transaction / Locking
+- Atomic ทุกเหตุการณ์สำคัญ — Lock แถวที่เกี่ยวข้อง (Bill/Line/Inventory/Deposit Holding/Sequence)
+- ป้องกัน Double Submit ด้วย idempotency key
+- ห้ามให้ Stock, Balance, Deposit Holding หรือ `obligation_held_here` กลายเป็นค่าที่ไม่สมเหตุผล (ติดลบ/เกินจริง)
+
+---
+
+## 29. Audit
+
+- Audit Event: `id`, `actor_id`, `action`, `entity_type`, `entity_id`, `before_data`, `after_data`, `reason`, `device/workstation`, `timestamp`, `correlation_id`
+- ต้อง Audit อย่างน้อย: Bill Create/Confirm, เพิ่ม/เปลี่ยน Line (Mode, ราคา, จำนวน, Rental Period), Delivery, Payment, Refund, Cancel, Void, Price Override, Stock Adjustment, Count Adjustment, Customer Edit, Product Edit, Damage, Lost, Write-off, Approval, Charge Confirm, Correction, การเช่าต่อ/Carry Forward/Reversal, Contract Create/New Version/End/Void, Deposit Movements, Cash Close, Expense, Permission Change, Appointment Cancel/Reschedule
+- ผู้ใช้ปกติห้ามแก้/ลบ Audit — Export/Report ได้ตามสิทธิ์ `audit.view`
+- Retention Policy — หมวด 37
+
+---
+
+## 30. Backup / Restore
+
+- Production DB → Automated Backup → Retention → Integrity Check → Periodic Restore Test → บันทึกผล
+- Backup ที่ไม่เคย Restore Test ยังไม่ถือว่ากู้คืนได้
+- Frequency, Retention, PITR, Offsite Copy, Encryption, Restore Test Frequency, RPO, RTO — หมวด 37
+
+---
+
+## 31. Reporting
+
+| หมวด | รายการ |
+|---|---|
+| Sales | ยอดขาย, จำนวนบิล, Average Bill, Sale Revenue, Discount, VAT, Refund, Mixed Bills |
+| Rental | Rental Revenue, Active Rentals, Due Soon, Overdue, Returned, Partial Return, Damage, Lost, Utilization, Continuation (การเช่าต่อ) |
+| Inventory | On Hand, Available, Reserved, Rented Out, Repair, Damaged, Lost, Adjustment, Stock Discrepancy, Stock Movement per Mode |
+| Finance | Cash, Transfer, Card, QR, Revenue (per Mode), Expense, Refund, Outstanding Receivable, **Deposit Liability**, **Deposit Movements** |
+| Contract | Contracts ACTIVE/ENDED/VOID, Bills ต่อ Contract, ของค้างต่อ Contract (Σ `obligation_held_here`), Deposit ต่อ Contract |
+| Customer | Purchase/Rental History, Outstanding, Overdue History, Damage/Lost History, Credit Usage |
+| Operations | Appointment, Delivery, Return, Employee Activity, Approval Pending, Notification Pending |
+
+- รายงาน Deposit ต้องแยกจาก Revenue/Income/Expense
+
+---
+
+## 32. Validation สรุป
+
+| เรื่อง | กฎ |
+|---|---|
+| Document | เลข Unique ต่อชนิด, ห้าม Recycle, เลข Final ห้ามแก้ |
+| Tax/Discount | ส่วนลดไม่เกิน Policy, VAT rate valid, ลำดับคำนวณแน่นอน |
+| Sale | `can_sell`, `qty > 0`, `sale_price ≥ 0`, Stock พอ |
+| Rental | `can_rent`, `qty > 0`, `rental_rate ≥ 0`, `period_count > 0`, `start_at`/`end_at` ต้องมี, `end_at > start_at`, ต้องมี Customer และ Contract ก่อน Confirm |
+| Mixed Bill | Validate ทุก Line ก่อน Commit, ห้าม Commit บาง Line |
+| Payment | `amount > 0`, idempotency, permission, balance valid, method valid |
+| Return | `qty > 0`, `qty ≤ obligation_held_here`, ของเป็นของ Line นั้น, Condition required |
+| Continuation | สิทธิ์ `rental.continue` + อนุมัติ, `quantity ≤ obligation_held_here`, parent เดียว, Contract เดียวกัน, วันเริ่มไม่ซ้อนรอบเดิม, Serial ครบสำหรับของรายชิ้น |
+| Deposit | ห้ามนับเป็น Revenue, Deposit Available ห้ามติดลบ, `APPLY` ต้องเลือกเป้าหมาย + amount + ยืนยัน + Reason (ห้ามอัตโนมัติ), `APPLY`/`REFUND` ≤ Deposit Available, เป้าหมายต้องอยู่ใต้ Contract เดียวกัน, Full/Final Refund ต้องผ่านเงื่อนไขหมวด 18.5 |
+| Continuation หลังเลยกำหนด | ผู้อนุมัติต้องเลือก `continuation_start_mode` เอง + Reason + Audit, เลือกย้อนหลังห้ามมี Charge เกินกำหนดซ้ำช่วงเดียวกัน |
+| Overdue | timezone ร้าน, ห้ามสร้าง Charge อัตโนมัติ, ห้ามคิดซ้ำช่วงเดียวกัน, ห้ามเช่าต่ออัตโนมัติ |
+| Correction | ห้ามยืดช่วงเช่าของ Line ที่ส่งมอบแล้ว, ห้ามเพิ่ม delivered, ห้ามแทนการเช่าต่อ |
+| Refund | ≤ refundable amount, reason, permission/approval |
+| Stock | ไม่ติดลบเว้นแต่มีกฎ, Lock, Adjustment ต้องมี reason, damaged ห้ามเข้า Available ตรง, lost ห้ามเพิ่ม Stock |
+| Reservation | ต้องมี Expiry, Release เมื่อหมดอายุ |
+| Backorder | ห้ามนับเป็น Delivered, Partial Delivery ต้องมี Record |
+| Stock Count | Adjustment ต้องมาจาก Discrepancy, ต้อง Audit |
+| Credit | ตรวจ Limit, ตรวจ Overdue |
+| Cash Close | Expected vs Actual, Variance ต้องบันทึก |
+| Contract | ENDED เมื่อไม่มีบิลค้าง/ของค้าง/Deposit = 0, VOID เฉพาะไม่มีธุรกรรมหรือ Reverse ครบแล้ว, Version immutable |
+
+---
+
+## 33. Domain หลักของระบบ
+
+1. **Master Data** — Customer, Product, Product Unit, Tax, Discount, Role, Permission
+2. **Contract** — Rental Contract, Contract Version
+3. **Commercial** — Quotation, Reservation, Order, Bill, Receipt
+4. **Rental** — Rental Terms, Rental Delivery, Return, Overdue, Continuation/Carry Forward, Damage, Lost, Settlement
+5. **Inventory** — Reservation, Allocation, Backorder, Fulfillment, Delivery, Stock Movement, Count, Adjustment, Serialized Rental Unit
+6. **Finance** — Payment, Refund, Charge, Adjustment, Ledger, Deposit Holding/Movements, AR/Credit, Expense, Cash Session
+7. **Operations** — Appointment, Notification, Approval
+8. **Control** — Audit, Security, RLS, RPC, Backup
+9. **Reporting** — Sales, Rental, Stock, Finance, Contract, Customer, Operations
+
+---
+
+## 34. แนวทางฐานข้อมูล (Database Direction)
+
+- Production Supabase ปัจจุบัน **ว่าง** (ไม่มีตารางและไม่มี migration ที่ apply แล้ว)
+- หลัง Master Rules นี้ล็อก ให้วาง **Consolidated Baseline Schema ใหม่** ตามไฟล์นี้ — ไม่ยึด 19 migration เดิมใน `supabase/migrations/` เป็นลำดับที่จะ apply
+- Baseline ต้องสอดคล้องหมวด 3 (UUID, Document Number แยก, ห้าม CASCADE ไปข้อมูลการเงิน/ประวัติ), หมวด 6, 14, 17, 18
+- ค่า Derived (paid_amount, balance_due, returned_qty, obligation ฯลฯ) cache ได้ แต่ต้องมีแหล่งจริงจาก Transaction Records
+
+---
+
+## 35. Implementation Gap ที่รู้แล้ว (Reference — ไม่ใช่กฎ)
+
+สิ่งที่พบในโค้ด/Schema เดิม และขัดกับไฟล์นี้ ต้องแก้ตอน implement:
+
+| พบใน Implementation เดิม | กฎที่ถูกต้อง |
+|---|---|
+| `rentalStatus = 'EXTENDED'` และโหมด `EXTENSION` | `EXTENDED`/`EXTENSION` เป็น legacy — ใช้ Carry Forward + Derived Flag (หมวด 9, 17) |
+| บิล `-EXT` ตั้ง `parent_bill_id = original_bill_id = บิลที่ถูกต่อ` เสมอ | `original_bill_id` = บิลแรกสุดของสาย (หมวด 17.2) |
+| ไม่มี Carry Forward ระดับ Line/Quantity | ใช้ `rental_carry_forwards` (หมวด 17.3) |
+| โหมด CORRECTION เขียนทับวันเริ่ม/วันคืนและยอดของบิล | Correction ห้ามยืดช่วงเช่า/ห้ามแทนการเช่าต่อ (หมวด 19.3) |
+| Settings มี `lateFeeMode` / คำนวณ `lateFeeTotal` | ห้ามคิดค่าเกินกำหนดอัตโนมัติ (หมวด 16) |
+| Deposit เก็บที่บิล (`held_deposit_amount`, `deposits` JSONB, `is_deposit`) | Deposit ระดับ Contract (หมวด 18) |
+| ไม่มี Entity Rental Contract (มีแค่เทมเพลต `tpl_rental_contract`) | Rental Contract + Version (หมวด 6) |
+| ID เป็น `TEXT`, FK การเงินใช้ `ON DELETE CASCADE` | UUID + RESTRICT/NO ACTION (หมวด 3) |
+| `permissions.role` + boolean หยาบ | OWNER/USER + Permission ราย Action (หมวด 4) |
+| ข้อความระบบ/UI ใช้คำว่า "ต่อสัญญา" และเรียกบิลว่า "สัญญา" | ใช้คำตามหมวด 1 |
+| ชุดเลขเอกสาร "บิลเช่า / สัญญาเช่า" ใช้ร่วมกัน | Contract Number แยกชุด (หมวด 3.2) |
+
+---
+
+## 36. OPEN DECISIONS
+
+**ไม่มี OPEN Business/Architecture Decision คงเหลือ — Architecture Business Rules = LOCKED (2026-10-01)**
+
+| เรื่องที่ปิดแล้ว | กฎอยู่ที่ |
+|---|---|
+| เช่าต่อหลังเลยกำหนด — ผู้มีสิทธิ์เลือกวิธีเริ่มบิลลูกเองทุกครั้ง | หมวด 16, 17.4.1 |
+| Deposit Policy — `APPLY` ได้ทุกยอดใต้ Contract เดียวกัน / คืนบางส่วนระหว่าง `ACTIVE` ได้ / เงื่อนไข Full/Final Refund | หมวด 18.3–18.5 |
+
+การเปลี่ยนกฎที่ LOCKED ต้องมาจากคำตัดสินใหม่ของเจ้าของระบบ และต้องปรับไฟล์นี้ก่อน implement
+ค่า Policy/Configuration ในหมวด 37 ไม่ถือเป็น Architecture Blocker
+
+---
+
+## 37. Policy ที่ยังไม่กำหนดค่า (ตั้งค่าได้ — ไม่ใช่ Architecture Blocker)
+
+Master Spec ระบุว่าต้องเลือกค่าเอง (ส่วนที่ถูก Override แล้วถูกตัดออก):
+
+1. รูปแบบเลขเอกสารแต่ละชนิด (รวม Contract) และรอบ Reset (รายปี/รายเดือน)
+2. Layout A4 / 80mm และข้อความท้ายเอกสาร
+3. Discount order (ก่อน/หลัง VAT), เพดานส่วนลด, ผู้แก้/ผู้ Override
+4. VAT inclusive/exclusive และ Shipping tax treatment
+5. Deposit Calculation (จำนวนมัดจำที่เรียกเก็บต่อ Contract/บิล) และยอดมัดจำขั้นต่ำที่ต้องคงไว้ค้ำของระหว่าง Partial Refund (ถ้าร้านต้องการใช้)
+6. Early Return Policy (คิดเต็ม / คิดตามวันใช้จริง)
+7. Grace period และเวลาแจ้งเตือน Due Soon / Due / Overdue (ใช้เพื่อแจ้งเตือนเท่านั้น)
+8. Damage Charge Formula และ Lost Charge Formula (ค่าตั้งต้นให้ผู้มีสิทธิ์ยืนยัน)
+9. Approval Threshold ของแต่ละ Action เสี่ยง
+10. Reservation Expiry
+11. Partial Delivery Policy
+12. Credit Limit และ Credit Block Rule
+13. Notification Timing / Channel
+14. Backup Frequency / Retention / RPO / RTO / Restore Test
+15. Audit Retention
+16. Day Close Time และ Cash Variance Threshold
+17. Timezone ของร้าน (ค่าเดียวที่ใช้ทั้งระบบ)
+
+---
+
+## ภาคผนวก — REFERENCE / SOURCE MATERIAL
+
+> **สถานะ: REFERENCE เท่านั้น** — ถ้าข้อความในแหล่งต่อไปนี้ขัดกับ Master Rules ด้านบน ให้ Master Rules มีอำนาจเหนือกว่าเสมอ
+
+### แหล่งข้อมูลดิบ
+ภาคผนวก AE ของ `POS_MASTER_ALL_IN_ONE_COMPLETE_SPEC_TH.txt` (ไม่คัดลอกมาไว้ในไฟล์นี้ เพื่อไม่ให้มีข้อความที่ขัดกับกฎปรากฏซ้ำ):
+
+| Source | หัวข้อ | บรรทัดโดยประมาณในไฟล์ Spec |
+|---|---|---|
+| SOURCE 1 | Appointment / Notification / Product / Customer / Finance Workflow | 1313–2680 |
+| SOURCE 2 | Partial Return / Partial Payment Workflow | 2684–3897 |
+| SOURCE 3 | Early Return / Overdue / Refund / Damage / Lost Workflow | 3901–5113 |
+| SOURCE 4 | Mixed Sale + Rental Bill / Mode Separation | 5117–6143 |
+| SOURCE 5 | Master Spec Completion 17 Areas | 6147–7627 |
+
+กฎเก่า: `docs/archive/PROJECT_RULES_MASTER_v2.3.0.md`, `docs/archive/AUDIT_MASTER_V23_IMPLEMENTATION.md`
+
+### ข้อความใน Source Material ที่ถูก Override (อย่านำไปใช้)
+
+| ข้อความในต้นฉบับ | ถูก Override โดย |
+|---|---|
+| Role `OWNER / MANAGER / CASHIER / STOCK / FINANCE` และการส่งงาน "ส่ง Manager" | OWNER / USER + Permission ราย Action (หมวด 4) |
+| คำนวณ Late Fee / Late Penalty / สร้าง Charge เมื่อ Overdue / "ค่าปรับคงอยู่" / Late Policy (`late_fee_type`, `late_fee_amount`, `late_fee_percent`, min/max) | แจ้งเตือนเท่านั้น ห้ามสร้าง Charge อัตโนมัติ ค่าใช้จ่ายเพิ่มต้องยืนยันโดยผู้มีสิทธิ์ (หมวด 16) |
+| `renewal_charge` และ `late_penalty` ในสูตร `final_amount_due` | ค่าเช่าช่วงเช่าต่ออยู่ที่บิลลูก / ใช้ `confirmed_additional_charges` (หมวด 21.1) |
+| Renewal / ต่ออายุ / RENEWALS ใต้ Rental Bill | การเช่าต่อ = บิลใหม่ + Carry Forward (หมวด 17) |
+| ชื่อเชื่อม `renewal_of`, `parent_rental_id`, `previous_rental_id` | `parent_bill_id`, `original_bill_id`, `rental_carry_forwards` (หมวด 17) |
+| `rental_contract_id` ใน `RENTAL_LINE_DETAILS` | Contract ผูกที่ Bill (`rental_contract_id` + `rental_contract_version_id`) (หมวด 6.3) |
+| Deposit อยู่ใต้ Rental Bill / "Deposit ถูกคืน/หัก/เคลียร์แล้ว" เป็นเงื่อนไขปิดบิล | Deposit ระดับ Contract และไม่ขวางการปิดบิล (หมวด 18, 21) |
+| "หัก Deposit" อัตโนมัติใน Flow ชำรุด/สูญหาย | `APPLY` ต้องยืนยันโดยผู้มีสิทธิ์ (หมวด 18.3) |
+| Notification ผู้รับ "CASHIER + OWNER", "STOCK + MANAGER", "MANAGER/OWNER" | ผู้รับตามการมอบหมาย/Permission/OWNER (หมวด 27) |
+| "ใช้ยอดตามสัญญาเดิม" ใน Flow คืนก่อนกำหนด | อ่านว่า "ยอดตามบิลเดิม" — บิลไม่ใช่สัญญา (หมวด 1, 15) |
+| Internal ID "UUID หรือ Internal Key" | UUID (หมวด 3.1) |
