@@ -7,6 +7,10 @@ import { saveAppointments, loadAppointments } from '@/features/appointments/serv
 import { Appointment } from '@/lib/types/rental-pos'
 
 const mockToast = vi.fn()
+const mockPush = vi.fn()
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush }),
+}))
 vi.mock('@/components/common/Toast', () => ({
   useToast: () => ({ showToast: mockToast }),
 }))
@@ -38,7 +42,7 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
       startTime: '09:00',
       endTime: '11:00',
       type: 'DELIVERY',
-      status: 'PENDING',
+      status: 'SCHEDULED',
     }
     saveAppointments([apt])
 
@@ -92,7 +96,7 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
       startTime: '13:00',
       endTime: '15:00',
       type: 'RETURN',
-      status: 'PENDING',
+      status: 'SCHEDULED',
       events: [], // No events
     }
     saveAppointments([apt])
@@ -181,13 +185,14 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
     expect(screen.getByText('คนขับ นพดล')).toBeDefined()
     expect(screen.getByText('2026-09-25 10:15')).toBeDefined()
     expect(screen.getByText('ติดรอหน้าไซด์งาน 15 นาที')).toBeDefined()
-    expect(screen.getAllByText('กำลังดำเนินการ').length).toBe(2)
+    // table row status + timeline overview status + ARRIVED event (one label per status everywhere)
+    expect(screen.getAllByText('กำลังดำเนินการ').length).toBe(3)
 
     // Stages without events still display "ยังไม่มีข้อมูล"
     expect(screen.getAllByText('ยังไม่มีข้อมูล').length).toBe(7)
   })
 
-  it('UI-only ต้องไม่สร้าง assignee/event ปลอม และระบุชัดเจนว่ายังไม่เชื่อม POS', async () => {
+  it('นัดหมายไม่สร้างบิลเอง: ไม่มีปุ่มสร้างบิล และไม่สร้าง assignee/event ปลอม', async () => {
     const apt: Appointment = {
       id: 'apt-4',
       title: 'งานติดตั้งตลับเมตร D',
@@ -196,7 +201,7 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
       startTime: '14:00',
       endTime: '15:00',
       type: 'DELIVERY',
-      status: 'PENDING',
+      status: 'SCHEDULED',
     }
     saveAppointments([apt])
 
@@ -205,16 +210,10 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
     const allTab = screen.getByRole('button', { name: 'งานทั้งหมด' })
     fireEvent.click(allTab)
 
-    // Click [สร้างบิล]
-    const createBillBtn = screen.getByRole('button', { name: 'สร้างบิล' })
-    fireEvent.click(createBillBtn)
-
-    // Verify toast specifies "UI Only" and "ยังไม่เชื่อม POS"
-    expect(mockToast).toHaveBeenCalledWith(
-      'สร้างบิล (UI Only)',
-      'ยังไม่เชื่อม POS (ยังไม่มีการสร้างบิลจริง)',
-      'INFO'
-    )
+    // Appointments never create bills / payments: no create-bill action, no linked-bill button
+    expect(screen.queryByRole('button', { name: 'สร้างบิล' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'ดูบิล' })).toBeNull()
+    expect(mockPush).not.toHaveBeenCalled()
 
     // Appointment in storage remains unchanged without fake billId or fake assignee
     const current = loadAppointments()

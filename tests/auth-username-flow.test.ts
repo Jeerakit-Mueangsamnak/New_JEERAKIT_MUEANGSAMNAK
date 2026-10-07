@@ -28,6 +28,8 @@ interface MockProfile {
   email: string
   role?: string
   display_name?: string
+  status?: string
+  is_approved?: boolean
 }
 
 const mockProfiles: MockProfile[] = [
@@ -37,6 +39,8 @@ const mockProfiles: MockProfile[] = [
     email: 'jeerakitplasticformworkutt2024@gmail.com',
     role: 'OWNER',
     display_name: 'จิรกิตติ์',
+    status: 'ACTIVE',
+    is_approved: true,
   },
   {
     id: 'user-underscore',
@@ -44,6 +48,8 @@ const mockProfiles: MockProfile[] = [
     email: 'exact@example.com',
     role: 'USER',
     display_name: 'Shop User',
+    status: 'ACTIVE',
+    is_approved: true,
   },
   {
     id: 'user-letter',
@@ -51,6 +57,26 @@ const mockProfiles: MockProfile[] = [
     email: 'similar@example.com',
     role: 'USER',
     display_name: 'Shop X User',
+    status: 'ACTIVE',
+    is_approved: true,
+  },
+  {
+    id: 'user-pending',
+    username: 'new_signup',
+    email: 'pending@example.com',
+    role: 'USER',
+    display_name: 'New Signup',
+    status: 'PENDING',
+    is_approved: false,
+  },
+  {
+    id: 'user-suspended',
+    username: 'old_staff',
+    email: 'suspended@example.com',
+    role: 'USER',
+    display_name: 'Old Staff',
+    status: 'SUSPENDED',
+    is_approved: false,
   },
 ]
 
@@ -179,6 +205,26 @@ describe('Supabase Username Auth Flow (Mock / Isolated Test Environment)', () =>
         email: exactProfile.email,
         password: 'ValidPassword123!',
       })
+    })
+
+    it('does not keep a session for a self-registered account still waiting for OWNER approval', async () => {
+      const result = await loginWithUsername({ username: 'new_signup', password: 'ValidPassword123!' })
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('รอเจ้าของร้านอนุมัติ')
+    })
+
+    it('does not keep a session for a suspended account', async () => {
+      const result = await loginWithUsername({ username: 'old_staff', password: 'ValidPassword123!' })
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('ถูกระงับ')
+    })
+
+    it('does not reveal approval status when the password is wrong', async () => {
+      const result = await loginWithUsername({ username: 'new_signup', password: 'WrongPassword123!' })
+
+      expect(result).toEqual({ success: false, error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' })
     })
 
     it('rejects a wildcard alias before attempting password authentication', async () => {

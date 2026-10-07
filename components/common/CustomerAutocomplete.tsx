@@ -115,6 +115,7 @@ export function CustomerAutocomplete({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
+      if (isOpen) e.preventDefault() // close the suggestions, not the modal around this field
       setIsOpen(false)
       return
     }

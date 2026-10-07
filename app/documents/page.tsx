@@ -1,1239 +1,601 @@
 'use client'
 
-import React, { useState, useMemo, useEffect } from 'react'
-import {
-  FileText,
-  Upload,
-  Printer,
-  CheckCircle2,
-  FolderOpen,
-  Trash2,
-  FileCode,
-  Layers,
-  FilePlus,
-  RefreshCw,
-  Plus,
-  X,
-  Check,
-} from 'lucide-react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FilePlus, FolderOpen, Image as ImageIcon, Printer, RefreshCw, Save, Search, Trash2, Upload } from 'lucide-react'
 
 import { CustomSelect } from '@/components/common/CustomSelect'
+import { NumericInput } from '@/components/common/NumericInput'
 import {
   TAB_CONTAINER_CLASSES,
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
   TAB_BUTTON_INACTIVE_CLASSES,
 } from '@/components/common/ActionButton'
+import { DATA_TABLE_CLASSES, DataTableFrame } from '@/components/common/DataTableFrame'
 import { useToast } from '@/components/common/Toast'
-import { Customer } from '@/lib/types/rental-pos'
-import { DocumentTemplate, CustomerDocument, CustomerSnapshot } from '@/lib/types/document'
-import { convertFileToInternalTemplate } from '@/features/documents/utils/documentConverter'
+import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
+import type { Customer } from '@/lib/types/rental-pos'
+import type { CustomerDocumentItem, CustomerSnapshot } from '@/lib/types/document'
 import { renderDocumentTemplate } from '@/features/documents/utils/documentRenderer'
+import { escapeDocumentHtml } from '@/features/documents/utils/document-html'
 import { A4DocumentWorkspace } from '@/features/documents/components/A4DocumentWorkspace'
-import { A4FitPreview } from '@/features/pos/components/A4FitPreview'
 import { BatchDeleteModal } from '@/features/documents/components/BatchDeleteModal'
-import { logger } from '@/lib/utils/logger'
+import { loadCustomers, syncCustomersFromSupabase } from '@/features/customers/services/customer-storage'
+import {
+  CUSTOMER_FORMS,
+  DOC_TYPE_LABEL,
+  findCustomerForm,
+  type CustomerFormDefinition,
+} from '@/features/documents/constants/customerFormTemplates'
+import {
+  deactivateCustomerDocument,
+  fetchCustomerDocuments,
+  getDocumentFileUrl,
+  saveCustomerDocument,
+  uploadCustomerImage,
+  type CustomerDocType,
+  type CustomerDocumentRow,
+} from '@/features/documents/api/customer-document-repository'
+import { printDocuments } from '@/lib/print/print-service'
 
-import { INITIAL_TEMPLATES, INITIAL_DOC_CATEGORIES } from '@/features/documents/constants/initialDocumentTemplates'
+type MainTab = 'CREATE' | 'MANAGE'
 
+interface ContractFields {
+  rentalStartDate: string
+  rentalEndDate: string
+  siteName: string
+  depositAmount: number | ''
+}
+
+interface SavedSnapshot {
+  docNo?: string
+  templateName?: string
+  customerName?: string
+  customerSnapshot?: CustomerSnapshot
+  contract?: ContractFields
+  items?: CustomerDocumentItem[]
+  terms?: string
+}
+
+const today = () => new Date().toISOString().slice(0, 10)
+const docNoOf = (row: CustomerDocumentRow) =>
+  ((row.data_snapshot as SavedSnapshot | null)?.docNo as string | undefined) || `CD-${row.id.slice(0, 8).toUpperCase()}`
+
+function snapshotOf(c: Customer): CustomerSnapshot {
+  return {
+    id: c.id,
+    customerCode: c.customerCode || '',
+    customerName: c.customerName,
+    companyName: c.companyName || '',
+    phone: c.phone || '',
+    email: c.email || '',
+    houseNo: c.houseNo || '',
+    subDistrict: c.subDistrict || '',
+    district: c.district || '',
+    province: c.province || '',
+    postalCode: c.postalCode || '',
+    address: c.address || '',
+    taxId: c.taxId || '',
+    idCardNumber: c.idCardNumber || '',
+    idCardExpiry: c.idCardExpiry || '',
+  }
+}
+
+const INPUT = 'w-full h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500'
+const LABEL = 'block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1'
+
+/**
+ * จัดการเอกสาร — customer documents only (Master §6): contracts, signature confirmation,
+ * ID card / house registration copies and other customer forms. Flow: customer → form →
+ * customer data filled in → extra fields → save → preview / print. Transaction documents
+ * (quotation, reservation, bill, receipt, tax invoice, delivery) stay in their own menus.
+ */
 export default function DocumentsPage() {
   const { showToast } = useToast()
+  const { settings } = useSystemSettings()
+  const business = settings.business
+  const [tab, setTab] = useState<MainTab>('CREATE')
 
-  // Document Categories State
-  const [docCategories, setDocCategories] = useState<string[]>(INITIAL_DOC_CATEGORIES)
-  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
-  const [newCatInput, setNewCatInput] = useState('')
-  const [editingCatIndex, setEditingCatIndex] = useState<number | null>(null)
-  const [editingCatValue, setEditingCatValue] = useState('')
-
-  const documentCategoryOptions = useMemo(() => {
-    return docCategories.map((cat) => ({ value: cat, label: `📁 ${cat}` }))
-  }, [docCategories])
-
-  // Tab State: 'CREATE_DOC' (สร้างเอกสาร) vs 'MANAGE_TEMPLATES' (จัดการเอกสาร)
-  const [mainTab, setMainTab] = useState<'CREATE_DOC' | 'MANAGE_TEMPLATES'>('CREATE_DOC')
-  const [mobileTab, setMobileTab] = useState<'WORKSPACE' | 'PREVIEW'>('WORKSPACE')
-  const business = useMemo(() => ({
-    companyName: '',
-    phone: '',
-    address: '',
-    taxId: '',
-  }), [])
-
-  // Template Sub-Tab State: 'LIBRARY' (คลังแบบฟอร์ม) vs 'ADD' (เพิ่มแบบฟอร์ม)
-  const [templateSubTab, setTemplateSubTab] = useState<'LIBRARY' | 'ADD'>('LIBRARY')
-
-  // Templates State
-  const [templates, setTemplates] = useState<DocumentTemplate[]>(INITIAL_TEMPLATES)
-  const [selectedTemplateForPreview, setSelectedTemplateForPreview] = useState<DocumentTemplate | null>(INITIAL_TEMPLATES[0])
-  const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([])
-
-  // Customer Documents State
-  const [customerDocs, setCustomerDocs] = useState<CustomerDocument[]>([])
-  const [selectedDocForPreview, setSelectedDocForPreview] = useState<CustomerDocument | null>(null)
-  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([])
-
-  // Batch Delete Modal State
-  const [deleteModalConfig, setDeleteModalConfig] = useState<{
-    isOpen: boolean
-    type: 'TEMPLATES' | 'CUSTOMER_DOCS'
-    ids: string[]
-  }>({ isOpen: false, type: 'TEMPLATES', ids: [] })
-
-  // Fullscreen A4 Preview Overlay State (triggered on double click)
-  const [fullOverlayHtml, setFullOverlayHtml] = useState<string | null>(null)
-
-  // ==========================================
-  // FORM STATE: TAB 1 (สร้างเอกสารให้ลูกค้า)
-  // ==========================================
+  // ── customers & documents ────────────────────────────────────────────────
   const [customers, setCustomers] = useState<Customer[]>([])
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
+  const [docs, setDocs] = useState<CustomerDocumentRow[]>([])
+  const [loadingDocs, setLoadingDocs] = useState(false)
 
   useEffect(() => {
-    setCustomers([])
+    setCustomers(loadCustomers())
+    void syncCustomersFromSupabase().then(setCustomers).catch(() => undefined)
   }, [])
 
-  // Active Selected Customer Snapshot
-  const activeCustomer = useMemo(() => {
-    return customers.find((c) => c.id === selectedCustomerId)
-  }, [customers, selectedCustomerId])
+  const reloadDocs = useCallback(async () => {
+    setLoadingDocs(true)
+    try {
+      setDocs(await fetchCustomerDocuments())
+    } catch (err) {
+      showToast('โหลดเอกสารไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
+    } finally {
+      setLoadingDocs(false)
+    }
+  }, [showToast])
 
-  // Handle Template Selection in Create Tab -> Immediately Add Document into List!
-  const handleAddDocumentFromTemplate = (tplId: string) => {
-    if (!tplId) return
-    const tpl = templates.find((t) => t.id === tplId)
-    if (!tpl) return
+  useEffect(() => {
+    void reloadDocs()
+  }, [reloadDocs])
 
-    if (!activeCustomer) {
-      showToast(
-        'กรุณาเลือกลูกค้า',
-        'ต้องเลือกลูกค้าก่อนเพิ่มเอกสาร',
-        'ERROR'
+  const customerById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers])
+  const activeCustomers = useMemo(() => customers.filter((c) => !c.isSuspended), [customers])
+
+  // ── create form ──────────────────────────────────────────────────────────
+  const [customerId, setCustomerId] = useState('')
+  const [formCode, setFormCode] = useState('')
+  const [contract, setContract] = useState<ContractFields>({ rentalStartDate: today(), rentalEndDate: today(), siteName: '', depositAmount: '' })
+  const [items, setItems] = useState<CustomerDocumentItem[]>([])
+  const [terms, setTerms] = useState('')
+  const [note, setNote] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [saving, setSaving] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const customer = customerById.get(customerId)
+  const form: CustomerFormDefinition | undefined = CUSTOMER_FORMS.find((f) => f.code === formCode)
+
+  const resetForm = useCallback((nextForm?: CustomerFormDefinition) => {
+    setContract({ rentalStartDate: today(), rentalEndDate: today(), siteName: '', depositAmount: '' })
+    setItems([])
+    setTerms(nextForm?.template?.defaultTerms || '')
+    setNote('')
+    setFile(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }, [])
+
+  const pickForm = (code: string) => {
+    setFormCode(code)
+    resetForm(CUSTOMER_FORMS.find((f) => f.code === code))
+  }
+
+  const renderForm = useCallback(
+    (f: CustomerFormDefinition | undefined, snap: SavedSnapshot, docNo: string, date: string) => {
+      if (!f?.template) return ''
+      return renderDocumentTemplate(
+        f.template.templateSchema,
+        snap.customerSnapshot,
+        docNo,
+        date,
+        snap.terms || '',
+        business,
+        snap.contract
+          ? {
+              rentalStartDate: snap.contract.rentalStartDate,
+              rentalEndDate: snap.contract.rentalEndDate,
+              siteName: snap.contract.siteName,
+              depositAmount: Number(snap.contract.depositAmount || 0),
+            }
+          : null,
+        snap.items || []
       )
-      return
+    },
+    [business]
+  )
+
+  const draftSnapshot: SavedSnapshot | null = customer
+    ? {
+        templateName: form?.label,
+        customerName: customer.customerName,
+        customerSnapshot: snapshotOf(customer),
+        contract: form?.docType === 'RENTAL_CONTRACT' ? contract : undefined,
+        items: form?.docType === 'RENTAL_CONTRACT' ? items.filter((i) => i.productName.trim()) : undefined,
+        terms,
+      }
+    : null
+
+  const draftHtml = draftSnapshot && form?.kind === 'TEMPLATE' ? renderForm(form, draftSnapshot, '(ยังไม่บันทึก)', today()) : ''
+
+  const handleSave = async () => {
+    if (!customer) return showToast('กรุณาเลือกลูกค้า', '', 'ERROR')
+    if (!form) return showToast('กรุณาเลือกแบบฟอร์ม', '', 'ERROR')
+    setSaving(true)
+    try {
+      let saved: CustomerDocumentRow
+      if (form.kind === 'UPLOAD') {
+        if (!file) throw new Error('กรุณาเลือกไฟล์รูปเอกสาร')
+        saved = await uploadCustomerImage(customer.id, file, form.docType as 'ID_CARD' | 'HOUSE_REGISTRATION' | 'OTHER', note.trim() || undefined)
+      } else {
+        const docNo = `CD-${Date.now().toString(36).toUpperCase()}`
+        saved = await saveCustomerDocument(customer.id, {
+          docType: form.docType,
+          templateCode: form.code,
+          templateVersion: String(form.template?.version ?? 1),
+          // Frozen snapshot: the document re-prints exactly as signed even if the customer changes later.
+          dataSnapshot: { ...draftSnapshot, docNo } as Record<string, unknown>,
+          note: note.trim() || undefined,
+        })
+      }
+      showToast('บันทึกเอกสารแล้ว', `${form.label} · ${customer.customerName}`, 'SUCCESS')
+      resetForm(form)
+      await reloadDocs()
+      setSelectedId(saved.id)
+      setTab('MANAGE')
+    } catch (err) {
+      showToast('บันทึกเอกสารไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
+    } finally {
+      setSaving(false)
     }
-
-    const docCount = customerDocs.length + 1
-    const newDocNo = `DOC-2026-${String(docCount).padStart(4, '0')}`
-    const now = new Date()
-
-    const frozenSnapshot: CustomerSnapshot = {
-      id: activeCustomer.id,
-      customerCode: activeCustomer.customerCode || '',
-      customerName: activeCustomer.customerName,
-      companyName: activeCustomer.customerName,
-      phone: activeCustomer.phone,
-      email: activeCustomer.email || '',
-      houseNo: activeCustomer.houseNo || '',
-      subDistrict: activeCustomer.subDistrict || '',
-      district: activeCustomer.district || '',
-      province: activeCustomer.province || '',
-      postalCode: activeCustomer.postalCode || '',
-      address: activeCustomer.address || '',
-      taxId: activeCustomer.taxId || '-',
-      idCardNumber: activeCustomer.idCardNumber || '-',
-      idCardExpiry: activeCustomer.idCardExpiry || '-'
-    }
-
-    const newDoc: CustomerDocument = {
-      id: `cust_doc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      docNo: newDocNo,
-      customerId: activeCustomer.id,
-      customerName: activeCustomer.customerName,
-      templateId: tpl.id,
-      templateName: tpl.name,
-      templateVersion: tpl.version,
-      category: tpl.category,
-      customerSnapshot: frozenSnapshot,
-      customFields: {},
-      items: [],
-      terms: tpl.defaultTerms || '',
-      createdDate: now.toISOString().split('T')[0],
-      createdTime: now.toTimeString().slice(0, 5),
-      createdBy: 'ผู้ใช้งานปัจจุบัน',
-      status: 'ACTIVE',
-      attachments: []
-    }
-
-    setCustomerDocs((prev) => [newDoc, ...prev])
-    setSelectedDocForPreview(newDoc)
-
-    showToast(
-      'เพิ่มเอกสารสำเร็จ',
-      `เพิ่ม "${tpl.name}" (${newDocNo}) เข้าสู่รายการเอกสารเรียบร้อยแล้ว`,
-      'SUCCESS'
-    )
   }
 
-  // Handle Save All Customer Documents to Database
-  const handleSaveCustomerDocuments = async () => {
-    if (customerDocs.length === 0) {
-      showToast('ไม่มีรายการเอกสาร', 'ยังไม่มีเอกสารสำหรับบันทึก', 'INFO')
-      return
-    }
+  // ── manage list ──────────────────────────────────────────────────────────
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState<'ALL' | CustomerDocType>('ALL')
+  const [statusFilter, setStatusFilter] = useState<'ACTIVE' | 'INACTIVE' | 'ALL'>('ACTIVE')
+  const [customerFilter, setCustomerFilter] = useState('')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [deactivateOpen, setDeactivateOpen] = useState(false)
 
-    if (!activeCustomer) {
-      showToast('กรุณาเลือกลูกค้า', 'ต้องเลือกลูกค้าก่อนบันทึกเอกสาร', 'ERROR')
-      return
-    }
-
-    showToast(
-      'บันทึกเอกสารสำเร็จ',
-      `บันทึกเอกสารของลูกค้า ${activeCustomer.customerName} ทั้งหมด ${customerDocs.length} รายการเรียบร้อยแล้ว`,
-      'SUCCESS'
-    )
-  }
-
-  // ==========================================
-  // FORM STATE: TAB 2 (จัดการเทมเพลตเอกสาร)
-  // ==========================================
-  const [newFormName, setNewFormName] = useState('')
-  const [newFormCategory, setNewFormCategory] = useState<string>('สัญญาเช่าสินค้า')
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
-  const [conversionProgress, setConversionProgress] = useState<string | null>(null)
-  const [convertedSchema, setConvertedSchema] = useState<string | null>(null)
-  const [newFormOrientation, setNewFormOrientation] = useState<'PORTRAIT' | 'LANDSCAPE'>('PORTRAIT')
-  const [newFormDescription, setNewFormDescription] = useState('')
-  const newFormTerms =
-    '1. ผู้เช่าตกลงชำระค่าเช่าตามอัตราในสัญญานี้\n2. อุปกรณ์ที่เช่าต้องได้รับการดูแลให้อยู่ในสภาพใช้งานได้ปกติ\n3. ค่าปรับชำรุด/สูญหายเป็นไปตามที่ตกลงในแนบท้ายสัญญา'
-
-  // Handle File Upload & Temporary Conversion
-  const handleFileUploadAndConvert = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || !e.target.files[0]) return
-
-    const file = e.target.files[0]
-    setUploadedFile(file)
-    if (!newFormName) {
-      setNewFormName(file.name.replace(/\.[^/.]+$/, ''))
-    }
-
-    setConversionProgress('กำลังอัปโหลดไฟล์ชั่วคราว...')
-    await new Promise((res) => setTimeout(res, 400))
-
-    setConversionProgress('กำลังวิเคราะห์โครงสร้างเอกสาร ตาราง ข้อความ และขนาดกระดาษ...')
-    await new Promise((res) => setTimeout(res, 600))
-
-    setConversionProgress('กำลังแปลงเป็น Internal Template Schema...')
-    const result = await convertFileToInternalTemplate(file, newFormName || file.name, newFormCategory)
-
-    if (!result.success) {
-      setConversionProgress(null)
-      showToast('ไม่สามารถแปลงไฟล์ได้', result.error || 'ไม่สามารถแปลงไฟล์ประเภทนี้เป็น Template ได้', 'ERROR')
-      setUploadedFile(null)
-      return
-    }
-
-    setConvertedSchema(result.templateSchema || '')
-    if (result.orientation) setNewFormOrientation(result.orientation)
-    setConversionProgress(null)
-
-    // Clear temporary input file
-    e.target.value = ''
-
-    showToast(
-      'แปลงไฟล์เป็น Template สำเร็จ',
-      `ระบบได้แปลงโครงสร้างเอกสารเรียบร้อย และลบไฟล์ต้นฉบับชั่วคราวแล้ว`,
-      'SUCCESS'
-    )
-  }
-
-  // Handle Save New Template to Database
-  const handleSaveTemplate = async (e: React.FormEvent) => {
-    e.preventDefault()
-
-    if (!newFormName.trim()) {
-      showToast('กรุณาระบุชื่อแบบฟอร์ม', 'กรอกชื่อแบบฟอร์มก่อนบันทึก', 'INFO')
-      return
-    }
-
-    const schemaToSave =
-      convertedSchema ||
-      `
-<div class="template-doc text-slate-900 font-sans text-xs space-y-4">
-  <div class="border-b-2 border-slate-900 pb-3">
-    <h1 class="text-xl font-black">${newFormName}</h1>
-    <p class="text-slate-500 font-bold text-[11px]">หมวดหมู่: ${newFormCategory}</p>
-  </div>
-
-  <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 text-[11px] space-y-1">
-    <p><span class="font-bold">คู่สัญญา/ลูกค้า:</span> {{customer.name}}</p>
-    <p><span class="font-bold">โทรศัพท์:</span> {{customer.phone}}</p>
-    <p><span class="font-bold">ที่อยู่:</span> {{customer.address}}</p>
-    <p><span class="font-bold">เลขผู้เสียภาษี:</span> {{customer.tax_id}}</p>
-  </div>
-
-  <div class="p-3 bg-white rounded-lg border border-slate-300 text-[11px]">
-    <p class="font-bold mb-1">เงื่อนไขเพิ่มเติม:</p>
-    <p class="whitespace-pre-wrap">{{document.custom_terms}}</p>
-  </div>
-</div>
-      `.trim()
-
-    const newTplData: Partial<DocumentTemplate> = {
-      name: newFormName,
-      category: newFormCategory,
-      source: uploadedFile ? 'CONVERTED_IMPORT' : 'BUILTIN',
-      fileType: uploadedFile ? uploadedFile.name.split('.').pop()?.toUpperCase() || 'DOC' : 'HTML',
-      fileName: uploadedFile?.name,
-      templateSchema: schemaToSave,
-      paperSize: 'A4',
-      orientation: newFormOrientation,
-      pageCount: 1,
-      version: 1,
-      isDefault: false,
-      description: newFormDescription || 'เทมเพลตที่สร้างใหม่ในระบบ',
-      defaultTerms: newFormTerms,
-    }
-
-    const savedTpl: DocumentTemplate = {
-      ...newTplData,
-      id: `tpl-${Date.now()}`,
-    } as unknown as DocumentTemplate
-    setTemplates((prev) => [savedTpl, ...prev])
-    setSelectedTemplateForPreview(savedTpl)
-    setTemplateSubTab('LIBRARY')
-
-    // Reset Form & Clear Temp state
-    setNewFormName('')
-    setUploadedFile(null)
-    setConvertedSchema(null)
-    setNewFormDescription('')
-
-    showToast('บันทึก Template สำเร็จ', `บันทึกแบบฟอร์ม "${savedTpl.name}" เข้าสู่ระบบเรียบร้อยแล้ว`, 'SUCCESS')
-  }
-
-  // ==========================================
-  // DOCUMENT CATEGORY MANAGEMENT HANDLERS
-  // ==========================================
-  const handleAddCategory = () => {
-    const trimmed = newCatInput.trim()
-    if (!trimmed) return
-    if (docCategories.includes(trimmed)) {
-      showToast('ประเภทเอกสารซ้ำ', 'มีชื่อประเภทเอกสารนี้อยู่ในระบบแล้ว', 'INFO')
-      return
-    }
-    setDocCategories((prev) => [...prev, trimmed])
-    setNewCatInput('')
-    showToast('เพิ่มประเภทเอกสารสำเร็จ', `เพิ่ม "${trimmed}" แล้ว`, 'SUCCESS')
-  }
-
-  const handleStartEditCategory = (idx: number, val: string) => {
-    setEditingCatIndex(idx)
-    setEditingCatValue(val)
-  }
-
-  const handleSaveEditCategory = () => {
-    if (editingCatIndex === null) return
-    const trimmed = editingCatValue.trim()
-    if (!trimmed) return
-    const oldVal = docCategories[editingCatIndex]
-    setDocCategories((prev) => {
-      const updated = [...prev]
-      updated[editingCatIndex] = trimmed
-      return updated
+  const filteredDocs = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return docs.filter((d) => {
+      if (typeFilter !== 'ALL' && d.doc_type !== typeFilter) return false
+      if (statusFilter !== 'ALL' && d.status !== statusFilter) return false
+      if (customerFilter && d.customer_id !== customerFilter) return false
+      if (!q) return true
+      const c = customerById.get(d.customer_id)
+      const hay = [docNoOf(d), c?.customerName, c?.customerCode, c?.phone, DOC_TYPE_LABEL[d.doc_type], d.note]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return hay.includes(q)
     })
-    if (newFormCategory === oldVal) {
-      setNewFormCategory(trimmed)
+  }, [docs, search, typeFilter, statusFilter, customerFilter, customerById])
+
+  const selected = docs.find((d) => d.id === selectedId) ?? null
+
+  useEffect(() => {
+    setImageUrl(null)
+    if (!selected?.storage_path) return
+    let alive = true
+    void getDocumentFileUrl(selected.storage_path)
+      .then((url) => alive && setImageUrl(url))
+      .catch(() => alive && setImageUrl(null))
+    return () => {
+      alive = false
     }
-    setEditingCatIndex(null)
-    setEditingCatValue('')
-    showToast('แก้ไขประเภทเอกสารสำเร็จ', `เปลี่ยนเป็น "${trimmed}" แล้ว`, 'SUCCESS')
-  }
+  }, [selected?.storage_path])
 
-  const handleDeleteCategory = (idx: number) => {
-    const target = docCategories[idx]
-    setDocCategories((prev) => prev.filter((_, i) => i !== idx))
-    if (newFormCategory === target) {
-      const remaining = docCategories.filter((_, i) => i !== idx)
-      setNewFormCategory(remaining[0] || '')
-    }
-    showToast('ลบประเภทเอกสารสำเร็จ', `ลบ "${target}" แล้ว`, 'SUCCESS')
-  }
-
-  // ==========================================
-  // BATCH SELECTION & ACTIONS HANDLERS
-  // ==========================================
-
-  // Customer Docs Checkbox Select
-  const handleToggleDocSelect = (id: string) => {
-    setSelectedDocIds((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
-    )
-  }
-
-  const handleToggleSelectAllDocs = () => {
-    if (selectedDocIds.length === customerDocs.length) {
-      setSelectedDocIds([])
-    } else {
-      setSelectedDocIds(customerDocs.map((d) => d.id))
-    }
-  }
-
-  // Templates Checkbox Select
-  const handleToggleTemplateSelect = (id: string) => {
-    setSelectedTemplateIds((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
-    )
-  }
-
-  const handleToggleSelectAllTemplates = () => {
-    if (selectedTemplateIds.length === templates.length) {
-      setSelectedTemplateIds([])
-    } else {
-      setSelectedTemplateIds(templates.map((t) => t.id))
-    }
-  }
-
-  // Execute Batch Print for Customer Documents (Native Central Print)
-  const handleBatchPrintDocs = async () => {
-    const docsToPrint =
-      selectedDocIds.length > 0
-        ? customerDocs.filter((d) => selectedDocIds.includes(d.id))
-        : selectedDocForPreview
-        ? [selectedDocForPreview]
-        : customerDocs
-
-    if (docsToPrint.length === 0) {
-      showToast('ไม่พบเอกสาร', 'กรุณาเลือกเอกสารที่ต้องการพิมพ์', 'INFO')
-      return
-    }
-
-    const combinedHtml = docsToPrint
-      .map((doc) => {
-        const tpl = templates.find((t) => t.id === doc.templateId) || templates[0]
-        return `
-          <div style="page-break-after: always;" class="print-page p-8 bg-white text-slate-900 font-sans space-y-6 max-w-[210mm] mx-auto text-xs">
-            ${renderDocumentTemplate(
-              tpl.templateSchema,
-              doc.customerSnapshot,
-              doc.docNo,
-              doc.createdDate,
-              doc.terms,
-              business
-            )}
-          </div>
-        `
-      })
-      .join('')
-
-    window.print()
-  }
-
-  // Execute Batch Print for Templates (Native Central Print)
-  const handleBatchPrintTemplates = async () => {
-    window.print()
-  }
-
-  // Open Batch Delete Modal
-  const handlePromptDelete = (type: 'TEMPLATES' | 'CUSTOMER_DOCS') => {
-    const ids = type === 'TEMPLATES' ? selectedTemplateIds : selectedDocIds
-    if (ids.length === 0) {
-      showToast('เลือกรายการ', 'กรุณาเลือกรายการอย่างน้อย 1 รายการก่อนลบ', 'INFO')
-      return
-    }
-    setDeleteModalConfig({ isOpen: true, type, ids })
-  }
-
-  // Execute Batch Delete Confirmation
-  const handleConfirmBatchDelete = async (reason: string) => {
-    const { type, ids } = deleteModalConfig
-    const trimmedReason = reason?.trim()
-    if (type === 'TEMPLATES' && !trimmedReason) {
-      showToast('กรุณาระบุเหตุผล', 'จำเป็นต้องระบุเหตุผลในการลบแบบฟอร์ม', 'ERROR')
-      return
-    }
-    if (type === 'TEMPLATES') {
-      setTemplates((prev) => prev.filter((t) => !ids.includes(t.id)))
-      setSelectedTemplateIds([])
-      if (selectedTemplateForPreview && ids.includes(selectedTemplateForPreview.id)) {
-        setSelectedTemplateForPreview(null)
+  const htmlOf = useCallback(
+    (row: CustomerDocumentRow, image?: string | null): string => {
+      if (row.storage_path) {
+        const c = customerById.get(row.customer_id)
+        return image
+          ? `<div class="p-6"><p class="mb-2 text-sm font-bold">${escapeDocumentHtml(DOC_TYPE_LABEL[row.doc_type])} · ${escapeDocumentHtml(c?.customerName || '')}</p><img src="${escapeDocumentHtml(image)}" style="max-width:100%;max-height:250mm;object-fit:contain" /></div>`
+          : ''
       }
-      showToast('ลบแบบฟอร์มสำเร็จ', `ลบแบบฟอร์มจำนวน ${ids.length} รายการแล้ว`, 'SUCCESS')
-    } else {
-      setCustomerDocs((prev) => prev.filter((d) => !ids.includes(d.id)))
-      setSelectedDocIds([])
-      if (selectedDocForPreview && ids.includes(selectedDocForPreview.id)) {
-        setSelectedDocForPreview(customerDocs.find((d) => !ids.includes(d.id)) || null)
-      }
-      showToast('ลบเอกสารสำเร็จ', `ลบเอกสารลูกค้าจำนวน ${ids.length} รายการแล้ว`, 'SUCCESS')
+      const snap = (row.data_snapshot || {}) as SavedSnapshot
+      return renderForm(findCustomerForm(row.template_code, row.doc_type), snap, docNoOf(row), row.created_at.slice(0, 10))
+    },
+    [customerById, renderForm]
+  )
+
+  const selectedHtml = selected ? htmlOf(selected, imageUrl) : ''
+
+  const handlePrintSelected = async () => {
+    if (!selected) return showToast('ไม่มีข้อมูลสำหรับพิมพ์', 'เลือกเอกสารจากรายการก่อน', 'INFO')
+    let html = selectedHtml
+    if (selected.storage_path && !imageUrl) {
+      html = htmlOf(selected, await getDocumentFileUrl(selected.storage_path).catch(() => null))
+    }
+    if (!html || !printDocuments([`<div class="p-8 text-slate-900 font-sans text-xs bg-white">${html}</div>`], docNoOf(selected))) {
+      showToast('ไม่มีข้อมูลสำหรับพิมพ์', '', 'INFO')
     }
   }
 
-  // Authoritative Sample data for Template Live Previews
-  const sampleBillSnapshot = useMemo(() => ({
-    billNo: 'INV-2026-00088',
-    billDate: new Date().toISOString().split('T')[0],
-    rentalStartDate: new Date().toISOString().split('T')[0],
-    rentalEndDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
-    siteName: 'โครงการก่อสร้างอาคารชุด ไพร์ม เรสซิเดนซ์ ถ.สุขุมวิท',
-    subtotal: 18500,
-    discount: 1000,
-    shippingFee: 1500,
-    taxAmount: 1330,
-    depositAmount: 5000,
-    grandTotal: 25330,
-    paidAmount: 20330,
-    outstandingAmount: 5000,
-    refundAmount: 5000,
-    lateFee: 0,
-    damageFee: 0,
-    paymentMethod: 'โอนเงินผ่านธนาคาร (Bank Transfer)',
-    items: [
-      { code: 'EQ-001', name: 'นั่งร้านเหล็กมาตรฐาน ชุด 1.7 เมตร', quantity: 10, unit: 'ชุด', price: 450, rentalType: 'DAILY', billableDays: 7, lineTotal: 4500 },
-      { code: 'EQ-002', name: 'บันไดนั่งร้านอลูมิเนียมกันลื่น 2.5 ม.', quantity: 4, unit: 'ตัว', price: 250, rentalType: 'DAILY', billableDays: 7, lineTotal: 1750 },
-      { code: 'EQ-003', name: 'เครื่องสกัดคอนกรีตไฟฟ้า 15 กก. Heavy Duty', quantity: 2, unit: 'เครื่อง', price: 650, rentalType: 'DAILY', billableDays: 7, lineTotal: 4550 },
-      { code: 'EQ-004', name: 'เครื่องตบดินแบบสปริง 5.5 แรงม้า', quantity: 1, unit: 'เครื่อง', price: 800, rentalType: 'DAILY', billableDays: 7, lineTotal: 5600 },
-      { code: 'EQ-005', name: 'เครื่องปั่นไฟเบนซิน 5.5 kW Inverter', quantity: 1, unit: 'เครื่อง', price: 1200, rentalType: 'DAILY', billableDays: 7, lineTotal: 2100 }
-    ]
-  }), [])
+  const handlePrintDraft = () => {
+    if (!draftHtml) return showToast('ไม่มีข้อมูลสำหรับพิมพ์', 'เลือกลูกค้าและแบบฟอร์มก่อน', 'INFO')
+    printDocuments([`<div class="p-8 text-slate-900 font-sans text-xs bg-white">${draftHtml}</div>`], form?.label)
+  }
 
-  const sampleCustomerSnapshot = useMemo(() => ({
-    customerCode: 'CUST-2026-001',
-    customerName: 'คุณสมชาย มั่นคงเจริญ',
-    companyName: 'บริษัท สยามก่อสร้างและวิศวกรรม จำกัด',
-    phone: '089-123-4567',
-    email: 'somchai.siam@example.com',
-    address: 'เลขที่ 123/45 ถนนพหลโยธิน แขวงลาดยาว เขตจตุจักร กรุงเทพมหานคร 10900',
-    taxId: '0105558098765',
-    idCardNumber: '1-1002-34567-89-0',
-    idCardExpiry: '2030-12-31'
-  }), [])
+  const handleDeactivate = async (reason: string) => {
+    if (!selected) return
+    try {
+      await deactivateCustomerDocument(selected.id, reason)
+      showToast('ยกเลิกเอกสารแล้ว', docNoOf(selected), 'INFO')
+      await reloadDocs()
+    } catch (err) {
+      showToast('ยกเลิกเอกสารไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
+    }
+  }
 
-  // Active rendered HTML for Tab 1 (Customer Doc Preview)
-  const currentDocPreviewHtml = useMemo(() => {
-    if (selectedDocForPreview) {
-      const tpl = templates.find((t) => t.id === selectedDocForPreview.templateId) || templates[0]
-      return renderDocumentTemplate(
-        tpl.templateSchema,
-        selectedDocForPreview.customerSnapshot || sampleCustomerSnapshot,
-        selectedDocForPreview.docNo,
-        selectedDocForPreview.createdDate,
-        selectedDocForPreview.terms,
-        business,
-        sampleBillSnapshot,
-        selectedDocForPreview.items
-      )
-    }
-    if (customerDocs[0]) {
-      const tpl = templates.find((t) => t.id === customerDocs[0].templateId) || templates[0]
-      return renderDocumentTemplate(
-        tpl.templateSchema,
-        customerDocs[0].customerSnapshot || sampleCustomerSnapshot,
-        customerDocs[0].docNo,
-        customerDocs[0].createdDate,
-        customerDocs[0].terms,
-        business,
-        sampleBillSnapshot,
-        customerDocs[0].items
-      )
-    }
-    return ''
-  }, [selectedDocForPreview, customerDocs, templates, business, sampleCustomerSnapshot, sampleBillSnapshot])
+  const customerOptions = activeCustomers.map((c) => ({
+    value: c.id,
+    label: `${c.customerName}${c.customerCode ? ` (${c.customerCode})` : ''}`,
+    sublabel: c.phone ? `📞 ${c.phone}` : undefined,
+  }))
 
-  // Active rendered HTML for Tab 2 (Template Live Preview)
-  const currentTemplatePreviewHtml = useMemo(() => {
-    if (selectedTemplateForPreview) {
-      return renderDocumentTemplate(
-        selectedTemplateForPreview.templateSchema,
-        activeCustomer || sampleCustomerSnapshot,
-        'TPL-PREVIEW-001',
-        new Date().toISOString().split('T')[0],
-        selectedTemplateForPreview.defaultTerms,
-        business,
-        sampleBillSnapshot
-      )
-    }
-    return ''
-  }, [selectedTemplateForPreview, activeCustomer, business, sampleCustomerSnapshot, sampleBillSnapshot])
+  const fmtDateTime = (iso: string) =>
+    new Date(iso).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })
 
   return (
     <div className="h-full min-h-0 flex flex-col overflow-hidden p-2 bg-slate-100 dark:bg-slate-900 gap-2 text-xs">
-      {/* Mobile View Switcher (< md screens) */}
-      <div className={`md:hidden flex items-center ${TAB_CONTAINER_CLASSES}`}>
-        <button
-          type="button"
-          onClick={() => setMobileTab('WORKSPACE')}
-          className={`flex-1 ${TAB_BUTTON_BASE_CLASSES} ${
-            mobileTab === 'WORKSPACE'
-              ? TAB_BUTTON_ACTIVE_CLASSES
-              : TAB_BUTTON_INACTIVE_CLASSES
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span>ตั้งค่า/เลือกเอกสาร</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setMobileTab('PREVIEW')}
-          className={`flex-1 ${TAB_BUTTON_BASE_CLASSES} ${
-            mobileTab === 'PREVIEW'
-              ? TAB_BUTTON_ACTIVE_CLASSES
-              : TAB_BUTTON_INACTIVE_CLASSES
-          }`}
-        >
-          <FileText className="w-3.5 h-3.5" />
-          <span>ดูตัวอย่าง A4</span>
-        </button>
+      <div className="shrink-0 flex items-center justify-between gap-2">
+        <div className={TAB_CONTAINER_CLASSES}>
+          <button
+            type="button"
+            onClick={() => setTab('CREATE')}
+            className={`${TAB_BUTTON_BASE_CLASSES} ${tab === 'CREATE' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
+          >
+            <FilePlus className="w-3.5 h-3.5 shrink-0" />
+            <span>สร้างเอกสารลูกค้า</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('MANAGE')}
+            className={`${TAB_BUTTON_BASE_CLASSES} ${tab === 'MANAGE' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
+          >
+            <FolderOpen className="w-3.5 h-3.5 shrink-0" />
+            <span>จัดการเอกสาร</span>
+          </button>
+        </div>
       </div>
 
-      {/* ========================================================================= */}
-      {/* TAB 1: สร้างเอกสาร (DOCUMENT GENERATION & CUSTOMER HISTORY WORKSPACE)      */}
-      {/* ========================================================================= */}
-      {mainTab === 'CREATE_DOC' && (
-        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-12 gap-2 overflow-hidden animate-in fade-in duration-200">
-
-          {/* LEFT PANEL: Document List / Add Document */}
-          <div className={`md:col-span-5 xl:col-span-4 h-full min-h-0 overflow-hidden flex-col ${
-            mobileTab === 'WORKSPACE' ? 'flex' : 'hidden md:flex'
-          }`}>
-            
-            {/* Unified White Card */}
-            <div className="bg-white dark:bg-slate-800 p-2 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex-1 min-h-0 flex flex-col justify-between overflow-hidden gap-2">
-              
-              <div className="flex-1 min-h-0 flex flex-col space-y-2 overflow-hidden">
-                {/* 0. Main Mode Switcher (50 / 50 Equal Width) */}
-                <div className={`grid grid-cols-2 ${TAB_CONTAINER_CLASSES} w-full`}>
-                  <button
-                    type="button"
-                    onClick={() => setMainTab('CREATE_DOC')}
-                    className={`${TAB_BUTTON_BASE_CLASSES} ${TAB_BUTTON_ACTIVE_CLASSES}`}
-                  >
-                    <FilePlus className="w-3.5 h-3.5 shrink-0" />
-                    <span>สร้างเอกสาร</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setMainTab('MANAGE_TEMPLATES')}
-                    className={`${TAB_BUTTON_BASE_CLASSES} ${TAB_BUTTON_INACTIVE_CLASSES}`}
-                  >
-                    <Layers className="w-3.5 h-3.5 shrink-0" />
-                    <span>จัดการเอกสาร</span>
-                  </button>
-                </div>
-
-                {/* Thin Divider */}
-                <div className="border-b border-slate-200 dark:border-slate-700/80 shrink-0 my-0.5" />
-
-                {/* 1. Dropdown ค้นหา/เลือกลูกค้า */}
-                <div className="shrink-0">
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    ชื่อลูกค้า
-                  </label>
-                  <CustomSelect
-                    value={selectedCustomerId}
-                    placeholder="ค้นหา / เลือกลูกค้า"
-                    onChange={(val) => setSelectedCustomerId(String(val))}
-                    options={customers.map((c) => ({
-                      value: c.id,
-                      label: `${c.customerName} (${c.customerCode})`,
-                      sublabel: c.companyName ? `${c.companyName} | 📞 ${c.phone}` : `📞 ${c.phone}`
-                    }))}
-                    searchable
-                  />
-                </div>
-
-                {/* 2. Dropdown เลือกแบบฟอร์ม */}
-                <div className="shrink-0">
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    เลือกเอกสาร/แบบฟอร์ม
-                  </label>
-                  <CustomSelect
-                    value=""
-                    placeholder="-- เลือกแบบฟอร์มเพื่อเพิ่มเอกสาร --"
-                    onChange={(val) => handleAddDocumentFromTemplate(String(val))}
-                    options={templates.map((t) => ({
-                      value: t.id,
-                      label: `📄 [${t.category}] ${t.name}`
-                    }))}
-                  />
-                </div>
-
-                {/* 3. หัวข้อรายการเอกสาร */}
-                <div className="flex items-center gap-1.5 pt-0.5 text-slate-800 dark:text-slate-200 font-bold text-xs shrink-0">
-                  <FolderOpen className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                  <span>รายการเอกสาร</span>
-                </div>
-
-                {/* 4. แถวเลือกทั้งหมด */}
-                <div className="flex items-center justify-between py-1 px-1 text-xs border-b border-slate-200 dark:border-slate-700 shrink-0">
-                  <label className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-200 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={customerDocs.length > 0 && selectedDocIds.length === customerDocs.length}
-                      onChange={handleToggleSelectAllDocs}
-                      className="w-3.5 h-3.5 text-blue-600 rounded"
-                    />
-                    <span>เลือกทั้งหมด</span>
-                  </label>
-                  <span className="text-[10px] text-slate-500 font-mono font-bold">
-                    เลือกแล้ว {selectedDocIds.length} / {customerDocs.length}
-                  </span>
-                </div>
-
-                {/* 5. รายการเอกสาร (Flat List Row + Divider) */}
-                <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700/60 pr-1">
-                  {customerDocs.length > 0 ? (
-                    customerDocs.map((doc, idx) => {
-                      const isSelected = selectedDocForPreview?.id === doc.id
-                      return (
-                        <div
-                          key={doc.id}
-                          onClick={() => setSelectedDocForPreview(doc)}
-                          className={`py-2 px-1.5 flex items-center justify-between gap-2 transition-colors cursor-pointer rounded-lg ${
-                            isSelected
-                              ? 'bg-blue-50/80 dark:bg-blue-950/60 text-blue-900 dark:text-blue-100'
-                              : 'hover:bg-slate-50 dark:hover:bg-slate-700/40 text-slate-700 dark:text-slate-300'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 min-w-0 flex-1">
-                            <input
-                              type="checkbox"
-                              checked={selectedDocIds.includes(doc.id)}
-                              onChange={(e) => {
-                                e.stopPropagation()
-                                handleToggleDocSelect(doc.id)
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              className="w-3.5 h-3.5 text-blue-600 rounded shrink-0 cursor-pointer"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <p className="font-bold text-slate-900 dark:text-slate-100 truncate text-[11px]">
-                                {idx + 1}. {doc.templateName}
-                              </p>
-                              <p className="text-[10px] text-slate-500 font-mono">
-                                {doc.docNo} • {doc.createdDate}
-                              </p>
-                            </div>
-                          </div>
-
-                          {isSelected && (
-                            <span className="px-1.5 py-0.5 rounded bg-blue-600 text-white font-extrabold text-[10px] shrink-0">
-                              พรีวิว
-                            </span>
-                          )}
-                        </div>
-                      )
-                    })
-                  ) : (
-                    <div className="text-center py-8 text-slate-400 space-y-1">
-                      <FileText className="w-7 h-7 mx-auto text-slate-300 stroke-[1.5]" />
-                      <p className="font-bold text-xs text-slate-500">ยังไม่มีเอกสารในรายการ</p>
-                      <p className="text-[10px] text-slate-400">เลือกแบบฟอร์มจากเมนูด้านบนเพื่อเพิ่มเอกสาร</p>
-                    </div>
-                  )}
-                </div>
-
-              </div>
-
-              {/* 6. Bottom Action Section: Print / Delete (50/50) above Save */}
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-700 space-y-1.5 shrink-0">
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    type="button"
-                    onClick={handleBatchPrintDocs}
-                    className="py-1.5 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all"
-                  >
-                    <Printer className="w-3.5 h-3.5" />
-                    <span>พิมพ์ ({selectedDocIds.length > 0 ? selectedDocIds.length : 'ทั้งหมด'})</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handlePromptDelete('CUSTOMER_DOCS')}
-                    disabled={selectedDocIds.length === 0}
-                    className={`py-1.5 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
-                      selectedDocIds.length > 0
-                        ? 'bg-red-600 text-white shadow-sm hover:bg-red-700'
-                        : 'bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>ลบ ({selectedDocIds.length})</span>
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleSaveCustomerDocuments}
-                  className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all active:scale-[0.99]"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>บันทึก</span>
-                </button>
-              </div>
-
+      {tab === 'CREATE' && (
+        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-12 gap-2 overflow-hidden">
+          <div className="md:col-span-5 xl:col-span-4 min-h-0 overflow-y-auto bg-white dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+            <div>
+              <label className={LABEL}>1. ลูกค้า</label>
+              <CustomSelect value={customerId} placeholder="ค้นหา / เลือกลูกค้า" onChange={(v) => setCustomerId(String(v))} options={customerOptions} searchable />
+            </div>
+            <div>
+              <label className={LABEL}>2. แบบฟอร์ม</label>
+              <CustomSelect
+                value={formCode}
+                placeholder="-- เลือกแบบฟอร์ม --"
+                onChange={(v) => pickForm(String(v))}
+                options={CUSTOMER_FORMS.map((f) => ({ value: f.code, label: f.label, sublabel: f.kind === 'UPLOAD' ? 'อัปโหลดรูปเอกสาร' : 'กรอกและพิมพ์' }))}
+              />
             </div>
 
-          </div>
+            {customer && (
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-2.5 space-y-0.5">
+                <p className="text-[11px] font-bold text-slate-500">3. ข้อมูลลูกค้า (ดึงจากระบบ)</p>
+                <p className="font-bold text-slate-900 dark:text-slate-100">{customer.customerName}</p>
+                <p className="text-slate-600 dark:text-slate-400">📞 {customer.phone || '-'} · บัตร {customer.idCardNumber || '-'}</p>
+                <p className="text-slate-600 dark:text-slate-400 line-clamp-2">{customer.address || '-'}</p>
+              </div>
+            )}
 
-          {/* RIGHT PANEL: A4 Preview Workspace */}
-          <div className={`md:col-span-7 xl:col-span-8 h-full min-h-0 overflow-hidden flex-col ${
-            mobileTab === 'PREVIEW' ? 'flex' : 'hidden md:flex'
-          }`}>
-            <A4DocumentWorkspace
-              htmlContent={currentDocPreviewHtml}
-              onDoubleClick={() => currentDocPreviewHtml && setFullOverlayHtml(currentDocPreviewHtml)}
-            />
-          </div>
+            {customer && form && (
+              <div className="space-y-2.5">
+                <p className="text-[11px] font-bold text-slate-500">4. ข้อมูลเพิ่มเติม</p>
 
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* TAB 2: จัดการเอกสาร (TEMPLATE MANAGEMENT & CONVERSION STUDIO)              */}
-      {/* ========================================================================= */}
-      {mainTab === 'MANAGE_TEMPLATES' && (
-        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-12 gap-2 overflow-hidden animate-in fade-in duration-200">
-
-          {/* LEFT PANEL: Template Controls (Library / Add) */}
-          <div className={`md:col-span-5 xl:col-span-4 h-full min-h-0 overflow-hidden flex-col ${
-            mobileTab === 'WORKSPACE' ? 'flex' : 'hidden md:flex'
-          }`}>
-
-            {/* Unified Card */}
-            <div className="bg-white dark:bg-slate-800 p-2 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex-1 min-h-0 flex flex-col justify-between overflow-hidden gap-2">
-
-              <div className="flex-1 min-h-0 flex flex-col space-y-2 overflow-hidden">
-                {/* 0. Main Mode Switcher (50 / 50 Equal Width - Same Exact Position) */}
-                <div className={`grid grid-cols-2 ${TAB_CONTAINER_CLASSES} w-full`}>
-                  <button
-                    type="button"
-                    onClick={() => setMainTab('CREATE_DOC')}
-                    className={`${TAB_BUTTON_BASE_CLASSES} ${TAB_BUTTON_INACTIVE_CLASSES}`}
-                  >
-                    <FilePlus className="w-3.5 h-3.5 shrink-0" />
-                    <span>สร้างเอกสาร</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setMainTab('MANAGE_TEMPLATES')}
-                    className={`${TAB_BUTTON_BASE_CLASSES} ${TAB_BUTTON_ACTIVE_CLASSES}`}
-                  >
-                    <Layers className="w-3.5 h-3.5 shrink-0" />
-                    <span>จัดการเอกสาร</span>
-                  </button>
-                </div>
-
-                {/* Thin Divider */}
-                <div className="border-b border-slate-200 dark:border-slate-700/80 shrink-0 my-0.5" />
-
-                {/* Sub-Tab Switcher: คลังแบบฟอร์ม vs เพิ่มแบบฟอร์ม */}
-                <div className={`grid grid-cols-2 ${TAB_CONTAINER_CLASSES} w-full`}>
-                  <button
-                    type="button"
-                    onClick={() => setTemplateSubTab('LIBRARY')}
-                    className={`${TAB_BUTTON_BASE_CLASSES} ${
-                      templateSubTab === 'LIBRARY'
-                        ? TAB_BUTTON_ACTIVE_CLASSES
-                        : TAB_BUTTON_INACTIVE_CLASSES
-                    }`}
-                  >
-                    <FileCode className="w-3.5 h-3.5 shrink-0" />
-                    <span>คลังแบบฟอร์ม</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setTemplateSubTab('ADD')}
-                    className={`${TAB_BUTTON_BASE_CLASSES} ${
-                      templateSubTab === 'ADD'
-                        ? TAB_BUTTON_ACTIVE_CLASSES
-                        : TAB_BUTTON_INACTIVE_CLASSES
-                    }`}
-                  >
-                    <FilePlus className="w-3.5 h-3.5 shrink-0" />
-                    <span>เพิ่มแบบฟอร์ม</span>
-                  </button>
-                </div>
-
-                {/* ------------------------------------------------------------- */}
-                {/* SUB VIEW 1: คลังแบบฟอร์ม (TEMPLATE LIBRARY LIST ONLY)           */}
-                {/* ------------------------------------------------------------- */}
-                {templateSubTab === 'LIBRARY' && (
-                  <div className="flex-1 min-h-0 flex flex-col space-y-2 overflow-hidden animate-in fade-in duration-150">
-                    <div className="flex items-center gap-1.5 pt-0.5 text-slate-800 dark:text-slate-200 font-bold text-xs shrink-0">
-                      <FileCode className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                      <span>รายการแบบฟอร์มเอกสาร ({templates.length})</span>
+                {form.docType === 'RENTAL_CONTRACT' && (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className={LABEL}>วันเริ่มสัญญา</label>
+                        <input type="date" value={contract.rentalStartDate} onChange={(e) => setContract({ ...contract, rentalStartDate: e.target.value })} className={INPUT} />
+                      </div>
+                      <div>
+                        <label className={LABEL}>วันสิ้นสุดสัญญา</label>
+                        <input type="date" value={contract.rentalEndDate} onChange={(e) => setContract({ ...contract, rentalEndDate: e.target.value })} className={INPUT} />
+                      </div>
                     </div>
-
-                    {/* Select All Checkbox */}
-                    <div className="flex items-center justify-between py-1 px-1 text-xs border-b border-slate-200 dark:border-slate-700 shrink-0">
-                      <label className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-200 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={templates.length > 0 && selectedTemplateIds.length === templates.length}
-                          onChange={handleToggleSelectAllTemplates}
-                          className="w-3.5 h-3.5 text-purple-600 rounded"
-                        />
-                        <span>เลือกทั้งหมด</span>
-                      </label>
-                      <span className="text-[10px] text-slate-500 font-mono">
-                        เลือกแล้ว {selectedTemplateIds.length} / {templates.length}
-                      </span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className={LABEL}>สถานที่ใช้งาน</label>
+                        <input value={contract.siteName} onChange={(e) => setContract({ ...contract, siteName: e.target.value })} placeholder="ตามที่อยู่ลูกค้า" className={INPUT} />
+                      </div>
+                      <div>
+                        <label className={LABEL}>เงินประกันสัญญา (บาท)</label>
+                        <NumericInput value={contract.depositAmount} onChange={(v) => setContract({ ...contract, depositAmount: v })} min={0} className={INPUT} />
+                      </div>
                     </div>
-
-                    {/* Template Items List (Flat List Rows + Divider) */}
-                    <div className="flex-1 min-h-0 divide-y divide-slate-100 dark:divide-slate-700/60 overflow-y-auto pr-1">
-                      {templates.map((tpl) => {
-                        const isSelected = selectedTemplateForPreview?.id === tpl.id
-                        return (
-                          <div
-                            key={tpl.id}
-                            onClick={() => setSelectedTemplateForPreview(tpl)}
-                            className={`py-2 px-1.5 flex items-center justify-between gap-2 transition-colors cursor-pointer rounded-lg ${
-                              isSelected
-                                ? 'bg-purple-50/80 dark:bg-purple-950/50 text-purple-900 dark:text-purple-100'
-                                : 'hover:bg-slate-50 dark:hover:bg-slate-700/40 text-slate-700 dark:text-slate-300'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <input
-                                type="checkbox"
-                                checked={selectedTemplateIds.includes(tpl.id)}
-                                onChange={(e) => {
-                                  e.stopPropagation()
-                                  handleToggleTemplateSelect(tpl.id)
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                                className="w-3.5 h-3.5 text-purple-600 rounded shrink-0 cursor-pointer"
-                              />
-
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-bold text-slate-900 dark:text-slate-100 truncate text-[11px]">
-                                    {tpl.name}
-                                  </span>
-                                  {tpl.isDefault && (
-                                    <span className="px-1.5 py-0.2 rounded bg-purple-600 text-white font-extrabold text-[10px]">
-                                      Default
-                                    </span>
-                                  )}
-                                </div>
-                                <span className="text-[10px] text-slate-500 font-mono block">
-                                  หมวด: {tpl.category} | v{tpl.version}
-                                </span>
-                              </div>
-                            </div>
-
-                            {isSelected && (
-                              <span className="px-1.5 py-0.5 rounded bg-purple-600 text-white font-extrabold text-[10px] shrink-0">
-                                พรีวิว
-                              </span>
-                            )}
-                          </div>
-                        )
-                      })}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className={LABEL}>รายการทรัพย์สินตามสัญญา</label>
+                        <button
+                          type="button"
+                          onClick={() => setItems([...items, { productId: '', productName: '', quantity: 1, unit: '', normalPrice: 0, damageFee: 0 }])}
+                          className="text-[11px] font-bold text-blue-600 hover:underline"
+                        >
+                          + เพิ่มรายการ
+                        </button>
+                      </div>
+                      {items.map((it, idx) => (
+                        <div key={idx} className="grid grid-cols-[1fr_56px_56px_24px] gap-1">
+                          <input value={it.productName} onChange={(e) => setItems(items.map((x, i) => (i === idx ? { ...x, productName: e.target.value } : x)))} placeholder="ชื่อทรัพย์สิน" className={INPUT} />
+                          <NumericInput value={it.quantity} onChange={(v) => setItems(items.map((x, i) => (i === idx ? { ...x, quantity: Number(v || 0) } : x)))} min={0} className={INPUT} />
+                          <input value={it.unit} onChange={(e) => setItems(items.map((x, i) => (i === idx ? { ...x, unit: e.target.value } : x)))} placeholder="หน่วย" className={INPUT} />
+                          <button type="button" onClick={() => setItems(items.filter((_, i) => i !== idx))} className="text-slate-400 hover:text-red-600" aria-label="ลบรายการ">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
                     </div>
+                  </>
+                )}
+
+                {form.kind === 'TEMPLATE' && (
+                  <div>
+                    <label className={LABEL}>ข้อความ / ข้อตกลง</label>
+                    <textarea value={terms} onChange={(e) => setTerms(e.target.value)} rows={4} className={`${INPUT} h-auto py-2`} />
                   </div>
                 )}
 
-                {/* ------------------------------------------------------------- */}
-                {/* SUB VIEW 2: เพิ่มแบบฟอร์ม (ADD/CONVERT TEMPLATE FORM ONLY)      */}
-                {/* ------------------------------------------------------------- */}
-                {templateSubTab === 'ADD' && (
-                  <form onSubmit={handleSaveTemplate} className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-2.5 text-xs animate-in fade-in duration-150 flex flex-col justify-between">
-                    <div className="space-y-2.5">
-                      {/* ชื่อแบบฟอร์ม / ชื่อเอกสาร */}
-                      <div>
-                        <label className="block font-bold text-slate-800 dark:text-slate-200 mb-1 text-[11px]">
-                          ชื่อแบบฟอร์ม / ชื่อเอกสาร
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="ชื่อแบบฟอร์ม / ชื่อเอกสาร"
-                          value={newFormName}
-                          onChange={(e) => setNewFormName(e.target.value)}
-                          className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-bold text-xs focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          required
-                        />
-                      </div>
-
-                      {/* หมวดหมู่เอกสาร + [+] button to manage categories */}
-                      <div>
-                        <label className="block font-bold text-slate-800 dark:text-slate-200 mb-1 text-[11px]">
-                          หมวดหมู่เอกสาร
-                        </label>
-                        <div className="flex items-center gap-1.5">
-                          <div className="flex-1 min-w-0">
-                            <CustomSelect
-                              value={newFormCategory}
-                              placeholder="ประเภทเอกสาร"
-                              onChange={(val) => setNewFormCategory(String(val))}
-                              options={documentCategoryOptions}
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setIsCategoryModalOpen(true)}
-                            className="p-2 h-[38px] w-[38px] rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 flex items-center justify-center border border-slate-200 dark:border-slate-600 transition-colors shrink-0 shadow-sm"
-                            title="จัดการประเภทเอกสาร"
-                          >
-                            <Plus className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* File Upload Area */}
-                      <div>
-                        <div className="p-3 border-2 border-dashed border-purple-300 dark:border-purple-800/80 rounded-xl bg-purple-50/40 dark:bg-purple-950/20 text-center space-y-1.5">
-                          <Upload className="w-5 h-5 text-purple-600 mx-auto" />
-                          <p className="font-bold text-slate-700 dark:text-slate-200 text-[10px]">
-                            {uploadedFile ? (
-                              <span className="text-purple-600 font-mono">📎 {uploadedFile.name}</span>
-                            ) : (
-                              'รองรับ PDF, DOCX, XLSX, JPG, PNG'
-                            )}
-                          </p>
-                          <input
-                            type="file"
-                            accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.html,.txt,.rtf"
-                            onChange={handleFileUploadAndConvert}
-                            className="block w-full text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-extrabold file:bg-purple-600 file:text-white hover:file:bg-purple-700 cursor-pointer"
-                          />
-                        </div>
-
-                        {/* Conversion Progress State */}
-                        {conversionProgress && (
-                          <div className="mt-1.5 p-2 bg-purple-100 dark:bg-purple-950/80 rounded-xl border border-purple-300 flex items-center gap-2 text-purple-900 dark:text-purple-200 font-bold text-[11px] animate-pulse">
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
-                            <span>{conversionProgress}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
+                {form.kind === 'UPLOAD' && (
+                  <div>
+                    <label className={LABEL}>ไฟล์รูปเอกสาร</label>
+                    <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
                     <button
-                      type="submit"
-                      className="w-full mt-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 text-xs transition-all hover:scale-[1.01]"
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full h-16 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 flex items-center justify-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700"
                     >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>บันทึก Template เข้าคลังระบบ</span>
+                      <Upload className="w-4 h-4" />
+                      <span>{file ? file.name : 'เลือกรูป / ถ่ายรูปเอกสาร'}</span>
                     </button>
-                  </form>
+                  </div>
                 )}
 
-              </div>
+                <div>
+                  <label className={LABEL}>หมายเหตุ (ไม่บังคับ)</label>
+                  <input value={note} onChange={(e) => setNote(e.target.value)} className={INPUT} />
+                </div>
 
-              {/* Bottom Actions for Templates (Visible when in Library list subview) */}
-              {templateSubTab === 'LIBRARY' && (
-                <div className="pt-2 border-t border-slate-100 dark:border-slate-700 grid grid-cols-2 gap-1.5 shrink-0">
+                <div className="flex gap-2 pt-1">
+                  {form.kind === 'TEMPLATE' && (
+                    <button type="button" onClick={handlePrintDraft} className="h-9 px-3.5 rounded-xl border border-slate-300 dark:border-slate-700 font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+                      <Printer className="w-4 h-4" />
+                      <span>พิมพ์</span>
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={handleBatchPrintTemplates}
-                    className="py-1.5 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all"
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="flex-1 h-9 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center justify-center gap-1.5 disabled:opacity-50"
                   >
-                    <Printer className="w-3.5 h-3.5" />
-                    <span>พิมพ์ ({selectedTemplateIds.length || 'ทั้งหมด'})</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handlePromptDelete('TEMPLATES')}
-                    disabled={selectedTemplateIds.length === 0}
-                    className={`py-1.5 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
-                      selectedTemplateIds.length > 0
-                        ? 'bg-red-600 text-white shadow-sm hover:bg-red-700'
-                        : 'bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>ลบ ({selectedTemplateIds.length})</span>
+                    <Save className="w-4 h-4" />
+                    <span>{saving ? 'กำลังบันทึก...' : '5. บันทึกเอกสาร'}</span>
                   </button>
                 </div>
-              )}
-
-            </div>
-
+              </div>
+            )}
           </div>
 
-          {/* RIGHT PANEL: Live Template Preview */}
-          <div className={`md:col-span-7 xl:col-span-8 h-full min-h-0 overflow-hidden flex-col ${
-            mobileTab === 'PREVIEW' ? 'flex' : 'hidden md:flex'
-          }`}>
-            <A4DocumentWorkspace
-              htmlContent={currentTemplatePreviewHtml}
-              onDoubleClick={() => currentTemplatePreviewHtml && setFullOverlayHtml(currentTemplatePreviewHtml)}
-            />
-          </div>
-
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* FULL VIEWPORT A4 PREVIEW OVERLAY (Double-click triggered, click to close)  */}
-      {/* ========================================================================= */}
-      {fullOverlayHtml && (
-        <div
-          onClick={() => setFullOverlayHtml(null)}
-          className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 md:p-6 overflow-hidden cursor-pointer animate-in fade-in duration-150"
-          title="คลิกตรงไหนก็ได้เพื่อปิด"
-        >
-          <div className="w-full h-full max-w-[96vw] max-h-[96vh] flex items-center justify-center overflow-hidden pointer-events-none">
-            <A4FitPreview paddingPx={2} className="h-full w-full">
-              <div
-                className="p-8 text-slate-900 font-sans text-xs bg-white shadow-2xl"
-                dangerouslySetInnerHTML={{ __html: fullOverlayHtml }}
-              />
-            </A4FitPreview>
+          <div className="md:col-span-7 xl:col-span-8 min-h-[50vh] md:min-h-0 overflow-hidden flex flex-col">
+            {form?.kind === 'UPLOAD' ? (
+              <div className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex flex-col items-center justify-center text-slate-400 gap-2">
+                <ImageIcon className="w-10 h-10" />
+                <p className="font-bold">{file ? file.name : 'ยังไม่ได้เลือกรูปเอกสาร'}</p>
+              </div>
+            ) : (
+              <A4DocumentWorkspace htmlContent={draftHtml} />
+            )}
           </div>
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* DOCUMENT CATEGORY MANAGEMENT MODAL                                       */}
-      {/* ========================================================================= */}
-      {isCategoryModalOpen && (
-        <div
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setIsCategoryModalOpen(false)
-              setEditingCatIndex(null)
-            }
-          }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150 cursor-pointer"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[85vh] cursor-default"
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <FolderOpen className="w-4 h-4 text-purple-600" />
-                <span>จัดการประเภทเอกสาร</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsCategoryModalOpen(false)
-                  setEditingCatIndex(null)
-                }}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Add New Category Input */}
-            <div className="p-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="text"
-                  placeholder="ชื่อประเภทเอกสารใหม่..."
-                  value={newCatInput}
-                  onChange={(e) => setNewCatInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      handleAddCategory()
-                    }
-                  }}
-                  className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddCategory}
-                  className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs flex items-center gap-1 shadow-sm transition-all"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>เพิ่ม</span>
+      {tab === 'MANAGE' && (
+        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-2 overflow-hidden">
+          <DataTableFrame
+            fill
+            rowCount={filteredDocs.length}
+            className="lg:col-span-7 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2"
+            header={
+              <div className="flex flex-wrap items-center gap-1.5 pb-2">
+                <div className="relative flex-1 min-w-[160px]">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาลูกค้า / เลขเอกสาร / ประเภท" className={`${INPUT} pl-8`} />
+                </div>
+                <div className="w-44">
+                  <CustomSelect value={customerFilter} onChange={(v) => setCustomerFilter(String(v))} options={[{ value: '', label: 'ลูกค้า: ทั้งหมด' }, ...customerOptions]} searchable buttonClassName="h-9" />
+                </div>
+                <div className="w-36">
+                  <CustomSelect
+                    value={typeFilter}
+                    onChange={(v) => setTypeFilter(v)}
+                    options={[{ value: 'ALL', label: 'ประเภท: ทั้งหมด' }, ...(Object.keys(DOC_TYPE_LABEL) as CustomerDocType[]).map((k) => ({ value: k, label: DOC_TYPE_LABEL[k] }))]}
+                    buttonClassName="h-9"
+                  />
+                </div>
+                <div className="w-32">
+                  <CustomSelect
+                    value={statusFilter}
+                    onChange={(v) => setStatusFilter(v)}
+                    options={[
+                      { value: 'ACTIVE', label: 'ใช้งานอยู่' },
+                      { value: 'INACTIVE', label: 'ยกเลิกแล้ว' },
+                      { value: 'ALL', label: 'ทุกสถานะ' },
+                    ]}
+                    buttonClassName="h-9"
+                  />
+                </div>
+                <button type="button" onClick={() => void reloadDocs()} className="h-9 w-9 rounded-xl border border-slate-300 dark:border-slate-700 flex items-center justify-center text-slate-500" aria-label="โหลดใหม่" title="โหลดใหม่">
+                  <RefreshCw className={`w-4 h-4 ${loadingDocs ? 'animate-spin' : ''}`} />
+                </button>
+                <button type="button" onClick={() => { pickForm('ID_CARD'); setTab('CREATE') }} className="h-9 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold flex items-center gap-1.5">
+                  <Upload className="w-4 h-4" />
+                  <span>อัปโหลด</span>
                 </button>
               </div>
-            </div>
+            }
+            empty={filteredDocs.length === 0}
+            emptyState={<div className="p-10 text-center text-slate-400 font-bold">{loadingDocs ? 'กำลังโหลด...' : 'ไม่พบเอกสาร'}</div>}
+          >
+            <table className={DATA_TABLE_CLASSES}>
+              <thead>
+                <tr>
+                  <th className="px-2">วันที่</th>
+                  <th className="px-2">เลขที่</th>
+                  <th className="px-2">ลูกค้า</th>
+                  <th className="px-2">ประเภท</th>
+                  <th className="px-2">สถานะ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {filteredDocs.map((d) => {
+                  const c = customerById.get(d.customer_id)
+                  return (
+                    <tr
+                      key={d.id}
+                      onClick={() => setSelectedId(d.id)}
+                      className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/40 ${selectedId === d.id ? 'bg-blue-50 dark:bg-blue-950/30' : ''}`}
+                    >
+                      <td className="px-2 whitespace-nowrap">{fmtDateTime(d.created_at)}</td>
+                      <td className="px-2 font-mono whitespace-nowrap">{docNoOf(d)}</td>
+                      <td className="px-2">{c?.customerName || '-'}</td>
+                      <td className="px-2 whitespace-nowrap">{findCustomerForm(d.template_code, d.doc_type)?.label || DOC_TYPE_LABEL[d.doc_type]}</td>
+                      <td className="px-2 whitespace-nowrap">
+                        {d.status === 'ACTIVE' ? (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 font-bold text-[10px]">ใช้งาน</span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-300 font-bold text-[10px]" title={d.status_reason || ''}>ยกเลิก</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </DataTableFrame>
 
-            {/* Category List */}
-            <div className="p-3 flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
-              {docCategories.map((cat, idx) => (
-                <div key={idx} className="py-2 flex items-center justify-between gap-2">
-                  {editingCatIndex === idx ? (
-                    <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                      <input
-                        type="text"
-                        value={editingCatValue}
-                        onChange={(e) => setEditingCatValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault()
-                            handleSaveEditCategory()
-                          }
-                        }}
-                        className="flex-1 px-2.5 py-1 text-xs rounded-lg border border-purple-400 bg-white dark:bg-slate-800 font-bold"
-                        autoFocus
-                      />
-                      <button
-                        type="button"
-                        onClick={handleSaveEditCategory}
-                        className="p-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
-                        title="บันทึก"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditingCatIndex(null)}
-                        className="p-1 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300"
-                        title="ยกเลิก"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <span className="font-bold text-slate-800 dark:text-slate-200 truncate">
-                        {idx + 1}. {cat}
-                      </span>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleStartEditCategory(idx, cat)}
-                          className="px-2 py-0.5 rounded text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 transition-colors"
-                        >
-                          แก้ไข
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteCategory(idx)}
-                          className="px-2 py-0.5 rounded text-[11px] font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/50 transition-colors"
-                        >
-                          ลบ
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              ))}
+          <div className="lg:col-span-5 min-h-[50vh] lg:min-h-0 flex flex-col gap-2 overflow-hidden">
+            <div className="shrink-0 flex items-center justify-between gap-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-2">
+              <div className="min-w-0">
+                <p className="font-bold truncate text-slate-900 dark:text-slate-100">{selected ? docNoOf(selected) : 'เลือกเอกสารเพื่อเปิดดู'}</p>
+                {selected && (
+                  <p className="text-[11px] text-slate-500 truncate">
+                    {customerById.get(selected.customer_id)?.customerName} · สร้าง {fmtDateTime(selected.created_at)}
+                    {selected.status !== 'ACTIVE' && selected.status_reason ? ` · ยกเลิก: ${selected.status_reason}` : ''}
+                    {selected.note ? ` · ${selected.note}` : ''}
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-1.5 shrink-0">
+                <button type="button" onClick={() => void handlePrintSelected()} disabled={!selected} className="h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 font-bold flex items-center gap-1.5 disabled:opacity-40">
+                  <Printer className="w-4 h-4" />
+                  <span>พิมพ์</span>
+                </button>
+                {selected?.status === 'ACTIVE' && (
+                  <button type="button" onClick={() => setDeactivateOpen(true)} className="h-9 px-3 rounded-xl border border-red-200 text-red-600 font-bold flex items-center gap-1.5 hover:bg-red-50 dark:hover:bg-red-950/30">
+                    <Trash2 className="w-4 h-4" />
+                    <span>ยกเลิก</span>
+                  </button>
+                )}
+              </div>
             </div>
-
-            {/* Footer */}
-            <div className="p-3 border-t border-slate-100 dark:border-slate-800 flex justify-end">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsCategoryModalOpen(false)
-                  setEditingCatIndex(null)
-                }}
-                className="px-4 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 font-extrabold text-xs transition-colors"
-              >
-                บันทึก
-              </button>
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+              <A4DocumentWorkspace htmlContent={selectedHtml} />
             </div>
           </div>
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* BATCH DELETE CONFIRMATION MODAL                                          */}
-      {/* ========================================================================= */}
       <BatchDeleteModal
-        isOpen={deleteModalConfig.isOpen}
-        count={deleteModalConfig.ids.length}
-        itemTypeLabel={deleteModalConfig.type === 'TEMPLATES' ? 'แบบฟอร์ม Template' : 'เอกสารลูกค้า'}
-        onClose={() => setDeleteModalConfig({ isOpen: false, type: 'TEMPLATES', ids: [] })}
-        onConfirm={handleConfirmBatchDelete}
+        isOpen={deactivateOpen}
+        count={1}
+        itemTypeLabel="เอกสารลูกค้า"
+        onClose={() => setDeactivateOpen(false)}
+        onConfirm={(reason) => void handleDeactivate(reason)}
       />
-
     </div>
   )
 }

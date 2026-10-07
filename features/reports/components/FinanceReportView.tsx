@@ -282,6 +282,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
         {/* ลูกหนี้ค้างชำระ (Topic 7) */}
         <DataTableFrame
+          rowCount={data.debtorBills.length}
           className="p-2 rounded-xl border border-amber-500/20 bg-white dark:bg-slate-900 shadow-xs"
           header={
             <div className="flex items-center justify-between mb-2 shrink-0">
@@ -414,6 +415,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
 
       {/* ─── 4. TRANSACTIONS DETAIL TABLE ─────────────────────────────────── */}
       <DataTableFrame
+        rowCount={data.transactions.length}
         className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs"
         header={
           <div className="flex items-center justify-between mb-2 shrink-0">

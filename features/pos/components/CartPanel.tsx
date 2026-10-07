@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { NewCustomerModal } from '@/features/customers/components/NewCustomerModal'
-import { CalendarPanel } from '@/components/common/CustomDatePicker'
+import { CalendarPanel, getLocalDateString } from '@/components/common/CustomDatePicker'
 import { CustomSelect, SelectOption } from '@/components/common/CustomSelect'
 import { NumericInput } from '@/components/common/NumericInput'
 import { CustomerUnifiedSelector } from '@/features/pos/components/CustomerUnifiedSelector'
@@ -455,9 +455,9 @@ export function CartPanel({
                     subtotal,
                     grandTotal,
                     shippingAddress,
-                    rentalStartDate: headerRentalDate ? headerRentalDate.toISOString().slice(0, 10) : undefined,
-                    rentalEndDate: headerReturnDate ? headerReturnDate.toISOString().slice(0, 10) : undefined,
-                    documentDate: documentDate ? documentDate.toISOString().slice(0, 10) : undefined,
+                    rentalStartDate: headerRentalDate ? getLocalDateString(headerRentalDate) : undefined,
+                    rentalEndDate: headerReturnDate ? getLocalDateString(headerReturnDate) : undefined,
+                    documentDate: documentDate ? getLocalDateString(documentDate) : undefined,
                   })
                 }}
                 disabled={items.length === 0}
@@ -486,10 +486,10 @@ export function CartPanel({
                     depositAmount: Number(depositAmount) || 0,
                     taxRate: taxRate,
                     shippingAddress,
-                    headerRentalDate: headerRentalDate ? headerRentalDate.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
-                    headerReturnDate: headerReturnDate ? headerReturnDate.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+                    headerRentalDate: getLocalDateString(headerRentalDate ?? new Date()),
+                    headerReturnDate: getLocalDateString(headerReturnDate ?? new Date()),
                     documentType,
-                    documentDate: documentDate ? documentDate.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+                    documentDate: getLocalDateString(documentDate ?? new Date()),
                     subtotal,
                     tax,
                     grandTotal,

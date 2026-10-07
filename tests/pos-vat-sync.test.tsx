@@ -9,13 +9,23 @@ import { loadSystemSettings, saveSystemSettings } from '@/features/settings/serv
 import { CartItem, saveActiveCart } from '@/features/pos/services/cart-storage'
 import { Customer } from '@/lib/types/rental-pos'
 
-const mocks = vi.hoisted(() => ({ create: vi.fn(), draft: vi.fn(), toast: vi.fn(), push: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  saveDraft: vi.fn(async (_input: { lines: unknown[] }) => 'bill-1'),
+  confirm: vi.fn(async () => ({ id: 'bill-1', billNo: 'BL-2026-000001', items: [] })),
+  deliver: vi.fn(async () => null),
+  fetchBill: vi.fn(async () => ({ id: 'bill-1', grandTotal: 107 })),
+  toast: vi.fn(),
+  push: vi.fn(),
+}))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
 vi.mock('@/features/auth/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'tester', fullName: 'Tester' } }) }))
 vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: mocks.toast }) }))
-vi.mock('@/features/bills/services/bill-workflow-service', () => ({
-  checkAndExpireReservations: vi.fn(), createBillWorkflow: mocks.create,
-  saveDraftBillWorkflow: mocks.draft, confirmDraftBillWorkflow: vi.fn(),
+// The checkout talks to the server only through bill-service (RPC); the server prices the bill.
+vi.mock('@/features/bills/services/bill-service', () => ({
+  saveBillDraft: mocks.saveDraft, confirmBill: mocks.confirm, deliverBill: mocks.deliver,
+}))
+vi.mock('@/features/bills/services/bill-storage', () => ({
+  fetchBillByIdFromSupabase: mocks.fetchBill, fetchBillsFromSupabase: vi.fn(async () => []), loadBillById: () => undefined,
 }))
 vi.mock('@/features/settings/api/settings-repository', () => ({
   fetchSharedSystemConfig: vi.fn(async () => null),
@@ -72,21 +82,21 @@ describe('MASTER #5 rendered POS/Checkout', () => {
     expect(toggle.checked).toBe(true)
   })
 
-  it.each([false, true])('Checkout ignores stale snapshot, previews/saves current VAT enabled=%s', (enabled) => {
+  it.each([false, true])('Checkout previews current VAT (enabled=%s); confirm pays the SERVER total', async (enabled) => {
     const settings = loadSystemSettings()
     saveSystemSettings({ ...settings, financePayment: { ...settings.financePayment, vatEnabled: enabled } })
     mountCheckout([item('SALE')], null)
     expect(screen.getByTestId('preview-tax').textContent).toBe(enabled ? '7' : '0')
     fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิลเช่า' }))
-    expect(mocks.create).toHaveBeenCalledOnce()
-    expect(mocks.create.mock.calls[0][0].bill).toMatchObject({
-      taxAmount: enabled ? 7 : 0, grandTotal: enabled ? 107 : 100,
-      rentalStatus: 'CONFIRMED', dispatchStatus: 'PENDING',
-      items: [expect.objectContaining({ itemType: 'SALE', requiresReturn: false, status: 'PENDING', deliveredQty: 0, remainingQty: 1 })],
+    await waitFor(() => expect(mocks.confirm).toHaveBeenCalledOnce())
+    expect(mocks.saveDraft.mock.calls[0][0]).toMatchObject({
+      lines: [expect.objectContaining({ productId: 'SALE', mode: 'SALE', quantity: 1, unitPrice: 100 })],
     })
+    // amount comes from the server-priced draft (107), never from the browser math
+    expect(mocks.confirm).toHaveBeenCalledWith('bill-1', [expect.objectContaining({ method: 'CASH', amount: 107 })])
   })
 
-  it('Checkout updates VAT while mounted and draft saves recalculated tax', () => {
+  it('Checkout follows VAT changes while mounted; draft sends rental + sale lines to the server', async () => {
     mountCheckout([item('RENT'), item('SALE')])
     expect(screen.getByTestId('preview-tax').textContent).toBe('14')
     act(() => {
@@ -95,19 +105,20 @@ describe('MASTER #5 rendered POS/Checkout', () => {
     })
     expect(screen.getByTestId('preview-tax').textContent).toBe('0')
     fireEvent.click(screen.getByRole('button', { name: 'บันทึกแบบร่าง (Save Draft)' }))
-    expect(mocks.draft).toHaveBeenCalledOnce()
-    expect(mocks.draft.mock.calls[0][0].bill).toMatchObject({ taxAmount: 0, grandTotal: 200,
-      items: [expect.objectContaining({ itemType: 'RENT', requiresReturn: true, status: 'PENDING' }),
-        expect.objectContaining({ itemType: 'SALE', requiresReturn: false, status: 'PENDING' })],
-    })
+    await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledOnce())
+    expect(mocks.confirm).not.toHaveBeenCalled()
+    expect(mocks.saveDraft.mock.calls[0][0].lines).toEqual([
+      expect.objectContaining({ productId: 'RENT', mode: 'RENTAL', calc: 'PER_PERIOD', periods: 1 }),
+      expect.objectContaining({ productId: 'SALE', mode: 'SALE' }),
+    ])
   })
 
   it.each([null, { ...customer, phone: '' }, { ...customer, address: '' }])('legacy RENT blocks confirm and draft for incomplete customer', (selectedCustomer) => {
     mountCheckout([item('RENT', true)], selectedCustomer)
     fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิลเช่า' }))
     fireEvent.click(screen.getByRole('button', { name: 'บันทึกแบบร่าง (Save Draft)' }))
-    expect(mocks.create).not.toHaveBeenCalled()
-    expect(mocks.draft).not.toHaveBeenCalled()
+    expect(mocks.saveDraft).not.toHaveBeenCalled()
+    expect(mocks.confirm).not.toHaveBeenCalled()
     expect(mocks.toast).toHaveBeenCalledTimes(2)
   })
 })

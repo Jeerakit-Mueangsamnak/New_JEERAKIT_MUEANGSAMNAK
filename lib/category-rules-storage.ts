@@ -1,4 +1,5 @@
-import { saveCategoryToSupabase, deleteCategoryFromSupabase, generateUUID } from '@/features/products/api/product-repository'
+import { saveCategoryToSupabase, deleteCategoryFromSupabase } from '@/features/products/api/product-repository'
+import { saveCategoryDefault } from '@/lib/db/policies'
 import { addUnitAsync, loadUnits } from '@/lib/unit-storage'
 /**
  * Shared Product Category Rules & Composite Lookup Storage
@@ -7,10 +8,9 @@ import { addUnitAsync, loadUnits } from '@/lib/unit-storage'
  * 2. Master Units (หน่วยนับ - ตาราง 2, in unit-storage.ts)
  * 3. Composite Rules (ตารางประกอบข้อมูล - ตาราง 3)
  *
- * Single source of truth backed by localStorage:
- * - 'pos_master_categories'
- * - 'pos_category_composite_rules'
- * - 'pos_category_rules' (legacy sync)
+ * Categories live in public.product_categories (product_category_save RPC). The per-category
+ * default pricing type and unit for new products is an adjustable setting kept in
+ * store_settings.policies.category_defaults (lib/db/policies.ts).
  */
 
 export type CalculationType =
@@ -158,8 +158,7 @@ export async function addCategoryAsync(name: string): Promise<ProductCategoryIte
   if (current.some((c) => c.name.toLowerCase() === trimmed.toLowerCase())) {
     throw new Error(`หมวดหมู่ "${trimmed}" มีอยู่ในระบบแล้ว`)
   }
-  const newCat = { id: generateUUID(), name: trimmed }
-  await saveCategoryToSupabase(newCat)
+  const newCat = { id: await saveCategoryToSupabase({ name: trimmed }), name: trimmed, isActive: true }
   const updated = [...current, newCat]
   saveCategories(updated)
   return updated
@@ -192,7 +191,7 @@ export async function deleteCategoryAsync(id: string, inUseCheck?: (cat: Product
   if (inUseCheck && inUseCheck(target)) {
     throw new Error(`ไม่สามารถลบหมวดหมู่ "${target.name}" ได้เนื่องจากกำลังถูกใช้งานอยู่`)
   }
-  await deleteCategoryFromSupabase(id)
+  await deleteCategoryFromSupabase(id, target.name)
   const updated = current.filter((category) => category.id !== id)
   saveCategories(updated)
   return updated
@@ -259,7 +258,7 @@ export async function addCompositeRuleAsync(ruleData: Omit<CategoryCompositeRule
       calculationType: ruleData.calculationType,
       defaultUnitId: ruleData.unitId,
     }
-    await saveCategoryToSupabase(updatedCat)
+    await saveCategoryDefault(cat.id, { calculationType: ruleData.calculationType, unitId: ruleData.unitId })
     const newCats = cats.map(c => c.id === cat.id ? updatedCat : c)
     saveCategories(newCats)
   }
@@ -282,7 +281,7 @@ export async function updateCompositeRuleAsync(updatedRule: CategoryCompositeRul
       calculationType: updatedRule.calculationType,
       defaultUnitId: updatedRule.unitId,
     }
-    await saveCategoryToSupabase(updatedCat)
+    await saveCategoryDefault(cat.id, { calculationType: updatedRule.calculationType, unitId: updatedRule.unitId })
     // Update local category cache
     const newCats = cats.map(c => c.id === cat.id ? updatedCat : c)
     saveCategories(newCats)
@@ -345,15 +344,16 @@ export async function addCategoryRuleAsync(ruleData: Omit<ProductCategoryRule, '
     throw new Error(`หมวดหมู่ "${name}" มีอยู่ในระบบแล้ว`)
   }
   const defaultUnitId = await resolveRuleUnitId(ruleData)
+  const id = await saveCategoryToSupabase({ name })
   const category: ProductCategoryItem = {
-    id: generateUUID(),
+    id,
     name,
     calculationType: ruleData.calculationType,
     calculationLabel: ruleData.calculationLabel,
     defaultUnitId,
     isActive: true,
   }
-  await saveCategoryToSupabase(category)
+  await saveCategoryDefault(id, { calculationType: ruleData.calculationType, unitId: defaultUnitId })
   saveCategories([...current, category])
   return loadCategoryRules()
 }
@@ -375,7 +375,8 @@ export async function updateCategoryRuleAsync(updated: ProductCategoryRule): Pro
     calculationLabel: updated.calculationLabel,
     defaultUnitId,
   }
-  await saveCategoryToSupabase(updatedCategory)
+  if (name !== target.name) await saveCategoryToSupabase({ id: target.id, name, isActive: target.isActive !== false })
+  await saveCategoryDefault(target.id, { calculationType: updated.calculationType, unitId: defaultUnitId })
   saveCategories(current.map((category) => category.id === updated.id ? updatedCategory : category))
   return loadCategoryRules()
 }

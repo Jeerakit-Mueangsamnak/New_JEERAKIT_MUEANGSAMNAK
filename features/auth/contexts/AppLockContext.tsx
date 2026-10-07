@@ -1,136 +1,134 @@
 'use client'
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react'
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import {
-  isPinEnabled as checkPinEnabled,
-  savePinCredential,
-  verifyPinCredential,
+  fetchPinStatus,
+  setPinOnServer,
+  verifyPinOnServer,
   getAppLockedState,
   setAppLockedState,
+  type PinStatus,
+  type PinVerifyResult,
 } from '@/features/auth/services/pin-lock'
 
 export interface AppLockContextType {
+  /** The user has a PIN on the server. */
   pinEnabled: boolean
+  /** PIN blocked after too many misses (needs reset / re-authentication). */
+  pinBlocked: boolean
   isLocked: boolean
   loading: boolean
+  status: PinStatus | null
   setupPin: (pin: string) => Promise<boolean>
-  verifyPin: (pin: string) => Promise<boolean>
+  /** Unlock with the PIN; returns the server answer (ok / wait / blocked). */
+  verifyPin: (pin: string) => Promise<PinVerifyResult>
   lockApp: () => void
   unlockApp: () => void
-  refreshLockState: () => void
+  refreshLockState: () => Promise<void>
 }
 
-const AppLockContext = createContext<AppLockContextType>({
-  pinEnabled: false,
-  isLocked: false,
-  loading: true,
-  setupPin: async () => false,
-  verifyPin: async () => false,
-  lockApp: () => {},
-  unlockApp: () => {},
-  refreshLockState: () => {},
-})
+const AppLockContext = createContext<AppLockContextType | null>(null)
+
+const ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'touchstart', 'wheel', 'scroll'] as const
 
 export function AppLockProvider({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading } = useAuth()
-  const [pinEnabled, setPinEnabled] = useState(false)
+  const [status, setStatus] = useState<PinStatus | null>(null)
   const [isLocked, setIsLocked] = useState(false)
   const [checkedUserId, setCheckedUserId] = useState<string | null | undefined>(undefined)
-  const [loading, setLoading] = useState(true)
+  const userId = user?.status === 'ACTIVE' ? user.id : null
 
-  const refreshLockState = useCallback(() => {
-    if (authLoading) {
-      setLoading(true)
-      return
-    }
-
-    if (!user?.id) {
-      setPinEnabled(false)
+  const refreshLockState = useCallback(async () => {
+    if (authLoading) return
+    if (!userId) {
+      setStatus(null)
       setIsLocked(false)
       setCheckedUserId(null)
-      setLoading(false)
       return
     }
-
-    const enabled = checkPinEnabled(user.id)
-    setPinEnabled(enabled)
-
-    if (enabled) {
-      const lockedInSession = getAppLockedState(user.id)
-      setIsLocked(lockedInSession)
-    } else {
-      setIsLocked(false)
-      setAppLockedState(user.id, false)
+    try {
+      const s = await fetchPinStatus()
+      setStatus(s)
+      setIsLocked(s.pinSet && getAppLockedState(userId))
+    } catch (err) {
+      console.error('[PIN] cannot read PIN status', err)
+      setStatus(null)
     }
-
-    setCheckedUserId(user.id)
-    setLoading(false)
-  }, [user?.id, authLoading])
+    setCheckedUserId(userId)
+  }, [userId, authLoading])
 
   useEffect(() => {
-    refreshLockState()
+    void refreshLockState()
   }, [refreshLockState])
 
-  const currentUserId = user?.id || null
-  const isAppLockLoading = loading || Boolean(authLoading) || (Boolean(currentUserId) && checkedUserId !== currentUserId)
-
-  const setupPin = useCallback(async (pin: string): Promise<boolean> => {
-    if (!user?.id) return false
-    const ok = await savePinCredential(user.id, pin)
-    if (ok) {
-      setPinEnabled(true)
-      // When user sets up PIN initially, do not automatically lock them out
-      setIsLocked(false)
-      setAppLockedState(user.id, false)
-    }
-    return ok
-  }, [user?.id])
-
-  const verifyPin = useCallback(async (pin: string): Promise<boolean> => {
-    if (!user?.id) return false
-    const ok = await verifyPinCredential(user.id, pin)
-    if (ok) {
-      setIsLocked(false)
-      setAppLockedState(user.id, false)
-    }
-    return ok
-  }, [user?.id])
+  const pinEnabled = Boolean(status?.pinSet)
 
   const lockApp = useCallback(() => {
-    if (!user?.id || !pinEnabled) return
+    if (!userId || !pinEnabled) return
     setIsLocked(true)
-    setAppLockedState(user.id, true)
-  }, [user?.id, pinEnabled])
+    setAppLockedState(userId, true)
+  }, [userId, pinEnabled])
 
   const unlockApp = useCallback(() => {
-    if (!user?.id) return
+    if (!userId) return
     setIsLocked(false)
-    setAppLockedState(user.id, false)
-  }, [user?.id])
+    setAppLockedState(userId, false)
+  }, [userId])
+
+  // Auto-lock after the user's chosen idle time (0 = never). The session stays signed in.
+  const lastActivity = useRef(Date.now())
+  useEffect(() => {
+    const seconds = status?.autoLockSeconds ?? 0
+    if (!userId || !pinEnabled || isLocked || seconds <= 0) return
+    lastActivity.current = Date.now()
+    const touch = () => { lastActivity.current = Date.now() }
+    ACTIVITY_EVENTS.forEach((e) => window.addEventListener(e, touch, { passive: true }))
+    const timer = setInterval(() => {
+      if (Date.now() - lastActivity.current >= seconds * 1000) lockApp()
+    }, 5000)
+    return () => {
+      ACTIVITY_EVENTS.forEach((e) => window.removeEventListener(e, touch))
+      clearInterval(timer)
+    }
+  }, [userId, pinEnabled, isLocked, status?.autoLockSeconds, lockApp])
+
+  const setupPin = useCallback(async (pin: string): Promise<boolean> => {
+    if (!userId) return false
+    await setPinOnServer(pin)
+    setAppLockedState(userId, false)
+    setIsLocked(false)
+    await refreshLockState()
+    return true
+  }, [userId, refreshLockState])
+
+  const verifyPin = useCallback(async (pin: string): Promise<PinVerifyResult> => {
+    const r = await verifyPinOnServer(pin, 'UNLOCK')
+    if (r.ok) unlockApp()
+    else setStatus((s) => (s ? { ...s, blocked: r.blocked, failedAttempts: r.failedAttempts, lockedUntil: r.lockedUntil } : s))
+    return r
+  }, [unlockApp])
+
+  const loading = Boolean(authLoading) || (Boolean(userId) && checkedUserId !== userId)
 
   const value = useMemo<AppLockContextType>(() => ({
     pinEnabled,
+    pinBlocked: Boolean(status?.blocked),
     isLocked,
-    loading: isAppLockLoading,
+    loading,
+    status,
     setupPin,
     verifyPin,
     lockApp,
     unlockApp,
     refreshLockState,
-  }), [pinEnabled, isLocked, isAppLockLoading, setupPin, verifyPin, lockApp, unlockApp, refreshLockState])
+  }), [pinEnabled, status, isLocked, loading, setupPin, verifyPin, lockApp, unlockApp, refreshLockState])
 
-  return (
-    <AppLockContext.Provider value={value}>
-      {children}
-    </AppLockContext.Provider>
-  )
+  return <AppLockContext.Provider value={value}>{children}</AppLockContext.Provider>
 }
 
 export function useAppLock(): AppLockContextType {
   const context = useContext(AppLockContext)
-  if (!context) {
-    throw new Error('useAppLock must be used within an AppLockProvider')
-  }
+  if (!context) throw new Error('useAppLock must be used within an AppLockProvider')
   return context
 }

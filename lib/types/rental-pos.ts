@@ -7,7 +7,16 @@ export type DeliveryStatus = 'PENDING' | 'PARTIAL_DELIVERED' | 'DELIVERED'
 export type CustomerType = 'INDIVIDUAL' | 'CORPORATE'
 export type CustomerStatus = 'ACTIVE' | 'INACTIVE'
 export type AppointmentType = 'DELIVERY' | 'RETURN' | 'PAYMENT' | 'CONTRACT' | 'QUOTATION' | 'INSPECTION' | 'GENERAL'
-export type AppointmentStatus = 'PENDING' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED'
+/** Master §9 / §26 lifecycle (same values as public.appointments.status). */
+export type AppointmentStatus =
+  | 'DRAFT'
+  | 'SCHEDULED'
+  | 'CONFIRMED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'NO_SHOW'
+  | 'RESCHEDULED'
 export type QuotationStatus = 'DRAFT' | 'SENT' | 'WAITING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'CONVERTED' | 'CANCELLED'
 export type RentalStatus = 'DRAFT' | 'CONFIRMED' | 'RENTING' | 'EXTENDED' | 'PARTIAL_RETURNED' | 'RETURNED' | 'CLOSED' | 'CANCELLED' | 'VOID'
 export type PaymentStatus = 'UNPAID' | 'PARTIAL' | 'PAID' | 'REFUND_PARTIAL' | 'REFUNDED'
@@ -24,6 +33,9 @@ export interface StockAdjustment {
 }
 
 export type UserRole = 'OWNER' | 'USER'
+
+/** PENDING = signed up, waiting for OWNER approval; SUSPENDED = blocked by OWNER */
+export type MemberStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED'
 
 export interface Profile {
   id: string
@@ -49,6 +61,9 @@ export interface CurrentUser {
   fullName: string
   displayName: string
   role: UserRole
+  status: MemberStatus
+  /** Menu codes granted by an OWNER (OWNER implicitly holds all) — Master §4.2 */
+  menus: string[]
   businessId: string | null
   emailVerified: boolean
   avatarUrl?: string | null

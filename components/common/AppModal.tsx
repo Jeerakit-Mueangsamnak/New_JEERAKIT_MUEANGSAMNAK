@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useCallback } from 'react'
+import React, { createContext, useContext, useEffect, useCallback, useRef } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { ModalPortal } from '@/components/common/ModalPortal'
 
@@ -16,7 +16,18 @@ export interface AppModalProps {
   closeOnEsc?: boolean
   className?: string
   contentClassName?: string
+  /**
+   * 'dialog' (default): centred box over the whole app.
+   * 'workspace': covers only the nearest `relative` page area (sidebar / navigation stay
+   * usable), with a fixed header and scrolling body; the page underneath keeps its state.
+   */
+  variant?: 'dialog' | 'workspace'
 }
+
+const AppModalVariantContext = createContext<'dialog' | 'workspace'>('dialog')
+
+/** Open modals, oldest first: Escape closes only the newest one. */
+const openModalStack: symbol[] = []
 
 const sizeClasses: Record<AppModalSize, string> = {
   sm: 'max-w-md',
@@ -37,19 +48,34 @@ export function AppModal({
   closeOnEsc = true,
   className = '',
   contentClassName = '',
+  variant = 'dialog',
 }: AppModalProps) {
+  const modalId = useRef(Symbol('app-modal')).current
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (closeOnEsc && e.key === 'Escape') {
-        onClose()
-      }
+      if (e.key !== 'Escape') return
+      // A dropdown / date picker / confirm / PIN pad above this modal already used the key
+      if (e.defaultPrevented) return
+      if (openModalStack[openModalStack.length - 1] !== modalId) return
+      e.preventDefault()
+      if (closeOnEsc) onClose()
     },
-    [closeOnEsc, onClose]
+    [closeOnEsc, onClose, modalId]
   )
 
   useEffect(() => {
     if (!isOpen) return
+    openModalStack.push(modalId)
+    return () => {
+      const i = openModalStack.lastIndexOf(modalId)
+      if (i >= 0) openModalStack.splice(i, 1)
+    }
+  }, [isOpen, modalId])
+
+  useEffect(() => {
+    if (!isOpen) return
     document.addEventListener('keydown', handleKeyDown)
+    if (variant === 'workspace') return () => document.removeEventListener('keydown', handleKeyDown)
     // Prevent background scrolling while modal is open
     const originalOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -58,9 +84,29 @@ export function AppModal({
       document.removeEventListener('keydown', handleKeyDown)
       document.body.style.overflow = originalOverflow
     }
-  }, [isOpen, handleKeyDown])
+  }, [isOpen, handleKeyDown, variant])
 
   if (!isOpen) return null
+
+  if (variant === 'workspace') {
+    return (
+      <AppModalVariantContext.Provider value="workspace">
+        <div
+          role="dialog"
+          aria-modal="true"
+          className={`absolute inset-0 z-40 flex flex-col overflow-hidden bg-white dark:bg-slate-900 animate-in fade-in duration-150 ${contentClassName}`}
+        >
+          {isLoading && (
+            <div className="absolute inset-0 bg-white/70 dark:bg-slate-900/70 z-50 flex flex-col items-center justify-center gap-2">
+              <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-200">กำลังประมวลผล...</span>
+            </div>
+          )}
+          {children}
+        </div>
+      </AppModalVariantContext.Provider>
+    )
+  }
 
   return (
     <ModalPortal>
@@ -118,6 +164,7 @@ export function AppModalHeader({
   headerActions,
   className = '',
 }: AppModalHeaderProps) {
+  const variant = useContext(AppModalVariantContext)
   return (
     <div
       className={`
@@ -144,6 +191,15 @@ export function AppModalHeader({
 
       <div className="flex items-center gap-1.5 shrink-0">
         {headerActions}
+        {onClose && variant === 'workspace' && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-8 px-3 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            ปิดหน้าต่าง
+          </button>
+        )}
         {onClose && (
           <button
             type="button"

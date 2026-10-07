@@ -1,20 +1,19 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
+import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import React, { useState, useEffect, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import {
   Plus,
   Clock,
-  Eye,
   MapPin,
   Phone,
   User,
   Calendar,
   FileText,
   CheckSquare,
-  Settings,
   Pencil,
-  Trash2,
   AlertTriangle,
   RefreshCw,
   Send,
@@ -65,8 +64,11 @@ import {
   fetchAppointmentsFromSupabase,
   addAppointment,
   updateAppointment,
-  deleteAppointment,
+  setAppointmentStatus,
+  fetchAppointmentHistory,
+  type AppointmentHistoryEntry,
 } from '@/features/appointments/services/appointment-storage'
+import { APPOINTMENT_STATUS_META, isAppointmentClosed, nextAppointmentSteps } from '@/features/appointments/appointment-status'
 import { loadCustomers } from '@/features/customers/services/customer-storage'
 
 const CalendarView = dynamic(
@@ -88,11 +90,13 @@ const getInitialFormData = (): Partial<Appointment> => ({
   contactPerson: '',
   phone: '',
   details: '',
-  status: 'PENDING',
+  status: 'SCHEDULED',
 })
 
 export default function AppointmentsPage() {
   const { showToast } = useToast()
+  const router = useRouter()
+  const { settings: systemSettings } = useSystemSettings()
   const [appointmentTypes, setAppointmentTypes] = useState<Array<{ id: string; label: string }>>(DEFAULT_APPOINTMENT_TYPES)
   const addAppointmentType = (label: string) => setAppointmentTypes((prev) => [...prev, { id: 'apt-' + Date.now(), label }])
   const updateAppointmentType = (id: string, label: string) => setAppointmentTypes((prev) => prev.map((t) => (t.id === id ? { ...t, label } : t)))
@@ -118,9 +122,15 @@ export default function AppointmentsPage() {
   const [editFormData, setEditFormData] = useState<Partial<Appointment>>(getInitialFormData())
   const [isEditSubmitting, setIsEditSubmitting] = useState(false)
 
-  // Delete Confirmation State
-  const [deletingApt, setDeletingApt] = useState<Appointment | null>(null)
-  const [isDeleting, setIsDeleting] = useState(false)
+  // Reschedule reason (edit modal, required when the date/time changes)
+  const [rescheduleReason, setRescheduleReason] = useState('')
+
+  // Cancel / No-show confirmation (appointments are never deleted)
+  const [reasonAction, setReasonAction] = useState<{ apt: Appointment; status: 'CANCELLED' | 'NO_SHOW' } | null>(null)
+  const [reasonText, setReasonText] = useState('')
+
+  // Appointment History of the appointment open in the detail modal
+  const [aptHistory, setAptHistory] = useState<AppointmentHistoryEntry[]>([])
 
   // Work Order Dispatch Modal State (สั่งงาน)
   const [orderApt, setOrderApt] = useState<Appointment | null>(null)
@@ -128,13 +138,9 @@ export default function AppointmentsPage() {
   // Work Order Timeline Modal State (สถานะงาน)
   const [timelineApt, setTimelineApt] = useState<Appointment | null>(null)
 
-  // UI-only Bill action handler (ยังไม่เชื่อมต่อ POS)
+  // Appointments never create bills or payments: a linked bill only opens in the bills menu.
   const handleBillClick = (apt: Appointment) => {
-    if (apt.billId || apt.billNo) {
-      showToast('สถานะบิล (UI Only)', `บิลเลขที่ ${apt.billNo || apt.billId} (ยังไม่เชื่อม POS)`, 'INFO')
-    } else {
-      showToast('สร้างบิล (UI Only)', 'ยังไม่เชื่อม POS (ยังไม่มีการสร้างบิลจริง)', 'INFO')
-    }
+    if (apt.billId) router.push(`/bills?id=${encodeURIComponent(apt.billId)}`)
   }
 
   // Load Data
@@ -145,9 +151,9 @@ export default function AppointmentsPage() {
         try {
           const remoteApts = await fetchAppointmentsFromSupabase()
           setAppointments(remoteApts)
-        } catch {
-          const apts = loadAppointments()
-          setAppointments(apts)
+        } catch (err) {
+          setAppointments(loadAppointments())
+          showToast('โหลดนัดหมายจาก Cloud ไม่สำเร็จ', err instanceof Error ? err.message : 'แสดงข้อมูลล่าสุดที่มีในเครื่อง', 'ERROR')
         }
       } else {
         const apts = loadAppointments()
@@ -158,15 +164,33 @@ export default function AppointmentsPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [showToast])
 
   useEffect(() => {
     loadData()
   }, [loadData])
 
+  const selectedAptId = selectedApt?.id
+  const selectedAptStatus = selectedApt?.status
+  const selectedAptStart = selectedApt ? `${selectedApt.date} ${selectedApt.startTime}` : ''
+  useEffect(() => {
+    setAptHistory([])
+    if (!selectedAptId || process.env.NODE_ENV === 'test') return
+    let cancelled = false
+    fetchAppointmentHistory(selectedAptId)
+      .then((rows) => {
+        if (!cancelled) setAptHistory(rows)
+      })
+      .catch((err) => logger.error('Failed to load appointment history:', err))
+    return () => {
+      cancelled = true
+    }
+  }, [selectedAptId, selectedAptStatus, selectedAptStart])
+
   // 2. OPEN EDIT MODAL
   const handleOpenEdit = (apt: Appointment) => {
     setEditingApt(apt)
+    setRescheduleReason('')
     setEditFormData({
       title: apt.title,
       type: apt.type,
@@ -195,16 +219,30 @@ export default function AppointmentsPage() {
       return
     }
 
+    if (!editFormData.date || !editFormData.startTime || !editFormData.endTime) {
+      showToast('กรุณาระบุวันและเวลาให้ครบ', undefined, 'ERROR')
+      return
+    }
+    if (editFormData.endTime < editFormData.startTime) {
+      showToast('เวลาสิ้นสุดต้องไม่ก่อนเวลาเริ่ม', undefined, 'ERROR')
+      return
+    }
+    if (isEditRescheduling && !rescheduleReason.trim()) {
+      showToast('กรุณาระบุเหตุผลการเลื่อนนัด', undefined, 'ERROR')
+      return
+    }
+
     setIsEditSubmitting(true)
     try {
       const updated: Appointment = {
         ...editingApt,
         ...(editFormData as Appointment),
+        status: editingApt.status,
       }
-      updateAppointment(updated)
-      setAppointments((prev) => prev.map((a) => (a.id === updated.id ? updated : a)))
+      const fresh = await updateAppointment(updated, rescheduleReason.trim())
+      setAppointments(fresh)
       if (selectedApt && selectedApt.id === updated.id) {
-        setSelectedApt(updated)
+        setSelectedApt(fresh.find((a) => a.id === updated.id) ?? updated)
       }
       setEditingApt(null)
       showToast('แก้ไขนัดหมายสำเร็จ', `อัปเดตนัดหมาย "${updated.title}" เรียบร้อยแล้ว`, 'SUCCESS')
@@ -216,52 +254,46 @@ export default function AppointmentsPage() {
     }
   }
 
-  // 4. STATUS CHANGE
-  const handleStatusChange = async (id: string, newStatus: AppointmentStatus) => {
+  // 4. STATUS CHANGE (lifecycle step; cancel / no-show come through the reason modal)
+  const handleStatusChange = async (id: string, newStatus: AppointmentStatus, reason?: string) => {
     setUpdatingStatusId(id)
     try {
-      const target = appointments.find((a) => a.id === id)
-      if (target) {
-        updateAppointment({ ...target, status: newStatus })
-      }
-      setAppointments((prev) => prev.map((apt) => (apt.id === id ? { ...apt, status: newStatus } : apt)))
+      const fresh = await setAppointmentStatus(id, newStatus, reason)
+      setAppointments(fresh)
       if (selectedApt && selectedApt.id === id) {
-        setSelectedApt({ ...selectedApt, status: newStatus })
+        setSelectedApt(fresh.find((a) => a.id === id) ?? { ...selectedApt, status: newStatus })
       }
-      const statusLabels: Record<AppointmentStatus, string> = {
-        PENDING: 'รอดำเนินการ',
-        IN_PROGRESS: 'กำลังดำเนินการ',
-        DONE: 'เสร็จแล้ว',
-        CANCELLED: 'ยกเลิก',
-      }
-      showToast('อัปเดตสถานะสำเร็จ', `เปลี่ยนสถานะเป็น "${statusLabels[newStatus]}" แล้ว`, 'SUCCESS')
+      showToast('อัปเดตสถานะสำเร็จ', `เปลี่ยนสถานะเป็น "${APPOINTMENT_STATUS_META[newStatus].label}" แล้ว`, 'SUCCESS')
+      return true
     } catch (err: any) {
       logger.error('Failed to change appointment status:', err)
       showToast('เปลี่ยนสถานะไม่สำเร็จ', err.message || 'ไม่สามารถบันทึกสถานะได้', 'ERROR')
+      return false
     } finally {
       setUpdatingStatusId(null)
     }
   }
 
-  // 5. DELETE APPOINTMENT
-  const handleDeleteAppointment = async () => {
-    if (!deletingApt) return
-    setIsDeleting(true)
-    try {
-      deleteAppointment(deletingApt.id)
-      setAppointments((prev) => prev.filter((a) => a.id !== deletingApt.id))
-      if (selectedApt && selectedApt.id === deletingApt.id) {
-        setSelectedApt(null)
-      }
-      setDeletingApt(null)
-      showToast('ลบนัดหมายสำเร็จ', 'ลบรายการนัดหมายออกจากระบบเรียบร้อยแล้ว', 'SUCCESS')
-    } catch (err: any) {
-      logger.error('Delete appointment error:', err)
-      showToast('ลบนัดหมายไม่สำเร็จ', err.message || 'เกิดข้อผิดพลาด', 'ERROR')
-    } finally {
-      setIsDeleting(false)
+  // 5. CANCEL / NO-SHOW (kept with reason in history — never deleted)
+  const handleConfirmReasonAction = async () => {
+    if (!reasonAction) return
+    if (reasonAction.status === 'CANCELLED' && !reasonText.trim()) {
+      showToast('กรุณาระบุเหตุผลการยกเลิก', undefined, 'ERROR')
+      return
+    }
+    const ok = await handleStatusChange(reasonAction.apt.id, reasonAction.status, reasonText)
+    if (ok) {
+      setReasonAction(null)
+      setReasonText('')
     }
   }
+
+  const isEditRescheduling = Boolean(
+    editingApt &&
+      (editFormData.date !== editingApt.date ||
+        editFormData.startTime !== editingApt.startTime ||
+        editFormData.endTime !== editingApt.endTime)
+  )
 
   // Type Badge Config
   const getTypeBadge = (type: Appointment['type']) => {
@@ -291,8 +323,7 @@ export default function AppointmentsPage() {
     if (apt.type === 'CONTRACT') color = '#9333ea' // Contract: purple
     if (apt.type === 'QUOTATION') color = '#0891b2' // Quotation: cyan
     if (apt.type === 'INSPECTION') color = '#dc2626' // Inspection: red
-    if (apt.status === 'DONE') color = '#10b981'
-    if (apt.status === 'CANCELLED') color = '#64748b'
+    if (isAppointmentClosed(apt.status)) color = APPOINTMENT_STATUS_META[apt.status].color
 
     return {
       id: apt.id,
@@ -310,23 +341,24 @@ export default function AppointmentsPage() {
   const tomorrowStr = getLocalDateString(tomorrow)
 
   const filteredTasks = appointments.filter((apt) => {
-    if (activeTab === 'APPOINTMENTS') return apt.status !== 'DONE' && apt.status !== 'CANCELLED'
+    if (activeTab === 'APPOINTMENTS') return !isAppointmentClosed(apt.status)
     if (activeTab === 'TODAY') return apt.date === todayStr
     if (activeTab === 'TOMORROW') return apt.date === tomorrowStr
     return true
   })
 
-  // KPI Calculations
-  const todayTasksCount = appointments.filter(a => a.date === todayStr && a.status !== 'DONE' && a.status !== 'CANCELLED').length
-  const pendingTasksCount = appointments.filter(a => a.status === 'PENDING' || a.status === 'IN_PROGRESS').length
-  const completedTasksCount = appointments.filter(a => a.status === 'DONE').length
+  // KPI Calculations ("ใกล้ถึงกำหนด" window comes from Settings › นัดหมาย / แจ้งเตือน)
+  const nearDays = Math.max(0, Number(systemSettings.notifications?.appointmentReminder?.daysBefore ?? 3))
+  const todayTasksCount = appointments.filter(a => a.date === todayStr && !isAppointmentClosed(a.status)).length
+  const pendingTasksCount = appointments.filter(a => !isAppointmentClosed(a.status)).length
+  const completedTasksCount = appointments.filter(a => a.status === 'COMPLETED').length
   const nearTasksCount = appointments.filter(a => {
-    if (a.status === 'DONE' || a.status === 'CANCELLED') return false;
+    if (isAppointmentClosed(a.status)) return false;
     const taskDate = parseLocalDate(a.date);
     if (!taskDate) return false;
     const diffTime = taskDate.getTime() - new Date().getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays >= 0 && diffDays <= 3; // within 3 days
+    return diffDays >= 0 && diffDays <= nearDays
   }).length
 
   return (
@@ -342,7 +374,7 @@ export default function AppointmentsPage() {
           <span className="text-xl font-black text-amber-600">{pendingTasksCount}</span>
         </div>
         <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center">
-          <span className="text-slate-500 text-[11px] font-bold">ใกล้ถึงกำหนด (3 วัน)</span>
+          <span className="text-slate-500 text-[11px] font-bold">ใกล้ถึงกำหนด ({nearDays} วัน)</span>
           <span className="text-xl font-black text-purple-600">{nearTasksCount}</span>
         </div>
         <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center">
@@ -413,8 +445,8 @@ export default function AppointmentsPage() {
           </div>
         ) : (
           /* 3. Appointment List Workspace (Data Table) */
-          <div className="flex-1 min-h-0 p-2 flex flex-col gap-2 overflow-hidden">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2 shrink-0">
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 px-3 py-2 shrink-0">
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-blue-600 shrink-0" />
                 <span className="font-bold text-sm text-slate-900 dark:text-slate-100">
@@ -429,138 +461,88 @@ export default function AppointmentsPage() {
             </div>
 
             <DataTableFrame
-              className="flex-1 min-h-0 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 shadow-none p-0 overflow-hidden"
-              containerClassName="h-full flex-1 min-h-0"
-              bodyClassName="h-full !min-h-0 !max-h-none overflow-y-auto"
+              className="flex-1 min-h-0 rounded-none border-0 bg-transparent shadow-none p-0"
+              fill
+              rowCount={filteredTasks.length}
               empty={filteredTasks.length === 0}
               emptyState={
-                <div className="text-center py-12 text-slate-400 font-bold text-xs">
+                <div className="h-full min-h-[160px] flex items-center justify-center text-center text-slate-400 font-bold text-xs">
                   ไม่มีรายการนัดหมายในช่วงนี้
                 </div>
               }
             >
-              <table className="w-full text-left border-collapse text-xs">
+              <table className="w-full text-left border-collapse table-auto text-xs">
                 <thead>
                   <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
-                    <th className="px-3 py-2.5 font-bold whitespace-nowrap min-w-[130px]">ประเภทงาน</th>
-                    <th className="px-3 py-2.5 font-bold whitespace-nowrap min-w-[140px]">ลูกค้า / สถานที่</th>
-                    <th className="px-3 py-2.5 font-bold whitespace-nowrap min-w-[110px]">วัน / เวลา</th>
-                    <th className="px-3 py-2.5 font-bold whitespace-nowrap text-center min-w-[100px]">สถานะ</th>
-                    <th className="px-3 py-2.5 font-bold whitespace-nowrap text-center min-w-[260px]">การทำงาน</th>
+                    <th className="px-3">ประเภท / หัวข้อ</th>
+                    <th className="px-3">ลูกค้า</th>
+                    <th className="px-3">สถานที่</th>
+                    <th className="px-3">วัน / เวลา</th>
+                    <th className="px-3 text-center">สถานะ</th>
+                    <th className="px-3 text-center">การทำงาน</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {filteredTasks.map((apt) => {
                     const typeInfo = getTypeBadge(apt.type)
-                    const hasBill = Boolean(apt.billId || apt.billNo)
+                    const statusMeta = APPOINTMENT_STATUS_META[apt.status]
                     return (
                       <tr
                         key={apt.id}
                         className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors"
                       >
-                        {/* 1. ประเภทงาน */}
-                        <td className="px-3 py-2.5 align-top">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold border ${typeInfo.bg}`}>
-                                {typeInfo.label}
-                              </span>
-                            </div>
-                            <p className="font-bold text-slate-900 dark:text-slate-100" title={apt.title}>
+                        <td className="px-3 max-w-[260px]">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded-md font-bold border ${typeInfo.bg}`}>
+                              {typeInfo.label}
+                            </span>
+                            <span className="font-bold text-slate-900 dark:text-slate-100 truncate" title={apt.title}>
                               {apt.title}
-                            </p>
-                            {apt.details && (
-                              <p className="text-[11px] text-slate-400 line-clamp-1 italic" title={apt.details}>
-                                💬 {apt.details}
-                              </p>
-                            )}
+                            </span>
                           </div>
                         </td>
-
-                        {/* 2. ลูกค้า / สถานที่ */}
-                        <td className="px-3 py-2.5 align-top">
-                          <div className="space-y-0.5">
-                            <p className="font-bold text-slate-900 dark:text-slate-100" title={apt.customerName}>
-                              {apt.customerName}
-                            </p>
-                            {apt.phone && (
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-                                📞 {apt.phone}
-                              </p>
-                            )}
-                            {apt.location ? (
-                              <p className="text-[11px] text-slate-400 line-clamp-1" title={apt.location}>
-                                📍 {apt.location}
-                              </p>
-                            ) : (
-                              <p className="text-[11px] text-slate-400 italic">-</p>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* 3. วัน / เวลา */}
-                        <td className="px-3 py-2.5 align-top whitespace-nowrap font-mono text-xs">
-                          <p className="font-semibold text-slate-800 dark:text-slate-200">
-                            📅 {apt.date}
+                        <td className="px-3 max-w-[200px]">
+                          <p className="font-bold text-slate-900 dark:text-slate-100 truncate" title={apt.customerName}>
+                            {apt.customerName || '-'}
                           </p>
+                          {apt.phone && <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">{apt.phone}</p>}
+                        </td>
+                        <td className="px-3 max-w-[220px]">
+                          <p className="text-slate-600 dark:text-slate-300 truncate" title={apt.location || ''}>
+                            {apt.location || '-'}
+                          </p>
+                        </td>
+                        <td className="px-3 whitespace-nowrap font-mono">
+                          <p className="font-semibold text-slate-800 dark:text-slate-200">{apt.date}</p>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                            ⏰ {apt.startTime} - {apt.endTime} น.
+                            {apt.startTime} - {apt.endTime} น.
                           </p>
                         </td>
-
-                        {/* 4. สถานะ */}
-                        <td className="px-3 py-2.5 align-top text-center whitespace-nowrap">
-                          <span
-                            className={`px-2.5 py-1 rounded-full font-bold text-[10px] inline-block ${
-                              apt.status === 'DONE'
-                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
-                                : apt.status === 'IN_PROGRESS'
-                                ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-800'
-                                : apt.status === 'CANCELLED'
-                                ? 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-400 border border-slate-300 dark:border-slate-700'
-                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
-                            }`}
-                          >
-                            {apt.status === 'DONE'
-                              ? '✓ เสร็จแล้ว'
-                              : apt.status === 'IN_PROGRESS'
-                              ? '⏳ กำลังทำ'
-                              : apt.status === 'CANCELLED'
-                              ? '✕ ยกเลิก'
-                              : '🕒 รอดำเนินการ'}
+                        <td className="px-3 text-center whitespace-nowrap">
+                          <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] inline-block ${statusMeta.badge}`}>
+                            {statusMeta.label}
                           </span>
                         </td>
-
-                        {/* 5. การทำงาน */}
-                        <td className="px-3 py-2.5 align-top text-center">
-                          <div className="flex items-center justify-center gap-1 flex-wrap sm:flex-nowrap">
+                        <td className="px-3 text-center whitespace-nowrap">
+                          <div className="inline-flex items-center justify-center gap-1">
                             <ActionButton
                               variant="neutral"
                               onClick={() => setSelectedApt(apt)}
                               className="h-7 px-2 text-[11px] rounded-lg"
-                              title="ดูข้อมูลงาน"
+                              title="ดูข้อมูล / เปลี่ยนสถานะ / แก้ไข"
                             >
                               ดูข้อมูล
                             </ActionButton>
-
-                            <ActionButton
-                              variant="primary"
-                              onClick={() => setOrderApt(apt)}
-                              className="h-7 px-2 text-[11px] rounded-lg"
-                              title="สั่งงาน"
-                            >
-                              สั่งงาน
-                            </ActionButton>
-
-                            <ActionButton
-                              variant={hasBill ? 'outline' : 'secondary'}
-                              onClick={() => handleBillClick(apt)}
-                              className="h-7 px-2 text-[11px] rounded-lg"
-                              title={hasBill ? `สถานะบิล (${apt.billNo || apt.billId})` : 'สร้างบิล'}
-                            >
-                              {hasBill ? 'สถานะบิล' : 'สร้างบิล'}
-                            </ActionButton>
-
+                            {!isAppointmentClosed(apt.status) && (
+                              <ActionButton
+                                variant="primary"
+                                onClick={() => setOrderApt(apt)}
+                                className="h-7 px-2 text-[11px] rounded-lg"
+                                title="สั่งงาน"
+                              >
+                                สั่งงาน
+                              </ActionButton>
+                            )}
                             <ActionButton
                               variant="utility"
                               onClick={() => setTimelineApt(apt)}
@@ -569,24 +551,6 @@ export default function AppointmentsPage() {
                             >
                               สถานะงาน
                             </ActionButton>
-
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEdit(apt)}
-                              title="แก้ไข"
-                              className="p-1 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setDeletingApt(apt)}
-                              title="ลบ"
-                              className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
                           </div>
                         </td>
                       </tr>
@@ -616,24 +580,8 @@ export default function AppointmentsPage() {
               <div className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
                 <div className="flex justify-between items-start gap-2">
                   <h2 className="text-base font-black text-slate-900 dark:text-slate-100">{selectedApt.title}</h2>
-                  <span
-                    className={`px-2.5 py-1 rounded-full font-extrabold text-xs shrink-0 ${
-                      selectedApt.status === 'DONE'
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300'
-                        : selectedApt.status === 'IN_PROGRESS'
-                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300'
-                        : selectedApt.status === 'CANCELLED'
-                        ? 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-400 border border-slate-300'
-                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300'
-                    }`}
-                  >
-                    {selectedApt.status === 'DONE'
-                      ? '✓ ทำเสร็จแล้ว'
-                      : selectedApt.status === 'IN_PROGRESS'
-                      ? '⏳ กำลังดำเนินการ'
-                      : selectedApt.status === 'CANCELLED'
-                      ? '✕ ยกเลิก'
-                      : '🕒 รอดำเนินการ'}
+                  <span className={`px-2.5 py-1 rounded-full font-extrabold text-xs shrink-0 ${APPOINTMENT_STATUS_META[selectedApt.status].badge}`}>
+                    {APPOINTMENT_STATUS_META[selectedApt.status].label}
                   </span>
                 </div>
 
@@ -739,9 +687,21 @@ export default function AppointmentsPage() {
                   </div>
                   <div className="space-y-1 text-slate-800 dark:text-slate-200 font-mono text-xs">
                     {selectedApt.billNo && (
-                      <p className="font-bold text-emerald-600 dark:text-emerald-400">
-                        🧾 เลขที่บิล: {selectedApt.billNo}
-                      </p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-bold text-emerald-600 dark:text-emerald-400">
+                          🧾 เลขที่บิล: {selectedApt.billNo}
+                        </p>
+                        {selectedApt.billId && (
+                          <ActionButton
+                            variant="outline"
+                            onClick={() => handleBillClick(selectedApt)}
+                            className="h-7 px-2 text-[11px] rounded-lg"
+                            title={`เปิดบิล ${selectedApt.billNo}`}
+                          >
+                            ดูบิล
+                          </ActionButton>
+                        )}
+                      </div>
                     )}
                     {selectedApt.quotationNo && (
                       <p className="font-bold text-blue-600 dark:text-blue-400">
@@ -755,84 +715,92 @@ export default function AppointmentsPage() {
                 </div>
               </div>
 
-              {/* Status Update Quick Buttons */}
-              <div className="pt-2">
-                <span className="font-extrabold text-slate-700 dark:text-slate-300 block mb-2">
-                  เปลี่ยนสถานะงานนัดหมาย:
-                </span>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <button
-                    type="button"
-                    disabled={updatingStatusId === selectedApt.id}
-                    onClick={() => handleStatusChange(selectedApt.id, 'PENDING')}
-                    className={`py-2 px-3 rounded-xl font-bold text-xs border transition-all cursor-pointer ${
-                      selectedApt.status === 'PENDING'
-                        ? 'bg-amber-600 text-white border-amber-600 shadow-md scale-102'
-                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-amber-50'
-                    }`}
-                  >
-                    🕒 รอดำเนินการ
-                  </button>
-                  <button
-                    type="button"
-                    disabled={updatingStatusId === selectedApt.id}
-                    onClick={() => handleStatusChange(selectedApt.id, 'IN_PROGRESS')}
-                    className={`py-2 px-3 rounded-xl font-bold text-xs border transition-all cursor-pointer ${
-                      selectedApt.status === 'IN_PROGRESS'
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-md scale-102'
-                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-blue-50'
-                    }`}
-                  >
-                    ⏳ กำลังทำ
-                  </button>
-                  <button
-                    type="button"
-                    disabled={updatingStatusId === selectedApt.id}
-                    onClick={() => handleStatusChange(selectedApt.id, 'DONE')}
-                    className={`py-2 px-3 rounded-xl font-bold text-xs border transition-all cursor-pointer ${
-                      selectedApt.status === 'DONE'
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-md scale-102'
-                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-emerald-50'
-                    }`}
-                  >
-                    ✓ เสร็จแล้ว
-                  </button>
-                  <button
-                    type="button"
-                    disabled={updatingStatusId === selectedApt.id}
-                    onClick={() => handleStatusChange(selectedApt.id, 'CANCELLED')}
-                    className={`py-2 rounded-xl font-bold text-xs border transition-all cursor-pointer ${
-                      selectedApt.status === 'CANCELLED'
-                        ? 'bg-slate-600 text-white border-slate-700 shadow-md'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
-                    }`}
-                  >
-                    ✕ ยกเลิก
-                  </button>
+              {/* Lifecycle steps */}
+              {!isAppointmentClosed(selectedApt.status) && (
+                <div className="pt-2">
+                  <span className="font-extrabold text-slate-700 dark:text-slate-300 block mb-2">ขั้นตอนถัดไป:</span>
+                  <div className="flex flex-wrap gap-2">
+                    {nextAppointmentSteps(selectedApt.status).map((step) => (
+                      <button
+                        key={step.status}
+                        type="button"
+                        disabled={updatingStatusId === selectedApt.id}
+                        onClick={() => {
+                          if (step.status === 'NO_SHOW') {
+                            setReasonText('')
+                            setReasonAction({ apt: selectedApt, status: 'NO_SHOW' })
+                          } else {
+                            handleStatusChange(selectedApt.id, step.status)
+                          }
+                        }}
+                        className={`h-9 px-4 rounded-xl font-bold text-xs border transition-colors cursor-pointer disabled:opacity-50 ${
+                          step.status === 'NO_SHOW'
+                            ? 'bg-white dark:bg-slate-800 border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 hover:bg-rose-50'
+                            : 'bg-blue-600 hover:bg-blue-700 border-blue-600 text-white'
+                        }`}
+                      >
+                        {step.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Appointment History (reschedules / status changes) */}
+              {aptHistory.some((h) => h.changeType === 'RESCHEDULE' || h.changeType === 'STATUS') && (
+                <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-1.5">
+                  <span className="font-bold text-slate-700 dark:text-slate-300 block">ประวัตินัดหมาย</span>
+                  <ul className="space-y-1">
+                    {aptHistory
+                      .filter((h) => h.changeType === 'RESCHEDULE' || h.changeType === 'STATUS')
+                      .map((h) => (
+                        <li key={h.id} className="text-[11px] text-slate-600 dark:text-slate-300 flex flex-wrap gap-x-2">
+                          <span className="font-mono text-slate-400">{new Date(h.createdAt).toLocaleString('th-TH')}</span>
+                          {h.changeType === 'RESCHEDULE' ? (
+                            <span>
+                              เลื่อนนัดจาก {h.originalStart ? new Date(h.originalStart).toLocaleString('th-TH') : '-'} เป็น{' '}
+                              {h.newStart ? new Date(h.newStart).toLocaleString('th-TH') : '-'}
+                            </span>
+                          ) : (
+                            <span>
+                              สถานะ {APPOINTMENT_STATUS_META[h.fromStatus as AppointmentStatus]?.label ?? h.fromStatus} →{' '}
+                              {APPOINTMENT_STATUS_META[h.toStatus as AppointmentStatus]?.label ?? h.toStatus}
+                            </span>
+                          )}
+                          {h.reason && <span className="text-slate-500">เหตุผล: {h.reason}</span>}
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
             </AppModalBody>
 
             {/* Modal Footer */}
             <AppModalFooter>
               <div className="flex-1 flex items-center justify-between w-full">
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleOpenEdit(selectedApt)}
-                    className="px-3.5 py-2 rounded-xl bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 hover:bg-blue-100 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer border border-blue-200 dark:border-blue-900"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                    <span>แก้ไขนัดหมาย</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDeletingApt(selectedApt)}
-                    className="px-3.5 py-2 rounded-xl bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400 hover:bg-red-100 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer border border-red-200 dark:border-red-900"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>ลบนัดหมาย</span>
-                  </button>
+                  {!isAppointmentClosed(selectedApt.status) && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEdit(selectedApt)}
+                        className="h-9 px-3.5 rounded-xl bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 hover:bg-blue-100 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer border border-blue-200 dark:border-blue-900"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        <span>แก้ไข / เลื่อนนัด</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReasonText('')
+                          setReasonAction({ apt: selectedApt, status: 'CANCELLED' })
+                        }}
+                        className="h-9 px-3.5 rounded-xl bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400 hover:bg-red-100 font-bold text-xs transition-colors cursor-pointer border border-red-200 dark:border-red-900"
+                      >
+                        ยกเลิกนัดหมาย
+                      </button>
+                    </>
+                  )}
                 </div>
 
                 <button
@@ -975,24 +943,8 @@ export default function AppointmentsPage() {
                     </p>
                   </div>
                   <div className="text-right shrink-0">
-                    <span
-                      className={`px-2.5 py-1 rounded-full font-bold text-xs inline-block ${
-                        timelineApt.status === 'DONE'
-                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300'
-                          : timelineApt.status === 'IN_PROGRESS'
-                          ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300'
-                          : timelineApt.status === 'CANCELLED'
-                          ? 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-400 border border-slate-300'
-                          : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300'
-                      }`}
-                    >
-                      {timelineApt.status === 'DONE'
-                        ? 'เสร็จแล้ว'
-                        : timelineApt.status === 'IN_PROGRESS'
-                        ? 'กำลังดำเนินการ'
-                        : timelineApt.status === 'CANCELLED'
-                        ? 'ยกเลิก'
-                        : 'รอดำเนินการ'}
+                    <span className={`px-2.5 py-1 rounded-full font-bold text-xs inline-block ${APPOINTMENT_STATUS_META[timelineApt.status].badge}`}>
+                      {APPOINTMENT_STATUS_META[timelineApt.status].label}
                     </span>
                     <p className="text-[10px] text-slate-400 mt-0.5">ภาพรวมนัดหมาย</p>
                   </div>
@@ -1110,8 +1062,8 @@ export default function AppointmentsPage() {
                               </span>
                               <div className="flex gap-1.5 flex-wrap">
                                 {matchedEvent.images.map((imgUrl, imgIdx) => {
-                                  // eslint-disable-next-line @next/next/no-img-element
                                   return (
+                                    // eslint-disable-next-line @next/next/no-img-element
                                     <img
                                       key={imgIdx}
                                       src={imgUrl}
@@ -1156,7 +1108,8 @@ export default function AppointmentsPage() {
         onClose={() => setShowAddModal(false)}
         onSave={(created) => {
           addAppointment(created)
-          setAppointments((prev) => [created, ...prev])
+            .then(setAppointments)
+            .catch((err: unknown) => showToast('บันทึกนัดหมายไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR'))
         }}
         customers={customers}
         appointmentTypes={appointmentTypes}
@@ -1308,19 +1261,20 @@ export default function AppointmentsPage() {
                     />
                   </div>
 
-                  <div>
-                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">สถานะ</label>
-                    <CustomSelect
-                      value={editFormData.status || 'PENDING'}
-                      onChange={(val) => setEditFormData({ ...editFormData, status: val as AppointmentStatus })}
-                      options={[
-                        { value: 'PENDING', label: '🕒 รอดำเนินการ' },
-                        { value: 'IN_PROGRESS', label: '⏳ กำลังดำเนินการ' },
-                        { value: 'DONE', label: '✓ เสร็จแล้ว' },
-                        { value: 'CANCELLED', label: '✕ ยกเลิก' },
-                      ]}
-                    />
-                  </div>
+                  {isEditRescheduling && (
+                    <div>
+                      <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        เหตุผลการเลื่อนนัด <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="เช่น ลูกค้าขอเลื่อน"
+                        value={rescheduleReason}
+                        onChange={(e) => setRescheduleReason(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-purple-300 dark:border-purple-800 bg-slate-50 dark:bg-slate-900"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -1366,53 +1320,43 @@ export default function AppointmentsPage() {
         )}
       </AppModal>
 
-      {/* Delete Confirmation Modal */}
-      <AppModal isOpen={!!deletingApt} onClose={() => setDeletingApt(null)} size="sm">
-        {deletingApt && (
+      {/* Cancel / No-show Confirmation Modal (appointments are kept, never deleted) */}
+      <AppModal isOpen={!!reasonAction} onClose={() => setReasonAction(null)} size="sm">
+        {reasonAction && (
           <>
             <AppModalHeader
-              onClose={() => setDeletingApt(null)}
+              onClose={() => setReasonAction(null)}
               icon={<AlertTriangle className="w-5 h-5 text-red-500" />}
-              title="ยืนยันการลบนัดหมาย"
+              title={reasonAction.status === 'CANCELLED' ? 'ยกเลิกนัดหมาย' : 'บันทึกว่าไม่มาตามนัด'}
             />
 
-            <AppModalBody className="space-y-3 text-center">
-              <div className="w-12 h-12 rounded-2xl bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 mx-auto flex items-center justify-center">
-                <AlertTriangle className="w-6 h-6" />
-              </div>
-
+            <AppModalBody className="space-y-3">
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                นัดหมาย &quot;<span className="font-bold text-slate-800 dark:text-slate-200">{reasonAction.apt.title}</span>&quot; จะถูกเก็บไว้ในประวัติ พร้อมเหตุผล
+              </p>
               <div>
-                <p className="text-xs text-slate-600 dark:text-slate-300">
-                  คุณแน่ใจหรือไม่ว่าต้องการลบนัดหมาย &quot;<span className="font-bold text-slate-800 dark:text-slate-200">{deletingApt.title}</span>&quot;? การกระทำนี้ไม่สามารถย้อนกลับได้
-                </p>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  เหตุผล {reasonAction.status === 'CANCELLED' && <span className="text-red-500">*</span>}
+                </label>
+                <input
+                  type="text"
+                  value={reasonText}
+                  onChange={(e) => setReasonText(e.target.value)}
+                  placeholder={reasonAction.status === 'CANCELLED' ? 'เช่น ลูกค้ายกเลิกงาน' : 'เช่น ติดต่อลูกค้าไม่ได้'}
+                  className="w-full h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs"
+                />
               </div>
             </AppModalBody>
 
-            <AppModalFooter>
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={() => setDeletingApt(null)}
-                className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-              >
-                ยกเลิก
-              </button>
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={handleDeleteAppointment}
-                className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs shadow-md shadow-red-500/20 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-              >
-                {isDeleting ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>กำลังลบ...</span>
-                  </>
-                ) : (
-                  <span>ยืนยันลบ</span>
-                )}
-              </button>
-            </AppModalFooter>
+            <AppModalFooter
+              onCancel={() => setReasonAction(null)}
+              cancelText="ปิด"
+              onConfirm={handleConfirmReasonAction}
+              confirmText={reasonAction.status === 'CANCELLED' ? 'ยืนยันยกเลิกนัด' : 'ยืนยัน'}
+              confirmButtonColor="red"
+              isConfirmDisabled={updatingStatusId === reasonAction.apt.id || (reasonAction.status === 'CANCELLED' && !reasonText.trim())}
+              isConfirmLoading={updatingStatusId === reasonAction.apt.id}
+            />
           </>
         )}
       </AppModal>

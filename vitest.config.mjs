@@ -27,16 +27,6 @@ if (fs.existsSync(envPath)) {
 // Resolution order: process.env (e.g. CI) > localEnv (.env.local) > ''
 const resolveEnv = (key) => process.env[key] || localEnv[key] || ''
 
-const supabaseUrl = resolveEnv('NEXT_PUBLIC_SUPABASE_URL')
-const supabasePublishable = resolveEnv('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY')
-const hasRealSupabase = Boolean(
-  supabaseUrl &&
-  !supabaseUrl.includes('placeholder') &&
-  (supabaseUrl.startsWith('http://') || supabaseUrl.startsWith('https://')) &&
-  supabasePublishable &&
-  !supabasePublishable.includes('placeholder')
-)
-
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -56,9 +46,7 @@ export default defineConfig({
       ...configDefaults.exclude,
       '**/*.test.ts.bak',
       '**/*.bak',
-      ...(hasRealSupabase ? [] : ['tests/split-payment-receipt-audit.test.ts']),
     ],
-    testNamePattern: hasRealSupabase ? undefined : /^(?!.*(Split payment: records 1 transaction per channel)).*$/,
   },
 })
 

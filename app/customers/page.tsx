@@ -1,5 +1,8 @@
 'use client'
 
+import { useAskText } from '@/components/common/ConfirmDialogProvider'
+import { printBillA4 } from '@/features/documents/utils/transaction-print'
+import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import React, { useState, useEffect } from 'react'
 import {
   Users,
@@ -18,14 +21,11 @@ import {
   Upload,
   CheckCircle2,
   Trash2,
-  UserCheck,
   AlertTriangle,
   Printer,
   Receipt,
   Save,
   RefreshCw,
-  ChevronLeft,
-  ChevronRight,
 } from 'lucide-react'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import {
@@ -45,18 +45,18 @@ import { NewCustomerModal } from '@/features/customers/components/NewCustomerMod
 import { useToast } from '@/components/common/Toast'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
 import { logger } from '@/lib/utils/logger'
-import { loadCustomers, addCustomerAsync, updateCustomerAsync, deleteCustomerAsync } from '@/features/customers/services/customer-storage'
-import { loadRentalBills, deleteBill, canHardDeleteBill } from '@/features/bills/services/bill-storage'
-import { returnProductStock, restoreSaleProductStock } from '@/features/products/services/product-storage'
+import { loadCustomers, createCustomerAsync, updateCustomerAsync, deleteCustomerAsync } from '@/features/customers/services/customer-storage'
+import { getLatestIdCardUrl } from '@/features/customers/api/customer-repository'
+import { loadRentalBills, loadBillById, canHardDeleteBill } from '@/features/bills/services/bill-storage'
 import { loadTransactions } from '@/features/finance/services/finance-storage'
-import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { recordAuditLog, generateCorrelationId } from '@/features/audits/services/audit-storage'
-import { cancelOrVoidBillWorkflow } from '@/features/bills/services/bill-workflow-service'
+import { cancelBill, cancelOrVoidBill } from '@/features/bills/services/bill-service'
+import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
 
 export default function CustomersPage() {
   const { showToast } = useToast()
-  const { user } = useAuth()
+  const askText = useAskText()
+  const { settings: systemSettings } = useSystemSettings()
   const [customers, setCustomers] = useState<Customer[]>([])
   const [bills, setBills] = useState<RentalBill[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -182,7 +182,23 @@ export default function CustomersPage() {
     setCustomerOutstandingItems(outstanding)
   }, [selectedCustomerId, customers, bills])
 
-  const selectedCustomer: Customer | undefined = customers.find((c) => c.id === selectedCustomerId)
+  const selectedCustomerRecord: Customer | undefined = customers.find((c) => c.id === selectedCustomerId)
+  // ID card photo lives in private Storage (customer document); show it through a short-lived link.
+  const [idCardUrl, setIdCardUrl] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    setIdCardUrl(undefined)
+    if (!selectedCustomerId) return
+    let alive = true
+    getLatestIdCardUrl(selectedCustomerId)
+      .then((url) => alive && setIdCardUrl(url ?? undefined))
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [selectedCustomerId, customers])
+  const selectedCustomer: Customer | undefined = selectedCustomerRecord
+    ? { ...selectedCustomerRecord, idCardImageUrl: idCardUrl }
+    : undefined
 
   // Filter bills for selected customer
   const customerBills = selectedCustomer
@@ -243,13 +259,10 @@ export default function CustomersPage() {
     }
     setIsDeletingBill(true)
     try {
-      const actorUserId = user?.userId || 'system'
-      const actorDisplayName = user?.displayName || 'ระบบ'
-
       if (canHardDeleteBill(billToDelete)) {
-        // Only draft bills with no transactions can be hard deleted
-        deleteBill(billToDelete.id)
-        setBills((prev) => prev.filter((b) => b.id !== billToDelete.id))
+        // A draft is cancelled (kept in history), never hard-deleted.
+        await cancelBill(billToDelete.id, reason)
+        setBills(loadRentalBills())
         showToast(
           'ลบรายการบิลฉบับร่างสำเร็จ',
           `ลบรายการบิลฉบับร่าง ${billToDelete.billNo} ออกจากระบบเรียบร้อยแล้ว`,
@@ -257,15 +270,8 @@ export default function CustomersPage() {
         )
       } else {
         // Confirmed or transactional bills must NOT be hard deleted; transition to VOID via lifecycle workflow
-        cancelOrVoidBillWorkflow({
-          billId: billToDelete.id,
-          reason,
-          actor: {
-            userId: actorUserId,
-            displayName: actorDisplayName,
-          },
-          actionType: 'VOID',
-        })
+        const full = loadBillById(billToDelete.id)
+        await cancelOrVoidBill({ id: billToDelete.id, serverStatus: full?.serverStatus }, reason)
         const updatedBills = loadRentalBills()
         setBills(updatedBills)
         showToast(
@@ -278,6 +284,7 @@ export default function CustomersPage() {
       setBillToDelete(null)
       setDeleteBillReason('')
     } catch (err: any) {
+      if (isPinCancelled(err)) return
       logger.error('Failed to delete/void bill:', err)
       showToast('ดำเนินการไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาดในการดำเนินการกับบิล', 'ERROR')
     } finally {
@@ -299,18 +306,12 @@ export default function CustomersPage() {
     if (suspendingCustomerId) return
 
     const targetSuspend = !c.isSuspended
-    const reasonPrompt = window.prompt(
-      targetSuspend
-        ? `กรุณาระบุเหตุผลในการระงับสิทธิ์ลูกค้า "${c.customerName}" (จำเป็น):`
-        : `กรุณาระบุเหตุผลในการปลดระงับสิทธิ์ลูกค้า "${c.customerName}" (จำเป็น):`
-    )
-    const trimmedReason = reasonPrompt?.trim()
-    if (!trimmedReason) {
-      if (reasonPrompt !== null) {
-        showToast('กรุณาระบุเหตุผล', 'จำเป็นต้องระบุเหตุผลในการเปลี่ยนสถานะสิทธิ์ลูกค้า', 'ERROR')
-      }
-      return
-    }
+    const trimmedReason = await askText({
+      title: targetSuspend ? `ระงับสิทธิ์ลูกค้า "${c.customerName}"` : `ปลดระงับสิทธิ์ลูกค้า "${c.customerName}"`,
+      message: 'ระบุเหตุผล (บันทึกในประวัติ)',
+      danger: targetSuspend,
+    })
+    if (!trimmedReason) return
 
     setSuspendingCustomerId(c.id)
 
@@ -367,20 +368,20 @@ export default function CustomersPage() {
         return
       }
       try {
-        await updateCustomerAsync(updatedCustomer)
-        setCustomers(customers.map((c) => (c.id === updatedCustomer.id ? updatedCustomer : c)))
+        setCustomers(await updateCustomerAsync(updatedCustomer))
         showToast('แก้ไขข้อมูลลูกค้าสำเร็จ', `ปรับปรุงข้อมูลของ ${updatedCustomer.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
       } catch (err: any) {
         showToast('แก้ไขข้อมูลลูกค้าไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
       }
     } else {
-      const newCustomer = { ...updatedCustomer, id: updatedCustomer.id || `cust-${Date.now()}` }
       try {
-        await addCustomerAsync(newCustomer)
-        setCustomers([newCustomer, ...customers])
+        // The server assigns the id (and asks before saving a possible duplicate).
+        const newCustomer = await createCustomerAsync(updatedCustomer)
+        setCustomers(loadCustomers())
         setSelectedCustomerId(newCustomer.id)
         showToast('เพิ่มลูกค้าใหม่สำเร็จ', `บันทึกข้อมูลลูกค้า ${newCustomer.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
       } catch (err: any) {
+        if (err?.tag === 'DUPLICATE_CUSTOMER') return
         showToast('เพิ่มลูกค้าใหม่ไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
       }
     }
@@ -388,14 +389,11 @@ export default function CustomersPage() {
 
   const handleSaveNote = async () => {
     if (!selectedCustomer) return
-    const reasonPrompt = window.prompt(`กรุณาระบุเหตุผลในการแก้ไขหมายเหตุลูกค้า "${selectedCustomer.customerName}" (จำเป็น):`)
-    const trimmedReason = reasonPrompt?.trim()
-    if (!trimmedReason) {
-      if (reasonPrompt !== null) {
-        showToast('กรุณาระบุเหตุผล', 'จำเป็นต้องระบุเหตุผลในการแก้ไขหมายเหตุลูกค้า', 'ERROR')
-      }
-      return
-    }
+    const trimmedReason = await askText({
+      title: `แก้ไขหมายเหตุลูกค้า "${selectedCustomer.customerName}"`,
+      message: 'ระบุเหตุผล (บันทึกในประวัติ)',
+    })
+    if (!trimmedReason) return
     setIsSavingNote(true)
     try {
       const updated = {
@@ -964,7 +962,7 @@ export default function CustomersPage() {
                   {/* Table Area: Fills 100% of remaining vertical height */}
                   <div
                     ref={rentalAutoFit.containerRef}
-                    className="flex-1 min-h-0 overflow-hidden flex flex-col"
+                    className="flex-1 min-h-0 overflow-y-auto flex flex-col"
                   >
                   <div className="flex-1 min-h-0 overflow-hidden">
                     <table className="w-full text-left border-collapse text-[10px] leading-tight table-fixed">
@@ -1059,7 +1057,7 @@ export default function CustomersPage() {
                                   <div className="flex items-center justify-center gap-1 flex-nowrap shrink-0">
                                     <button
                                       type="button"
-                                      onClick={() => window.print()}
+                                      onClick={() => printBillA4(b, systemSettings.business)}
                                       title="พิมพ์เอกสาร A4"
                                       className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 transition-colors shadow-xs cursor-pointer shrink-0"
                                     >
@@ -1088,34 +1086,11 @@ export default function CustomersPage() {
                     <div>
                       {customerBills.length > 0 ? (
                         <span>
-                          แสดง {rentalAutoFit.startIndex + 1} - {rentalAutoFit.endIndex} จาก {customerBills.length} รายการ
+                          แสดง {rentalAutoFit.endIndex} จาก {customerBills.length} รายการ
                         </span>
                       ) : (
                         <span>0 รายการ</span>
                       )}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        disabled={rentalAutoFit.currentPage <= 1}
-                        onClick={() => rentalAutoFit.setCurrentPage((p) => Math.max(1, p - 1))}
-                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-medium flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <ChevronLeft className="w-3.5 h-3.5" />
-                        <span>ก่อนหน้า</span>
-                      </button>
-                      <span className="px-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        {rentalAutoFit.currentPage} / {rentalAutoFit.totalPages}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={rentalAutoFit.currentPage >= rentalAutoFit.totalPages}
-                        onClick={() => rentalAutoFit.setCurrentPage((p) => Math.min(rentalAutoFit.totalPages, p + 1))}
-                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-medium flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <span>ถัดไป</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -1158,7 +1133,7 @@ export default function CustomersPage() {
                   {/* Table Area */}
                   <div
                     ref={paymentAutoFit.containerRef}
-                    className="flex-1 min-h-0 overflow-hidden flex flex-col"
+                    className="flex-1 min-h-0 overflow-y-auto flex flex-col"
                   >
                     <div className="flex-1 min-h-0 overflow-hidden">
                       <table className="w-full text-left border-collapse text-[10px] leading-tight table-fixed">
@@ -1236,34 +1211,11 @@ export default function CustomersPage() {
                     <div>
                       {customerPayments.length > 0 ? (
                         <span>
-                          แสดง {paymentAutoFit.startIndex + 1} - {paymentAutoFit.endIndex} จาก {customerPayments.length} รายการ
+                          แสดง {paymentAutoFit.endIndex} จาก {customerPayments.length} รายการ
                         </span>
                       ) : (
                         <span>0 รายการ</span>
                       )}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        disabled={paymentAutoFit.currentPage <= 1}
-                        onClick={() => paymentAutoFit.setCurrentPage((p) => Math.max(1, p - 1))}
-                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-medium flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <ChevronLeft className="w-3.5 h-3.5" />
-                        <span>ก่อนหน้า</span>
-                      </button>
-                      <span className="px-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        {paymentAutoFit.currentPage} / {paymentAutoFit.totalPages}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={paymentAutoFit.currentPage >= paymentAutoFit.totalPages}
-                        onClick={() => paymentAutoFit.setCurrentPage((p) => Math.min(paymentAutoFit.totalPages, p + 1))}
-                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-medium flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <span>ถัดไป</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -1312,7 +1264,7 @@ export default function CustomersPage() {
                   {/* Table Area */}
                   <div
                     ref={outstandingAutoFit.containerRef}
-                    className="flex-1 min-h-0 overflow-hidden flex flex-col"
+                    className="flex-1 min-h-0 overflow-y-auto flex flex-col"
                   >
                     <div className="flex-1 min-h-0 overflow-hidden">
                       <table className="w-full text-left border-collapse text-[10px] leading-tight table-fixed">
@@ -1388,34 +1340,11 @@ export default function CustomersPage() {
                     <div>
                       {customerOutstandingItems.length > 0 ? (
                         <span>
-                          แสดง {outstandingAutoFit.startIndex + 1} - {outstandingAutoFit.endIndex} จาก {customerOutstandingItems.length} รายการ
+                          แสดง {outstandingAutoFit.endIndex} จาก {customerOutstandingItems.length} รายการ
                         </span>
                       ) : (
                         <span>0 รายการ</span>
                       )}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        disabled={outstandingAutoFit.currentPage <= 1}
-                        onClick={() => outstandingAutoFit.setCurrentPage((p) => Math.max(1, p - 1))}
-                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-medium flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <ChevronLeft className="w-3.5 h-3.5" />
-                        <span>ก่อนหน้า</span>
-                      </button>
-                      <span className="px-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        {outstandingAutoFit.currentPage} / {outstandingAutoFit.totalPages}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={outstandingAutoFit.currentPage >= outstandingAutoFit.totalPages}
-                        onClick={() => outstandingAutoFit.setCurrentPage((p) => Math.min(outstandingAutoFit.totalPages, p + 1))}
-                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-medium flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <span>ถัดไป</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
                     </div>
                   </div>
                 </div>

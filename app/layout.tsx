@@ -12,6 +12,8 @@ import { AuthProvider } from '@/features/auth/contexts/AuthContext'
 import { AppLockProvider } from '@/features/auth/contexts/AppLockContext'
 import { SystemSettingsProvider } from '@/lib/contexts/SystemSettingsContext'
 import { MasterDataProvider } from '@/components/common/MasterDataProvider'
+import { PinConfirmProvider } from '@/components/common/PinConfirmProvider'
+import { ConfirmDialogProvider } from '@/components/common/ConfirmDialogProvider'
 
 const promptFont = Prompt({
   subsets: ['thai', 'latin'],
@@ -59,10 +61,12 @@ export default function RootLayout({
         />
         <ThemeProvider>
           <ToastProvider>
+          <ConfirmDialogProvider>
             <DynamicFavicon />
             <SystemSettingsProvider>
               <AuthProvider>
                 <AppLockProvider>
+                  <PinConfirmProvider>
                   <MasterDataProvider>
                     <AuthShell>
                       <Sidebar />
@@ -74,9 +78,11 @@ export default function RootLayout({
                       </main>
                     </AuthShell>
                   </MasterDataProvider>
+                  </PinConfirmProvider>
                 </AppLockProvider>
               </AuthProvider>
             </SystemSettingsProvider>
+          </ConfirmDialogProvider>
           </ToastProvider>
         </ThemeProvider>
       </body>

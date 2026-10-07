@@ -1,4 +1,6 @@
 'use client'
+import { printQuotationA4 } from '@/features/documents/utils/transaction-print'
+import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { ModalHeader } from '@/components/common/ModalHeader'
 
 import React, { useState, useEffect } from 'react'
@@ -12,8 +14,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Printer,
-  ChevronLeft,
-  ChevronRight,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { CustomSelect } from '@/components/common/CustomSelect'
@@ -28,7 +28,6 @@ import {
   cancelQuotationWorkflow,
   fetchQuotationsFromSupabase,
 } from '@/features/quotations/services/quotation-storage'
-import { checkAndExpireReservations } from '@/features/bills/services/bill-workflow-service'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
 
 interface ReservationFulfillmentResult {
@@ -46,6 +45,7 @@ interface ReservationFulfillmentResult {
 export default function QuotationsPage() {
   const router = useRouter()
   const { showToast } = useToast()
+  const { settings: systemSettings } = useSystemSettings()
   const { user } = useAuth()
   const [quotations, setQuotations] = useState<Quotation[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -94,7 +94,7 @@ export default function QuotationsPage() {
         userId: user?.userId || 'system',
         displayName: user?.displayName || 'ระบบ',
       }
-      cancelQuotationWorkflow(quotationForRelease.id, trimmedReason, actor)
+      await cancelQuotationWorkflow(quotationForRelease.id, trimmedReason, actor)
       const updatedList = loadQuotationsFromStorage()
       setQuotations(updatedList)
       setQuotationForRelease(null)
@@ -113,11 +113,6 @@ export default function QuotationsPage() {
   const loadQuotations = React.useCallback(async () => {
     setIsLoading(true)
     try {
-      try {
-        checkAndExpireReservations()
-      } catch {
-        // ignore on early boot
-      }
       try {
         const remote = await fetchQuotationsFromSupabase()
         if (remote && remote.length >= 0) {
@@ -152,9 +147,10 @@ export default function QuotationsPage() {
     defaultHeaderHeight: 36,
   })
 
+  const setQuotationPage = quotationAutoFit.setCurrentPage
   useEffect(() => {
-    quotationAutoFit.setCurrentPage(1)
-  }, [searchTerm, statusFilter])
+    setQuotationPage(1)
+  }, [searchTerm, statusFilter, setQuotationPage])
 
   const paginatedQuotations = filteredQuotations.slice(
     quotationAutoFit.startIndex,
@@ -179,8 +175,8 @@ export default function QuotationsPage() {
     router.push(`/pos?quotationId=${encodeURIComponent(quotationId)}`)
   }
 
-  const handlePrintQuotation = (_q: Quotation) => {
-    window.print()
+  const handlePrintQuotation = (q: Quotation) => {
+    printQuotationA4(q, systemSettings.business)
   }
 
   const handleConfirmConvertToPos = async () => {
@@ -196,7 +192,7 @@ export default function QuotationsPage() {
           userId: user?.userId || 'system',
           displayName: user?.displayName || 'ระบบ',
         }
-        const res = confirmQuotationWorkflow(targetQuotation.id, actor)
+        const res = await confirmQuotationWorkflow(targetQuotation.id, actor)
         const updated = loadQuotationsFromStorage()
         setQuotations(updated)
         closeActionModal()
@@ -295,10 +291,10 @@ export default function QuotationsPage() {
 
             {/* Mobile Card List */}
             <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-1">
-              {paginatedQuotations.length === 0 ? (
+              {filteredQuotations.length === 0 ? (
                 <div className="p-8 text-center text-slate-400 italic">ไม่พบรายการใบเสนอราคา</div>
               ) : (
-                paginatedQuotations.map((q) => {
+                filteredQuotations.map((q) => {
                   const isConverted = q.status === 'CONVERTED'
                   const buttonLabel = isConverted ? 'เปิดบิลแล้ว' : q.status === 'ACCEPTED' ? 'เปิดบิล POS' : 'ตอบรับ / จองสินค้า'
                   return (
@@ -390,34 +386,8 @@ export default function QuotationsPage() {
               )}
             </div>
 
-            {/* Mobile pagination bar */}
-            <div className="shrink-0 flex items-center justify-between p-2 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs text-slate-500">
-              <span>
-                {filteredQuotations.length > 0
-                  ? `${quotationAutoFit.startIndex + 1}-${quotationAutoFit.endIndex} จาก ${filteredQuotations.length}`
-                  : '0 รายการ'}
-              </span>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  disabled={quotationAutoFit.currentPage <= 1}
-                  onClick={() => quotationAutoFit.setCurrentPage((p) => Math.max(1, p - 1))}
-                  className="px-2 py-1 rounded border border-slate-300 dark:border-slate-600 disabled:opacity-40 cursor-pointer"
-                >
-                  ก่อนหน้า
-                </button>
-                <span className="font-bold text-slate-700 dark:text-slate-200 px-1">
-                  {quotationAutoFit.currentPage}/{quotationAutoFit.totalPages}
-                </span>
-                <button
-                  type="button"
-                  disabled={quotationAutoFit.currentPage >= quotationAutoFit.totalPages}
-                  onClick={() => quotationAutoFit.setCurrentPage((p) => Math.min(quotationAutoFit.totalPages, p + 1))}
-                  className="px-2 py-1 rounded border border-slate-300 dark:border-slate-600 disabled:opacity-40 cursor-pointer"
-                >
-                  ถัดไป
-                </button>
-              </div>
+            <div className="shrink-0 p-2 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs text-slate-500">
+              ทั้งหมด {filteredQuotations.length} รายการ
             </div>
           </div>
 
@@ -468,12 +438,11 @@ export default function QuotationsPage() {
               </div>
             </div>
 
-            {/* Table + Pagination container measured by quotationAutoFit.containerRef */}
+            {/* Table scroll area: rows load incrementally (quotationAutoFit) */}
             <div
               ref={quotationAutoFit.containerRef}
-              className="flex-1 min-h-0 min-w-0 flex flex-col justify-between overflow-hidden"
+              className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden"
             >
-              <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
                 <table className={`w-full table-fixed text-left text-xs leading-tight border-collapse ${paginatedQuotations.length === 0 ? 'h-full' : ''}`}>
                   <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 text-slate-500 text-xs font-bold">
                     <tr>
@@ -563,43 +532,17 @@ export default function QuotationsPage() {
                     )}
                   </tbody>
                 </table>
-              </div>
+            </div>
 
-              {/* Pagination footer */}
-              <div className="px-3 py-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs text-slate-500 shrink-0 bg-slate-50/50 dark:bg-slate-800/50">
-                <div>
-                  {filteredQuotations.length > 0 ? (
-                    <span>
-                      แสดง {quotationAutoFit.startIndex + 1} - {quotationAutoFit.endIndex} จาก {filteredQuotations.length} รายการ
-                    </span>
-                  ) : (
-                    <span>0 รายการ</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    disabled={quotationAutoFit.currentPage <= 1}
-                    onClick={() => quotationAutoFit.setCurrentPage((p) => Math.max(1, p - 1))}
-                    className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                    <span>ก่อนหน้า</span>
-                  </button>
-                  <span className="font-bold text-slate-700 dark:text-slate-200 px-1">
-                    {quotationAutoFit.currentPage} / {quotationAutoFit.totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={quotationAutoFit.currentPage >= quotationAutoFit.totalPages}
-                    onClick={() => quotationAutoFit.setCurrentPage((p) => Math.min(quotationAutoFit.totalPages, p + 1))}
-                    className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
-                  >
-                    <span>ถัดไป</span>
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
+            {/* Row count footer (no paging: rows load as the table scrolls) */}
+            <div className="px-3 py-2 border-t border-slate-200 dark:border-slate-700 text-xs text-slate-500 shrink-0 bg-slate-50/50 dark:bg-slate-800/50">
+              {filteredQuotations.length > 0 ? (
+                <span>
+                  แสดง {quotationAutoFit.endIndex} จาก {filteredQuotations.length} รายการ
+                </span>
+              ) : (
+                <span>0 รายการ</span>
+              )}
             </div>
           </div>
         </>

@@ -5,7 +5,7 @@ import { User, Check, Camera, ShieldCheck, Edit3, CheckCircle2, AlertTriangle, T
 import { Customer } from '@/lib/types/rental-pos'
 import type { ThaiProvince } from '@/lib/thai-address-data'
 import { IDCardScannerModal, ExtractedIDCardData } from './IDCardScannerModal'
-import { CustomDatePicker } from '@/components/common/CustomDatePicker'
+import { CustomDatePicker, getLocalDateString } from '@/components/common/CustomDatePicker'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
 import { validateThaiNationalId, formatThaiNationalId } from '@/lib/ocr/thai-id-parser'
@@ -64,6 +64,7 @@ export function NewCustomerModal({
   const [wasScanned, setWasScanned] = useState(false)
   const [isScannerOpen, setIsScannerOpen] = useState(false)
   const [updateReason, setUpdateReason] = useState('')
+  const [reasonError, setReasonError] = useState(false)
 
   useEffect(() => {
     setUpdateReason('')
@@ -285,7 +286,7 @@ export function NewCustomerModal({
     }
 
     if (editingCustomer && !updateReason.trim()) {
-      alert('กรุณาระบุเหตุผลในการแก้ไขข้อมูลลูกค้า')
+      setReasonError(true)
       return
     }
 
@@ -616,7 +617,7 @@ export function NewCustomerModal({
                   </label>
                   <CustomDatePicker
                     value={idCardExpiry ? new Date(idCardExpiry) : null}
-                    onChange={(d) => setIdCardExpiry(d ? d.toISOString().split('T')[0] : '')}
+                    onChange={(d) => setIdCardExpiry(d ? getLocalDateString(d) : '')}
                     align="left"
                     placeholder="เลือกวันหมดอายุ..."
                   />
@@ -722,11 +723,16 @@ export function NewCustomerModal({
                 <input
                   type="text"
                   value={updateReason}
-                  onChange={(e) => setUpdateReason(e.target.value)}
+                  onChange={(e) => {
+                    setUpdateReason(e.target.value)
+                    setReasonError(false)
+                  }}
                   placeholder="ระบุเหตุผล เช่น ลูกค้าแจ้งเปลี่ยนเบอร์โทรและที่อยู่จัดส่ง..."
                   required
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  className={`w-full px-3 py-2 text-xs rounded-xl border ${reasonError ? 'border-red-500 ring-2 ring-red-500/30' : 'border-amber-300 dark:border-amber-700'} bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500`}
+                  
                 />
+                {reasonError && <p className="text-[11px] font-bold text-red-600">กรุณาระบุเหตุผลก่อนบันทึก</p>}
               </div>
             )}
           </AppModalBody>

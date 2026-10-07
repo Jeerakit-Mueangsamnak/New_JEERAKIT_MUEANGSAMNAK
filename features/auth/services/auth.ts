@@ -20,6 +20,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     }
 
     let profile = null
+    let menuCodes: string[] = []
     try {
       const adminClient = createAdminClient()
       const { data } = await adminClient
@@ -28,11 +29,17 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
         .eq('id', authUser.id)
         .maybeSingle()
       profile = data
+
+      const { data: grants } = await adminClient
+        .from('user_menu_access')
+        .select('menu_code')
+        .eq('user_id', authUser.id)
+      menuCodes = (grants || []).map((row: { menu_code: string }) => row.menu_code)
     } catch {
-      // If admin client or profiles lookup is unavailable, profile is null and role safely defaults to USER
+      // If admin client or profiles lookup is unavailable, profile is null: role USER, status PENDING, no menus
     }
 
-    return buildCurrentUser(authUser, profile)
+    return buildCurrentUser(authUser, profile, menuCodes)
   } catch {
     return null
   }

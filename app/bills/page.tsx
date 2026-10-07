@@ -1,20 +1,23 @@
 'use client'
 
+import { useConfirm } from '@/components/common/ConfirmDialogProvider'
+import { printBillA4, renderBillA4Html } from '@/features/documents/utils/transaction-print'
+import { BillPreviewOverlay } from '@/features/bills/components/BillPreviewOverlay'
+import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import React, { useState } from 'react'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
 import { BillActionView } from '@/features/bills/components/BillActionView'
 import { BillRevisionView } from '@/features/bills/components/BillRevisionView'
 import { AuditLogViewerModal } from '@/features/bills/components/AuditLogViewerModal'
 import { LineNotifyModal } from '@/features/bills/components/LineNotifyModal'
-import { DepositRefundModal } from '@/features/bills/components/DepositRefundModal'
+import { DepositModal } from '@/features/bills/components/DepositRefundModal'
+import { DeliveryModal } from '@/features/bills/components/DeliveryModal'
 import { PaymentRefundModal } from '@/features/bills/components/PaymentRefundModal'
 import { useToast } from '@/components/common/Toast'
 import { useRouter } from 'next/navigation'
-import { FullBill, loadBills as fetchBills, fetchBillsFromSupabase, deleteBill as deleteBillFromStorage, canHardDeleteBill } from '@/features/bills/services/bill-storage'
-import { returnProductStock, restoreSaleProductStock } from '@/features/products/services/product-storage'
-import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { recordAuditLog, generateCorrelationId } from '@/features/audits/services/audit-storage'
-import { cancelOrVoidBillWorkflow, confirmDraftBillWorkflow, checkAndExpireReservations } from '@/features/bills/services/bill-workflow-service'
+import { FullBill, loadBills as fetchBills, fetchBillsFromSupabase, canHardDeleteBill } from '@/features/bills/services/bill-storage'
+import { cancelOrVoidBill, cancelBill, confirmBill } from '@/features/bills/services/bill-service'
+import { isPinCancelled } from '@/lib/db/pin-confirm'
 import {
   Search,
   RefreshCw,
@@ -33,16 +36,18 @@ import {
   WalletCards,
   FileEdit,
   Trash2,
+  Truck,
 } from 'lucide-react'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { ActionButton } from '@/components/common/ActionButton'
-import { DATA_TABLE_THEAD_CLASSES, DATA_TABLE_TH_CLASSES, DATA_TABLE_TD_CLASSES } from '@/components/common/DataTableFrame'
+import { DATA_TABLE_THEAD_CLASSES, DATA_TABLE_TH_CLASSES } from '@/components/common/DataTableFrame'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
 
 export default function BillsPage() {
   const router = useRouter()
   const { showToast } = useToast()
-  const { user } = useAuth()
+  const confirmDialog = useConfirm()
+  const { settings: systemSettings } = useSystemSettings()
   const [bills, setBills] = useState<FullBill[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -68,6 +73,7 @@ export default function BillsPage() {
   const [activeWorkflow, setActiveWorkflow] = useState<'RETURN' | 'PAYMENT' | 'CORRECTION' | 'EXTENSION' | null>(null)
   const [showDepositRefund, setShowDepositRefund] = useState(false)
   const [showPaymentRefund, setShowPaymentRefund] = useState(false)
+  const [showDelivery, setShowDelivery] = useState(false)
 
   // Cancel Modal State
   const [selectedBillForCancel, setSelectedBillForCancel] = useState<FullBill | null>(null)
@@ -76,11 +82,6 @@ export default function BillsPage() {
   const loadBills = React.useCallback(async () => {
     setIsLoading(true)
     try {
-      try {
-        checkAndExpireReservations()
-      } catch {
-        // ignore on early boot
-      }
       try {
         const data = await fetchBillsFromSupabase()
         setBills(data)
@@ -141,14 +142,10 @@ export default function BillsPage() {
     return matchesSearch && matchesRental && matchesPayment
   })
 
-  // Auto-fit pagination for Bills Table
+  // Bills table: scrolls inside its area, more rows load near the bottom
   const {
     containerRef: billsTableContainerRef,
-    pageSize: billsPageSize,
-    currentPage: billsCurrentPage,
     setCurrentPage: setBillsCurrentPage,
-    totalPages: billsTotalPages,
-    startIndex: billsStartIndex,
     endIndex: billsEndIndex,
   } = useAutoFitPageSize({
     defaultRowHeight: 34,
@@ -161,7 +158,7 @@ export default function BillsPage() {
     setBillsCurrentPage(1)
   }, [searchTerm, rentalFilter, paymentFilter, setBillsCurrentPage])
 
-  const paginatedBills = filteredBills.slice(billsStartIndex, billsEndIndex)
+  const paginatedBills = filteredBills.slice(0, billsEndIndex)
 
   // Metrics
   const rentingCount = bills.filter((b) => b.rentalStatus === 'RENTING').length
@@ -176,15 +173,7 @@ export default function BillsPage() {
 
     const trimmedReason = cancelReason.trim()
     try {
-      cancelOrVoidBillWorkflow({
-        billId: selectedBillForCancel.id,
-        reason: trimmedReason,
-        actor: {
-          userId: user?.userId || 'system',
-          displayName: user?.displayName || 'ระบบ',
-        },
-        actionType: 'CANCEL',
-      })
+      await cancelOrVoidBill(selectedBillForCancel, trimmedReason)
 
       const updatedBills = fetchBills()
       setBills(updatedBills)
@@ -194,8 +183,19 @@ export default function BillsPage() {
       setCancelReason('')
       setSelectedRowBill(null)
     } catch (err: any) {
+      if (isPinCancelled(err)) return
       showToast('เกิดข้อผิดพลาดในการยกเลิกบิล', err?.message || 'ไม่สามารถยกเลิกบิลได้', 'ERROR')
     }
+  }
+
+  // Double-click a bill row: real-size A4 preview of the bill (same template as print).
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
+  const closeBillPreview = React.useCallback(() => setPreviewHtml(null), [])
+  const openBillPreview = (e: React.MouseEvent, b: FullBill) => {
+    if ((e.target as HTMLElement).closest('button, a, input, select, textarea')) return
+    window.getSelection()?.removeAllRanges()
+    const html = renderBillA4Html(b, systemSettings.business)
+    if (html) setPreviewHtml(html)
   }
 
   return (
@@ -344,15 +344,9 @@ export default function BillsPage() {
 
                     <ActionButton
                       onClick={async () => {
-                        if (confirm(`ยืนยันการเปิดบิลจากแบบร่าง ${selectedRowBill.billNo} ใช่หรือไม่?`)) {
+                        if (await confirmDialog({ title: `ยืนยันการเปิดบิลจากแบบร่าง ${selectedRowBill.billNo} ใช่หรือไม่?` })) {
                           try {
-                            confirmDraftBillWorkflow({
-                              billId: selectedRowBill.id,
-                              actor: {
-                                userId: user?.userId || 'system',
-                                displayName: user?.displayName || 'ระบบ',
-                              },
-                            })
+                            await confirmBill(selectedRowBill.id)
                             showToast('ยืนยันบิลสำเร็จ', `ยืนยันบิล ${selectedRowBill.billNo} เรียบร้อยแล้ว`, 'SUCCESS')
                             await loadBills()
                           } catch (err: any) {
@@ -370,9 +364,9 @@ export default function BillsPage() {
                     {canHardDeleteBill(selectedRowBill) && (
                       <ActionButton
                         onClick={async () => {
-                          if (confirm(`คุณต้องการลบแบบร่าง ${selectedRowBill.billNo} หรือไม่?`)) {
+                          if (await confirmDialog({ title: `คุณต้องการลบแบบร่าง ${selectedRowBill.billNo} หรือไม่?` })) {
                             try {
-                              deleteBillFromStorage(selectedRowBill.id)
+                              await cancelBill(selectedRowBill.id, 'ลบแบบร่าง')
                               showToast('ลบแบบร่างสำเร็จ', `ลบแบบร่าง ${selectedRowBill.billNo} เรียบร้อยแล้ว`, 'SUCCESS')
                               setSelectedRowBill(null)
                               await loadBills()
@@ -427,6 +421,16 @@ export default function BillsPage() {
                     </ActionButton>
 
                     <ActionButton
+                      disabled={!selectedRowBill || selectedRowBill.deliveryStatus === 'DELIVERED' || !['CONFIRMED', 'ACTIVE'].includes(selectedRowBill.serverStatus || '')}
+                      onClick={() => setShowDelivery(true)}
+                      variant="outline"
+                      icon={<Truck className="w-3.5 h-3.5" />}
+                      title="บันทึกส่งของให้ลูกค้า (ส่งบางส่วนได้)"
+                    >
+                      ส่งของ
+                    </ActionButton>
+
+                    <ActionButton
                       disabled={!selectedRowBill || !['RENTING', 'PARTIAL_RETURNED'].includes(selectedRowBill.rentalStatus)}
                       onClick={() => setActiveWorkflow('EXTENSION')}
                       variant={selectedRowBill && ['RENTING', 'PARTIAL_RETURNED'].includes(selectedRowBill.rentalStatus) ? 'outline' : 'neutral'}
@@ -440,14 +444,14 @@ export default function BillsPage() {
                     <div className="h-4 w-px bg-slate-200 dark:bg-slate-700 mx-0.5" />
 
                     <ActionButton
-                      disabled={!selectedRowBill || selectedRowBill.heldDepositAmount <= 0}
+                      disabled={!selectedRowBill}
                       onClick={() => setShowDepositRefund(true)}
                       variant={selectedRowBill && selectedRowBill.heldDepositAmount > 0 ? 'outline' : 'neutral'}
                       className={selectedRowBill && selectedRowBill.heldDepositAmount > 0 ? '!bg-amber-600 hover:!bg-amber-700 !text-white !border-transparent' : ''}
                       icon={<WalletCards className="w-3.5 h-3.5" />}
-                      title="คืนเงินมัดจำให้ลูกค้า"
+                      title="ดู/แก้ไขยอดมัดจำของบิล (ระบบไม่หักหรือคืนให้อัตโนมัติ)"
                     >
-                      คืนมัดจำ
+                      มัดจำ
                     </ActionButton>
 
                     <ActionButton
@@ -498,7 +502,7 @@ export default function BillsPage() {
           {/* 1. Mobile Card View (< md screens) */}
           <div className="md:hidden flex-1 min-h-0 overflow-hidden flex flex-col justify-between">
             <div className="flex-1 min-h-0 overflow-hidden space-y-2.5 pr-1">
-            {paginatedBills.map((b) => {
+            {filteredBills.map((b) => {
               const overdue = isOverdueBill(b)
               const overdueDays = getOverdueDays(b)
 
@@ -506,6 +510,7 @@ export default function BillsPage() {
                 <div
                   key={b.id}
                   onClick={() => setSelectedRowBill(b)}
+                  onDoubleClick={(e) => openBillPreview(e, b)}
                   className={`p-3 rounded-2xl border shadow-sm space-y-2.5 cursor-pointer transition-all ${selectedRowBill?.id === b.id ? 'bg-emerald-50/50 dark:bg-emerald-900/20 border-emerald-500/50' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}
                 >
                   <div className="flex justify-between items-start">
@@ -607,11 +612,13 @@ export default function BillsPage() {
                           <button
                             onClick={async (e) => {
                               e.stopPropagation()
-                              if (confirm(`ต้องการลบแบบร่าง ${b.billNo} หรือไม่?`)) {
-                                const ok = deleteBillFromStorage(b.id)
-                                if (ok) {
+                              if (await confirmDialog({ title: `ต้องการลบแบบร่าง ${b.billNo} หรือไม่?` })) {
+                                try {
+                                  await cancelBill(b.id, 'ลบแบบร่าง')
                                   showToast('ลบแบบร่างสำเร็จ', `ลบแบบร่าง ${b.billNo} แล้ว`, 'SUCCESS')
                                   await loadBills()
+                                } catch (err: any) {
+                                  showToast('เกิดข้อผิดพลาด', err?.message || 'ไม่สามารถลบแบบร่างได้', 'ERROR')
                                 }
                               }
                             }}
@@ -632,7 +639,7 @@ export default function BillsPage() {
                           </button>
 
                           <button
-                            onClick={() => window.print()}
+                            onClick={() => printBillA4(b, systemSettings.business)}
                             className="p-1.5 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer"
                             title="พิมพ์บิล (A4)"
                           >
@@ -645,7 +652,7 @@ export default function BillsPage() {
                 </div>
               )
             })}
-            {paginatedBills.length === 0 && (
+            {filteredBills.length === 0 && (
               <div className="flex-1 flex flex-col items-center justify-center py-12 text-slate-400">
                 <Receipt className="w-8 h-8 opacity-40 mb-1" />
                 <span className="text-xs font-semibold">ไม่พบรายการบิล</span>
@@ -654,33 +661,14 @@ export default function BillsPage() {
             )}
             </div>
 
-            {/* Mobile Pagination */}
-            <div className="shrink-0 pt-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs text-slate-500">
-              <span>หน้า {billsCurrentPage} / {billsTotalPages}</span>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setBillsCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={billsCurrentPage === 1}
-                  className="px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-40 font-bold"
-                >
-                  ก่อนหน้า
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setBillsCurrentPage((p) => Math.min(billsTotalPages, p + 1))}
-                  disabled={billsCurrentPage === billsTotalPages || billsTotalPages === 0}
-                  className="px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-40 font-bold"
-                >
-                  ถัดไป
-                </button>
-              </div>
+            <div className="shrink-0 pt-2 border-t border-slate-200 dark:border-slate-700 text-xs text-slate-500">
+              ทั้งหมด {filteredBills.length} รายการ
             </div>
           </div>
 
           {/* 2. Compact Table View (>= md screens) */}
           <div className="hidden md:flex flex-1 min-h-0 overflow-hidden flex-col justify-between">
-            <div ref={billsTableContainerRef} className="flex-1 min-h-0 min-w-0 overflow-hidden">
+            <div ref={billsTableContainerRef} className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
               <table className="w-full text-left border-collapse text-[10px] leading-tight table-fixed">
                 <colgroup>
                   <col className="w-[88px] sm:w-[96px] lg:w-[108px]" />
@@ -718,6 +706,7 @@ export default function BillsPage() {
                       <tr
                         key={b.id}
                         onClick={() => setSelectedRowBill(b)}
+                        onDoubleClick={(e) => openBillPreview(e, b)}
                         className={`transition-colors cursor-pointer ${selectedRowBill?.id === b.id ? 'bg-emerald-50/50 dark:bg-emerald-900/20 ring-1 ring-inset ring-emerald-500/30' : 'hover:bg-slate-50/80 dark:hover:bg-slate-700/30'}`}
                       >
                         <td className="px-1 py-1.5 font-bold font-mono text-blue-600 dark:text-blue-400 truncate text-[10px]">
@@ -814,16 +803,10 @@ export default function BillsPage() {
                               <button
                                 onClick={async (e) => {
                                   e.stopPropagation()
-                                  if (confirm(`ยืนยันการเปิดบิลเช่าจากแบบร่าง ${b.billNo}?`)) {
+                                  if (await confirmDialog({ title: `ยืนยันการเปิดบิลเช่าจากแบบร่าง ${b.billNo}?` })) {
                                     try {
-                                      const res = await confirmDraftBillWorkflow({
-                                        billId: b.id,
-                                        actor: {
-                                          userId: user?.id || 'staff',
-                                          displayName: user?.displayName || 'STAFF',
-                                        },
-                                      })
-                                      if (res.bill) {
+                                      const res = await confirmBill(b.id)
+                                      if (res) {
                                         showToast('เปิดบิลสำเร็จ', `แปลงแบบร่าง ${b.billNo} เป็นบิลเช่าเรียบร้อยแล้ว`, 'SUCCESS')
                                         await loadBills()
                                       }
@@ -840,13 +823,13 @@ export default function BillsPage() {
                               <button
                                 onClick={async (e) => {
                                   e.stopPropagation()
-                                  if (confirm(`ต้องการลบแบบร่าง ${b.billNo} หรือไม่?`)) {
-                                    const ok = deleteBillFromStorage(b.id)
-                                    if (ok) {
+                                  if (await confirmDialog({ title: `ต้องการลบแบบร่าง ${b.billNo} หรือไม่?` })) {
+                                    try {
+                                      await cancelBill(b.id, 'ลบแบบร่าง')
                                       showToast('ลบแบบร่างสำเร็จ', `ลบแบบร่าง ${b.billNo} แล้ว`, 'SUCCESS')
                                       await loadBills()
-                                    } else {
-                                      showToast('เกิดข้อผิดพลาด', 'ไม่สามารถลบแบบร่างได้', 'ERROR')
+                                    } catch (err: any) {
+                                      showToast('เกิดข้อผิดพลาด', err?.message || 'ไม่สามารถลบแบบร่างได้', 'ERROR')
                                     }
                                   }
                                 }}
@@ -883,7 +866,7 @@ export default function BillsPage() {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  window.print()
+                                  printBillA4(b, systemSettings.business)
                                 }}
                                 className="inline-flex h-5.5 w-5.5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer transition-colors"
                                 title="พิมพ์บิล (A4)"
@@ -926,32 +909,8 @@ export default function BillsPage() {
               </table>
             </div>
 
-            {/* Desktop Pagination Footer */}
-            <div className="shrink-0 p-2 sm:p-2.5 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between text-[11px] text-slate-500">
-              <span className="truncate">
-                แสดง {filteredBills.length > 0 ? billsStartIndex + 1 : 0} ถึง {Math.min(billsEndIndex, filteredBills.length)} จากทั้งหมด {filteredBills.length} รายการ
-              </span>
-              <div className="flex items-center gap-1 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setBillsCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={billsCurrentPage === 1}
-                  className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 font-bold transition-colors cursor-pointer"
-                >
-                  ก่อนหน้า
-                </button>
-                <span className="px-2 font-bold text-slate-700 dark:text-slate-300">
-                  {billsCurrentPage} / {billsTotalPages}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setBillsCurrentPage((p) => Math.min(billsTotalPages, p + 1))}
-                  disabled={billsCurrentPage === billsTotalPages || billsTotalPages === 0}
-                  className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 font-bold transition-colors cursor-pointer"
-                >
-                  ถัดไป
-                </button>
-              </div>
+            <div className="shrink-0 p-2 sm:p-2.5 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-700 text-[11px] text-slate-500">
+              แสดง {Math.min(billsEndIndex, filteredBills.length)} จากทั้งหมด {filteredBills.length} รายการ
             </div>
           </div>
         </>
@@ -960,7 +919,14 @@ export default function BillsPage() {
   </>
 )}
 
-      <DepositRefundModal
+      <DeliveryModal
+        isOpen={showDelivery && !!selectedRowBill}
+        bill={selectedRowBill}
+        onClose={() => setShowDelivery(false)}
+        onSaved={loadBills}
+      />
+
+      <DepositModal
         isOpen={showDepositRefund && !!selectedRowBill}
         bill={selectedRowBill}
         onClose={() => setShowDepositRefund(false)}
@@ -1065,8 +1031,7 @@ export default function BillsPage() {
         }
       />
 
-
+      <BillPreviewOverlay html={previewHtml} onClose={closeBillPreview} />
     </div>
   )
 }
-

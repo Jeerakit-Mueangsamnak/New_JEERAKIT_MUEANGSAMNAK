@@ -6,6 +6,9 @@ import { NumericInput } from '@/components/common/NumericInput'
 import { Product } from '@/lib/types/rental-pos'
 import { logger } from '@/lib/utils/logger'
 import { RotateCcw, AlertTriangle, ArrowRight } from 'lucide-react'
+import { adjustStock } from '@/features/products/api/product-repository'
+import { syncProductsFromSupabase } from '@/features/products/services/product-storage'
+import { isPinCancelled } from '@/lib/db/pin-confirm'
 
 export interface DamagedRestoreModalProps {
   isOpen: boolean
@@ -46,12 +49,13 @@ export function DamagedRestoreModal({
 
     setIsSubmitting(true)
     try {
-      const updatedProduct: Product = {
-        ...product,
-        availableQuantity: targetAvailable,
-        damagedQuantity: targetDamaged,
-        totalQuantity: product.totalQuantity,
-      }
+      // Damaged goods never jump straight back to AVAILABLE (Master §11.2): they pass through
+      // repair/inspection first — two recorded moves, each confirmed with PIN.
+      const reason = note.trim() || 'ซ่อม/ตรวจแล้ว นำกลับมาใช้งาน'
+      await adjustStock({ productId: product.id, productName: `${product.name} (ขั้น 1/2 ส่งซ่อม/ตรวจ)`, from: 'DAMAGED', to: 'REPAIR', quantity: restoreQty, reason })
+      await adjustStock({ productId: product.id, productName: `${product.name} (ขั้น 2/2 นำกลับมาใช้)`, from: 'REPAIR', to: 'AVAILABLE', quantity: restoreQty, reason })
+      const fresh = await syncProductsFromSupabase()
+      const updatedProduct: Product = fresh.find((p) => p.id === product.id) ?? product
 
       onShowToast(
         'นำสินค้ากลับมาใช้งานต่อสำเร็จ',
@@ -62,6 +66,7 @@ export function DamagedRestoreModal({
       onSuccess({ product: updatedProduct, restoredQty: restoreQty })
       onClose()
     } catch (err: any) {
+      if (isPinCancelled(err)) return
       logger.error('Error restoring damaged stock in modal:', err)
       onShowToast(
         'เกิดข้อผิดพลาด',

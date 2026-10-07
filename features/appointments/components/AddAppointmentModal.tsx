@@ -9,6 +9,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { Appointment, Customer, AppointmentStatus, AppointmentType } from '@/lib/types/rental-pos'
+import { APPOINTMENT_INITIAL_STATUSES, APPOINTMENT_STATUS_META } from '@/features/appointments/appointment-status'
 import { CustomDatePicker, getLocalDateString, parseLocalDate } from '@/components/common/CustomDatePicker'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { CustomerAutocomplete } from '@/components/common/CustomerAutocomplete'
@@ -40,7 +41,7 @@ export const getInitialAppointmentFormData = (dateStr?: string): Partial<Appoint
   contactPerson: '',
   phone: '',
   details: '',
-  status: 'PENDING',
+  status: 'SCHEDULED',
 })
 
 export interface AddAppointmentModalProps {
@@ -296,14 +297,9 @@ export function AddAppointmentModal({
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">สถานะ</label>
                 <CustomSelect
-                  value={formData.status || 'PENDING'}
+                  value={formData.status || 'SCHEDULED'}
                   onChange={(val) => setFormData({ ...formData, status: val as AppointmentStatus })}
-                  options={[
-                    { value: 'PENDING', label: '🕒 รอดำเนินการ' },
-                    { value: 'IN_PROGRESS', label: '⏳ กำลังดำเนินการ' },
-                    { value: 'DONE', label: '✓ เสร็จแล้ว' },
-                    { value: 'CANCELLED', label: '✕ ยกเลิก' },
-                  ]}
+                  options={APPOINTMENT_INITIAL_STATUSES.map((st) => ({ value: st, label: APPOINTMENT_STATUS_META[st].label }))}
                 />
               </div>
             </div>
@@ -420,7 +416,10 @@ export function AddAppointmentModal({
                         }
                         setEditingTypeId(null)
                       }
-                      if (e.key === 'Escape') setEditingTypeId(null)
+                      if (e.key === 'Escape') {
+                        e.preventDefault() // cancel the rename only, keep the form open
+                        setEditingTypeId(null)
+                      }
                     }}
                     className="flex-1 px-2 py-1 rounded-lg border border-blue-400 dark:border-blue-600 text-xs bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />

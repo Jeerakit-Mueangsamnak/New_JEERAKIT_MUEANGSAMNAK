@@ -1,5 +1,6 @@
 'use client'
 
+import { SETTINGS_INPUT_MONO, SETTINGS_LABEL, SETTINGS_SECTION_TITLE } from '@/features/settings/components/settings-ui'
 import React from 'react'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import type { SystemConfig } from '@/features/settings/types/settings-page.types'
@@ -27,7 +28,7 @@ export function DocumentNumberingPanel({ config, setConfig }: DocumentNumberingP
         return (
           <div key={doc.key} className="py-6 px-4 space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <h4 className="font-bold text-slate-900 dark:text-slate-100">{doc.name}</h4>
+              <h4 className={SETTINGS_SECTION_TITLE}>{doc.name}</h4>
               <div className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-mono font-black text-xs border border-indigo-200 dark:border-indigo-800">
                 ตัวอย่าง: {preview}
               </div>
@@ -35,7 +36,7 @@ export function DocumentNumberingPanel({ config, setConfig }: DocumentNumberingP
 
             <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs">
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-1">Prefix</label>
+                <label className={SETTINGS_LABEL}>Prefix</label>
                 <input
                   type="text"
                   maxLength={10}
@@ -49,12 +50,12 @@ export function DocumentNumberingPanel({ config, setConfig }: DocumentNumberingP
                       },
                     })
                   }
-                  className="w-full h-9 px-3 py-0 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-blue-600 text-xs"
+                  className={SETTINGS_INPUT_MONO}
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-1">จำนวนหลัก Running</label>
+                <label className={SETTINGS_LABEL}>จำนวนหลัก Running</label>
                 <CustomSelect
                   buttonClassName="h-9 px-2.5 py-0 rounded-xl"
                   value={dConfig.runningDigits}
@@ -77,7 +78,7 @@ export function DocumentNumberingPanel({ config, setConfig }: DocumentNumberingP
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-1">รอบการรีเซ็ตเลข</label>
+                <label className={SETTINGS_LABEL}>รอบการรีเซ็ตเลข</label>
                 <CustomSelect
                   buttonClassName="h-9 px-2.5 py-0 rounded-xl"
                   value={dConfig.resetCycle}
@@ -100,7 +101,7 @@ export function DocumentNumberingPanel({ config, setConfig }: DocumentNumberingP
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-1">รูปแบบปี</label>
+                <label className={SETTINGS_LABEL}>รูปแบบปี</label>
                 <CustomSelect
                   buttonClassName="h-9 px-2.5 py-0 rounded-xl"
                   value={dConfig.yearMode}
@@ -122,7 +123,7 @@ export function DocumentNumberingPanel({ config, setConfig }: DocumentNumberingP
 
 
               <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-1">รูปแบบวันที่</label>
+                <label className={SETTINGS_LABEL}>รูปแบบวันที่</label>
                 <CustomSelect
                   buttonClassName="h-9 px-2.5 py-0 rounded-xl"
                   disabled={!dConfig.includeDate}

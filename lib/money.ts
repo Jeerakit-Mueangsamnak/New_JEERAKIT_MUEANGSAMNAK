@@ -118,7 +118,7 @@ export interface DiscountCalculationSatangResult {
 }
 
 /**
- * Calculates discount in integer Satang with maximum percentage ceiling validation.
+ * Calculates discount in integer Satang and flags a discount over the maximum percentage.
  */
 export function calculateDiscountSatang(
   subtotalSatang: number,
@@ -138,9 +138,11 @@ export function calculateDiscountSatang(
     requestedSatang = Math.round(options.discountAmountSatang)
   }
 
+  // Over the limit is allowed with the owner's PIN (the server asks for it when the draft is
+  // saved), so the requested discount is kept as is — capping it here would show a total the
+  // server never charges. The flag only tells the screen that a PIN will be needed.
   const isDiscountExceeded = requestedSatang > maxAllowedSatang
-  const cappedSatang = Math.min(requestedSatang, maxAllowedSatang)
-  const discountSatang = Math.max(0, Math.min(cappedSatang, subtotalSatang))
+  const discountSatang = Math.max(0, Math.min(requestedSatang, subtotalSatang))
   const effectivePercent = subtotalSatang > 0 ? (discountSatang / subtotalSatang) * 100 : 0
 
   return {

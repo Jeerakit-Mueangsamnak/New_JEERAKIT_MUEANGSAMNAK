@@ -59,7 +59,7 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
                 ฿{metrics.totalIncome.toLocaleString()}
               </span>
               <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">
-                +{metrics.growthRate >= 0 ? metrics.growthRate : 12.5}%
+                {metrics.growthRate >= 0 ? '+' : ''}{metrics.growthRate}%
               </span>
             </div>
             <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">ยอดรับเงินทั้งหมด (ขาย + เช่า)</span>
@@ -79,7 +79,6 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-rose-600 dark:text-rose-400 font-mono">
                 ฿{metrics.totalExpense.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-rose-600 dark:text-rose-400">+8.3%</span>
             </div>
             <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">ค่าใช้จ่ายและเงินคืนลูกค้า</span>
           </div>
@@ -98,7 +97,6 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 font-mono">
                 ฿{metrics.netIncome.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400">+15.2%</span>
             </div>
             <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">หลังหักค่าใช้จ่ายแล้ว</span>
           </div>
@@ -169,7 +167,6 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">
                 ฿{metrics.salesRevenue.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">+18.1%</span>
             </div>
             <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">จากการขายอุปกรณ์</span>
           </div>
@@ -188,7 +185,6 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-teal-600 dark:text-teal-400 font-mono">
                 ฿{metrics.rentalRevenue.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-teal-600 dark:text-teal-400">+10.2%</span>
             </div>
             <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">จากการให้เช่าอุปกรณ์</span>
           </div>
@@ -396,6 +392,7 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
 
       {/* 4. BOTTOM ROW: งาน / รายการสำคัญวันนี้ (TABLE) */}
       <DataTableFrame
+        rowCount={metrics.todayKeyTasks.length}
         className="p-2 bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs"
         header={
           <div className="flex items-center justify-between mb-2 shrink-0">

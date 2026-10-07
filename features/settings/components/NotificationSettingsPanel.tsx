@@ -1,5 +1,6 @@
 'use client'
 
+import { SETTINGS_LABEL, SETTINGS_SECTION_TITLE } from '@/features/settings/components/settings-ui'
 import type { Dispatch, SetStateAction } from 'react'
 import { BellRing, Eye, EyeOff, MessageSquare, Pencil, Plus, Save, Tag, Trash2 } from 'lucide-react'
 import { NumericInput } from '@/components/common/NumericInput'
@@ -63,7 +64,7 @@ export function NotificationSettingsPanel({ config, setConfig, lineSecrets, appo
       {/* Group A: ประเภทการนัดหมาย (Appointment Types) */}
       <div className="space-y-2.5">
         <div className="flex items-center justify-between">
-          <h4 className="font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
+          <h4 className={SETTINGS_SECTION_TITLE}>
             <Tag className="w-3.5 h-3.5 text-teal-600" />
             <span>กลุ่ม A: ประเภทการนัดหมาย (Appointment Types)</span>
           </h4>
@@ -192,7 +193,7 @@ export function NotificationSettingsPanel({ config, setConfig, lineSecrets, appo
 
       {/* Group B: การแจ้งเตือนในระบบ (System Alerts) */}
       <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-        <h4 className="font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
+        <h4 className={SETTINGS_SECTION_TITLE}>
           <BellRing className="w-3.5 h-3.5 text-teal-600" />
           <span>กลุ่ม B: การแจ้งเตือนในระบบ (System Alerts)</span>
         </h4>
@@ -306,6 +307,63 @@ export function NotificationSettingsPanel({ config, setConfig, lineSecrets, appo
                 max={365}
                 allowDecimals={false}
                 disabled={!config.notifications?.returnReminder?.enabled}
+                className="w-12 h-7 px-1.5 py-0 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-bold text-xs disabled:opacity-50"
+              />
+              <span className="text-[11px] text-slate-500">วัน</span>
+            </div>
+          </div>
+
+          {/* นัดหมาย: ใช้เป็นช่วง "ใกล้ถึงกำหนด" ของปฏิทินด้วย */}
+          <div className="py-2 flex items-center justify-between gap-2">
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.notifications?.appointmentReminder?.enabled ?? true}
+                onChange={(e) =>
+                  setConfig({
+                    ...config,
+                    notifications: {
+                      ...config.notifications,
+                      appointmentReminder: {
+                        ...config.notifications?.appointmentReminder,
+                        enabled: e.target.checked,
+                      },
+                    },
+                  })
+                }
+                className="w-4 h-4 text-teal-600 rounded"
+              />
+              <div>
+                <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
+                  นัดหมายใกล้ถึง
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  แจ้งเตือนนัดหมาย และใช้เป็นช่วง &ldquo;ใกล้ถึงกำหนด&rdquo; ในปฏิทินนัดหมาย
+                </span>
+              </div>
+            </label>
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="text-[11px] text-slate-500">แจ้งล่วงหน้า</span>
+              <NumericInput
+                value={config.notifications?.appointmentReminder?.daysBefore ?? 3}
+                onChange={(val) => {
+                  const num = val === '' ? 0 : Math.min(365, Math.max(0, val))
+                  setConfig({
+                    ...config,
+                    notifications: {
+                      ...config.notifications,
+                      appointmentReminder: {
+                        ...config.notifications?.appointmentReminder,
+                        daysBefore: num,
+                      },
+                    },
+                  })
+                }}
+                defaultValueOnBlur={3}
+                min={0}
+                max={365}
+                allowDecimals={false}
+                disabled={!config.notifications?.appointmentReminder?.enabled}
                 className="w-12 h-7 px-1.5 py-0 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-bold text-xs disabled:opacity-50"
               />
               <span className="text-[11px] text-slate-500">วัน</span>
@@ -462,7 +520,7 @@ export function NotificationSettingsPanel({ config, setConfig, lineSecrets, appo
 
         <div className="space-y-2.5">
           <div>
-            <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+            <label className={SETTINGS_LABEL}>
               LINE Notify Token / Messaging API Channel Token
             </label>
             <div className="relative">
@@ -487,7 +545,7 @@ export function NotificationSettingsPanel({ config, setConfig, lineSecrets, appo
           </div>
 
           <div>
-            <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+            <label className={SETTINGS_LABEL}>
               LINE OA Channel Secret (สำหรับการตอบกลับอัตโนมัติ)
             </label>
             <div className="relative">

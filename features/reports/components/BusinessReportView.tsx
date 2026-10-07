@@ -251,6 +251,7 @@ export function BusinessReportView({ data }: { data: BusinessReportData }) {
 
       {/* ─── 4. DETAILED CUSTOMER & PERFORMANCE RANKING TABLE ──────────────── */}
       <DataTableFrame
+        rowCount={data.customerRankings.length}
         className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs"
         header={
           <div className="flex items-center justify-between mb-2 shrink-0">

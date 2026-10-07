@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, Suspense } from 'react'
+import React, { useRef, useState, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { AlertCircle, Lock, ArrowRight, Eye, EyeOff, CheckCircle2 } from 'lucide-react'
@@ -15,15 +15,20 @@ function LoginForm() {
   const isRegistered = searchParams.get('registered') === '1'
   const sessionExpired = searchParams.get('reason') === 'session-expired'
   const isPendingApproval = searchParams.get('reason') === 'pending-approval'
+  const isInvalidLink = searchParams.get('reason') === 'invalid-link'
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  // Synchronous guard: blocks a second submit (Enter + click) before React re-renders the disabled button
+  const submittingRef = useRef(false)
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (submittingRef.current) return
+    submittingRef.current = true
     setError(null)
     setIsLoading(true)
 
@@ -32,6 +37,7 @@ function LoginForm() {
       if (!result.success) {
         setError(result.error || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง')
         setIsLoading(false)
+        submittingRef.current = false
         return
       }
 
@@ -40,6 +46,7 @@ function LoginForm() {
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง')
       setIsLoading(false)
+      submittingRef.current = false
     }
   }
 
@@ -70,6 +77,13 @@ function LoginForm() {
             <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center gap-2.5 text-amber-600 dark:text-amber-300 text-xs font-semibold animate-in fade-in">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>บัญชีนี้ยังไม่ได้รับสิทธิ์เข้าธุรกิจ กรุณาติดต่อผู้ดูแลระบบเพื่อเพิ่มสิทธิ์เข้าใช้งาน</span>
+            </div>
+          )}
+
+          {isInvalidLink && !error && (
+            <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center gap-2.5 text-amber-600 dark:text-amber-300 text-xs font-semibold animate-in fade-in">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>ลิงก์เข้าสู่ระบบไม่ถูกต้องหรือหมดอายุ กรุณาเข้าสู่ระบบด้วยชื่อผู้ใช้และรหัสผ่าน</span>
             </div>
           )}
 

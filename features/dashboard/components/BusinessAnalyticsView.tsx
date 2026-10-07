@@ -64,7 +64,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
                 ฿{metrics.currentMonthRevenue.toLocaleString()}
               </span>
               <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">
-                +{metrics.growthRate >= 0 ? metrics.growthRate : 12.9}%
+                {metrics.growthRate >= 0 ? '+' : ''}{metrics.growthRate}%
               </span>
             </div>
             <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">รายรับเดือนนี้ เทียบกับเดือนก่อน</span>
@@ -232,6 +232,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-2">
         {/* 4. ลูกค้าหลัก (Top Customers) */}
         <DataTableFrame
+          rowCount={metrics.topCustomers.length}
           className="lg:col-span-7 p-2 bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs"
           header={
             <div className="mb-1.5 flex items-center justify-between shrink-0">

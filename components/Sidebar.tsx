@@ -23,11 +23,13 @@ import {
   ChevronRight,
   ChevronDown,
   Clock,
+  UserCog,
 } from 'lucide-react'
 import { NotificationBell } from '@/components/common/NotificationBell'
 import { QuickActionLauncher } from '@/components/common/QuickActionLauncher'
 import { AppLockButton } from '@/features/auth/components/AppLockButton'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
+import { menuForPath } from '@/features/auth/services/permissions'
 import { getPageMeta } from '@/lib/navigation-meta'
 import { useLiveClock } from '@/lib/hooks/useLiveClock'
 
@@ -60,7 +62,7 @@ function SidebarContent() {
   const [isReportsExpanded, setIsReportsExpanded] = useState(
     () => pathname === '/reports' || pathname?.startsWith('/reports/')
   )
-  const { user, signOut } = useAuth()
+  const { user, signOut, hasMenu } = useAuth()
 
   const logoUrl = ''
   const { name: pageName, icon: PageIcon, colorClass, dotClass } = getPageMeta(pathname || '', searchParams)
@@ -167,7 +169,7 @@ function SidebarContent() {
           className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-1.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
-          {MENU_ITEMS.filter(item => item.href !== '/owner-permissions' || user?.role === 'OWNER').map((item) => {
+          {MENU_ITEMS.filter((item) => { const code = menuForPath(item.href); return !code || hasMenu(code) }).map((item) => {
             if (item.href === '/dashboard') {
               const isDashboardActive = pathname === '/dashboard'
               const currentView = searchParams.get('view') || 'assets'
@@ -361,6 +363,15 @@ function SidebarContent() {
 
             <div className="flex items-center gap-1 shrink-0">
               <AppLockButton variant="sidebar" />
+              <Link
+                href="/account"
+                onClick={() => setIsMobileOpen(false)}
+                className="p-1.5 text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-950/40 rounded-lg transition-colors"
+                title="บัญชีของฉัน"
+                aria-label="บัญชีของฉัน"
+              >
+                <UserCog className="w-4 h-4" />
+              </Link>
               <button
                 onClick={async () => {
                   setIsMobileOpen(false)

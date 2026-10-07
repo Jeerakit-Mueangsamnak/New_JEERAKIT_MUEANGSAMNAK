@@ -1,4 +1,5 @@
 import type { CurrentUser, UserRole } from '@/lib/types/rental-pos'
+import { isMenuCode, normalizeMemberStatus } from '@/features/auth/services/permissions'
 
 export interface AuthUserLike {
   id: string
@@ -13,10 +14,13 @@ export interface AuthUserLike {
  */
 export function buildCurrentUser(
   authUser: AuthUserLike,
-  profileData?: Record<string, unknown> | null
+  profileData?: Record<string, unknown> | null,
+  menuCodes: readonly unknown[] = []
 ): CurrentUser {
   // Role is trusted ONLY from profiles table. Never trust or fallback to user_metadata.role.
   const resolvedRole: UserRole = profileData?.role === 'OWNER' ? 'OWNER' : 'USER'
+  // No profile (or no approval) means no access: fail closed to PENDING.
+  const status = normalizeMemberStatus(profileData?.status, profileData?.is_approved)
 
   const firstName =
     (profileData?.first_name as string) ||
@@ -54,6 +58,8 @@ export function buildCurrentUser(
     fullName,
     displayName,
     role: resolvedRole,
+    status,
+    menus: menuCodes.filter(isMenuCode),
     businessId: (profileData?.business_id as string) || null,
     emailVerified: Boolean(authUser.email_confirmed_at),
     avatarUrl: (profileData?.avatar_url as string) || (authUser.user_metadata?.avatar_url as string) || null,

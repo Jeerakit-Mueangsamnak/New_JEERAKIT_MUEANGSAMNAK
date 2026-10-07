@@ -7,6 +7,9 @@ import { CustomSelect } from '@/components/common/CustomSelect'
 import { Product } from '@/lib/types/rental-pos'
 import { logger } from '@/lib/utils/logger'
 import { Shuffle, AlertTriangle } from 'lucide-react'
+import { convertDamagedStock } from '@/features/products/api/product-repository'
+import { syncProductsFromSupabase } from '@/features/products/services/product-storage'
+import { isPinCancelled } from '@/lib/db/pin-confirm'
 
 export interface DamagedTransformModalProps {
   isOpen: boolean
@@ -79,17 +82,17 @@ export function DamagedTransformModal({
 
     setIsSubmitting(true)
     try {
-      const updatedSource: Product = {
-        ...sourceProduct,
-        damagedQuantity: Math.max(0, (sourceProduct.damagedQuantity || 0) - transformQty),
-        totalQuantity: Math.max(0, sourceProduct.totalQuantity - transformQty),
-      }
-
-      const updatedTarget: Product = {
-        ...targetProduct,
-        availableQuantity: targetNewAvailable,
-        totalQuantity: targetNewTotal,
-      }
+      // A → B in one atomic server transaction with PIN + audit (Master §11.5).
+      await convertDamagedStock({
+        fromProductId: sourceProduct.id,
+        toProductId: targetProduct.id,
+        fromQuantity: transformQty,
+        toQuantity: transformQty,
+        reason: note.trim() || `แปลงของชำรุด ${sourceProduct.name} เป็น ${targetProduct.name}`,
+      })
+      const fresh = await syncProductsFromSupabase()
+      const updatedSource: Product = fresh.find((p) => p.id === sourceProduct.id) ?? sourceProduct
+      const updatedTarget: Product = fresh.find((p) => p.id === targetProduct.id) ?? targetProduct
 
       onShowToast(
         'ดัดแปลงสินค้าสำเร็จ',
@@ -104,6 +107,7 @@ export function DamagedTransformModal({
       })
       onClose()
     } catch (err: any) {
+      if (isPinCancelled(err)) return
       logger.error('Error transforming damaged stock in modal:', err)
       onShowToast(
         'เกิดข้อผิดพลาด',

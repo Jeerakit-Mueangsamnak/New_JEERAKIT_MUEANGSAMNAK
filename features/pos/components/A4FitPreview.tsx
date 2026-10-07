@@ -103,16 +103,17 @@ export function A4FitPreview({
     const handleResize = () => fitFullScreen()
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        e.preventDefault() // leave full preview only; a modal behind it stays open
         setIsFullPreview(false)
       }
     }
 
     window.addEventListener('resize', handleResize)
-    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keydown', handleKeyDown, true)
 
     return () => {
       window.removeEventListener('resize', handleResize)
-      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keydown', handleKeyDown, true)
     }
   }, [isFullPreview, fitFullScreen])
 

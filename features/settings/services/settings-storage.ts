@@ -1,12 +1,9 @@
 /**
- * Centralized System Settings Storage & Service
- *
- * Backed by Supabase system_settings with local cache fallback for offline startup.
- * Single source of truth for financial rules, VAT rates, discount ceilings,
- * money precision/rounding, and reservation expiry policies across the entire app.
+ * System settings for the UI (Master v4.3.1 §37). The single source of truth is the
+ * public.store_settings row (features/settings/api/settings-repository.ts), written through
+ * settings_update (audited on the server). This module only keeps the in-memory copy the
+ * screens read and the defaults shown before the row is loaded — no browser storage.
  */
-
-import { recordAuditLog, generateCorrelationId } from '@/features/audits/services/audit-storage'
 
 export interface BusinessSettings {
   businessName: string
@@ -123,6 +120,7 @@ export interface NotificationSettings {
   paymentReminder: NotificationItemSettings
   lowStockReminder: { enabled: boolean }
   overdueReturnReminder: { enabled: boolean }
+  appointmentReminder: NotificationItemSettings
 }
 
 export interface BrandingSettings {
@@ -143,19 +141,20 @@ export interface SystemConfig {
   branding: BrandingSettings
 }
 
+// Shop details are filled in by the OWNER in Settings — nothing is pre-filled.
 export const DEFAULT_BUSINESS_SETTINGS: BusinessSettings = {
-  businessName: 'บริษัท ทีเจ อุปกรณ์ก่อสร้างและจัดเลี้ยง จำกัด',
-  address: '99/9 ถ.สุขุมวิท แขวงคลองเตย เขตคลองเตย กรุงเทพมหานคร 10110',
-  phone: '02-123-4567',
-  email: 'contact@tj-rental.com',
-  taxId: '0105560001234',
-  branchNo: '00000',
-  lineId: '@tjrental',
-  authorizedPerson: 'นายทอง เจียรกิตติ์',
-  bankName: 'ธนาคารกสิกรไทย',
-  bankAccountName: 'บจก. ทีเจ อุปกรณ์',
-  bankAccountNumber: '123-4-56789-0',
-  promptPayValue: '0105560001234',
+  businessName: '',
+  address: '',
+  phone: '',
+  email: '',
+  taxId: '',
+  branchNo: '',
+  lineId: '',
+  authorizedPerson: '',
+  bankName: '',
+  bankAccountName: '',
+  bankAccountNumber: '',
+  promptPayValue: '',
   promptPayType: 'TAX_ID',
   logoDataUrl: '',
   bankQrDataUrl: '',
@@ -185,10 +184,11 @@ export const DEFAULT_RENTAL_BILLING_SETTINGS: RentalBillingSettings = {
 }
 
 export const DEFAULT_DOCUMENT_NUMBERING_SETTINGS: DocumentNumberingSettings = {
-  rentalBill: { prefix: 'BILL', runningDigits: 4, resetCycle: 'MONTHLY', yearMode: 'BE', includeDate: true, datePattern: 'YYYYMM' },
-  quotation: { prefix: 'QT', runningDigits: 4, resetCycle: 'MONTHLY', yearMode: 'BE', includeDate: true, datePattern: 'YYYYMM' },
-  receipt: { prefix: 'REC', runningDigits: 4, resetCycle: 'MONTHLY', yearMode: 'BE', includeDate: true, datePattern: 'YYYYMM' },
-  returnSlip: { prefix: 'RET', runningDigits: 4, resetCycle: 'MONTHLY', yearMode: 'BE', includeDate: true, datePattern: 'YYYYMM' },
+  // Owner default (2026-10-04): BL-2026-000001, new sequence each year; adjustable in Settings.
+  rentalBill: { prefix: 'BL', runningDigits: 6, resetCycle: 'YEARLY', yearMode: 'CE', includeDate: true, datePattern: 'YYYY' },
+  quotation: { prefix: 'QT', runningDigits: 6, resetCycle: 'YEARLY', yearMode: 'CE', includeDate: true, datePattern: 'YYYY' },
+  receipt: { prefix: 'RCP', runningDigits: 6, resetCycle: 'YEARLY', yearMode: 'CE', includeDate: true, datePattern: 'YYYY' },
+  returnSlip: { prefix: 'RT', runningDigits: 6, resetCycle: 'YEARLY', yearMode: 'CE', includeDate: true, datePattern: 'YYYY' },
 }
 
 export const DEFAULT_DOCUMENT_PRINTING_SETTINGS: DocumentPrintingSettings = {
@@ -215,11 +215,13 @@ export const DEFAULT_FINANCE_PAYMENT_SETTINGS: FinancePaymentSettings = {
     promptPay: true,
     credit: false,
   },
-  defaultVatPercent: 7,
-  vatEnabled: true,
+  // VAT stays off with no preset rate until the OWNER fills in the shop's tax setup.
+  defaultVatPercent: 0,
+  vatEnabled: false,
   vatCalculationMode: 'EXCLUSIVE',
   defaultWithholdingPercent: 0,
-  maximumDiscountPercent: 50,
+  // 100 = no discount limit (the limit switch is off unless the OWNER sets a percent)
+  maximumDiscountPercent: 100,
   defaultDepositPercent: 0,
   autoCreateFinanceTransaction: true,
   moneyPrecision: 2,
@@ -232,6 +234,7 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   paymentReminder: { enabled: true, daysBefore: 1 },
   lowStockReminder: { enabled: true },
   overdueReturnReminder: { enabled: true },
+  appointmentReminder: { enabled: true, daysBefore: 3 },
 }
 
 export const DEFAULT_BRANDING_SETTINGS: BrandingSettings = {
@@ -252,7 +255,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   branding: DEFAULT_BRANDING_SETTINGS,
 }
 
-export const SETTINGS_STORAGE_KEY = 'app_system_settings'
 let cachedSystemSettings: SystemConfig | null = null
 
 /**
@@ -305,48 +307,26 @@ function mergeWithDefaults(loaded: Partial<SystemConfig>): SystemConfig {
   }
 }
 
-/**
- * Load system settings from localStorage or fallback to defaults.
- */
-export function loadSystemSettings(): SystemConfig {
-  if (typeof window === 'undefined') return cachedSystemSettings || DEFAULT_SYSTEM_CONFIG
-  try {
-    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<SystemConfig> & {
-        appointmentsNotifications?: unknown
-      }
-      if ('appointmentsNotifications' in parsed) {
-        delete parsed.appointmentsNotifications
-        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(parsed))
-      }
-      cachedSystemSettings = mergeWithDefaults(parsed)
-      return cachedSystemSettings
-    }
-  } catch {
-    // fallback
+function notifySettingsChanged(config: SystemConfig): void {
+  if (typeof window === 'undefined') return
+  if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+    window.dispatchEvent(new CustomEvent('app_settings_changed', { detail: config }))
   }
+}
+
+/** Current settings (server copy once loaded, defaults before). */
+export function loadSystemSettings(): SystemConfig {
   return cachedSystemSettings || DEFAULT_SYSTEM_CONFIG
 }
 
+/** Replace the in-memory copy with what the server returned. */
 export function setCachedSystemSettings(config: Partial<SystemConfig>): SystemConfig {
   cachedSystemSettings = mergeWithDefaults(config)
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(cachedSystemSettings))
-    } catch (error) {
-      console.error('[Settings] Failed to update the local settings cache:', error)
-    }
-    if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
-      window.dispatchEvent(new CustomEvent('app_settings_changed', { detail: cachedSystemSettings }))
-    }
-  }
+  notifySettingsChanged(cachedSystemSettings)
   return cachedSystemSettings
 }
 
-/**
- * Helper to get current centralized default minimum stock threshold for runtime warnings.
- */
+/** Helper to get current centralized default minimum stock threshold for runtime warnings. */
 export function getDefaultMinimumStock(): number {
   return loadSystemSettings().productStock.defaultMinimumStock ?? DEFAULT_PRODUCT_STOCK_SETTINGS.defaultMinimumStock
 }
@@ -356,89 +336,16 @@ export interface ActorInfo {
   displayName: string
 }
 
-/**
- * Persist system settings with audit logging for money/stock/workflow impacting changes.
- */
-export function saveSystemSettings(
-  config: Partial<SystemConfig> | SystemConfig,
-  actor?: ActorInfo,
-  reason?: string
-): SystemConfig {
-  const previous = loadSystemSettings()
-  const merged = mergeWithDefaults(config)
-  cachedSystemSettings = merged
-
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(merged))
-    } catch (error) {
-      console.error('[Settings] Failed to update the local settings cache:', error)
-    }
-    if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
-      window.dispatchEvent(new CustomEvent('app_settings_changed', { detail: merged }))
-    }
-  }
-
-  // Check if financial, stock, or workflow parameters changed
-  const financeChanged =
-    previous.financePayment.vatEnabled !== merged.financePayment.vatEnabled ||
-    previous.financePayment.defaultVatPercent !== merged.financePayment.defaultVatPercent ||
-    previous.financePayment.vatCalculationMode !== merged.financePayment.vatCalculationMode ||
-    previous.financePayment.maximumDiscountPercent !== merged.financePayment.maximumDiscountPercent ||
-    previous.financePayment.defaultDepositPercent !== merged.financePayment.defaultDepositPercent ||
-    previous.financePayment.moneyPrecision !== merged.financePayment.moneyPrecision ||
-    previous.financePayment.roundingMode !== merged.financePayment.roundingMode
-
-  const stockOrWorkflowChanged =
-    previous.productStock.allowZeroStock !== merged.productStock.allowZeroStock ||
-    previous.productStock.defaultMinimumStock !== merged.productStock.defaultMinimumStock ||
-    previous.rentalBilling.reservationExpiryPolicy !== merged.rentalBilling.reservationExpiryPolicy ||
-    previous.rentalBilling.reservationExpiryDays !== merged.rentalBilling.reservationExpiryDays
-
-  if (financeChanged || stockOrWorkflowChanged) {
-    const correlationId = generateCorrelationId()
-    const trimmedReason = reason?.trim() || 'อัปเดตการตั้งค่าระบบ'
-
-    recordAuditLog({
-      userId: actor?.userId || 'system',
-      displayName: actor?.displayName || 'ระบบ',
-      action: 'SETTING_FINANCE_STOCK_UPDATE',
-      entityType: 'SETTINGS',
-      entityId: 'system-config',
-      before: {
-        financePayment: previous.financePayment,
-        productStock: previous.productStock,
-        rentalBilling: {
-          reservationExpiryPolicy: previous.rentalBilling.reservationExpiryPolicy,
-          reservationExpiryDays: previous.rentalBilling.reservationExpiryDays,
-        },
-      },
-      after: {
-        financePayment: merged.financePayment,
-        productStock: merged.productStock,
-        rentalBilling: {
-          reservationExpiryPolicy: merged.rentalBilling.reservationExpiryPolicy,
-          reservationExpiryDays: merged.rentalBilling.reservationExpiryDays,
-        },
-      },
-      reason: trimmedReason,
-      correlationId,
-    })
-  }
-
-  return merged
+/** In-memory update after a successful server save (the server writes the audit). */
+export function saveSystemSettings(config: Partial<SystemConfig> | SystemConfig): SystemConfig {
+  cachedSystemSettings = mergeWithDefaults(config)
+  notifySettingsChanged(cachedSystemSettings)
+  return cachedSystemSettings
 }
 
-/**
- * Reset system settings to factory defaults.
- */
+/** Back to defaults in memory (the server row is unchanged). */
 export function resetSystemSettings(): SystemConfig {
   cachedSystemSettings = DEFAULT_SYSTEM_CONFIG
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem(SETTINGS_STORAGE_KEY)
-    if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
-      window.dispatchEvent(new CustomEvent('app_settings_changed', { detail: DEFAULT_SYSTEM_CONFIG }))
-    }
-  }
+  notifySettingsChanged(DEFAULT_SYSTEM_CONFIG)
   return DEFAULT_SYSTEM_CONFIG
 }

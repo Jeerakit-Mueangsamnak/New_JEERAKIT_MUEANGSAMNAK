@@ -113,6 +113,8 @@ function ReportsWorkspace() {
       endDate,
       granularity,
     }),
+    // refreshKey is intentional: the refresh button needs a new filter object so the reports below recompute
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [startDate, endDate, granularity, refreshKey]
   )
 

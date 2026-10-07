@@ -46,7 +46,6 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">
                 {metrics.availableStock.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">+12.5%</span>
             </div>
             <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">จากสัปดาห์ที่ผ่านมา</span>
           </div>
@@ -65,7 +64,6 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 font-mono">
                 {metrics.rentedOrReservedStock.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400">+8.3%</span>
             </div>
             <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">อยู่ระหว่างการใช้งาน</span>
           </div>
@@ -84,7 +82,6 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-rose-600 dark:text-rose-400 font-mono">
                 {metrics.damagedOrLostStock.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-rose-600 dark:text-rose-400">+33.3%</span>
             </div>
             <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">ต้องตรวจสอบ / ซ่อมแซม</span>
           </div>
@@ -103,7 +100,6 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-purple-600 dark:text-purple-400 font-mono">
                 {metrics.activeReservationsCount.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-purple-600 dark:text-purple-400">+15.2%</span>
             </div>
             <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">รายการรอรับ/รอจ่ายออก</span>
           </div>
@@ -135,7 +131,6 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400 font-mono">
                 {urgentCount.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400">+50.0%</span>
             </div>
             <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">ต้องดำเนินการทันที</span>
           </div>
@@ -338,6 +333,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
 
       {/* 4. BOTTOM ROW: รายการงานสต็อกเร่งด่วน (TABLE) */}
       <DataTableFrame
+        rowCount={metrics.stockUrgentList.length}
         className="p-2 bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs"
         header={
           <div className="flex items-center justify-between mb-2 shrink-0">

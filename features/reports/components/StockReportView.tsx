@@ -216,6 +216,7 @@ export function StockReportView({ data }: { data: StockReportData }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
         {/* รายการชำรุด / สูญหาย (Topic 15) */}
         <DataTableFrame
+          rowCount={data.damagedItems.length + data.lostItems.length}
           className="p-2 rounded-xl border border-rose-500/20 bg-white dark:bg-slate-900 shadow-xs"
           header={
             <div className="flex items-center justify-between mb-2 shrink-0">
@@ -299,18 +300,22 @@ export function StockReportView({ data }: { data: StockReportData }) {
         </DataTableFrame>
 
         {/* สินค้าทำเงินสูงสุด (Top / Bottom Products) */}
-        <div className="rounded-xl border border-emerald-500/20 bg-white dark:bg-slate-900 shadow-xs flex flex-col justify-between overflow-hidden">
-          <div className="p-2 flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
-              <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                สินค้าทำเงินสูงสุด (Top Revenue)
-              </h3>
+        <DataTableFrame
+          className="rounded-xl border border-emerald-500/20 bg-white dark:bg-slate-900 shadow-xs"
+          containerClassName="flex flex-col justify-end"
+          bodyClassName="!min-h-0 !max-h-56 w-full [&_thead]:!shadow-none [&_td]:!py-1"
+          header={
+            <div className="p-2 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+                <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  สินค้าทำเงินสูงสุด (Top Revenue)
+                </h3>
+              </div>
+              <span className="text-[10px] text-slate-400">เรียงตามรายได้</span>
             </div>
-            <span className="text-[10px] text-slate-400">เรียงตามรายได้</span>
-          </div>
-
-          <div className="overflow-x-auto max-h-56 w-full">
+          }
+        >
             <table className={`${DATA_TABLE_CLASSES} text-[11px]`}>
               <thead className="bg-[#E3E3E3] dark:bg-slate-800 font-bold">
                 <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
@@ -345,12 +350,12 @@ export function StockReportView({ data }: { data: StockReportData }) {
                 ))}
               </tbody>
             </table>
-          </div>
-        </div>
+        </DataTableFrame>
       </div>
 
       {/* ─── 4. DETAILED PRODUCT INVENTORY TABLE ───────────────────────────── */}
       <DataTableFrame
+        rowCount={data.productsTable.length}
         className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs"
         header={
           <div className="p-2 flex items-center justify-between shrink-0">

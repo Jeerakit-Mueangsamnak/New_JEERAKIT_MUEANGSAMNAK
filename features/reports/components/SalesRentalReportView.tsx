@@ -252,6 +252,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
 
       {/* ─── 4. TOPIC 11: ประวัติและงานเช่าปัจจุบัน (Active Rentals) ───────── */}
       <DataTableFrame
+        rowCount={data.activeRentals.length}
         className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs"
         header={
           <div className="flex items-center justify-between mb-2 shrink-0">
@@ -342,6 +343,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
 
       {/* ─── 5. DETAILED DOCUMENTS TABLE ─────────────────────────────────── */}
       <DataTableFrame
+        rowCount={data.detailedRecords.length}
         className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs"
         header={
           <div className="flex items-center justify-between mb-2 shrink-0">

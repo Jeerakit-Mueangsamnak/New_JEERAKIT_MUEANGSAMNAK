@@ -15,12 +15,13 @@ import {
 } from '@/components/common/ActionButton'
 import { ShoppingBag, Package, FileText, ArrowLeft } from 'lucide-react'
 import { loadProducts } from '@/features/products/services/product-storage'
-import { loadCustomers, addCustomerAsync as addStorageCustomer } from '@/features/customers/services/customer-storage'
-import { CartItem } from '@/features/pos/services/cart-storage'
+import { loadCustomers, createCustomerAsync } from '@/features/customers/services/customer-storage'
+import { CartItem, cartLineListPrice } from '@/features/pos/services/cart-storage'
+import { getLocalDateString } from '@/components/common/CustomDatePicker'
 import { addQuotation, getQuotationById, generateQuotationNo, mapQuotationToPos } from '@/features/quotations/services/quotation-storage'
+import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { loadBillById } from '@/features/bills/services/bill-storage'
 import { loadSystemSettings } from '@/features/settings/services/settings-storage'
-import { checkAndExpireReservations } from '@/features/bills/services/bill-workflow-service'
 
 function POSContent() {
   const router = useRouter()
@@ -49,12 +50,6 @@ function POSContent() {
   }>({})
 
   useEffect(() => {
-    try {
-      checkAndExpireReservations()
-    } catch (e) {
-      console.error('Failed to run reservation expiry check on POS mount', e)
-    }
-
     const prods = loadProducts()
     const custs = loadCustomers()
     setProductsList(prods)
@@ -135,6 +130,14 @@ function POSContent() {
             rentalType: (item.rentalType as any) || (isSale ? 'SALE' : 'NORMAL'),
             quantity: item.quantity,
             unitPrice: item.dailyRate,
+            // baseProduct carries the draft's price, so keep the product's own price to detect the override
+            listUnitPrice: matchedProd
+              ? cartLineListPrice({
+                  product: matchedProd,
+                  rentalType: (item.rentalType as CartItem['rentalType']) || (isSale ? 'SALE' : 'NORMAL'),
+                  itemType: isSale ? 'SALE' : 'RENT',
+                })
+              : null,
             usageCount: item.usageCount || 1,
             billableDays: item.usageCount || 1,
             dailyStartDate: item.rentalStartDate,
@@ -219,8 +222,8 @@ function POSContent() {
       unitPrice: data.unitPrice,
       usageCount: isSale ? 1 : data.usageCount,
       billableDays: isSale ? 1 : days,
-      dailyStartDate: !isSale && data.dailyStartDate ? data.dailyStartDate.toISOString().slice(0, 10) : undefined,
-      dailyEndDate: !isSale && data.dailyEndDate ? data.dailyEndDate.toISOString().slice(0, 10) : undefined,
+      dailyStartDate: !isSale && data.dailyStartDate ? getLocalDateString(data.dailyStartDate) : undefined,
+      dailyEndDate: !isSale && data.dailyEndDate ? getLocalDateString(data.dailyEndDate) : undefined,
       lineTotal,
       requiresReturn: !isSale, // Adding this per MASTER rule C
     }
@@ -232,11 +235,13 @@ function POSContent() {
 
   const handleAddCustomer = async (newCustomer: Customer) => {
     try {
-      const updated = await addStorageCustomer(newCustomer)
-      setCustomersList(updated)
-      setSelectedCustomer(newCustomer)
+      // The server assigns the customer id; select the saved record, not the form copy.
+      const saved = await createCustomerAsync(newCustomer)
+      setCustomersList(loadCustomers())
+      setSelectedCustomer(saved)
       showToast('เพิ่มลูกค้าสำเร็จ', `เพิ่มลูกค้า ${newCustomer.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
     } catch (err: any) {
+      if (err?.tag === 'DUPLICATE_CUSTOMER') return
       showToast('ไม่สามารถเพิ่มลูกค้าได้', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
     }
   }
@@ -252,10 +257,10 @@ function POSContent() {
     }
 
     const now = new Date()
-    const qDate = quotationData?.documentDate || now.toISOString().slice(0, 10)
+    const qDate = quotationData?.documentDate || getLocalDateString(now)
     const expiry = new Date(now)
     expiry.setDate(expiry.getDate() + 15)
-    const expiryDate = expiry.toISOString().slice(0, 10)
+    const expiryDate = getLocalDateString(expiry)
 
     const existingQuotation = quotationId ? getQuotationById(quotationId) : null
     const id = existingQuotation?.id || `qt-${Date.now()}`
@@ -290,7 +295,7 @@ function POSContent() {
       quotationNo,
       quotationDate: qDate,
       expiryDate,
-      customerId: selectedCustomer?.id || 'general-customer',
+      customerId: selectedCustomer?.id || '',
       customerName: selectedCustomer?.customerName || 'ลูกค้าทั่วไป',
       phone: selectedCustomer?.phone || '',
       customerAddress: selectedCustomer?.address || quotationData?.shippingAddress || '',
@@ -308,10 +313,14 @@ function POSContent() {
       status: existingQuotation?.status || 'WAITING',
     }
 
-    addQuotation(newQuotation)
-
-    showToast('บันทึกใบเสนอราคาสำเร็จ', `สร้างใบเสนอราคา ${newQuotation.quotationNo} เรียบร้อยแล้ว`, 'SUCCESS')
-    router.push('/quotations')
+    try {
+      const saved = await addQuotation(newQuotation)
+      const no = saved.find((q) => q.items.length > 0 && q.status === 'SENT')?.quotationNo
+      showToast('บันทึกใบเสนอราคาสำเร็จ', no ? `ใบเสนอราคา ${no}` : 'บันทึกเรียบร้อยแล้ว', 'SUCCESS')
+      router.push('/quotations')
+    } catch (err) {
+      if (!isPinCancelled(err)) showToast('บันทึกใบเสนอราคาไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
+    }
   }
 
   const handleExitQuotationMode = () => {

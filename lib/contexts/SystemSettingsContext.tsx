@@ -10,7 +10,6 @@ import {
   ActorInfo,
 } from '@/features/settings/services/settings-storage'
 import { fetchSharedSystemConfig, saveSharedSystemConfig } from '@/features/settings/api/settings-repository'
-import { checkAndExpireReservations } from '@/features/bills/services/bill-workflow-service'
 import { createClient } from '@/lib/supabase/client'
 
 interface SystemSettingsContextValue {
@@ -32,11 +31,6 @@ export function SystemSettingsProvider({ children }: { children: React.ReactNode
   const [isLoaded, setIsLoaded] = useState(false)
 
   const reloadSettings = useCallback(() => {
-    try {
-      checkAndExpireReservations()
-    } catch {
-      // ignore on early boot
-    }
     const loaded = loadSystemSettings()
     setSettings(loaded)
     setIsLoaded(true)
@@ -48,6 +42,10 @@ export function SystemSettingsProvider({ children }: { children: React.ReactNode
     async function hydrateSettings() {
       setSettings(loadSystemSettings())
       try {
+        // store_settings is readable only by signed-in ACTIVE members: do not ask before login
+        // (an anonymous read is refused by the database).
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) return
         const shared = await fetchSharedSystemConfig()
         if (!active) return
         if (shared) {
@@ -73,31 +71,23 @@ export function SystemSettingsProvider({ children }: { children: React.ReactNode
     }
 
     window.addEventListener('app_settings_changed', handleSettingsChanged)
-    window.addEventListener('storage', reloadSettings)
-    const settingsChannel = supabase
-      .channel('shared-system-settings')
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'system_settings', filter: 'id=eq.default' },
-        async () => {
-          const shared = await fetchSharedSystemConfig()
-          if (active && shared) setSettings(setCachedSystemSettings(shared))
-        }
-      )
-      .subscribe()
+    // Reload the shop settings whenever the signed-in user changes (login, logout, refresh).
+    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') void hydrateSettings()
+    })
 
     return () => {
       active = false
-      void supabase.removeChannel(settingsChannel)
+      authListener.subscription.unsubscribe()
       window.removeEventListener('app_settings_changed', handleSettingsChanged)
-      window.removeEventListener('storage', reloadSettings)
     }
   }, [reloadSettings])
 
   const updateSettings = useCallback(
-    async (newConfig: SystemConfig, actor: ActorInfo, reason?: string): Promise<SystemConfig> => {
-      await saveSharedSystemConfig(newConfig)
-      const saved = saveSystemSettings(newConfig, actor, reason)
+    // The actor is taken from the signed-in session on the server (audit); kept for callers.
+    async (newConfig: SystemConfig, _actor: ActorInfo, reason?: string): Promise<SystemConfig> => {
+      await saveSharedSystemConfig(newConfig, reason)
+      const saved = saveSystemSettings(newConfig)
       setSettings(saved)
       return saved
     },

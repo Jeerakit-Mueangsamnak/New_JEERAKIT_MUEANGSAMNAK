@@ -38,6 +38,8 @@ export interface ProductRowItem {
 
 export interface NewProductModalProps {
   isOpen: boolean
+  /** 'workspace' = full product-page overlay (see AppModal). */
+  variant?: 'dialog' | 'workspace'
   onClose: () => void
   onSave?: (product: Product | Product[]) => void
   targetProduct?: Product | null
@@ -79,6 +81,7 @@ const createInitialRows = (defaultCatId: string, target?: Product | null, count:
 
 export function NewProductModal({
   isOpen,
+  variant = 'dialog',
   onClose,
   onSave,
   targetProduct = null,
@@ -347,6 +350,7 @@ export function NewProductModal({
       isOpen={isOpen}
       onClose={onClose}
       size="2xl"
+      variant={variant}
     >
       {/* Modal Header */}
       <AppModalHeader

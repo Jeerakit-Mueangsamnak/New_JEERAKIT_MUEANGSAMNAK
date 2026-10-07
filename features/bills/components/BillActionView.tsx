@@ -1,5 +1,7 @@
 'use client'
 
+import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
+import { printReactDocuments } from '@/lib/print/print-react'
 import React, { useState, useMemo, useEffect } from 'react'
 import {
   FullBill,
@@ -26,8 +28,8 @@ import { useToast } from '@/components/common/Toast'
 import { PostSavePrintModal } from '@/components/common/PostSavePrintModal'
 import { BusinessSettings } from '@/lib/types/rental-pos'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { generateCorrelationId } from '@/features/audits/services/audit-storage'
-import { processReturnWorkflow, processSplitPaymentWorkflow } from '@/features/bills/services/bill-workflow-service'
+import { processReturn, receivePayment } from '@/features/bills/services/bill-service'
+import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { ReturnInspectionStep } from '@/features/bills/components/ReturnInspectionStep'
 import type { ReturnQuantityField } from '@/features/bills/components/ReturnInspectionStep'
 import { PaymentItemSelectionTable } from '@/features/bills/components/PaymentItemSelectionTable'
@@ -85,11 +87,12 @@ export function BillActionView({
 }: BillActionViewProps) {
   const { showToast } = useToast()
   const { user } = useAuth()
-  const business: Partial<BusinessSettings> = {}
+  const { settings: systemSettings } = useSystemSettings()
+  const business: Partial<BusinessSettings> = systemSettings.business
 
-  const printDocuments = async (_docs: React.ReactNode[], _options?: { title?: string }) => {
-    if (typeof window !== 'undefined') {
-      window.print()
+  const printDocuments = async (docs: React.ReactNode[], options?: { title?: string }) => {
+    if (!printReactDocuments(docs, options?.title)) {
+      showToast('ไม่มีข้อมูลสำหรับพิมพ์', '', 'INFO')
     }
   }
 
@@ -102,8 +105,6 @@ export function BillActionView({
   })
   const [returnDocIndex, setReturnDocIndex] = useState<number>(0)
 
-  // Idempotency Request ID for Payment (Strict UUID v4)
-  const [paymentRequestId, setPaymentRequestId] = useState<string>(() => generateUUID())
 
   // Saved return & payment document numbers for accurate post-save printing
   const [savedReturnInfo, setSavedReturnInfo] = useState<{ returnNo?: string } | null>(null)
@@ -236,7 +237,8 @@ export function BillActionView({
           }
         })
       )
-      setDeductFromDeposit(activeBill.heldDepositAmount > 0)
+      // The deposit is only shown at return — never deducted (Master §18).
+      setDeductFromDeposit(false)
       if (mode === 'PAYMENT') {
         setUserCollectedAmount(activeBill.outstandingAmount)
         setReceivedCashInput(activeBill.outstandingAmount > 0 ? activeBill.outstandingAmount.toString() : '')
@@ -244,7 +246,6 @@ export function BillActionView({
         initialTender.amount = activeBill.outstandingAmount
         initialTender.cashReceived = activeBill.outstandingAmount
         setSplitTenders([initialTender])
-        setPaymentRequestId(generateUUID())
       } else {
         setUserCollectedAmount(0)
         setReceivedCashInput('')
@@ -744,48 +745,40 @@ export function BillActionView({
     setIsSubmitting(true)
 
     try {
-      const actorUserId = user?.userId || 'system'
-      const actorDisplayName = user?.displayName || 'ระบบ'
-      const correlationId = generateCorrelationId()
-
-      const { bill: updatedBill, returnNo } = await processReturnWorkflow({
+      // Server: goods back + damage cases/fees + lost (PIN) + early-return recalculation.
+      const result = await processReturn({
         billId: activeBill.id,
-        correlationId,
+        returnedDay: actualReturnDate,
         items: returnedItems.map((item) => ({
-          rentalBillItemId: item.rentalBillItemId,
-          productId: item.productId,
+          lineId: item.rentalBillItemId,
+          productName: item.productName,
           normalQty: Number(item.normalQty || 0),
           damagedQty: Number(item.damagedQty || 0),
           lostQty: Number(item.lostQty || 0),
-          repairFeePerUnit: item.repairFeePerUnit,
-          replacementFeePerUnit: item.replacementFeePerUnit,
+          damageFeePerUnit: Number(item.repairFeePerUnit || 0),
+          lossFeePerUnit: Number(item.replacementFeePerUnit || 0),
           note: item.note,
         })),
-        actualDamageCharges: returnedItems
-          .filter((item) => (item.damagedQty || 0) > 0 || (item.lostQty || 0) > 0)
-          .map((item) => ({
-            rentalBillItemId: item.rentalBillItemId,
-            productId: item.productId,
-            damageCharge: Number(item.repairFeePerUnit || 0),
-            lossCharge: Number(item.replacementFeePerUnit || 0),
-          })),
-        deductFromDeposit,
-        isConfirmed: true,
-        collectedAmount: userCollectedAmount,
-        paymentMethod: paymentChannel,
-        actor: {
-          userId: actorUserId,
-          displayName: actorDisplayName,
-        },
       })
+      let updatedBill = result.bill
+      // Money collected at the counter during the return (never more than now owed).
+      if (updatedBill && paymentChannel !== 'UNPAID' && userCollectedAmount > 0 && updatedBill.outstandingAmount > 0) {
+        updatedBill = await receivePayment(activeBill.id, [
+          { method: paymentChannel, amount: Math.min(userCollectedAmount, updatedBill.outstandingAmount), reference: bankRef || undefined },
+        ])
+      }
+      const returnNo = result.returnNo || ''
 
-      setBills((prev) =>
-        prev.map((b) => (b.id === updatedBill.id ? updatedBill : b))
-      )
+      if (updatedBill) {
+        const fresh = updatedBill
+        setBills((prev) => prev.map((b) => (b.id === fresh.id ? fresh : b)))
+      }
 
       showToast(
         'บันทึกรับคืนสินค้าสำเร็จ',
-        `รับคืนสินค้าใบคืนเลขที่ ${returnNo} สำเร็จแล้ว`,
+        result.suggestedRefund > 0
+          ? `ใบคืน ${returnNo} — ลูกค้าจ่ายเกิน ฿${result.suggestedRefund.toLocaleString('th-TH')} กดปุ่ม "คืนเงินรับชำระ" เพื่อคืนเงิน (ใส่ PIN)`
+          : `รับคืนสินค้าใบคืนเลขที่ ${returnNo} สำเร็จแล้ว`,
         'SUCCESS'
       )
 
@@ -796,6 +789,7 @@ export function BillActionView({
         description: 'รับคืนสินค้าเรียบร้อยแล้ว\nต้องการพิมพ์ใบรับคืนสินค้าหรือไม่?',
       })
     } catch (err: any) {
+      if (isPinCancelled(err)) return
       showToast('เกิดข้อผิดพลาดในการรับคืนสินค้า', err?.message || 'ไม่สามารถบันทึกรับคืนสินค้าได้', 'ERROR')
     } finally {
       setIsSubmitting(false)
@@ -828,27 +822,15 @@ export function BillActionView({
     setIsSubmitting(true)
 
     try {
-      const actorUserId = user?.userId || 'system'
-      const actorDisplayName = user?.displayName || 'ระบบ'
+      const fresh = await receivePayment(
+        activeBill.id,
+        validTenders.map((t) => ({ method: t.paymentMethod, amount: Number(t.amount || 0), reference: t.referenceNo || undefined }))
+      )
+      if (!fresh) throw new Error('บันทึกแล้วแต่โหลดบิลใหม่ไม่สำเร็จ — กรุณารีเฟรช')
+      const updatedBill = fresh
+      const batchId = ''
+      const confirmedReceiptNo = undefined
 
-      const { bill: updatedBill, batchId, receiptNo: confirmedReceiptNo } = await processSplitPaymentWorkflow({
-        billId: activeBill.id,
-        requestId: paymentRequestId,
-        tenders: validTenders.map((t) => ({
-          paymentMethod: t.paymentMethod,
-          amount: Number(t.amount || 0),
-          referenceNo: t.referenceNo,
-          cashReceived: t.cashReceived,
-        })),
-        paymentDate: paymentDate || undefined,
-        actor: {
-          userId: actorUserId,
-          displayName: actorDisplayName,
-        },
-      })
-
-      // Advance paymentRequestId for subsequent fresh payments
-      setPaymentRequestId(generateUUID())
 
       setBills((prev) =>
         prev.map((b) => (b.id === updatedBill.id ? updatedBill : b))
@@ -1229,19 +1211,10 @@ export function BillActionView({
                         </div>
                       </div>
 
-                      {/* Deposit Deduction Toggle */}
+                      {/* Deposit: shown only — the system never deducts or refunds it (Master §18) */}
                       {activeBill.heldDepositAmount > 0 && (
-                        <div className="shrink-0 p-2 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex items-center justify-between gap-2">
-                          <label htmlFor="deductDepositCheckbox" className="flex items-center gap-2 text-xs font-bold text-amber-900 dark:text-amber-200 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              id="deductDepositCheckbox"
-                              checked={deductFromDeposit}
-                              onChange={(e) => setDeductFromDeposit(e.target.checked)}
-                              className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
-                            />
-                            <span>หักยอดค่าเสียหายจากเงินมัดจำ (ถือไว้ ฿{activeBill.heldDepositAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })})</span>
-                          </label>
+                        <div className="shrink-0 p-2 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs font-bold text-amber-900 dark:text-amber-200">
+                          บิลนี้มีมัดจำ ฿{activeBill.heldDepositAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} — ระบบไม่หัก/ไม่คืนให้อัตโนมัติ คืนหรือหักที่หน้าร้านตามจริง
                         </div>
                       )}
 
@@ -1386,7 +1359,7 @@ export function BillActionView({
                         value={paymentDate ? new Date(paymentDate) : new Date()}
                         onChange={(d) =>
                           setPaymentDate(
-                            d ? d.toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+                            getLocalDateString(d ?? new Date())
                           )
                         }
                         align="right"
@@ -1498,7 +1471,7 @@ export function BillActionView({
                           value={paymentDate ? new Date(paymentDate) : new Date()}
                           onChange={(d) =>
                             setPaymentDate(
-                              d ? d.toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+                              getLocalDateString(d ?? new Date())
                             )
                           }
                           align="left"

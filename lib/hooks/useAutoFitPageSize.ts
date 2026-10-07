@@ -3,26 +3,27 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 
 export interface UseAutoFitPageSizeOptions {
-  /** Approximate/default row height in pixels (default: 40) */
-  defaultRowHeight?: number
-  /** Approximate/default table header height in pixels (default: 40) */
-  defaultHeaderHeight?: number
-  /** Extra vertical offset to deduct (padding, borders, etc.) */
-  extraOffset?: number
-  /** Minimum page size (default: 1) */
-  minPageSize?: number
-  /** Initial fallback page size before measurement (default: 8) */
-  initialPageSize?: number
   /** Total number of items */
   totalItems: number
-  /** Optional dependency key to re-bind ResizeObserver when tab or visibility changes */
-  activeKey?: any
+  /** Rows rendered first and added each time the user scrolls near the bottom (default 60). */
+  step?: number
+  /** Changing this (tab / view) starts again from the top. */
+  activeKey?: unknown
+  /** Kept for old callers; ignored. */
+  defaultRowHeight?: number
+  defaultHeaderHeight?: number
+  extraOffset?: number
+  minPageSize?: number
+  initialPageSize?: number
 }
 
 export interface UseAutoFitPageSizeResult {
+  /** Put on the table's scroll container (overflow-y-auto, sticky thead). */
   containerRef: React.RefObject<HTMLDivElement>
   pageSize: number
+  /** Always 1: there are no pages any more. */
   currentPage: number
+  /** Any call resets the list to the first rows and scrolls to the top (used when filters change). */
   setCurrentPage: React.Dispatch<React.SetStateAction<number>>
   totalPages: number
   startIndex: number
@@ -30,97 +31,47 @@ export interface UseAutoFitPageSizeResult {
 }
 
 /**
- * Hook to automatically calculate the page size of a table based on actual available viewport height.
- * Uses ResizeObserver to recalculate on resize, fullscreen, or orientation change.
+ * Table rows without paging: the table scrolls inside its own area (sticky header) and more
+ * rows are rendered as the user nears the bottom (incremental loading), so long lists stay
+ * smooth. Name kept so existing tables keep working with `slice(startIndex, endIndex)`.
  */
-export function useAutoFitPageSize({
-  defaultRowHeight = 40,
-  defaultHeaderHeight = 40,
-  extraOffset = 0,
-  minPageSize = 1,
-  initialPageSize = 8,
-  totalItems,
-  activeKey,
-}: UseAutoFitPageSizeOptions): UseAutoFitPageSizeResult {
+export function useAutoFitPageSize({ totalItems, step = 60, activeKey }: UseAutoFitPageSizeOptions): UseAutoFitPageSizeResult {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [pageSize, setPageSize] = useState<number>(initialPageSize)
-  const [currentPage, setCurrentPage] = useState<number>(1)
+  const [visible, setVisible] = useState(step)
 
-  const calculatePageSize = useCallback(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    const containerHeight = container.clientHeight
-    if (containerHeight <= 0) return
-
-    // Find thead if present
-    const thead = container.querySelector('thead')
-    const headerHeight = thead ? thead.offsetHeight : defaultHeaderHeight
-
-    // Find first tr in tbody if present to measure actual row height (ignore empty state rows)
-    const firstRow = container.querySelector<HTMLTableRowElement>('tbody tr:not([data-empty-row])')
-    const actualRowHeight =
-      firstRow && firstRow.offsetHeight > 0 ? firstRow.offsetHeight : defaultRowHeight
-
-    const availableHeight = containerHeight - headerHeight - extraOffset
-    if (availableHeight <= 0) return
-
-    const calculated = Math.max(minPageSize, Math.floor(availableHeight / actualRowHeight))
-
-    setPageSize((prev) => (prev !== calculated ? calculated : prev))
-  }, [defaultRowHeight, defaultHeaderHeight, extraOffset, minPageSize])
+  const reset = useCallback(() => {
+    setVisible(step)
+    containerRef.current?.scrollTo({ top: 0 })
+  }, [step])
 
   useEffect(() => {
-    calculatePageSize()
+    reset()
+  }, [activeKey, reset])
 
-    const container = containerRef.current
-    if (!container) return
-
-    let observer: ResizeObserver | null = null
-    if (typeof ResizeObserver !== 'undefined') {
-      observer = new ResizeObserver(() => {
-        calculatePageSize()
-      })
-      observer.observe(container)
-    }
-
-    const handleResize = () => {
-      calculatePageSize()
-    }
-
-    window.addEventListener('resize', handleResize)
-    window.addEventListener('orientationchange', handleResize)
-
-    return () => {
-      if (observer) {
-        observer.disconnect()
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const loadMore = () => {
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 240) {
+        setVisible((v) => (v < totalItems ? v + step : v))
       }
-      window.removeEventListener('resize', handleResize)
-      window.removeEventListener('orientationchange', handleResize)
     }
-  }, [calculatePageSize, activeKey])
+    // A tall screen may show every rendered row without a scrollbar: keep filling.
+    loadMore()
+    el.addEventListener('scroll', loadMore, { passive: true })
+    return () => el.removeEventListener('scroll', loadMore)
+  }, [totalItems, step, visible, activeKey])
 
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
-
-  // Keep currentPage valid when totalPages changes
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages)
-    } else if (currentPage < 1) {
-      setCurrentPage(1)
-    }
-  }, [currentPage, totalPages])
-
-  const startIndex = (currentPage - 1) * pageSize
-  const endIndex = Math.min(startIndex + pageSize, totalItems)
+  const setCurrentPage = useCallback<React.Dispatch<React.SetStateAction<number>>>(() => reset(), [reset])
+  const endIndex = Math.min(visible, totalItems)
 
   return {
     containerRef,
-    pageSize,
-    currentPage,
+    pageSize: visible,
+    currentPage: 1,
     setCurrentPage,
-    totalPages,
-    startIndex,
+    totalPages: 1,
+    startIndex: 0,
     endIndex,
   }
 }

@@ -1,9 +1,10 @@
 'use client'
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react'
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import type { Session, User, AuthChangeEvent } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
 import { buildCurrentUser } from '@/features/auth/services/auth-utils'
+import { hasMenu as userHasMenu, type MenuCode } from '@/features/auth/services/permissions'
 import { logout } from '@/app/actions/auth'
 import type { CurrentUser, UserRole } from '@/lib/types/rental-pos'
 
@@ -12,6 +13,8 @@ export interface AuthContextType {
   session: Session | null
   loading: boolean
   role: UserRole | null
+  /** UI hint only; the database enforces the same rule through RLS/RPC (_require_menu) */
+  hasMenu: (code: MenuCode) => boolean
   signOut: () => Promise<void>
   refreshUser: () => Promise<void>
 }
@@ -21,6 +24,7 @@ const AuthContext = createContext<AuthContextType>({
   session: null,
   loading: true,
   role: null,
+  hasMenu: () => false,
   signOut: async () => {},
   refreshUser: async () => {},
 })
@@ -32,8 +36,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   const supabase = useMemo(() => createClient(), [])
+  // Last user built from a profile that was actually read; a slow or failed read keeps it.
+  const userRef = useRef<CurrentUser | null>(null)
+  // Only the newest profile load (or a sign-out after it) may set state.
+  const profileRequestRef = useRef(0)
+  const latestProfileLoadRef = useRef<Promise<void> | null>(null)
 
-  const loadUserProfile = useCallback(async (authUser: User, currentSession: Session | null) => {
+  const clearAuthState = useCallback(() => {
+    profileRequestRef.current += 1
+    latestProfileLoadRef.current = null
+    userRef.current = null
+    setUser(null)
+    setRole(null)
+    setSession(null)
+  }, [])
+
+  const readProfile = useCallback(async (authUser: User, currentSession: Session | null): Promise<void> => {
+    const requestId = ++profileRequestRef.current
+    const isLatest = () => requestId === profileRequestRef.current
+    const lastKnown = userRef.current?.id === authUser.id ? userRef.current : null
+
+    const apply = (nextUser: CurrentUser) => {
+      userRef.current = nextUser
+      setUser(nextUser)
+      setRole(nextUser.role)
+      setSession(currentSession)
+    }
+    // Timeout / network / query error says nothing about the profile: keep the last one read.
+    const keepLastKnown = () => {
+      if (lastKnown) {
+        setSession(currentSession)
+        return
+      }
+      // First load with nothing read yet: unknown status fails closed (PENDING), as before
+      apply(buildCurrentUser(authUser, null))
+    }
+
+    let timer: ReturnType<typeof setTimeout> | undefined
     try {
       const profilePromise = supabase
         .from('profiles')
@@ -41,25 +80,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .eq('id', authUser.id)
         .maybeSingle()
 
-      const timeoutPromise = new Promise<{ data: null }>((resolve) =>
-        setTimeout(() => resolve({ data: null }), 3000)
-      )
+      // RLS returns only the signed-in user's own menu grants
+      const grantsPromise = supabase
+        .from('user_menu_access')
+        .select('menu_code')
+        .eq('user_id', authUser.id)
 
-      const result = await Promise.race([profilePromise, timeoutPromise])
-      const profile = result?.data ?? null
+      const TIMED_OUT = { timedOut: true as const }
+      const timeoutPromise = new Promise<typeof TIMED_OUT>((resolve) => {
+        timer = setTimeout(() => resolve(TIMED_OUT), 3000)
+      })
 
-      const currentUser = buildCurrentUser(authUser, profile)
-      setUser(currentUser)
-      setRole(currentUser.role)
-      setSession(currentSession)
+      const [result, grantsResult] = await Promise.all([
+        Promise.race([profilePromise, timeoutPromise]),
+        Promise.race([grantsPromise, timeoutPromise]),
+      ])
+      if (!isLatest()) return
+
+      if ('timedOut' in result || result.error) {
+        keepLastKnown()
+        return
+      }
+      // Menus that failed to load keep the last known grants instead of dropping to none
+      const grantsFailed = 'timedOut' in grantsResult || Boolean(grantsResult.error)
+      const menuCodes = grantsFailed
+        ? lastKnown?.menus ?? []
+        : (grantsResult.data ?? []).map((row: { menu_code: string }) => row.menu_code)
+
+      apply(buildCurrentUser(authUser, result.data ?? null, menuCodes))
     } catch {
-      // Safe fallback if profiles table is not accessible: defaults to USER role
-      const fallbackUser = buildCurrentUser(authUser, null)
-      setUser(fallbackUser)
-      setRole(fallbackUser.role)
-      setSession(currentSession)
+      if (isLatest()) keepLastKnown()
+    } finally {
+      clearTimeout(timer)
     }
   }, [supabase])
+
+  const loadUserProfile = useCallback((authUser: User, currentSession: Session | null): Promise<void> => {
+    const run = readProfile(authUser, currentSession)
+    latestProfileLoadRef.current = run
+    // A superseded load resolves only once the newest one has set the user, so callers
+    // (initAuth → loading=false) never see "no session" in between.
+    return run.then(async () => {
+      let latest = latestProfileLoadRef.current
+      while (latest && latest !== run) {
+        await latest
+        if (latestProfileLoadRef.current === latest) break
+        latest = latestProfileLoadRef.current
+      }
+    })
+  }, [readProfile])
 
   const refreshUser = useCallback(async () => {
     try {
@@ -72,19 +141,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (sessionData?.session?.user) {
           await loadUserProfile(sessionData.session.user, sessionData.session)
         } else {
-          setUser(null)
-          setRole(null)
-          setSession(null)
+          clearAuthState()
         }
       }
     } catch {
-      setUser(null)
-      setRole(null)
-      setSession(null)
+      // A failed check is not a sign-out: keep a user that was already read
+      if (!userRef.current) clearAuthState()
     } finally {
       setLoading(false)
     }
-  }, [supabase, loadUserProfile])
+  }, [supabase, loadUserProfile, clearAuthState])
 
   useEffect(() => {
     let isMounted = true
@@ -108,16 +174,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const { data: sessionData } = await supabase.auth.getSession()
             await loadUserProfile(userData.user, sessionData?.session ?? null)
           } else {
-            setUser(null)
-            setRole(null)
-            setSession(null)
+            clearAuthState()
           }
         }
       } catch {
-        if (isMounted) {
-          setUser(null)
-          setRole(null)
-          setSession(null)
+        if (isMounted && !userRef.current) {
+          clearAuthState()
         }
       } finally {
         clearTimeout(safetyTimer)
@@ -136,9 +198,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (currentSession?.user) {
           await loadUserProfile(currentSession.user, currentSession)
         } else {
-          setUser(null)
-          setRole(null)
-          setSession(null)
+          clearAuthState()
         }
         setLoading(false)
       }
@@ -148,7 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isMounted = false
       subscription.unsubscribe()
     }
-  }, [supabase, loadUserProfile])
+  }, [supabase, loadUserProfile, clearAuthState])
 
   const signOut = useCallback(async () => {
     try {
@@ -161,21 +221,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Ignore network errors during signout
     } finally {
-      setUser(null)
-      setRole(null)
-      setSession(null)
+      clearAuthState()
       window.location.href = '/login'
     }
-  }, [supabase])
+  }, [supabase, clearAuthState])
+
+  const hasMenu = useCallback(
+    (code: MenuCode) => userHasMenu(user, code),
+    [user]
+  )
 
   const contextValue = useMemo<AuthContextType>(() => ({
     user,
     session,
     loading,
     role,
+    hasMenu,
     signOut,
     refreshUser,
-  }), [user, session, loading, role, signOut, refreshUser])
+  }), [user, session, loading, role, hasMenu, signOut, refreshUser])
 
   return (
     <AuthContext.Provider value={contextValue}>

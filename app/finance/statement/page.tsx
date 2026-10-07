@@ -9,21 +9,37 @@ import { CustomDatePicker, getLocalDateString } from '@/components/common/Custom
 import { useToast } from '@/components/common/Toast'
 import { logger } from '@/lib/utils/logger'
 import * as XLSX from 'xlsx'
-import { loadTransactions as fetchTransactions, addTransaction, type StatementTransaction } from '@/features/finance/services/finance-storage'
+import { loadTransactions as fetchTransactions, addManualTransaction, type StatementTransaction } from '@/features/finance/services/finance-storage'
+import { isPinCancelled } from '@/lib/db/pin-confirm'
+import { EXPENSE_CATEGORIES } from '@/features/finance/api/finance-repository'
+import { getPolicy, savePolicies } from '@/lib/db/policies'
 
 export default function StatementPage() {
-  const [incomeCategories, setIncomeCategories] = useState<Array<{ id: string; label: string }>>([])
-  const [expenseCategories, setExpenseCategories] = useState<Array<{ id: string; label: string }>>([])
-
-  const addIncomeCategory = (label: string) => setIncomeCategories((prev) => [...prev, { id: 'inc-' + Date.now(), label }])
-  const updateIncomeCategory = (id: string, label: string) => setIncomeCategories((prev) => prev.map((c) => (c.id === id ? { ...c, label } : c)))
-  const removeIncomeCategory = (id: string) => setIncomeCategories((prev) => prev.filter((c) => c.id !== id))
-
-  const addExpenseCategory = (label: string) => setExpenseCategories((prev) => [...prev, { id: 'exp-' + Date.now(), label }])
-  const updateExpenseCategory = (id: string, label: string) => setExpenseCategories((prev) => prev.map((c) => (c.id === id ? { ...c, label } : c)))
-  const removeExpenseCategory = (id: string) => setExpenseCategories((prev) => prev.filter((c) => c.id !== id))
-
   const { showToast } = useToast()
+  // Quick items: income names are an adjustable shop setting (policies.finance_income_items);
+  // expense categories are the fixed server list (Master §22).
+  const [incomeCategories, setIncomeCategories] = useState<Array<{ id: string; label: string }>>(() =>
+    getPolicy<string[]>('finance_income_items', ['รายรับอื่นๆ']).map((label, i) => ({ id: 'inc-' + i, label }))
+  )
+  const [expenseCategories] = useState<Array<{ id: string; label: string }>>(() =>
+    EXPENSE_CATEGORIES.map((c) => ({ id: c.code, label: c.label }))
+  )
+
+  const persistIncomeItems = (next: Array<{ id: string; label: string }>) => {
+    setIncomeCategories(next)
+    savePolicies({ finance_income_items: next.map((c) => c.label) }, 'แก้รายการรายรับด่วน').catch((err: unknown) =>
+      showToast('บันทึกรายการด่วนไม่สำเร็จ', err instanceof Error ? err.message : 'ต้องมีสิทธิ์เมนูตั้งค่า', 'ERROR')
+    )
+  }
+  const addIncomeCategory = (label: string) => persistIncomeItems([...incomeCategories, { id: 'inc-' + Date.now(), label }])
+  const updateIncomeCategory = (id: string, label: string) => persistIncomeItems(incomeCategories.map((c) => (c.id === id ? { ...c, label } : c)))
+  const removeIncomeCategory = (id: string) => persistIncomeItems(incomeCategories.filter((c) => c.id !== id))
+
+  const fixedExpense = () => showToast('หมวดรายจ่ายเป็นรายการคงที่', 'ใส่รายละเอียดเพิ่มในช่องคำอธิบายแทน', 'INFO')
+  const addExpenseCategory = (_label: string) => fixedExpense()
+  const updateExpenseCategory = (_id: string, _label: string) => fixedExpense()
+  const removeExpenseCategory = (_id: string) => fixedExpense()
+
   const [transactions, setTransactions] = useState<StatementTransaction[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE'>('ALL')
@@ -177,26 +193,24 @@ export default function StatementPage() {
     const fallbackCategory = manualType === 'INCOME' ? 'รายรับอื่นๆ' : 'ค่าใช้จ่ายทั่วไป'
     const categoryToSave = trimmedQuick || fallbackCategory
 
-    const newTx: StatementTransaction = {
-      id: `tx-${Date.now()}`,
-      dateTime: new Date().toISOString(),
-      refNo: `TX-${Date.now().toString().slice(-6)}`,
-      type: manualType,
-      category: categoryToSave,
-      description: finalDescription,
-      incomeAmount: manualType === 'INCOME' ? manualAmount : 0,
-      expenseAmount: manualType === 'EXPENSE' ? manualAmount : 0,
-      runningBalance: manualAmount,
-      channel: manualChannel,
+    // Income outside a bill = รายรับอื่น; expense = รายจ่าย (PIN). A product sale needs a sale bill.
+    try {
+      const next = await addManualTransaction({
+        type: manualType,
+        category: categoryToSave,
+        description: finalDescription,
+        amount: manualAmount,
+        channel: manualChannel,
+      })
+      setTransactions(next)
+      setShowAddModal(false)
+      setManualAmount(0)
+      setQuickItem('')
+      setManualDesc('')
+      showToast('บันทึกรายการสำเร็จ', finalDescription, 'SUCCESS')
+    } catch (err) {
+      if (!isPinCancelled(err)) showToast('บันทึกไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
     }
-
-    addTransaction(newTx)
-    setTransactions((prev) => [newTx, ...prev])
-    setShowAddModal(false)
-    setManualAmount(0)
-    setQuickItem('')
-    setManualDesc('')
-    showToast('บันทึกรายการสำเร็จ', `บันทึกรายการ ${newTx.refNo} เรียบร้อยแล้ว`, 'SUCCESS')
   }
 
   const handleCreateCategory = async () => {

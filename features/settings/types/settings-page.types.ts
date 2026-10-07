@@ -110,6 +110,8 @@ export interface NotificationSettings {
   paymentReminder: NotificationItemSettings
   lowStockReminder: { enabled: boolean }
   overdueReturnReminder: { enabled: boolean }
+  /** Upcoming appointments: notice + the "ใกล้ถึงกำหนด" window of the calendar (days). */
+  appointmentReminder: NotificationItemSettings
 }
 
 export interface BrandingSettings {

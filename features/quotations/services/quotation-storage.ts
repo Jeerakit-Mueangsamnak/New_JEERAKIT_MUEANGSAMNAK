@@ -1,202 +1,61 @@
 /**
- * Shared Quotation Storage
- *
- * Source of truth: Supabase PostgreSQL public.quotations table with in-memory cache.
- * Single source of truth for quotations across POS, Quotations, and Checkout.
- * ZERO 'as any' assertions.
- * LocalStorage fallback for business data is strictly forbidden.
+ * Quotation cache + commands for the UI (Master v4.3.1 §10). Supabase is the source of truth:
+ * reads via features/quotations/api/quotation-repository.ts, writes through the quotation RPCs,
+ * then the cache is reloaded. Quotations never move stock or money.
  */
-
 import { Quotation, QuotationStatus, Customer, Product } from '@/lib/types/rental-pos'
-import { CartItem } from '@/features/pos/services/cart-storage'
-import { createReservation, releaseReservationsBySource, ReservationRecord } from '@/features/reservations/services/reservation-storage'
-import { createBackorder, cancelBackordersBySource, BackorderRecord } from '@/features/reservations/services/backorder-storage'
-import { getProductAvailability, syncProductReservedStock } from '@/features/products/services/product-storage'
-import { recordAuditLog, generateCorrelationId } from '@/features/audits/services/audit-storage'
+import { CartItem, cartLineListPrice } from '@/features/pos/services/cart-storage'
 import { loadSystemSettings } from '@/features/settings/services/settings-storage'
 import {
   fetchQuotationsFromSupabase as fetchQuotationsFromRepository,
-  fetchQuotationByIdFromSupabase as fetchQuotationByIdFromRepository,
-  saveQuotationToSupabase as saveQuotationToRepository,
-  deleteQuotationFromSupabase as deleteQuotationFromRepository,
+  saveQuotationDraft,
+  sendQuotation,
+  setQuotationStatus,
 } from '@/features/quotations/api/quotation-repository'
 
-// In-memory cache for fast synchronous access by UI components
 let _cachedQuotations: Quotation[] | null = null
-
-const STORAGE_KEY = 'app_quotation_storage'
 
 export function setCachedQuotations(quotations: Quotation[]): void {
   _cachedQuotations = quotations
 }
 
 export function loadQuotations(): Quotation[] {
-  if (process.env.NODE_ENV === 'test' && typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw === null) {
-        _cachedQuotations = []
-        return []
-      }
-      return JSON.parse(raw) as Quotation[]
-    } catch {
-      return []
-    }
-  }
   return _cachedQuotations || []
 }
 
-export function saveQuotations(quotations: Quotation[]): void {
-  _cachedQuotations = quotations
-  if (process.env.NODE_ENV === 'test' && typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(quotations))
-    } catch {}
-  }
+export async function fetchQuotationsFromSupabase(): Promise<Quotation[]> {
+  _cachedQuotations = await fetchQuotationsFromRepository()
+  return _cachedQuotations
 }
 
 export function getQuotationById(id: string): Quotation | null {
-  const current = loadQuotations()
-  return current.find((q) => q.id === id || q.quotationNo === id) || null
+  return loadQuotations().find((q) => q.id === id || q.quotationNo === id) || null
 }
 
-export function addQuotation(incoming: Quotation): Quotation[] {
-  const current = loadQuotations()
-  const exists = current.some((q) => q.id === incoming.id)
-  const next = exists
-    ? current.map((q) => (q.id === incoming.id ? incoming : q))
-    : [incoming, ...current]
-  saveQuotations(next)
-  if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'test') {
-    saveQuotationToSupabase(incoming).catch((err) =>
-      console.error('[Supabase] Failed to sync added quotation:', err)
-    )
-  }
-  return next
-}
-
-export function updateQuotation(updated: Quotation): Quotation[] {
-  const current = loadQuotations()
-  const next = current.map((q) => (q.id === updated.id ? updated : q))
-  saveQuotations(next)
-  if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'test') {
-    saveQuotationToSupabase(updated).catch((err) =>
-      console.error('[Supabase] Failed to sync updated quotation:', err)
-    )
-  }
-  return next
-}
-
-export function updateQuotationStatus(
-  id: string,
-  status: QuotationStatus,
-  remark?: string
-): Quotation[] {
-  const current = loadQuotations()
-  let targetQuote: Quotation | undefined
-  const next = current.map((q) => {
-    if (q.id === id || q.quotationNo === id) {
-      targetQuote = {
-        ...q,
-        status,
-        ...(remark !== undefined ? { remark } : {}),
-      }
-      return targetQuote
-    }
-    return q
-  })
-  saveQuotations(next)
-  if (targetQuote && typeof window !== 'undefined' && process.env.NODE_ENV !== 'test') {
-    saveQuotationToSupabase(targetQuote).catch((err) =>
-      console.error('[Supabase] Failed to sync quotation status:', err)
-    )
-  }
-  return next
-}
-
-export function updateQuotationConverted(
-  id: string,
-  convertedBillId: string
-): Quotation[] {
-  const current = loadQuotations()
-  let targetQuote: Quotation | undefined
-  const next = current.map((q) => {
-    if (q.id === id || q.quotationNo === id) {
-      targetQuote = {
-        ...q,
-        status: 'CONVERTED' as const,
-        convertedBillId,
-      }
-      return targetQuote
-    }
-    return q
-  })
-  saveQuotations(next)
-  if (targetQuote && typeof window !== 'undefined' && process.env.NODE_ENV !== 'test') {
-    saveQuotationToSupabase(targetQuote).catch((err) =>
-      console.error('[Supabase] Failed to sync converted quotation:', err)
-    )
-  }
-  return next
-}
-
-export function deleteQuotation(id: string): Quotation[] {
-  const current = loadQuotations()
-  const next = current.filter((q) => q.id !== id && q.quotationNo !== id)
-  saveQuotations(next)
-  if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'test') {
-    deleteQuotationFromSupabase(id).catch((err) =>
-      console.error('[Supabase] Failed to delete quotation:', err)
-    )
-  }
-  return next
-}
-
+/** Number is assigned by the server when the quotation is sent; drafts show a temporary label. */
 export function generateQuotationNo(): string {
-  const now = new Date()
-  const ymd = now.toISOString().slice(0, 10).replace(/-/g, '')
-  const rand = String(Math.floor(1000 + Math.random() * 9000))
-  return `QT-${ymd}-${rand}`
+  return 'ร่างใบเสนอราคา'
 }
 
-// ─── Supabase Async Operations ────────────────────────────────────────
-// Direct database CRUD lives only in lib/repositories/quotation-repository.ts.
-// This module owns cache synchronization and quotation domain/workflow behavior.
-
-export async function fetchQuotationsFromSupabase(): Promise<Quotation[]> {
-  const quotations = await fetchQuotationsFromRepository()
-  saveQuotations(quotations)
-  return quotations
+/**
+ * Saves a quotation made in POS: a new or still-DRAFT quotation is saved as a draft and sent
+ * (gets its number). Returns the fresh list.
+ */
+export async function addQuotation(incoming: Quotation): Promise<Quotation[]> {
+  const existing = loadQuotations().find((q) => q.id === incoming.id)
+  const id = await saveQuotationDraft(incoming, existing?.status === 'DRAFT')
+  await sendQuotation(id)
+  return fetchQuotationsFromSupabase()
 }
 
-export async function fetchQuotationByIdFromSupabase(id: string): Promise<Quotation | null> {
-  const quotation = await fetchQuotationByIdFromRepository(id)
-  if (!quotation) return null
-
-  const current = loadQuotations()
-  const next = current.some((item) => item.id === quotation.id)
-    ? current.map((item) => (item.id === quotation.id ? quotation : item))
-    : [quotation, ...current]
-  saveQuotations(next)
-
-  return quotation
-}
-
-export async function saveQuotationToSupabase(quotation: Quotation): Promise<void> {
-  await saveQuotationToRepository(quotation)
-
-  const current = loadQuotations()
-  const next = current.some((item) => item.id === quotation.id)
-    ? current.map((item) => (item.id === quotation.id ? quotation : item))
-    : [quotation, ...current]
-  saveQuotations(next)
-}
-
-export async function deleteQuotationFromSupabase(id: string): Promise<void> {
-  await deleteQuotationFromRepository(id)
-
-  const current = loadQuotations()
-  saveQuotations(current.filter((item) => item.id !== id && item.quotationNo !== id))
+/** Status change from the quotations screen. CANCELLED in the app = REJECTED on the server. */
+export async function updateQuotationStatus(id: string, status: QuotationStatus, remark?: string): Promise<Quotation[]> {
+  const q = getQuotationById(id)
+  if (!q) throw new Error('ไม่พบใบเสนอราคา')
+  if (q.status === 'DRAFT' && status !== 'DRAFT') await sendQuotation(q.id)
+  if (status === 'ACCEPTED' || status === 'EXPIRED') await setQuotationStatus(q.id, status, remark)
+  else if (status === 'REJECTED' || status === 'CANCELLED') await setQuotationStatus(q.id, 'REJECTED', remark)
+  return fetchQuotationsFromSupabase()
 }
 
 export interface QuotationToPosValues {
@@ -231,7 +90,7 @@ export function mapQuotationToPos(
   const customer: Customer = matchedCustomer || {
     id: quote.customerId,
     customerName: quote.customerName,
-    phone: quote.phone || (quote as any).customerPhone || '',
+    phone: quote.phone || (quote as Quotation & { customerPhone?: string }).customerPhone || '',
     address: quote.customerAddress || '',
     taxId: quote.customerTaxId,
   }
@@ -283,6 +142,10 @@ export function mapQuotationToPos(
       rentalType: qItem.rentalType,
       quantity: qItem.quantity,
       unitPrice: qItem.unitPrice,
+      // baseProduct carries the quoted price, so keep the product's own price to detect the override
+      listUnitPrice: matchedProd
+        ? cartLineListPrice({ product: matchedProd, rentalType: qItem.rentalType, itemType: isSale ? 'SALE' : 'RENT' })
+        : null,
       usageCount: qItem.usageCountOrDays || 1,
       billableDays: qItem.usageCountOrDays || 1,
       dailyStartDate: qItem.dailyStartDate,
@@ -310,169 +173,27 @@ export function mapQuotationToPos(
 
 export interface ConfirmQuotationResult {
   quotation: Quotation
-  reservations: ReservationRecord[]
-  backorders: BackorderRecord[]
+  reservations: unknown[]
+  backorders: unknown[]
   correlationId: string
 }
 
-/**
- * Confirm a quotation (transitions to ACCEPTED).
- * Invariants:
- * - MASTER v2.3.0 Section 7.3: Quotations do NOT reserve stock and do NOT create backorders.
- * - Stock reservation begins ONLY when a Bill is created/confirmed.
- * - Audits QUOTATION_CONFIRM with shared correlationId.
- */
-export function confirmQuotationWorkflow(
+/** Customer accepted the offer (no stock is reserved — stock moves only with a confirmed bill). */
+export async function confirmQuotationWorkflow(
   quotationId: string,
-  actor: { userId: string; displayName: string },
-  correlationId?: string
-): ConfirmQuotationResult {
-  const current = loadQuotations()
-  const quote = current.find((q) => q.id === quotationId || q.quotationNo === quotationId)
-  if (!quote) {
-    throw new Error(`Quotation ${quotationId} not found`)
-  }
-  if (quote.status === 'CANCELLED') {
-    throw new Error('Cannot confirm a cancelled quotation')
-  }
-  if (quote.status === 'CONVERTED') {
-    throw new Error('Quotation has already been converted to a bill')
-  }
-
-  const corrId = correlationId || generateCorrelationId()
-  const nowIso = new Date().toISOString()
-  const reservations: ReservationRecord[] = []
-  const backorders: BackorderRecord[] = []
-
-  const updatedQuotation: Quotation = {
-    ...quote,
-    status: 'ACCEPTED',
-    acceptedAt: nowIso,
-  }
-
-  updateQuotation(updatedQuotation)
-
-  recordAuditLog({
-    userId: actor.userId,
-    displayName: actor.displayName,
-    action: 'QUOTATION_CONFIRM',
-    entityType: 'QUOTATION',
-    entityId: updatedQuotation.id,
-    before: { quotationNo: quote.quotationNo, status: quote.status },
-    after: {
-      quotationNo: updatedQuotation.quotationNo,
-      status: updatedQuotation.status,
-      reservationsCount: 0,
-      backordersCount: 0,
-    },
-    correlationId: corrId,
-  })
-
-  return { quotation: updatedQuotation, reservations, backorders, correlationId: corrId }
+  _actor?: { userId: string; displayName: string }
+): Promise<ConfirmQuotationResult> {
+  const list = await updateQuotationStatus(quotationId, 'ACCEPTED')
+  const quotation = list.find((q) => q.id === quotationId || q.quotationNo === quotationId)
+  if (!quotation) throw new Error('ไม่พบใบเสนอราคา')
+  return { quotation, reservations: [], backorders: [], correlationId: '' }
 }
 
-export interface CancelQuotationResult {
-  quotation: Quotation
-  releasedReservations: ReservationRecord[]
-  cancelledBackorders: BackorderRecord[]
-  correlationId: string
-}
-
-/**
- * Cancel a quotation without deleting it from history.
- * Invariants:
- * - Releases all ACTIVE reservations associated with this quotation.
- * - Cancels pending backorders associated with this quotation.
- * - Syncs product reserved stock back to available.
- * - Retains quotation in persistence history with cancelReason and cancelledAt.
- * - Audits QUOTATION_CANCEL with shared correlationId.
- */
-export function cancelQuotationWorkflow(
+/** Customer declined / the shop withdrew the offer. */
+export async function cancelQuotationWorkflow(
   quotationId: string,
   reason: string,
-  actor: { userId: string; displayName: string },
-  correlationId?: string
-): CancelQuotationResult {
-  const trimmedReason = reason.trim()
-  if (!trimmedReason) {
-    throw new Error('Reason is required for cancelling a quotation')
-  }
-
-  const current = loadQuotations()
-  const quote = current.find((q) => q.id === quotationId || q.quotationNo === quotationId)
-  if (!quote) {
-    throw new Error(`Quotation ${quotationId} not found`)
-  }
-
-  const corrId = correlationId || generateCorrelationId()
-  const nowIso = new Date().toISOString()
-
-  // 1. Release active reservations
-  const releasedReservations = releaseReservationsBySource('QUOTATION', quote.id, trimmedReason, corrId)
-
-  // 2. Cancel pending backorders
-  const cancelledBackorders = cancelBackordersBySource('QUOTATION', quote.id, trimmedReason)
-
-  // 3. Sync product reserved stocks
-  for (const item of quote.items) {
-    syncProductReservedStock(item.productId)
-  }
-
-  // 4. Update quotation status to CANCELLED (never hard deleted!)
-  const updatedQuotation: Quotation = {
-    ...quote,
-    status: 'CANCELLED',
-    cancelReason: trimmedReason,
-    cancelledAt: nowIso,
-    remark: [quote.remark, `ยกเลิก: ${trimmedReason}`].filter(Boolean).join(' | '),
-  }
-
-  updateQuotation(updatedQuotation)
-
-  recordAuditLog({
-    userId: actor.userId,
-    displayName: actor.displayName,
-    action: 'QUOTATION_CANCEL',
-    entityType: 'QUOTATION',
-    entityId: updatedQuotation.id,
-    before: { quotationNo: quote.quotationNo, status: quote.status },
-    after: {
-      quotationNo: updatedQuotation.quotationNo,
-      status: updatedQuotation.status,
-      cancelReason: trimmedReason,
-      releasedReservationsCount: releasedReservations.length,
-      cancelledBackordersCount: cancelledBackorders.length,
-    },
-    reason: trimmedReason,
-    correlationId: corrId,
-  })
-
-  return { quotation: updatedQuotation, releasedReservations, cancelledBackorders, correlationId: corrId }
-}
-
-/**
- * Mark a quotation as CONVERTED to a bill.
- * Retains quotation in persistence history and links to convertedBillId.
- */
-export function markQuotationConverted(
-  quotationId: string,
-  billId: string,
-  correlationId?: string
-): Quotation | null {
-  const current = loadQuotations()
-  const quote = current.find((q) => q.id === quotationId || q.quotationNo === quotationId)
-  if (!quote) return null
-
-  if (quote.status === 'CONVERTED') {
-    throw new Error('Quotation is already converted')
-  }
-
-  const updatedQuotation: Quotation = {
-    ...quote,
-    status: 'CONVERTED',
-    convertedBillId: billId,
-  }
-
-  updateQuotation(updatedQuotation)
-  return updatedQuotation
+  _actor?: { userId: string; displayName: string }
+): Promise<Quotation[]> {
+  return updateQuotationStatus(quotationId, 'REJECTED', reason)
 }
