@@ -173,6 +173,8 @@ export interface Product {
   reservedQuantity?: number
   maintenanceQuantity?: number
   inRepairQuantity?: number
+  /** Raw stock_balances per stock_state (AVAILABLE, DAMAGED, INSPECTION, REPAIR …) for stock actions. */
+  stockStates?: Partial<Record<string, number>>
   minimumStock: number
   status: 'ACTIVE' | 'INACTIVE'
   description?: string
@@ -255,7 +257,9 @@ export interface Appointment {
   phone?: string
   title: string
   type: AppointmentType
+  /** Added type (Settings list): id + name kept in work_order.type; `type` stays the base code */
   appointmentTypeId?: string
+  appointmentTypeLabel?: string
   date: string
   startTime: string
   endTime: string
@@ -270,9 +274,15 @@ export interface Appointment {
   priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
   assigneeId?: string
   assigneeName?: string
-  items?: { id: string; name: string; quantity: number }[]
+  /** Delivery driver from the driver list (Settings › LINE), kept in work_order.driver */
+  driverId?: string
+  driverName?: string
+  /** Products for the job (id = Product ID), kept in work_order.items. No bill, payment or stock change. */
+  items?: { id: string; name: string; quantity: number; unit?: string }[]
   events?: WorkOrderEvent[]
   createdAt?: string
+  /** Server updated_at when loaded: a save is refused if the row changed since (no lost update) */
+  updatedAt?: string
 }
 
 export type ReservationStatus = 'ACTIVE' | 'CONVERTED' | 'CANCELLED' | 'EXPIRED' | 'RELEASED'

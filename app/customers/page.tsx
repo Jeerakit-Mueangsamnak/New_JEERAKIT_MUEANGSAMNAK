@@ -4,6 +4,7 @@ import { useAskText } from '@/components/common/ConfirmDialogProvider'
 import { printBillA4 } from '@/features/documents/utils/transaction-print'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import React, { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   Users,
   Plus,
@@ -26,6 +27,7 @@ import {
   Receipt,
   Save,
   RefreshCw,
+  ExternalLink,
 } from 'lucide-react'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import {
@@ -44,14 +46,15 @@ import {
 import { NewCustomerModal } from '@/features/customers/components/NewCustomerModal'
 import { useToast } from '@/components/common/Toast'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
-import { logger } from '@/lib/utils/logger'
-import { loadCustomers, createCustomerAsync, updateCustomerAsync, deleteCustomerAsync } from '@/features/customers/services/customer-storage'
+import { loadCustomers, createCustomerAsync, updateCustomerAsync, deleteCustomerAsync, isIdCardUploadError } from '@/features/customers/services/customer-storage'
 import { getLatestIdCardUrl } from '@/features/customers/api/customer-repository'
-import { loadRentalBills, loadBillById, canHardDeleteBill } from '@/features/bills/services/bill-storage'
+import { loadRentalBills } from '@/features/bills/services/bill-storage'
 import { loadTransactions } from '@/features/finance/services/finance-storage'
-import { cancelBill, cancelOrVoidBill } from '@/features/bills/services/bill-service'
-import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
+
+// Bills whose items are still out with the customer (same set as the products menu).
+// EXTENDED = parent bill whose goods moved to a continuation bill: it holds nothing itself.
+const HOLDING_RENTAL_STATUSES: string[] = ['RENTING', 'PARTIAL_RETURNED']
 
 export default function CustomersPage() {
   const { showToast } = useToast()
@@ -127,29 +130,28 @@ export default function CustomersPage() {
     const currentCustomer = customers.find((c) => c.id === selectedCustomerId)
     setCustomerNoteInput(currentCustomer?.note || '')
 
-    // Payments from finance transactions
+    // Bills belong to the customer by id only (two customers may share a name).
+    const currentBills = bills.filter((b) => currentCustomer && b.customerId === currentCustomer.id)
+    const currentBillIds = new Set(currentBills.map((b) => b.id))
+
+    // Payments: the bill payments of this customer's bills (finance lists only completed / refunded payments).
     const allTx = loadTransactions()
-    const matchingTx = allTx.filter(
-      (tx) => tx.customerName && currentCustomer && tx.customerName.toLowerCase() === currentCustomer.customerName.toLowerCase()
-    )
+    const matchingTx = allTx.filter((tx) => tx.type === 'INCOME' && tx.billId && currentBillIds.has(tx.billId))
     const payments: CustomerPaymentRecord[] = matchingTx.map((tx) => ({
       id: tx.id,
       paymentNo: tx.refNo,
       paymentDate: tx.dateTime,
       paymentMethod: tx.channel,
       amount: tx.incomeAmount,
-      status: 'SUCCESS',
-      billNo: tx.refNo,
+      status: 'COMPLETED',
+      billNo: tx.billNo || tx.refNo,
     }))
     setCustomerPayments(payments)
 
     // Outstanding items from customerBills
-    const currentBills = bills.filter(
-      (b) => currentCustomer && (b.customerId === currentCustomer.id || b.customerName === currentCustomer.customerName)
-    )
     const outstanding: CustomerOutstandingItemRecord[] = []
     currentBills
-      .filter((b) => b.rentalStatus === 'RENTING')
+      .filter((b) => HOLDING_RENTAL_STATUSES.includes(b.rentalStatus))
       .forEach((b) => {
         b.items.forEach((item) => {
           if (item.rentalType === 'SALE' || item.requiresReturn === false) return
@@ -202,9 +204,7 @@ export default function CustomersPage() {
 
   // Filter bills for selected customer
   const customerBills = selectedCustomer
-    ? bills.filter(
-        (b) => b.customerId === selectedCustomer.id || b.customerName === selectedCustomer.customerName
-      ).filter(
+    ? bills.filter((b) => b.customerId === selectedCustomer.id).filter(
         (b) =>
           b.billNo.toLowerCase().includes(billSearchTerm.toLowerCase()) ||
           b.customerName.toLowerCase().includes(billSearchTerm.toLowerCase())
@@ -213,7 +213,10 @@ export default function CustomersPage() {
 
   // Metrics calculation for RENTAL_HISTORY tab
   const totalBills = customerBills.length
-  const totalSpent = customerBills.reduce((sum, b) => sum + b.grandTotal, 0)
+  // Cancelled / voided bills are not real rentals (the analytics tab counts bills the same way).
+  const totalSpent = customerBills
+    .filter((b) => b.rentalStatus !== 'CANCELLED' && b.rentalStatus !== 'VOID')
+    .reduce((sum, b) => sum + b.grandTotal, 0)
   const totalOutstanding = customerBills.reduce((sum, b) => sum + b.outstandingAmount, 0)
   const activeRentingBills = customerBills.filter((b) => b.rentalStatus === 'RENTING').length
 
@@ -245,52 +248,8 @@ export default function CustomersPage() {
     outstandingAutoFit.endIndex
   )
 
-  // Bill Delete Confirmation State
-  const [billToDelete, setBillToDelete] = useState<RentalBill | null>(null)
-  const [deleteBillReason, setDeleteBillReason] = useState('')
-  const [isDeletingBill, setIsDeletingBill] = useState(false)
-
-  const handleConfirmDeleteBill = async () => {
-    if (!billToDelete) return
-    const reason = deleteBillReason.trim()
-    if (!reason) {
-      showToast('กรุณาระบุเหตุผล', 'จำเป็นต้องระบุเหตุผลในการลบบิล (DELETE_REASON_REQUIRED)', 'ERROR')
-      return
-    }
-    setIsDeletingBill(true)
-    try {
-      if (canHardDeleteBill(billToDelete)) {
-        // A draft is cancelled (kept in history), never hard-deleted.
-        await cancelBill(billToDelete.id, reason)
-        setBills(loadRentalBills())
-        showToast(
-          'ลบรายการบิลฉบับร่างสำเร็จ',
-          `ลบรายการบิลฉบับร่าง ${billToDelete.billNo} ออกจากระบบเรียบร้อยแล้ว`,
-          'SUCCESS'
-        )
-      } else {
-        // Confirmed or transactional bills must NOT be hard deleted; transition to VOID via lifecycle workflow
-        const full = loadBillById(billToDelete.id)
-        await cancelOrVoidBill({ id: billToDelete.id, serverStatus: full?.serverStatus }, reason)
-        const updatedBills = loadRentalBills()
-        setBills(updatedBills)
-        showToast(
-          'โมฆะบิลสำเร็จ',
-          `บิล ${billToDelete.billNo} มีธุรกรรมแล้ว ระบบได้เปลี่ยนสถานะเป็น VOID เพื่อรักษาประวัติการเงินและสต็อก`,
-          'SUCCESS'
-        )
-      }
-
-      setBillToDelete(null)
-      setDeleteBillReason('')
-    } catch (err: any) {
-      if (isPinCancelled(err)) return
-      logger.error('Failed to delete/void bill:', err)
-      showToast('ดำเนินการไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาดในการดำเนินการกับบิล', 'ERROR')
-    } finally {
-      setIsDeletingBill(false)
-    }
-  }
+  // Bills are cancelled / voided in the bills menu (PIN + BILL_VOID grant); here a bill only opens there.
+  const router = useRouter()
 
   const handleOpenAdd = () => {
     setEditingCustomer(null)
@@ -316,8 +275,9 @@ export default function CustomersPage() {
     setSuspendingCustomerId(c.id)
 
     try {
-      const updatedCustomer = { ...c, isSuspended: targetSuspend }
-      await updateCustomerAsync(updatedCustomer)
+      // Active state is one flag in the DB (status and isSuspended both mirror it): flip both.
+      const updatedCustomer: Customer = { ...c, isSuspended: targetSuspend, status: targetSuspend ? 'INACTIVE' : 'ACTIVE' }
+      await updateCustomerAsync(updatedCustomer, trimmedReason)
       setCustomers((prev) =>
         prev.map((item) => (item.id === updatedCustomer.id ? updatedCustomer : item))
       )
@@ -342,7 +302,7 @@ export default function CustomersPage() {
     }
 
     try {
-      await deleteCustomerAsync(customerToDelete.id)
+      await deleteCustomerAsync(customerToDelete.id, trimmedReason)
       setCustomers((prev) => prev.map((item) => (item.id === customerToDelete.id ? { ...item, isSuspended: true, status: 'INACTIVE' } : item)))
       if (selectedCustomerId === customerToDelete.id) {
         setSelectedCustomerId('')
@@ -359,19 +319,27 @@ export default function CustomersPage() {
     }
   }
 
-  const handleSaveCustomer = async (updatedCustomer: Customer, reason?: string) => {
+  /** Resolves true when the customer row was saved, so the form closes only then. */
+  const handleSaveCustomer = async (updatedCustomer: Customer, reason?: string): Promise<boolean> => {
     const exists = customers.find((c) => c.id === updatedCustomer.id)
     if (exists) {
       const trimmedReason = reason?.trim()
       if (!trimmedReason) {
         showToast('กรุณาระบุเหตุผล', 'จำเป็นต้องระบุเหตุผลในการแก้ไขข้อมูลลูกค้า', 'ERROR')
-        return
+        return false
       }
       try {
-        setCustomers(await updateCustomerAsync(updatedCustomer))
+        setCustomers(await updateCustomerAsync(updatedCustomer, trimmedReason))
         showToast('แก้ไขข้อมูลลูกค้าสำเร็จ', `ปรับปรุงข้อมูลของ ${updatedCustomer.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
+        return true
       } catch (err: any) {
+        if (isIdCardUploadError(err)) {
+          setCustomers(loadCustomers())
+          showToast('บันทึกข้อมูลลูกค้าแล้ว', err.message, 'INFO')
+          return true
+        }
         showToast('แก้ไขข้อมูลลูกค้าไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
+        return false
       }
     } else {
       try {
@@ -380,9 +348,17 @@ export default function CustomersPage() {
         setCustomers(loadCustomers())
         setSelectedCustomerId(newCustomer.id)
         showToast('เพิ่มลูกค้าใหม่สำเร็จ', `บันทึกข้อมูลลูกค้า ${newCustomer.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
+        return true
       } catch (err: any) {
-        if (err?.tag === 'DUPLICATE_CUSTOMER') return
+        if (isIdCardUploadError(err)) {
+          setCustomers(loadCustomers())
+          setSelectedCustomerId(err.saved.id)
+          showToast('บันทึกข้อมูลลูกค้าแล้ว', err.message, 'INFO')
+          return true
+        }
+        if (err?.tag === 'DUPLICATE_CUSTOMER') return false
         showToast('เพิ่มลูกค้าใหม่ไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
+        return false
       }
     }
   }
@@ -400,7 +376,7 @@ export default function CustomersPage() {
         ...selectedCustomer,
         note: customerNoteInput.trim() || undefined,
       }
-      await updateCustomerAsync(updated)
+      await updateCustomerAsync(updated, trimmedReason)
       setCustomers((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
       showToast('บันทึกหมายเหตุสำเร็จ', `อัปเดตหมายเหตุของ ${updated.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
     } catch (err: any) {
@@ -781,14 +757,14 @@ export default function CustomersPage() {
                       <CreditCard className="w-3.5 h-3.5 text-sky-600" />
                       <span>สำเนาบัตรประชาชน</span>
                     </span>
-                    {selectedCustomer ? (
+                    {selectedCustomer?.idCardImageUrl ? (
                       <span className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-full font-bold text-[10px] flex items-center gap-1">
                         <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                         <span>ยืนยันตัวตนแล้ว</span>
                       </span>
                     ) : (
                       <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-full font-bold text-[10px] flex items-center gap-1">
-                        <span>รอเลือกลูกค้า</span>
+                        <span>{selectedCustomer ? 'ยังไม่มีรูปบัตร' : 'รอเลือกลูกค้า'}</span>
                       </span>
                     )}
                   </div>
@@ -834,7 +810,6 @@ export default function CustomersPage() {
 
                           <div className="flex justify-between items-end text-[7px] font-mono text-sky-200 border-t border-white/20 pt-1">
                             <span>หมดอายุ: {selectedCustomer.idCardExpiry || '-'}</span>
-                            <span className="font-bold text-emerald-300">✓ VERIFIED</span>
                           </div>
                         </div>
                       ) : (
@@ -1065,11 +1040,12 @@ export default function CustomersPage() {
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => setBillToDelete(b)}
-                                      title="ลบรายการบิล"
-                                      className="p-1.5 rounded-lg bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors shadow-xs cursor-pointer shrink-0"
+                                      onClick={() => router.push(`/bills?id=${encodeURIComponent(b.id)}`)}
+                                      title="เปิดบิลในเมนูบิล"
+                                      aria-label={`เปิดบิล ${b.billNo}`}
+                                      className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors shadow-xs cursor-pointer shrink-0"
                                     >
-                                      <Trash2 className="w-3.5 h-3.5" />
+                                      <ExternalLink className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
                                 </td>
@@ -1609,7 +1585,7 @@ export default function CustomersPage() {
                   ยืนยันการลบลูกค้า?
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  คุณกำลังจะลบข้อมูลลูกค้า <strong className="text-slate-800 dark:text-slate-200">{customerToDelete.customerName}</strong> ({customerToDelete.customerCode}) ข้อมูลที่ถูกลบจะไม่สามารถกู้คืนได้
+                  คุณกำลังจะลบข้อมูลลูกค้า <strong className="text-slate-800 dark:text-slate-200">{customerToDelete.customerName}</strong> ({customerToDelete.customerCode}) ลูกค้าจะถูกปิดใช้งานและซ่อนจากรายการ ประวัติบิลยังเก็บไว้ครบ และเปิดใช้งานกลับได้ภายหลัง
                 </p>
               </div>
 
@@ -1691,68 +1667,6 @@ export default function CustomersPage() {
         )}
       </AppModal>
 
-      {/* DELETE BILL CONFIRMATION MODAL */}
-      <AppModal
-        isOpen={!!billToDelete}
-        onClose={() => {
-          if (!isDeletingBill) {
-            setBillToDelete(null)
-            setDeleteBillReason('')
-          }
-        }}
-        size="sm"
-      >
-        <AppModalHeader
-          title="ยืนยันการลบรายการบิล"
-          icon={<Trash2 className="w-5 h-5 text-red-600" />}
-          onClose={() => {
-            if (!isDeletingBill) {
-              setBillToDelete(null)
-              setDeleteBillReason('')
-            }
-          }}
-        />
-        <AppModalBody className="space-y-3 text-xs py-3">
-          <p className="text-slate-700 dark:text-slate-300">
-            คุณต้องการลบรายการบิล <strong className="text-slate-900 dark:text-slate-100 font-bold">{billToDelete?.billNo}</strong> ของลูกค้า <strong className="text-slate-900 dark:text-slate-100 font-bold">&quot;{selectedCustomer?.customerName || billToDelete?.customerName}&quot;</strong> หรือไม่?
-          </p>
-
-          <div className="space-y-1.5 text-left pt-1">
-            <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300">
-              เหตุผลในการลบบิล <span className="text-red-500 font-bold">* (จำเป็นต้องระบุ)</span>:
-            </label>
-            <input
-              type="text"
-              value={deleteBillReason}
-              onChange={(e) => setDeleteBillReason(e.target.value)}
-              placeholder="เช่น ลูกค้ายกเลิกคำขอก่อนส่งมอบ / เปิดบิลผิดพลาด..."
-              className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:border-red-500"
-            />
-          </div>
-
-          {billToDelete && canHardDeleteBill(billToDelete) ? (
-            <div className="p-2.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-xl text-blue-800 dark:text-blue-300 text-[11px] leading-relaxed">
-              * บิลนี้เป็นแบบร่างที่ยังไม่มีธุรกรรม/การเคลื่อนไหว จะถูกลบออกจากระบบอย่างถาวร
-            </div>
-          ) : (
-            <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-xl text-amber-800 dark:text-amber-300 text-[11px] leading-relaxed">
-              * บิลนี้มีรายการธุรกรรม/ยืนยันแล้ว ระบบจะเปลี่ยนสถานะเป็น VOID พร้อมบันทึกประวัติ Audit Log เพื่อความถูกต้องของบัญชีและสต็อก
-            </div>
-          )}
-        </AppModalBody>
-        <AppModalFooter
-          onCancel={() => {
-            setBillToDelete(null)
-            setDeleteBillReason('')
-          }}
-          cancelText="ยกเลิก"
-          onConfirm={handleConfirmDeleteBill}
-          confirmText={billToDelete && canHardDeleteBill(billToDelete) ? 'ยืนยันลบฉบับร่าง' : 'ยืนยันยกเลิก/VOID'}
-          confirmButtonColor="red"
-          isConfirmDisabled={isDeletingBill || !deleteBillReason.trim()}
-          isConfirmLoading={isDeletingBill}
-        />
-      </AppModal>
 
     </div>
   )

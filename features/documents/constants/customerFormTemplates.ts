@@ -1,6 +1,7 @@
 import type { DocumentTemplate } from '@/lib/types/document'
 import type { CustomerDocType } from '@/features/documents/api/customer-document-repository'
 import { INITIAL_TEMPLATES } from '@/features/documents/constants/initialDocumentTemplates'
+import { loadTemplateLibrary } from '@/features/documents/services/template-library-storage'
 
 /**
  * Customer forms of the "จัดการเอกสาร" menu (Master §6: documents belong to the customer).
@@ -72,10 +73,27 @@ export const CUSTOMER_FORMS: CustomerFormDefinition[] = [
 ]
 
 export function findCustomerForm(templateCode: string | null | undefined, docType: CustomerDocType): CustomerFormDefinition | undefined {
-  return (
+  const match =
     CUSTOMER_FORMS.find((f) => f.kind === 'TEMPLATE' && f.code === templateCode) ??
     CUSTOMER_FORMS.find((f) => f.kind === 'UPLOAD' && f.docType === docType)
-  )
+  if (match) return match
+  if (templateCode) {
+    try {
+      const custom = loadTemplateLibrary().find((t) => t.id === templateCode)
+      if (custom) {
+        return {
+          code: custom.id,
+          label: custom.name,
+          docType: 'OTHER',
+          kind: 'TEMPLATE',
+          template: custom,
+        }
+      }
+    } catch {
+      // ignore in environments without storage
+    }
+  }
+  return undefined
 }
 
 export const DOC_TYPE_LABEL: Record<CustomerDocType, string> = {

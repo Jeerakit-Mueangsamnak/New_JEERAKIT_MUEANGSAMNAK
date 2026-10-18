@@ -105,6 +105,10 @@ export interface FullBillItem {
   quantity: number
   returnedQty: number
   outstandingQty: number
+  /** Taken over from the parent bill by a continuation (เช่าต่อ). */
+  carriedInQty?: number
+  /** Moved on to a continuation bill (เช่าต่อ). */
+  carriedForwardQty?: number
   damagedQuantity?: number
   lostQuantity?: number
   dailyRate: number
@@ -162,9 +166,13 @@ export interface FullBill {
   deposits: FullBillDeposit[]
   subtotal?: number
   discountAmount?: number
+  billDiscountAmount?: number
+  taxableAmount?: number
   shippingFee?: number
   taxAmount?: number
+  vatMode?: 'INCLUSIVE' | 'EXCLUSIVE'
   billAmount?: number
+  confirmedAt?: string
   grandTotal: number
   paidAmount: number
   outstandingAmount: number
@@ -233,5 +241,3 @@ export interface BillChargeRecord {
   incidentCaseId?: string
   createdAt: string
 }
-
-

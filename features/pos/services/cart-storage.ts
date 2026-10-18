@@ -39,6 +39,8 @@ export interface ActiveCartData {
   shippingFee: number
   depositAmount: number
   taxRate: number
+  /** VAT ON/OFF chosen at the POS for this bill (transaction state, not a shop setting). */
+  vatEnabled?: boolean
   shippingAddress: string
   headerRentalDate: string // ISO string or YYYY-MM-DD
   headerReturnDate: string // ISO string or YYYY-MM-DD

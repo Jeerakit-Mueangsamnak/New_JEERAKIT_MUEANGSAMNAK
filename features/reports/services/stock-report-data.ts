@@ -158,7 +158,8 @@ export function getStockReportData(filter: ReportDateFilter): StockReportData {
 
     // Damaged / Lost checks
     if (dam > 0) {
-      const fee = dam * (p.defaultDamageFee || 100)
+      // Only the fee the owner set on the product (Master: never invent values; unset = 0).
+      const fee = dam * (p.defaultDamageFee || 0)
       totalDamagedCost += fee
       damagedItems.push({
         id: p.id,
@@ -171,7 +172,7 @@ export function getStockReportData(filter: ReportDateFilter): StockReportData {
       })
     }
     if (lost > 0) {
-      const loss = lost * (p.defaultLossFee || p.salePrice || 500)
+      const loss = lost * (p.defaultLossFee || 0)
       totalLostCost += loss
       lostItems.push({
         id: p.id,

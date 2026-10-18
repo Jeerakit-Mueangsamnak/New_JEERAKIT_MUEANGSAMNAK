@@ -1,5 +1,5 @@
-// Generated from supabase/baseline/00_baseline.sql (Master v4.3.1) on a throwaway local stack.
-// Regenerate after schema changes: supabase gen types typescript --db-url <local db> --schema public
+// Generated from the Supabase Cloud schema (project kgfrxikiduqvejhlcyrv) after migrations
+// settings_architecture_v1 + member_action_grants (2026-10-07). Regenerate after schema changes (Supabase MCP generate_typescript_types).
 export type Json =
   | string
   | number
@@ -9,6 +9,11 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.18"
+  }
   public: {
     Tables: {
       appointment_history: {
@@ -536,6 +541,7 @@ export type Database = {
           taxable_amount: number
           updated_at: string
           vat_amount: number
+          vat_enabled: boolean
           void_reason: string | null
           voided_at: string | null
           voided_by: string | null
@@ -583,6 +589,7 @@ export type Database = {
           taxable_amount?: number
           updated_at?: string
           vat_amount?: number
+          vat_enabled?: boolean
           void_reason?: string | null
           voided_at?: string | null
           voided_by?: string | null
@@ -630,6 +637,7 @@ export type Database = {
           taxable_amount?: number
           updated_at?: string
           vat_amount?: number
+          vat_enabled?: boolean
           void_reason?: string | null
           voided_at?: string | null
           voided_by?: string | null
@@ -1495,6 +1503,42 @@ export type Database = {
             columns: ["return_line_id"]
             isOneToOne: false
             referencedRelation: "return_lines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      member_action_grants: {
+        Row: {
+          action_code: string
+          granted_at: string
+          granted_by: string
+          user_id: string
+        }
+        Insert: {
+          action_code: string
+          granted_at?: string
+          granted_by: string
+          user_id: string
+        }
+        Update: {
+          action_code?: string
+          granted_at?: string
+          granted_by?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_action_grants_granted_by_fkey"
+            columns: ["granted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "member_action_grants_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -3294,7 +3338,21 @@ export type Database = {
         Args: { p_base: number; p_discount: number }
         Returns: boolean
       }
+      _doc_default_prefix: { Args: { p_doc_type: string }; Returns: string }
+      _doc_format: {
+        Args: { p_doc_type: string }
+        Returns: Record<string, unknown>
+      }
       _early_return_credit: { Args: { p_return_id: string }; Returns: number }
+      _format_document_no: {
+        Args: {
+          p_digits: number
+          p_local_date: string
+          p_no: number
+          p_prefix: string
+        }
+        Returns: string
+      }
       _idempotency_begin: {
         Args: { p_action: string; p_key: string; p_request_hash: string }
         Returns: Record<string, unknown>
@@ -3332,6 +3390,10 @@ export type Database = {
       }
       _local_date: { Args: { p_ts: string }; Returns: string }
       _next_document_no: { Args: { p_doc_type: string }; Returns: string }
+      _next_document_no_at: {
+        Args: { p_at: string; p_doc_type: string }
+        Returns: string
+      }
       _notify: {
         Args: {
           p_body: string
@@ -3352,10 +3414,12 @@ export type Database = {
           p_correlation_id: string
           p_key_id: string
           p_tenders: Json
+          p_received_on?: string
         }
         Returns: Json
       }
       _policy: { Args: { p_default: Json; p_key: string }; Returns: Json }
+      _require_action: { Args: { p_code: string }; Returns: undefined }
       _require_active_member: { Args: never; Returns: undefined }
       _require_menu: { Args: { p_codes: string[] }; Returns: undefined }
       _require_owner: { Args: never; Returns: undefined }
@@ -3557,6 +3621,10 @@ export type Database = {
         }
         Returns: Json
       }
+      document_number_preview: {
+        Args: { p_digits?: number; p_doc_type: string; p_prefix?: string }
+        Returns: string
+      }
       document_reference_log: {
         Args: {
           p_action: string
@@ -3656,6 +3724,10 @@ export type Database = {
         Args: { p_reason: string; p_user_id: string }
         Returns: Json
       }
+      owner_set_member_actions: {
+        Args: { p_actions: string[]; p_reason: string; p_user_id: string }
+        Returns: Json
+      }
       owner_set_member_menus: {
         Args: { p_menus: string[]; p_reason: string; p_user_id: string }
         Returns: Json
@@ -3669,7 +3741,12 @@ export type Database = {
         Returns: Json
       }
       payment_receive: {
-        Args: { p_bill_id: string; p_idempotency_key: string; p_tenders: Json }
+        Args: {
+          p_bill_id: string
+          p_idempotency_key: string
+          p_received_on?: string
+          p_tenders: Json
+        }
         Returns: Json
       }
       payment_void: {
@@ -3863,12 +3940,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3892,11 +3969,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3917,11 +3994,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3942,11 +4019,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3959,11 +4036,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3977,4 +4054,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-

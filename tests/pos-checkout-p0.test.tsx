@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import CheckoutPage from '@/app/pos/checkout/page'
 import { SystemSettingsProvider } from '@/lib/contexts/SystemSettingsContext'
-import { loadSystemSettings, saveSystemSettings } from '@/features/settings/services/settings-storage'
+import { loadSystemSettings, setCachedSystemSettings } from '@/features/settings/services/settings-storage'
 import {
   CartItem,
   cartLineUnitPriceForServer,
@@ -58,11 +58,15 @@ function mountCheckout(items: CartItem[]) {
   return render(<SystemSettingsProvider><CheckoutPage /></SystemSettingsProvider>)
 }
 
+function selectCashPayment() {
+  fireEvent.click(screen.getByRole('button', { name: 'เงินสด' }))
+}
+
 beforeEach(() => {
   localStorage.clear()
   vi.clearAllMocks()
   const settings = loadSystemSettings()
-  saveSystemSettings({ ...settings, financePayment: { ...settings.financePayment, vatEnabled: false } })
+  setCachedSystemSettings(settings)
 })
 afterEach(cleanup)
 
@@ -77,8 +81,9 @@ describe('P0-2 cash taken at checkout must cover the payment', () => {
 
   it('blocks confirm when cash received is less than the total (nothing saved)', async () => {
     mountCheckout([saleItem])
+    selectCashPayment()
     fireEvent.change(screen.getByLabelText('cash'), { target: { value: '500' } })
-    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิลเช่า' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิล' }))
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith('เงินสดไม่ถูกต้อง', expect.any(String), 'ERROR'))
     expect(mocks.saveDraft).not.toHaveBeenCalled()
     expect(mocks.confirm).not.toHaveBeenCalled()
@@ -87,28 +92,50 @@ describe('P0-2 cash taken at checkout must cover the payment', () => {
   it('blocks confirm when the server total is above the cash typed in', async () => {
     mocks.fetchBill.mockResolvedValueOnce({ id: 'bill-1', grandTotal: 1200 })
     mountCheckout([saleItem])
+    selectCashPayment()
     fireEvent.change(screen.getByLabelText('cash'), { target: { value: '1000' } })
-    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิลเช่า' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิล' }))
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith('เงินสดไม่ถูกต้อง', expect.any(String), 'ERROR'))
     expect(mocks.confirm).not.toHaveBeenCalled()
   })
 
   it('pays the server total when cash covers it, and when the cash box is left empty', async () => {
     mountCheckout([saleItem])
+    selectCashPayment()
     fireEvent.change(screen.getByLabelText('cash'), { target: { value: '1500' } })
-    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิลเช่า' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิล' }))
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledWith('bill-1', [expect.objectContaining({ method: 'CASH', amount: 1000 })]))
     cleanup()
     vi.clearAllMocks()
     mountCheckout([saleItem])
-    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิลเช่า' }))
+    selectCashPayment()
+    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิล' }))
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledWith('bill-1', [expect.objectContaining({ method: 'CASH', amount: 1000 })]))
+  })
+
+  it('requires an explicit payment choice and hides PromptPay until its QR flow is available', () => {
+    mountCheckout([saleItem])
+    const confirmButton = screen.getByRole('button', { name: 'ยืนยันออกบิล' }) as HTMLButtonElement
+    expect(confirmButton.disabled).toBe(true)
+    expect(screen.queryByRole('button', { name: 'PromptPay QR' })).toBeNull()
+    selectCashPayment()
+    expect(confirmButton.disabled).toBe(false)
+  })
+
+  it('records unpaid bills without credit classification or an immediate tender', async () => {
+    mountCheckout([saleItem])
+    fireEvent.click(screen.getByRole('button', { name: 'ค้างชำระ' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิล' }))
+
+    await waitFor(() => expect(mocks.confirm).toHaveBeenCalledWith('bill-1', []))
+    expect(mocks.saveDraft.mock.calls[0][0]).toMatchObject({ isCreditBill: false, dueDate: null })
   })
 })
 
 describe('P0-4 quoted price survives quotation → bill', () => {
   const product = {
-    id: 'p1', code: 'P1', name: 'Scaffold', rentalType: 'NORMAL', normalPrice: 100, dailyPrice: 30, rentPrice: 100, salePrice: 900,
+    id: 'p1', code: 'P1', name: 'Scaffold', rentalType: 'NORMAL', productType: 'BOTH', status: 'ACTIVE',
+    normalPrice: 100, dailyPrice: 30, rentPrice: 100, salePrice: 900,
   } as Product
   const quote = {
     id: 'q1', quotationNo: 'QT-1', customerId: 'c1', customerName: 'Customer',
@@ -116,13 +143,20 @@ describe('P0-4 quoted price survives quotation → bill', () => {
       { id: 'l1', productId: 'p1', productName: 'Scaffold', rentalType: 'NORMAL', quantity: 2, unitPrice: 80, usageCountOrDays: 1, lineTotal: 160 },
       { id: 'l2', productId: 'p1', productName: 'Scaffold', rentalType: 'SALE', quantity: 1, unitPrice: 850, usageCountOrDays: 1, lineTotal: 850 },
       { id: 'l3', productId: 'p1', productName: 'Scaffold', rentalType: 'NORMAL', quantity: 1, unitPrice: 100, usageCountOrDays: 1, lineTotal: 100 },
-      { id: 'l4', productId: 'gone', productName: 'Old item', rentalType: 'NORMAL', quantity: 1, unitPrice: 55, usageCountOrDays: 1, lineTotal: 55 },
     ],
   } as unknown as Quotation
 
   it('sends the quoted price when it differs from the product price, omits it when equal', () => {
     const { cartItems } = mapQuotationToPos(quote, [product], [customer])
-    expect(cartItems.map((it) => cartLineUnitPriceForServer(it))).toEqual([80, 850, undefined, 55])
+    expect(cartItems.map((it) => cartLineUnitPriceForServer(it))).toEqual([80, 850, undefined])
+  })
+
+  it('refuses to build a POS cart from a quote whose product is missing', () => {
+    const quoteWithMissingProduct = {
+      ...quote,
+      items: [...quote.items, { id: 'missing', productId: 'gone', productName: 'Old item', rentalType: 'NORMAL', quantity: 1, unitPrice: 55, usageCountOrDays: 1, lineTotal: 55 }],
+    } as unknown as Quotation
+    expect(() => mapQuotationToPos(quoteWithMissingProduct, [product], [customer])).toThrow('Old item')
   })
 
   it('checkout sends the quoted unit price in the draft', async () => {
@@ -142,6 +176,7 @@ describe('P1-B2 retry after a failed confirm reuses the saved draft', () => {
   it('confirm fails → retry updates the same draft (no second draft) and then confirms it', async () => {
     mocks.confirm.mockRejectedValueOnce(new Error('network down'))
     mountCheckout([saleItem])
+    selectCashPayment()
     fireEvent.click(confirmButton())
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith('เกิดข้อผิดพลาดในการบันทึกบิล', 'network down', 'ERROR'))
     expect(mocks.saveDraft).toHaveBeenCalledTimes(1)
@@ -158,6 +193,7 @@ describe('P1-B2 retry after a failed confirm reuses the saved draft', () => {
   it('save draft itself fails → nothing is remembered, the retry starts a new draft', async () => {
     mocks.saveDraft.mockRejectedValueOnce(new Error('save failed'))
     mountCheckout([saleItem])
+    selectCashPayment()
     fireEvent.click(confirmButton())
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith('เกิดข้อผิดพลาดในการบันทึกบิล', 'save failed', 'ERROR'))
     expect(mocks.confirm).not.toHaveBeenCalled()
@@ -169,6 +205,7 @@ describe('P1-B2 retry after a failed confirm reuses the saved draft', () => {
   it('server total above the cash typed: retry with enough cash reuses the draft from the first try', async () => {
     mocks.fetchBill.mockResolvedValueOnce({ id: 'bill-1', grandTotal: 1200 })
     mountCheckout([saleItem])
+    selectCashPayment()
     fireEvent.change(screen.getByLabelText('cash'), { target: { value: '1000' } })
     fireEvent.click(confirmButton())
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith('เงินสดไม่ถูกต้อง', expect.any(String), 'ERROR'))
@@ -180,6 +217,7 @@ describe('P1-B2 retry after a failed confirm reuses the saved draft', () => {
 
   it('confirm succeeds first time: one draft, one confirm (normal flow)', async () => {
     mountCheckout([saleItem])
+    selectCashPayment()
     fireEvent.click(confirmButton())
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledOnce())
     expect(mocks.saveDraft).toHaveBeenCalledOnce()

@@ -2,6 +2,7 @@
 
 import { createClient as createServerSupabase } from '@/lib/supabase/server'
 import { isMenuCode, GRANTABLE_MENUS, normalizeMemberStatus } from '@/features/auth/services/permissions'
+import { GRANTABLE_ACTIONS } from '@/features/auth/services/permission-matrix'
 import type { MemberStatus, UserRole } from '@/lib/types/rental-pos'
 
 /**
@@ -25,7 +26,15 @@ export interface MemberRecord {
   role: UserRole
   status: MemberStatus
   menus: string[]
+  /** Risky actions the OWNER granted (member_action_grants). */
+  actions: string[]
   createdAt: string | null
+}
+
+export interface MemberList {
+  members: MemberRecord[]
+  /** false while the database has no member_action_grants table yet (migration not applied). */
+  actionGrantsAvailable: boolean
 }
 
 const RPC_ERROR_MESSAGES: Record<string, string> = {
@@ -36,6 +45,8 @@ const RPC_ERROR_MESSAGES: Record<string, string> = {
   MEMBER_NOT_FOUND: 'ไม่พบผู้ใช้งานนี้',
   MEMBER_NOT_ACTIVE: 'ต้องอนุมัติผู้ใช้งานก่อนจึงจะตั้งเป็นเจ้าของร้านได้',
   OWNER_HAS_ALL_MENUS: 'เจ้าของร้านเข้าได้ทุกเมนูอยู่แล้ว',
+  OWNER_HAS_ALL_ACTIONS: 'เจ้าของร้านทำได้ทุกรายการอยู่แล้ว',
+  UNKNOWN_ACTION: 'มีสิทธิ์การทำรายการที่ระบบไม่รู้จัก',
   UNKNOWN_OR_OWNER_ONLY_MENU: 'มีเมนูที่ระบบไม่รู้จักหรือเป็นเมนูเฉพาะเจ้าของร้าน',
   PIN_NOT_SET: 'ผู้ใช้งานนี้ยังไม่ได้ตั้ง PIN',
   INVALID_STATUS: 'สถานะไม่ถูกต้อง',
@@ -52,18 +63,29 @@ function requireReason(reason: string): string | null {
   return trimmed ? trimmed : null
 }
 
-export async function listMembers(): Promise<MemberActionResult<MemberRecord[]>> {
+export async function listMembers(): Promise<MemberActionResult<MemberList>> {
   try {
     const supabase = await createServerSupabase()
 
     // RLS: an OWNER sees every profile and menu grant; anyone else sees only their own rows
-    const [{ data: profiles, error: profileError }, { data: grants, error: grantError }] = await Promise.all([
+    const [{ data: profiles, error: profileError }, { data: grants, error: grantError }, actionResult] = await Promise.all([
       supabase
         .from('profiles')
         .select('id, username, email, display_name, first_name, last_name, role, status, is_approved, created_at')
         .order('created_at', { ascending: true }),
       supabase.from('user_menu_access').select('user_id, menu_code'),
+      supabase.from('member_action_grants').select('user_id, action_code'),
     ])
+    // Before the action-grants migration is applied the table does not exist: show no grants.
+    const actionTableMissing = ['PGRST205', '42P01'].includes(actionResult.error?.code || '')
+    if (actionResult.error && !actionTableMissing) {
+      console.error('listMembers failed:', actionResult.error.message)
+      return { success: false, error: 'โหลดรายชื่อผู้ใช้งานไม่สำเร็จ' }
+    }
+    const actionsByUser = new Map<string, string[]>()
+    for (const row of (actionResult.data || []) as Array<{ user_id: string; action_code: string }>) {
+      actionsByUser.set(row.user_id, [...(actionsByUser.get(row.user_id) || []), row.action_code])
+    }
 
     if (profileError || grantError) {
       console.error('listMembers failed:', profileError?.message || grantError?.message)
@@ -86,10 +108,11 @@ export async function listMembers(): Promise<MemberActionResult<MemberRecord[]>>
       role: p.role === 'OWNER' ? 'OWNER' : 'USER',
       status: normalizeMemberStatus(p.status, p.is_approved),
       menus: (grantsByUser.get(p.id) || []).filter(isMenuCode),
+      actions: actionsByUser.get(p.id) || [],
       createdAt: p.created_at || null,
     }))
 
-    return { success: true, data: members }
+    return { success: true, data: { members, actionGrantsAvailable: !actionTableMissing } }
   } catch (err: unknown) {
     console.error('listMembers unexpected error:', err)
     return { success: false, error: 'โหลดรายชื่อผู้ใช้งานไม่สำเร็จ' }
@@ -97,7 +120,7 @@ export async function listMembers(): Promise<MemberActionResult<MemberRecord[]>>
 }
 
 async function callOwnerRpc(
-  fn: 'owner_set_member_status' | 'owner_set_member_role' | 'owner_set_member_menus' | 'owner_reset_member_pin',
+  fn: 'owner_set_member_status' | 'owner_set_member_role' | 'owner_set_member_menus' | 'owner_set_member_actions' | 'owner_reset_member_pin',
   args: Record<string, unknown>
 ): Promise<MemberActionResult> {
   try {
@@ -151,6 +174,19 @@ export async function setMemberMenus(
   return callOwnerRpc('owner_set_member_menus', {
     p_user_id: userId,
     p_menus: Array.from(new Set(codes)),
+    p_reason: cleanReason,
+  })
+}
+
+/** Replaces the USER's granted risky actions (OWNER only on the server, audited). */
+export async function setMemberActions(userId: string, codes: string[], reason: string): Promise<MemberActionResult> {
+  const cleanReason = requireReason(reason)
+  if (!cleanReason) return { success: false, error: RPC_ERROR_MESSAGES.REASON_REQUIRED }
+  const known = new Set<string>(GRANTABLE_ACTIONS)
+  if (!codes.every((c) => known.has(c))) return { success: false, error: RPC_ERROR_MESSAGES.UNKNOWN_ACTION }
+  return callOwnerRpc('owner_set_member_actions', {
+    p_user_id: userId,
+    p_actions: Array.from(new Set(codes)),
     p_reason: cleanReason,
   })
 }

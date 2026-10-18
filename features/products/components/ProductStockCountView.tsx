@@ -14,7 +14,9 @@ import { ActionButton } from '@/components/common/ActionButton'
 import { Product } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { applyStockCount } from '@/features/products/services/product-storage'
+import { applyStockCount, StockCountPartialError } from '@/features/products/services/product-storage'
+import { useConfirm } from '@/components/common/ConfirmDialogProvider'
+import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { printTable } from '@/lib/print/print-service'
 
 export interface StockCountRowState {
@@ -43,6 +45,7 @@ export function ProductStockCountView({
   onNavigateToList,
 }: ProductStockCountViewProps) {
   const { showToast } = useToast()
+  const confirm = useConfirm()
   const { user } = useAuth()
   const [countItems, setCountItems] = useState<StockCountRowState[]>([])
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL')
@@ -176,6 +179,37 @@ export function ProductStockCountView({
         return
       }
 
+      // Review the differences first (Master §11.4: count → discrepancy → review → PIN → adjustment).
+      const fmt = (from: number, to: number) => `${from} → ${to} (${to - from >= 0 ? '+' : ''}${to - from})`
+      let pinSteps = 0
+      const reviewLines = modifiedItems.map((item) => {
+        const p = products.find((x) => x.id === item.productId)
+        const parts: string[] = []
+        if (item.normalQty !== '') parts.push(`ปกติ ${fmt(item.originalAvailableQuantity, Number(item.normalQty))}`)
+        if (item.damagedQty !== '' && Number(item.damagedQty) !== (p?.damagedQuantity || 0)) {
+          parts.push(`ชำรุด ${fmt(p?.damagedQuantity || 0, Number(item.damagedQty))}`)
+          pinSteps += 1
+        }
+        if (item.lostQty !== '' && Number(item.lostQty) !== (p?.lostQuantity || 0)) {
+          parts.push(`สูญหาย ${fmt(p?.lostQuantity || 0, Number(item.lostQty))}`)
+          pinSteps += 1
+        }
+        return `• ${item.productName}: ${parts.join(', ') || 'ไม่เปลี่ยน'}`
+      })
+      if (modifiedItems.some((item) => item.normalQty !== '')) pinSteps += 1
+      const shown = reviewLines.slice(0, 15)
+      if (reviewLines.length > shown.length) shown.push(`… และอีก ${reviewLines.length - shown.length} รายการ`)
+      const reviewed = await confirm({
+        title: 'ตรวจผลต่างก่อนปรับยอดสต็อก',
+        message:
+          `${shown.join('\n')}\n\n` +
+          (pinSteps > 1
+            ? `จะถาม PIN ${pinSteps} ครั้ง (1 ครั้งต่อ 1 การปรับยอด) — กดยกเลิกที่ PIN แรก ยอดสต็อกจะไม่เปลี่ยน`
+            : 'กดยืนยันแล้วใส่ PIN เพื่อปรับยอด — กดยกเลิก ยอดสต็อกจะไม่เปลี่ยน'),
+        confirmLabel: 'ยืนยันและใส่ PIN',
+      })
+      if (!reviewed) return
+
       const updatedList = await applyStockCount(
         modifiedItems.map((item) => ({
           productId: item.productId,
@@ -201,7 +235,15 @@ export function ProductStockCountView({
         'SUCCESS'
       )
     } catch (err: any) {
-      showToast('เกิดข้อผิดพลาด', err?.message || 'ไม่สามารถบันทึกผลตรวจนับได้', 'ERROR')
+      if (err instanceof StockCountPartialError) {
+        // Some adjustments were confirmed before the stop: show the real stock now.
+        if (onSuccess) onSuccess(err.products)
+        showToast('บันทึกบางส่วน', err.message, 'INFO')
+      } else if (isPinCancelled(err)) {
+        showToast('ยกเลิกแล้ว', 'ยังไม่ได้ปรับยอด — ยอดสต็อกไม่เปลี่ยน และไม่มีรอบนับค้าง', 'INFO')
+      } else {
+        showToast('เกิดข้อผิดพลาด', err?.message || 'ไม่สามารถบันทึกผลตรวจนับได้', 'ERROR')
+      }
     } finally {
       setIsSubmitting(false)
     }

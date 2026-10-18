@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { RentalBillTemplate, BillTemplateData } from '@/templates/rental-bill/RentalBillTemplate'
@@ -11,7 +11,7 @@ import {
   CreditCard,
   FileText,
 } from 'lucide-react'
-import { PaymentMethodSelector } from '@/features/pos/components/payment/PaymentMethodSelector'
+import { PaymentMethodSelector, type PaymentMethodType } from '@/features/pos/components/payment/PaymentMethodSelector'
 import { PaymentDynamicContent } from '@/features/pos/components/payment/PaymentDynamicContent'
 import { RentalBill, Customer, Product } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
@@ -78,6 +78,8 @@ export default function CheckoutPage() {
   const savedDraftIdRef = useRef<string | null>(null)
   // Goods leave with the customer now (default) — or later / in parts from the bills screen.
   const [deliverNow, setDeliverNow] = useState<boolean>(true)
+  // VAT ON/OFF of this bill, chosen in the cart; sent with the draft and snapshotted by the server.
+  const [vatEnabled, setVatEnabled] = useState<boolean>(false)
 
   useEffect(() => {
     const cart = loadActiveCart()
@@ -95,6 +97,7 @@ export default function CheckoutPage() {
       if (cart.quotationId) setQuotationId(cart.quotationId)
       if (cart.quotationNo) setQuotationNo(cart.quotationNo)
       if (cart.draftBillId) setDraftBillId(cart.draftBillId)
+      setVatEnabled(cart.vatEnabled === true)
     }
   }, [])
 
@@ -104,6 +107,7 @@ export default function CheckoutPage() {
     discount,
     shippingFee,
     depositAmount,
+    enableVat: vatEnabled,
   })
   const tax = totals.vatAmount
   const subtotal = totals.subtotal
@@ -116,7 +120,7 @@ export default function CheckoutPage() {
   }
 
   // Payment State
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER' | 'QR' | 'UNPAID'>('CASH')
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType | null>(null)
   const [receivedCashInput, setReceivedCashInput] = useState<string>('')
   const [bankRef, setBankRef] = useState<string>('')
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
@@ -135,17 +139,7 @@ export default function CheckoutPage() {
     description: '',
   })
 
-  // QR Code State
-  const [qrCodeUrl, setQrCodeUrl] = useState<string>('')
-  const [isQrLoading, setIsQrLoading] = useState<boolean>(false)
-  const [qrError, setQrError] = useState<string | null>(null)
-
-  const promptPayId = ''
   const [mobileTab, setMobileTab] = useState<'PAYMENT' | 'PREVIEW'>('PAYMENT')
-
-  const handleGenerateQR = useCallback(async () => {
-    setQrCodeUrl('')
-  }, [])
 
   const receivedCash = receivedCashInput === '' ? grandTotal : (parseFloat(receivedCashInput) || 0)
   const changeAmount = paymentMethod === 'CASH' ? Math.max(0, receivedCash - grandTotal) : 0
@@ -187,8 +181,8 @@ export default function CheckoutPage() {
     taxAmount: tax,
     depositAmount: depositAmount || 0,
     grandTotal,
-    paidAmount: paymentMethod === 'UNPAID' ? 0 : grandTotal,
-    outstandingAmount: paymentMethod === 'UNPAID' ? grandTotal : 0,
+    paidAmount: paymentMethod && paymentMethod !== 'UNPAID' ? grandTotal : 0,
+    outstandingAmount: paymentMethod === 'UNPAID' || paymentMethod === null ? grandTotal : 0,
     remark: remark || undefined,
   }
 
@@ -246,10 +240,13 @@ export default function CheckoutPage() {
         (draftBillId && loadBillById(draftBillId)?.rentalStatus === 'DRAFT' ? draftBillId : null),
       customerId: customer?.id || null,
       quotationId: quotationId || null,
+      vatEnabled,
       note: note || undefined,
       discountAmount: discount || 0,
       deliveryFee: shippingFee || 0,
       depositAmount: depositAmount || 0,
+      isCreditBill: false,
+      dueDate: null,
       lines,
     }
   }
@@ -260,6 +257,12 @@ export default function CheckoutPage() {
       return
     }
 
+    const selectedPaymentMethod = paymentMethod
+    if (!selectedPaymentMethod) {
+      showToast('กรุณาเลือกช่องทางชำระเงิน', 'โปรดเลือกช่องทางชำระเงินก่อนยืนยันบิล', 'ERROR')
+      return
+    }
+
     try {
       validateCartCustomer(items, customer)
     } catch (error) {
@@ -267,7 +270,7 @@ export default function CheckoutPage() {
       return
     }
 
-    if (isCashShort(paymentMethod, receivedCash, grandTotal)) {
+    if (isCashShort(selectedPaymentMethod, receivedCash, grandTotal)) {
       showToast('เงินสดไม่ถูกต้อง', 'เงินสดที่รับมาต้องไม่น้อยกว่ายอดชำระ', 'ERROR')
       return
     }
@@ -275,7 +278,7 @@ export default function CheckoutPage() {
     setIsSubmitting(true)
     try {
       const allItemsAreSale = items.length > 0 && items.every((it) => isSaleCartItem(it))
-      const isUnpaid = paymentMethod === 'UNPAID'
+      const isUnpaid = selectedPaymentMethod === 'UNPAID'
 
       // 1) server draft (prices, discount, override PIN) → 2) confirm with the server's total
       const billId = await saveBillDraft(buildDraftInput())
@@ -283,7 +286,7 @@ export default function CheckoutPage() {
       const draft = await fetchBillByIdFromSupabase(billId)
       const total = draft?.grandTotal ?? grandTotal
       // The server's total can differ from the screen's; the cash typed in must still cover it
-      if (!isUnpaid && receivedCashInput !== '' && isCashShort(paymentMethod, receivedCash, total)) {
+      if (!isUnpaid && receivedCashInput !== '' && isCashShort(selectedPaymentMethod, receivedCash, total)) {
         showToast(
           'เงินสดไม่ถูกต้อง',
           `ยอดสุทธิจากระบบ ฿${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })} มากกว่าเงินสดที่รับมา — บิลบันทึกเป็นแบบร่างไว้แล้ว`,
@@ -293,7 +296,7 @@ export default function CheckoutPage() {
       }
       const confirmed = await confirmBill(
         billId,
-        isUnpaid || total <= 0 ? [] : [{ method: paymentMethod, amount: total, reference: bankRef || undefined }]
+        isUnpaid || total <= 0 ? [] : [{ method: selectedPaymentMethod, amount: total, reference: bankRef || undefined }]
       )
       savedDraftIdRef.current = null
       const billNo = confirmed?.billNo || ''
@@ -434,13 +437,13 @@ export default function CheckoutPage() {
               <span className="whitespace-nowrap">ย้อนกลับไป POS</span>
             </Link>
             <h3 className="shrink-0 whitespace-nowrap text-sm font-bold text-slate-900 dark:text-slate-100 sm:text-base">
-              ชำระเงินปิดเช่า
+              ชำระเงิน
             </h3>
           </div>
 
           {/* Amount Due Card */}
           <div className="shrink-0 rounded-2xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 p-2.5 sm:p-3 text-white shadow-lg lg:p-3.5">
-            <span className="text-[11px] sm:text-xs text-blue-100 block font-medium">ยอดสุทธิที่ต้องรับชำระ</span>
+            <span className="text-[11px] sm:text-xs text-blue-100 block font-medium">ยอดสุทธิ</span>
             <span className="whitespace-nowrap text-2xl sm:text-3xl font-black tracking-tight block">
               ฿{grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
             </span>
@@ -456,23 +459,26 @@ export default function CheckoutPage() {
           <PaymentMethodSelector
             selectedMethod={paymentMethod}
             onSelectMethod={setPaymentMethod}
+            showPromptPay={false}
+            autoSelectFirst={false}
           />
 
           {/* Dynamic Inputs per Method */}
-          <PaymentDynamicContent
-            paymentMethod={paymentMethod}
-            targetAmount={grandTotal}
-            receivedCashInput={receivedCashInput}
-            onReceivedCashInputChange={setReceivedCashInput}
-            changeAmount={changeAmount}
-            bankRef={bankRef}
-            onBankRefChange={setBankRef}
-            qrCodeUrl={qrCodeUrl}
-            isQrLoading={isQrLoading}
-            qrError={qrError}
-            onRetryQr={handleGenerateQR}
-            promptPayId={promptPayId}
-          />
+          {paymentMethod ? (
+            <PaymentDynamicContent
+              paymentMethod={paymentMethod}
+              targetAmount={grandTotal}
+              receivedCashInput={receivedCashInput}
+              onReceivedCashInputChange={setReceivedCashInput}
+              changeAmount={changeAmount}
+              bankRef={bankRef}
+              onBankRefChange={setBankRef}
+            />
+          ) : (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              กรุณาเลือกช่องทางชำระเงินก่อนยืนยันบิล
+            </p>
+          )}
         </div>
 
         {/* Action Buttons Group (Confirm, Save Draft, Cancel) */}
@@ -489,12 +495,12 @@ export default function CheckoutPage() {
           <button
             type="button"
             onClick={handleConfirmBill}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !paymentMethod}
             className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 sm:py-3 hover:bg-emerald-700 active:scale-[0.99] text-white font-black text-sm sm:text-base flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
           >
             <FileCheck className="w-5 h-5 shrink-0" />
             <span className="whitespace-nowrap">
-              {isSubmitting ? 'กำลังบันทึกบิล...' : draftBillId ? 'ยืนยันออกบิลจากแบบร่าง' : 'ยืนยันออกบิลเช่า'}
+              {isSubmitting ? 'กำลังบันทึกบิล...' : draftBillId ? 'ยืนยันออกบิลจากแบบร่าง' : 'ยืนยันออกบิล'}
             </span>
           </button>
 
@@ -593,4 +599,3 @@ export default function CheckoutPage() {
     </div>
   )
 }
-

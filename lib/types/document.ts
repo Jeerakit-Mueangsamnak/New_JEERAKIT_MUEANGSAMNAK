@@ -1,11 +1,13 @@
 export type TemplateSource = 'BUILTIN' | 'CONVERTED_IMPORT'
 export type PaperSize = 'A4'
 export type Orientation = 'PORTRAIT' | 'LANDSCAPE'
+export type TemplateTargetGroup = 'CUSTOMER' | 'BILL'
 
 export interface DocumentTemplate {
   id: string
   name: string
   category: string
+  targetGroup?: TemplateTargetGroup
   source: TemplateSource
   fileType: string
   fileName?: string

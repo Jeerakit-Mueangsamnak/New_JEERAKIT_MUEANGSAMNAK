@@ -11,6 +11,8 @@ import {
   Calendar,
   ChevronRight,
   Sparkles,
+  Send,
+  Check,
 } from 'lucide-react'
 import {
   loadNotifications,
@@ -19,6 +21,9 @@ import {
   fetchNotificationsFromSupabase,
   ActionableNotification,
   NotificationType,
+  NotificationGroup,
+  NOTIFICATION_GROUPS,
+  notificationGroup,
 } from '@/features/notifications/services/notification-storage'
 
 interface NotificationBellProps {
@@ -30,6 +35,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
 
   const [isOpen, setIsOpen] = useState(false)
   const [notifications, setNotifications] = useState<ActionableNotification[]>([])
+  const [group, setGroup] = useState<NotificationGroup | 'ALL'>('ALL')
   const containerRef = useRef<HTMLDivElement>(null)
 
 
@@ -60,6 +66,18 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
     return notifications.filter((n) => n.status === 'UNREAD').length
   }, [notifications])
 
+  // Open (not yet handled) notices per tab
+  const groupCounts = useMemo(() => {
+    const counts: Record<NotificationGroup, number> = { SYSTEM: 0, WORK: 0, BILL: 0, STOCK: 0 }
+    for (const n of notifications) if (n.status !== 'HANDLED') counts[notificationGroup(n)]++
+    return counts
+  }, [notifications])
+
+  const visibleNotifications = useMemo(
+    () => (group === 'ALL' ? notifications : notifications.filter((n) => notificationGroup(n) === group)),
+    [notifications, group]
+  )
+
   // Handle clicking outside popover to close
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -89,6 +107,21 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
     } else if (item.data?.sourceType === 'QUOTATION' && item.data?.sourceId) {
       router.push(`/quotations?id=${item.data.sourceId}`)
     }
+  }
+
+  // Bill notices: open the bill with the existing LINE send window
+  const handleSendBill = (e: React.MouseEvent, item: ActionableNotification) => {
+    e.stopPropagation()
+    if (item.status === 'UNREAD') {
+      void markNotificationStatus(item.id, 'READ').then(setNotifications).catch(() => undefined)
+    }
+    setIsOpen(false)
+    router.push(`/bills?id=${encodeURIComponent(item.data.sourceId as string)}&send=line`)
+  }
+
+  const handleMarkHandled = (e: React.MouseEvent, item: ActionableNotification) => {
+    e.stopPropagation()
+    void markNotificationStatus(item.id, 'HANDLED').then(setNotifications).catch(() => undefined)
   }
 
   const handleMarkAllRead = (e: React.MouseEvent) => {
@@ -207,9 +240,32 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
               )}
             </div>
 
+            {/* Tabs: ทั้งหมด / ระบบ / งานถึงกำหนด / บิล / สต็อก (count = not yet handled) */}
+            <div className="px-2 py-1.5 border-b border-slate-200 dark:border-[#263954] flex gap-1 overflow-x-auto shrink-0">
+              {[{ key: 'ALL' as const, label: 'ทั้งหมด' }, ...NOTIFICATION_GROUPS].map((g) => {
+                const count = g.key === 'ALL' ? Object.values(groupCounts).reduce((a, b) => a + b, 0) : groupCounts[g.key]
+                const active = group === g.key
+                return (
+                  <button
+                    key={g.key}
+                    type="button"
+                    onClick={() => setGroup(g.key)}
+                    className={`px-2 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap cursor-pointer transition-colors ${
+                      active
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {g.label}
+                    {count > 0 && <span className={`ml-1 ${active ? 'text-blue-100' : 'text-red-600 dark:text-red-400'}`}>{count}</span>}
+                  </button>
+                )
+              })}
+            </div>
+
             {/* Notification Items List */}
             <div className="overflow-y-auto max-h-[360px] divide-y divide-slate-100 dark:divide-slate-800/80">
-              {notifications.length === 0 ? (
+              {visibleNotifications.length === 0 ? (
                 <div className="p-8 text-center space-y-2">
                   <div className="w-10 h-10 mx-auto rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400">
                     <Sparkles className="w-5 h-5" />
@@ -222,7 +278,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
                   </p>
                 </div>
               ) : (
-                notifications.map((item) => {
+                visibleNotifications.map((item) => {
                   const isUnread = item.status === 'UNREAD'
                   const isActioned = item.status === 'HANDLED'
 
@@ -263,6 +319,28 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
                         <p className="text-[10px] text-slate-400">
                           {new Date(item.createdAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}
                         </p>
+                        {!isActioned && (
+                          <div className="flex gap-1.5 pt-1">
+                            {item.data?.sourceType === 'BILL' && item.data?.sourceId && (
+                              <button
+                                type="button"
+                                onClick={(e) => handleSendBill(e, item)}
+                                className="px-2 py-0.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                              >
+                                <Send className="w-3 h-3" />
+                                ส่งบิล
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => handleMarkHandled(e, item)}
+                              className="px-2 py-0.5 rounded-md border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                            >
+                              <Check className="w-3 h-3" />
+                              จัดการแล้ว
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       {/* Unread indicator / arrow */}

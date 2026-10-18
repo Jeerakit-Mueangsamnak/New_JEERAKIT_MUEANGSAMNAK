@@ -4,6 +4,8 @@ import type { Product } from '@/lib/types/rental-pos'
 const fake = vi.hoisted(() => ({
   calls: [] as Array<{ fn: string; args: Record<string, unknown> }>,
   snapshot: [] as Array<{ product_id: string; snapshot_qty: number }>,
+  /** PIN action the fake user cancels (null = every PIN is entered). */
+  cancel: null as string | null,
 }))
 
 vi.mock('@/lib/db/rpc', async (orig) => ({
@@ -14,7 +16,8 @@ vi.mock('@/lib/db/rpc', async (orig) => ({
   }),
 }))
 vi.mock('@/lib/db/pin-confirm', () => ({
-  withPin: (_opts: unknown, run: (token: string) => Promise<unknown>) => run('pin-token'),
+  withPin: (opts: { action: string }, run: (token: string) => Promise<unknown>) =>
+    fake.cancel === opts.action ? Promise.reject(new Error('ยกเลิกการยืนยัน PIN')) : run('pin-token'),
 }))
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
@@ -29,7 +32,7 @@ vi.mock('@/lib/supabase/client', () => ({
   }),
 }))
 
-import { applyStockCount, setCachedProducts } from '@/features/products/services/product-storage'
+import { applyStockCount, setCachedProducts, StockCountPartialError } from '@/features/products/services/product-storage'
 
 const product = (id: string, available: number, damaged = 0, lost = 0) =>
   ({ id, name: id, availableQuantity: available, damagedQuantity: damaged, lostQuantity: lost, status: 'ACTIVE' }) as Product
@@ -40,6 +43,7 @@ const order = () => fake.calls.map((c) => c.fn).filter((f) => !f.startsWith('sel
 beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', '')
   fake.calls = []
+  fake.cancel = null
   setCachedProducts([product('A', 10, 2), product('B', 20), product('C', 5)])
   fake.snapshot = [
     { product_id: 'A', snapshot_qty: 10 },
@@ -92,5 +96,21 @@ describe('P0-3 damaged/lost and the normal count are not deducted twice', () => 
   it('sales are still refused (sale bills only)', async () => {
     await expect(applyStockCount([{ productId: 'A', productName: 'A', counts: { soldQty: 1 } }])).rejects.toThrow('บิลขาย')
     expect(order()).toEqual([])
+  })
+})
+
+describe('cancelling the PIN (Master §11.4: review → PIN → adjustment)', () => {
+  it('cancelling the count PIN opens no count round and changes nothing', async () => {
+    fake.cancel = 'STOCK_COUNT_CONFIRM'
+    await expect(applyStockCount([{ productId: 'B', productName: 'B', counts: { normalQty: 18 } }])).rejects.toThrow('ยกเลิก')
+    expect(order()).toEqual([])
+  })
+
+  it('cancelling a later PIN keeps the confirmed adjustment and says exactly what was saved', async () => {
+    fake.cancel = 'STOCK_COUNT_CONFIRM'
+    const run = applyStockCount([{ productId: 'A', productName: 'A', counts: { normalQty: 7, damagedQty: 5 } }])
+    await expect(run).rejects.toBeInstanceOf(StockCountPartialError)
+    await expect(run).rejects.toMatchObject({ saved: ['A (ชำรุด)'] })
+    expect(order()).toEqual(['stock_adjust'])
   })
 })

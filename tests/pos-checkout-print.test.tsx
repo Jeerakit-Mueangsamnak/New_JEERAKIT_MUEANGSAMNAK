@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import CheckoutPage from '@/app/pos/checkout/page'
 import { SystemSettingsProvider } from '@/lib/contexts/SystemSettingsContext'
-import { loadSystemSettings, saveSystemSettings } from '@/features/settings/services/settings-storage'
+import { loadSystemSettings, setCachedSystemSettings } from '@/features/settings/services/settings-storage'
 import { CartItem, saveActiveCart } from '@/features/pos/services/cart-storage'
 import { Customer, Product } from '@/lib/types/rental-pos'
 
@@ -53,9 +53,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   window.print = mocks.print
   const settings = loadSystemSettings()
-  saveSystemSettings({
+  setCachedSystemSettings({
     ...settings,
-    financePayment: { ...settings.financePayment, vatEnabled: false },
     business: { ...settings.business, businessName: 'ร้านทดสอบ', taxId: '1234567890123', address: '', phone: '' },
   })
   saveActiveCart({
@@ -74,6 +73,7 @@ describe('P1-B1 the document printed after saving is the saved bill', () => {
 
   it('after confirm, the print keeps the items and uses the real bill number although the cart is cleared', async () => {
     render(<SystemSettingsProvider><CheckoutPage /></SystemSettingsProvider>)
+    fireEvent.click(screen.getByRole('button', { name: 'เงินสด' }))
     fireEvent.click(screen.getByRole('button', { name: /ยืนยันออกบิล/ }))
     const printButton = await screen.findByRole('button', { name: 'พิมพ์เอกสาร' })
     expect(doc()).toMatchObject({ billNo: 'BL-2026-000009', items: 1, total: 1000, shop: 'ร้านทดสอบ' })

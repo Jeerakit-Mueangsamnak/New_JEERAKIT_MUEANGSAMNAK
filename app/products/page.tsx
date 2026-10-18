@@ -1,5 +1,6 @@
 'use client'
 
+import { useActionPermission, NO_ACTION_PERMISSION_TITLE } from '@/features/auth/hooks/useActionPermission'
 import React, { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
@@ -76,7 +77,8 @@ import { loadUnits, addUnitAsync } from '@/lib/unit-storage'
 import { NumericInput } from '@/components/common/NumericInput'
 import { CustomDatePicker, parseLocalDate, getLocalDateString } from '@/components/common/CustomDatePicker'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { getDefaultMinimumStock } from '@/features/settings/services/settings-storage'
+import { getDefaultReorderPoint } from '@/features/settings/services/settings-storage'
+import { isLowStock } from '@/features/products/utils/low-stock'
 
 const RENTAL_STATUS_LABEL: Record<string, string> = {
   DRAFT: 'แบบร่าง',
@@ -103,7 +105,8 @@ const KPI_LABEL = 'text-[11px] font-semibold block'
 const KPI_VALUE = 'text-lg font-black mt-0.5 block leading-tight'
 
 // Bills whose items are still out with the customer.
-const HOLDING_RENTAL_STATUSES: string[] = ['RENTING', 'EXTENDED', 'PARTIAL_RETURNED']
+// EXTENDED = parent bill whose goods moved to a continuation bill: it holds nothing itself.
+const HOLDING_RENTAL_STATUSES: string[] = ['RENTING', 'PARTIAL_RETURNED']
 
 // Status pill with a dot (badge colours as in the product list status column).
 const PILL_TONE = {
@@ -126,6 +129,8 @@ function ProductsContent() {
   const searchParams = useSearchParams()
   const { showToast } = useToast()
   const { user } = useAuth()
+  // UI hint only; the server checks menu -> OWNER grant -> PIN on every call.
+  const canAction = useActionPermission()
   const [products, setProducts] = useState<Product[]>([])
   const categories = Array.from(new Set(products.map((p) => p.category).filter(Boolean))).map((c) => ({ id: c, label: c }))
   const [isLoading, setIsLoading] = useState(false)
@@ -178,10 +183,11 @@ function ProductsContent() {
     setCategoryRules(loadCategoryRules())
   }, [])
 
-  const [defaultMinStock, setDefaultMinStock] = useState<number>(() => getDefaultMinimumStock())
+  // Starting reorder point for products added here; low stock itself is per product (reorder_point).
+  const [defaultMinStock, setDefaultMinStock] = useState<number>(() => getDefaultReorderPoint())
 
   useEffect(() => {
-    const handleSettingsChanged = () => setDefaultMinStock(getDefaultMinimumStock())
+    const handleSettingsChanged = () => setDefaultMinStock(getDefaultReorderPoint())
     window.addEventListener('app_settings_changed', handleSettingsChanged)
     return () => window.removeEventListener('app_settings_changed', handleSettingsChanged)
   }, [])
@@ -526,7 +532,7 @@ function ProductsContent() {
     const matchesCat = categoryFilter === 'ALL' || p.category === categoryFilter
     const matchesStatus =
       statusFilter === 'ALL' ||
-      (statusFilter === 'LOW_STOCK' && defaultMinStock > 0 && p.availableQuantity <= defaultMinStock) ||
+      (statusFilter === 'LOW_STOCK' && isLowStock(p)) ||
       (statusFilter === 'OUT_OF_STOCK' && p.availableQuantity === 0) ||
       (statusFilter === 'ACTIVE' && p.status === 'ACTIVE')
     return matchesSearch && matchesCat && matchesStatus
@@ -535,13 +541,14 @@ function ProductsContent() {
   // Stock Summary Metrics
   const totalItems = products.reduce((acc, p) => acc + p.totalQuantity, 0)
   const totalAvailable = products.reduce((acc, p) => acc + p.availableQuantity, 0)
+  const totalReserved = products.reduce((acc, p) => acc + (p.reservedQuantity || 0), 0)
   const totalRented = products.reduce((acc, p) => acc + p.rentedQuantity, 0)
   const totalDamaged = products.reduce((acc, p) => acc + p.damagedQuantity, 0)
   const totalLost = products.reduce((acc, p) => acc + p.lostQuantity, 0)
-  const lowStockCount = products.filter((p) => defaultMinStock > 0 && p.availableQuantity <= defaultMinStock).length
+  const lowStockCount = products.filter((p) => isLowStock(p)).length
   const damagedProductsCount = products.filter((p) => p.damagedQuantity > 0).length
 
-  // Double-click / double-tap a product row: the 6 cards show that product's numbers.
+  // Double-click / double-tap a product row: the 7 cards show that product's numbers.
   // Same row again, Esc, or a click/tap anywhere else returns to the overall totals.
   const [focusedProductId, setFocusedProductId] = useState<string | null>(null)
   const focusedProduct = focusedProductId ? products.find((p) => p.id === focusedProductId) ?? null : null
@@ -563,10 +570,11 @@ function ProductsContent() {
   }, [focusedProductId, selectedProduct])
   const cardTotal = focusedProduct ? focusedProduct.totalQuantity : totalItems
   const cardAvailable = focusedProduct ? focusedProduct.availableQuantity : totalAvailable
+  const cardReserved = focusedProduct ? focusedProduct.reservedQuantity || 0 : totalReserved
   const cardRented = focusedProduct ? focusedProduct.rentedQuantity : totalRented
   const cardDamaged = focusedProduct ? focusedProduct.damagedQuantity : totalDamaged
   const cardLost = focusedProduct ? focusedProduct.lostQuantity : totalLost
-  const focusedIsLow = !!focusedProduct && defaultMinStock > 0 && focusedProduct.availableQuantity <= defaultMinStock
+  const focusedIsLow = !!focusedProduct && isLowStock(focusedProduct)
 
   // Handlers
   // Stock Count Handlers
@@ -678,10 +686,10 @@ function ProductsContent() {
 
   return (
     <div className="relative h-full min-h-0 min-w-0 flex flex-col overflow-hidden p-2 gap-2">
-      {/* AREA 1: การ์ดสรุปภาพรวม 6 ใบ */}
+      {/* AREA 1: การ์ดสรุปภาพรวม 7 ใบ (สต็อกรวม = พร้อมให้เช่า + จอง + อยู่ระหว่างเช่า + ชำรุด) */}
       <div className="shrink-0">
         {/* Stock Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
           <div
             onClick={() => setActiveViewTab('ALL')}
             className={`p-2.5 sm:p-3 bg-slate-100/70 dark:bg-slate-800/70 rounded-2xl border shadow-xs cursor-pointer transition-all ${
@@ -696,6 +704,10 @@ function ProductsContent() {
           <div className="p-2.5 sm:p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-2xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-xs">
             <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold block">พร้อมให้เช่า</span>
             <span className="text-lg font-black text-emerald-600 dark:text-emerald-400 mt-0.5 block">{cardAvailable.toLocaleString()}</span>
+          </div>
+          <div className="p-2.5 sm:p-3 bg-indigo-50 dark:bg-indigo-950/30 rounded-2xl border border-indigo-200/60 dark:border-indigo-900/40 shadow-xs">
+            <span className="text-[11px] text-indigo-700 dark:text-indigo-300 font-semibold block">จอง (รอส่ง)</span>
+            <span className="text-lg font-black text-indigo-600 dark:text-indigo-400 mt-0.5 block">{cardReserved.toLocaleString()}</span>
           </div>
           <div className="p-2.5 sm:p-3 bg-blue-50 dark:bg-blue-950/30 rounded-2xl border border-blue-200/60 dark:border-blue-900/40 shadow-xs">
             <span className="text-[11px] text-blue-700 dark:text-blue-300 font-semibold block">อยู่ระหว่างเช่า</span>
@@ -795,9 +807,9 @@ function ProductsContent() {
             setActiveViewTab={setActiveViewTab}
             categories={categories}
             damagedProductsCount={damagedProductsCount}
-            defaultMinStock={defaultMinStock}
             onRestoreDamaged={(p) => setRestoreTargetProduct(p)}
             onTransformDamaged={(p) => setTransformTargetProduct(p)}
+            canAdjustStock={canAction('STOCK_ADJUST')}
             onOpenHistory={(p) => openProductHistory(p, 'CURRENT')}
             onDeleteProduct={(p) => setProductToDelete(p)}
             focusedProductId={focusedProductId}
@@ -1048,6 +1060,8 @@ function ProductsContent() {
                         </label>
                         <NumericInput
                           value={editForm.rentPrice}
+                          disabled={!canAction('PRODUCT_PRICE_CHANGE')}
+                          title={canAction('PRODUCT_PRICE_CHANGE') ? undefined : NO_ACTION_PERMISSION_TITLE}
                           onChange={(val) => setEditForm((prev) => ({ ...prev, rentPrice: val === '' ? '' : String(val) }))}
                           placeholder="เว้นว่างได้ถ้าไม่ให้เช่า"
                           className="w-full h-9 px-3 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl border border-slate-300 dark:border-slate-700 font-mono font-bold text-xs focus:ring-2 focus:ring-amber-500 outline-none"
@@ -1061,6 +1075,8 @@ function ProductsContent() {
                         </label>
                         <NumericInput
                           value={editForm.salePrice}
+                          disabled={!canAction('PRODUCT_PRICE_CHANGE')}
+                          title={canAction('PRODUCT_PRICE_CHANGE') ? undefined : NO_ACTION_PERMISSION_TITLE}
                           onChange={(val) => setEditForm((prev) => ({ ...prev, salePrice: val === '' ? '' : String(val) }))}
                           placeholder="เว้นว่างได้ถ้าไม่ขาย"
                           className="w-full h-9 px-3 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl border border-slate-300 dark:border-slate-700 font-mono font-bold text-xs focus:ring-2 focus:ring-amber-500 outline-none"
@@ -1427,7 +1443,7 @@ function ProductsContent() {
                     { label: 'พร้อมใช้', value: selectedProduct.availableQuantity || 0, color: '#10b981', tone: KPI_TONE.emerald },
                     { label: 'จองแล้ว', value: selectedProduct.reservedQuantity || 0, color: '#8b5cf6', tone: KPI_TONE.purple },
                     { label: 'กำลังเช่า', value: selectedProduct.rentedQuantity || 0, color: '#3b82f6', tone: KPI_TONE.blue },
-                    { label: 'ชำรุด / ซ่อม', value: (selectedProduct.damagedQuantity || 0) + (selectedProduct.inRepairQuantity || 0), color: '#f59e0b', tone: KPI_TONE.amber },
+                    { label: 'ชำรุด / ซ่อม', value: selectedProduct.damagedQuantity || 0, color: '#f59e0b', tone: KPI_TONE.amber },
                     { label: 'สูญหาย', value: selectedProduct.lostQuantity || 0, color: '#f43f5e', tone: KPI_TONE.red },
                   ]
                   return (

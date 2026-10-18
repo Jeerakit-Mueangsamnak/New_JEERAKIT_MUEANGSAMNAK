@@ -18,7 +18,8 @@ export const MENU_CATALOG = [
   { code: 'products', label: 'สินค้า/สต็อก', href: '/products', ownerOnly: false },
   { code: 'quotations', label: 'ใบเสนอราคา', href: '/quotations', ownerOnly: false },
   { code: 'finance', label: 'การเงิน', href: '/finance', ownerOnly: false },
-  { code: 'settings', label: 'ตั้งค่าระบบ', href: '/settings', ownerOnly: false },
+  // Shop settings are OWNER only (route, menu and settings_update on the server).
+  { code: 'settings', label: 'ตั้งค่าระบบ', href: '/settings', ownerOnly: true },
   { code: 'members', label: 'จัดการสิทธิ์ & รายงาน', href: '/owner-permissions', ownerOnly: true },
 ] as const
 

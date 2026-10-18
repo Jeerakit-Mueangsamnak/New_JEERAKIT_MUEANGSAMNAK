@@ -40,9 +40,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const userRef = useRef<CurrentUser | null>(null)
   // Only the newest profile load (or a sign-out after it) may set state.
   const profileRequestRef = useRef(0)
+  // Session epoch: any auth call started in an older epoch must not set state.
+  const authEpochRef = useRef(0)
+  // Identity generation: bumped whenever the account changes, so a refresh that started
+  // under an older account cannot apply its result after a switch.
+  const identityGenRef = useRef(0)
+  // Refresh generation: bumped when a refresh starts or when an account switch is observed,
+  // so an older refresh cannot cancel or overwrite a newer account's pending profile.
+  const refreshGenRef = useRef(0)
   const latestProfileLoadRef = useRef<Promise<void> | null>(null)
 
   const clearAuthState = useCallback(() => {
+    authEpochRef.current += 1
+    identityGenRef.current += 1
+    refreshGenRef.current += 1
     profileRequestRef.current += 1
     latestProfileLoadRef.current = null
     userRef.current = null
@@ -57,6 +68,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const lastKnown = userRef.current?.id === authUser.id ? userRef.current : null
 
     const apply = (nextUser: CurrentUser) => {
+      if (userRef.current && userRef.current.id !== nextUser.id) {
+        // The account changed: invalidate any refresh that started under the previous one.
+        identityGenRef.current += 1
+      }
       userRef.current = nextUser
       setUser(nextUser)
       setRole(nextUser.role)
@@ -131,24 +146,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [readProfile])
 
   const refreshUser = useCallback(async () => {
+    // Any auth call that started before this run is stale, including one that answers
+    // after a sign-out or an account switch: the run only applies its profile while the
+    // epoch, the identity generation and its own refresh generation are unchanged.
+    const epoch = authEpochRef.current
+    const identityGen = identityGenRef.current
+    const refreshGen = ++refreshGenRef.current
+    const isStale = () =>
+      epoch !== authEpochRef.current ||
+      identityGen !== identityGenRef.current ||
+      refreshGen !== refreshGenRef.current
+    const expectedUserId = userRef.current?.id ?? null
+    const isForeign = (userId: string | undefined | null) =>
+      expectedUserId !== null && userId !== expectedUserId
+    // A user and a session must belong to the same account; pairing A's user with B's session
+    // would otherwise be applied as a valid profile.
+    const isPaired = (userId: string, sessionUserId: string | undefined) =>
+      sessionUserId === undefined || sessionUserId === userId
+
     try {
       const { data: userData } = await supabase.auth.getUser()
+      if (isStale()) return
       if (userData?.user) {
+        if (isForeign(userData.user.id)) return
         const { data: sessionData } = await supabase.auth.getSession()
-        await loadUserProfile(userData.user, sessionData?.session ?? null)
+        if (isStale()) return
+        const session = sessionData?.session ?? null
+        if (!isPaired(userData.user.id, session?.user?.id)) return
+        await loadUserProfile(userData.user, session)
       } else {
         const { data: sessionData } = await supabase.auth.getSession()
-        if (sessionData?.session?.user) {
-          await loadUserProfile(sessionData.session.user, sessionData.session)
+        if (isStale()) return
+        const nextUser = sessionData?.session?.user
+        // A user that is not the account this run started under belongs to someone else now
+        if (isForeign(nextUser?.id)) return
+        if (nextUser && sessionData.session) {
+          await loadUserProfile(nextUser, sessionData.session)
         } else {
           clearAuthState()
         }
       }
     } catch {
+      if (isStale()) return
       // A failed check is not a sign-out: keep a user that was already read
       if (!userRef.current) clearAuthState()
     } finally {
-      setLoading(false)
+      if (!isStale()) setLoading(false)
     }
   }, [supabase, loadUserProfile, clearAuthState])
 
@@ -196,6 +239,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       async (_event: AuthChangeEvent, currentSession: Session | null) => {
         if (!isMounted) return
         if (currentSession?.user) {
+          // A different account is signing in without a sign-out: invalidate any auth call
+          // (e.g. a hung refreshUser) that started under the previous account, so it cannot
+          // cancel or overwrite this account's pending profile.
+          if (userRef.current && userRef.current.id !== currentSession.user.id) {
+            identityGenRef.current += 1
+            refreshGenRef.current += 1
+          }
           await loadUserProfile(currentSession.user, currentSession)
         } else {
           clearAuthState()

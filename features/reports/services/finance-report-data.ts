@@ -1,6 +1,7 @@
 import { loadTransactions, type StatementTransaction } from '@/features/finance/services/finance-storage'
 import { loadBills } from '@/features/bills/services/bill-storage'
-import { calculateGrowth, generateTimeBuckets, getPreviousPeriod, isDateInRange, toLocalDateString, type ReportDateFilter } from './report-data-common'
+import { loadSystemSettings } from '@/features/settings/services/settings-storage'
+import { calculateGrowth, generateTimeBuckets, getPreviousPeriod, isDateInRange, type ReportDateFilter } from './report-data-common'
 
 // 1. FINANCE REPORT DATA (Topics 1, 2, 3, 7, 8, 18)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -15,9 +16,9 @@ export interface FinanceReportData {
   prevTotalIncome: number
   prevTotalExpense: number
   prevNetIncome: number
-  incomeGrowth: number
-  expenseGrowth: number
-  netIncomeGrowth: number
+  incomeGrowth: number | null
+  expenseGrowth: number | null
+  netIncomeGrowth: number | null
   // Topic 7: Outstanding Debt
   totalOutstanding: number
   debtorCount: number
@@ -27,6 +28,7 @@ export interface FinanceReportData {
     customerName: string
     customerPhone?: string
     billDate: string
+    dueDate?: string
     scheduledReturnDate: string
     grandTotal: number
     paidAmount: number
@@ -37,8 +39,8 @@ export interface FinanceReportData {
   depositReceived: number
   depositRefunded: number
   netDepositChange: number
-  currentlyHeldDeposit: number
-  activeDepositBillsCount: number
+  billDepositAmount: number
+  billsWithDepositCount: number
   // Topic 18: Payment Channels
   paymentChannels: Array<{
     channel: string
@@ -123,7 +125,14 @@ export function getFinanceReportData(filter: ReportDateFilter): FinanceReportDat
   const netIncomeGrowth = calculateGrowth(netIncome, prevNetIncome)
 
   // Topic 7: Outstanding Debt (ลูกหนี้ค้าง)
-  const todayStr = toLocalDateString(new Date())
+  const timezone = loadSystemSettings().timezone || 'Asia/Bangkok'
+  const todayParts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date()).map((part) => [part.type, part.value]))
+  const todayStr = `${todayParts.year}-${todayParts.month}-${todayParts.day}`
   const debtorBills: FinanceReportData['debtorBills'] = []
   let totalOutstanding = 0
 
@@ -132,12 +141,13 @@ export function getFinanceReportData(filter: ReportDateFilter): FinanceReportDat
     const out = b.outstandingAmount || 0
     if (out > 0) {
       totalOutstanding += out
-      const retDate = (b.scheduledReturnDate || b.rentalStartDate || '').split('T')[0]
-      const isOverdue = retDate && retDate < todayStr
+      const dueDate = (b.dueDate || '').split('T')[0]
+      const isOverdue = dueDate && dueDate < todayStr
       let daysOverdue = 0
-      if (isOverdue && retDate) {
-        const diff = new Date(todayStr).getTime() - new Date(retDate).getTime()
-        daysOverdue = Math.max(0, Math.floor(diff / (24 * 60 * 60 * 1000)))
+      if (isOverdue && dueDate) {
+        const todayDay = Date.parse(`${todayStr}T00:00:00Z`)
+        const dueDay = Date.parse(`${dueDate}T00:00:00Z`)
+        daysOverdue = Math.max(0, Math.floor((todayDay - dueDay) / (24 * 60 * 60 * 1000)))
       }
 
       debtorBills.push({
@@ -146,6 +156,7 @@ export function getFinanceReportData(filter: ReportDateFilter): FinanceReportDat
         customerName: b.customerName,
         customerPhone: b.customerPhone,
         billDate: b.billDate,
+        dueDate: b.dueDate,
         scheduledReturnDate: b.scheduledReturnDate,
         grandTotal: b.grandTotal,
         paidAmount: b.paidAmount,
@@ -156,15 +167,15 @@ export function getFinanceReportData(filter: ReportDateFilter): FinanceReportDat
   }
   debtorBills.sort((a, b) => b.outstandingAmount - a.outstandingAmount)
 
-  // Topic 8: Held Deposits across active bills
-  let currentlyHeldDeposit = 0
-  let activeDepositBillsCount = 0
+  // The bill field records a stated deposit amount, not proof of cash held.
+  let billDepositAmount = 0
+  let billsWithDepositCount = 0
   for (const b of allBills) {
     if (b.rentalStatus === 'CANCELLED' || b.rentalStatus === 'VOID') continue
-    const held = b.heldDepositAmount || 0
-    if (held > 0) {
-      currentlyHeldDeposit += held
-      activeDepositBillsCount++
+    const statedDeposit = b.heldDepositAmount || 0
+    if (statedDeposit > 0) {
+      billDepositAmount += statedDeposit
+      billsWithDepositCount++
     }
   }
 
@@ -230,8 +241,8 @@ export function getFinanceReportData(filter: ReportDateFilter): FinanceReportDat
     depositReceived,
     depositRefunded,
     netDepositChange: depositReceived - depositRefunded,
-    currentlyHeldDeposit,
-    activeDepositBillsCount,
+    billDepositAmount,
+    billsWithDepositCount,
     paymentChannels,
     trendData,
     transactions: sortedTxs,

@@ -20,7 +20,7 @@ import { fetchAppointmentsFromSupabase, setCachedAppointments } from '@/features
 import { fetchTransactionsFromSupabase, setCachedTransactions } from '@/features/finance/services/finance-storage'
 import { fetchNotificationsFromSupabase, setCachedNotifications, runNotificationScan } from '@/features/notifications/services/notification-storage'
 import { fetchSharedSystemConfig } from '@/features/settings/api/settings-repository'
-import { setCachedSystemSettings } from '@/features/settings/services/settings-storage'
+import { setCachedSystemSettings, resetSystemSettings } from '@/features/settings/services/settings-storage'
 import { getCategoryDefaults } from '@/lib/db/policies'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 
@@ -81,7 +81,8 @@ export async function loadAllBusinessData(opts: { scanNotices?: boolean } = {}):
   // (idempotent: one notice per event).
   if (opts.scanNotices) await runNotificationScan()
 
-  // Shop settings first: category defaults and notification settings live in store_settings.policies.
+  // Shop settings first (the only place store_settings is loaded): category defaults and
+  // notification settings live in store_settings.policies.
   const shared = await fetchSharedSystemConfig()
   if (shared) setCachedSystemSettings(shared)
 
@@ -105,6 +106,7 @@ export async function loadAllBusinessData(opts: { scanNotices?: boolean } = {}):
 }
 
 function clearAllBusinessData(): void {
+  resetSystemSettings()
   setCachedProducts([])
   setCachedCategories([])
   setCachedUnits([])

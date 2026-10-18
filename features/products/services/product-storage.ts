@@ -164,38 +164,64 @@ export async function applyStockCount(
     )
   }
 
-  // Damaged / lost moves first, so the count's snapshot of AVAILABLE already excludes them and
-  // the counted "normal" quantity becomes the final AVAILABLE (no double deduction).
-  for (const item of items) {
-    const p = current.find((c) => c.id === item.productId)
-    if (!p) continue
-    for (const [field, state] of [['damagedQty', 'DAMAGED'], ['lostQty', 'LOST']] as const) {
-      const target = item.counts[field]
-      if (target === undefined) continue
-      const now = field === 'damagedQty' ? p.damagedQuantity || 0 : p.lostQuantity || 0
-      const delta = Math.max(0, target) - now
-      if (delta === 0) continue
-      await adjustStock({
-        productId: p.id,
-        productName: item.productName,
-        from: delta > 0 ? 'AVAILABLE' : state,
-        // Found lost items go to inspection first (server rule: never straight to AVAILABLE)
-        to: delta > 0 ? state : 'INSPECTION',
-        quantity: Math.abs(delta),
-        reason: roundNote,
-      })
+  // Each stock change is its own PIN-confirmed adjustment. Cancelling the first PIN changes
+  // nothing; if a later one is cancelled or fails, the ones already confirmed stay (each with
+  // its audit) and StockCountPartialError says exactly which — nothing is left half-done.
+  const done: string[] = []
+  try {
+    // Damaged / lost moves first, so the count's snapshot of AVAILABLE already excludes them and
+    // the counted "normal" quantity becomes the final AVAILABLE (no double deduction).
+    for (const item of items) {
+      const p = current.find((c) => c.id === item.productId)
+      if (!p) continue
+      for (const [field, state] of [['damagedQty', 'DAMAGED'], ['lostQty', 'LOST']] as const) {
+        const target = item.counts[field]
+        if (target === undefined) continue
+        const now = field === 'damagedQty' ? p.damagedQuantity || 0 : p.lostQuantity || 0
+        const delta = Math.max(0, target) - now
+        if (delta === 0) continue
+        await adjustStock({
+          productId: p.id,
+          productName: item.productName,
+          from: delta > 0 ? 'AVAILABLE' : state,
+          // Found lost items go to inspection first (server rule: never straight to AVAILABLE)
+          to: delta > 0 ? state : 'INSPECTION',
+          quantity: Math.abs(delta),
+          reason: roundNote,
+        })
+        done.push(`${item.productName} (${field === 'damagedQty' ? 'ชำรุด' : 'สูญหาย'})`)
+      }
     }
-  }
 
-  const counted = items.filter((i) => i.counts.normalQty !== undefined)
-  if (counted.length > 0) {
-    await confirmStockCount(
-      counted.map((i) => ({
-        productId: i.productId,
-        countedQty: Math.max(0, Number(i.counts.normalQty)),
-      })),
-      roundNote
-    )
+    const counted = items.filter((i) => i.counts.normalQty !== undefined)
+    if (counted.length > 0) {
+      await confirmStockCount(
+        counted.map((i) => ({
+          productId: i.productId,
+          countedQty: Math.max(0, Number(i.counts.normalQty)),
+        })),
+        roundNote
+      )
+    }
+  } catch (err) {
+    if (done.length === 0) throw err
+    const fresh = await syncProductsFromSupabase().catch(() => loadProducts())
+    throw new StockCountPartialError(done, err, fresh)
   }
   return syncProductsFromSupabase()
+}
+
+/** A stock count stopped after some PIN-confirmed adjustments were already saved. */
+export class StockCountPartialError extends Error {
+  constructor(
+    public readonly saved: string[],
+    public readonly failure: unknown,
+    public readonly products: Product[]
+  ) {
+    super(
+      `บันทึกแล้ว: ${saved.join(', ')} — รายการที่เหลือยังไม่ได้ปรับยอด ` +
+        '(ตรวจยอดล่าสุดในตาราง แล้วกรอกเฉพาะรายการที่เหลือเพื่อบันทึกอีกครั้ง)'
+    )
+    this.name = 'StockCountPartialError'
+  }
 }

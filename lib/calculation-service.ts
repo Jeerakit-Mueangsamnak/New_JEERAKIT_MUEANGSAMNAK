@@ -10,17 +10,14 @@
  * Rules:
  * - VAT is calculated AFTER discount.
  * - Deposit is strictly separated from Revenue.
- * - Money precision default 2 decimals, using rounding rules from Settings.
- * - Discount cannot exceed maximum discount ceiling from Settings.
+ * - Money: 2 decimals, half-up (same as the server's round(x, 2)) — not a setting.
+ * - VAT ON/OFF is per bill (enableVat); rate and price mode come from Settings (server row).
+ *   The server recomputes and snapshots the final total; this is the screen preview.
+ * - Discount above the OWNER's limit (when the limit is on) is flagged; no limit otherwise.
  * - Late returns track dates and overdue days, but NEVER charge automatic penalty fees.
  */
 
-import {
-  loadSystemSettings,
-  SystemConfig,
-  RoundingMode,
-  VatCalculationMode,
-} from '@/features/settings/services/settings-storage'
+import { loadSystemSettings, isVatConfigured, type SystemConfig } from '@/features/settings/services/settings-storage'
 import { RentalType } from '@/lib/types/rental-pos'
 import {
   toSatang,
@@ -34,6 +31,14 @@ import {
   calculateDepositSettlement,
 } from '@/lib/money'
 
+export type RoundingMode = 'ROUND_HALF_UP' | 'ROUND_UP' | 'ROUND_DOWN'
+
+/** The OWNER's discount limit in percent, or null when the limit is off (no limit). */
+export function discountLimitPercent(cfg: SystemConfig): number | null {
+  const t = cfg.taxDiscount
+  return t.discountLimitEnabled && t.discountLimitPercent !== null ? t.discountLimitPercent : null
+}
+
 export interface RoundMoneyOptions {
   precision?: number
   mode?: RoundingMode | 'ROUND' | 'CEIL' | 'FLOOR'
@@ -46,9 +51,8 @@ export interface RoundMoneyOptions {
  */
 export function roundMoney(amount: number, options?: RoundMoneyOptions): number {
   if (isNaN(amount) || !isFinite(amount)) return 0
-  const settings = loadSystemSettings()
-  const precision = options?.precision !== undefined ? options.precision : (settings.financePayment.moneyPrecision ?? 2)
-  const mode = options?.mode || settings.financePayment.roundingMode || 'ROUND_HALF_UP'
+  const precision = options?.precision !== undefined ? options.precision : 2
+  const mode = options?.mode || 'ROUND_HALF_UP'
 
   if (precision === 2 && (mode === 'ROUND_HALF_UP' || mode === 'ROUND')) {
     return toBaht(toSatang(amount))
@@ -113,7 +117,7 @@ export interface CalculateTotalsOptions {
   discountPercent?: number
   shippingFee?: number
   depositAmount?: number
-  taxRate?: number // e.g. 0.07 for 7%, or pass undefined to read default from Settings
+  /** VAT ON/OFF of THIS bill (POS transaction state); off when omitted. */
   enableVat?: boolean
   includeShippingInTax?: boolean // defaults to true matching Thai standard
   settings?: SystemConfig
@@ -144,9 +148,9 @@ export interface BillCalculationResult {
  */
 export function calculateBillTotals(options: CalculateTotalsOptions): BillCalculationResult {
   const cfg = options.settings || loadSystemSettings()
-  const precision = cfg.financePayment.moneyPrecision ?? 2
-  const roundingMode = cfg.financePayment.roundingMode ?? 'ROUND_HALF_UP'
-  const maxDiscountPercent = cfg.financePayment.maximumDiscountPercent ?? 50
+  const precision = 2
+  const roundingMode: RoundingMode = 'ROUND_HALF_UP'
+  const maxDiscountPercent = discountLimitPercent(cfg) ?? 100
 
   // 1. Subtotal in Satang
   let rawSubtotalSatang = 0
@@ -181,8 +185,8 @@ export function calculateBillTotals(options: CalculateTotalsOptions): BillCalcul
 
   // 5. VAT in Satang
   let vatRate = 0
-  if (cfg.financePayment.vatEnabled && cfg.financePayment.defaultVatPercent > 0) {
-    vatRate = cfg.financePayment.defaultVatPercent / 100
+  if (options.enableVat === true && isVatConfigured(cfg)) {
+    vatRate = (cfg.taxDiscount.vatRate as number) / 100
   }
 
   const includeShippingInTax = options.includeShippingInTax !== false
@@ -190,7 +194,7 @@ export function calculateBillTotals(options: CalculateTotalsOptions): BillCalcul
     ? addSatang(netSubtotalSatang, shippingFeeSatang)
     : netSubtotalSatang
 
-  const isVatInclusive = cfg.financePayment.vatCalculationMode === 'INCLUSIVE'
+  const isVatInclusive = vatRate > 0 && cfg.taxDiscount.vatMode === 'INCLUSIVE'
   const vatAmountSatang = calculateVatSatang(taxBaseSatang, vatRate, isVatInclusive)
   const vatAmount = toBaht(vatAmountSatang)
 
@@ -208,10 +212,7 @@ export function calculateBillTotals(options: CalculateTotalsOptions): BillCalcul
     : netSubtotal
 
   // 7. Deposit in Satang (Held strictly separately from Revenue)
-  let depositAmountSatang = Math.max(0, toSatang(options.depositAmount))
-  if (depositAmountSatang === 0 && cfg.financePayment.defaultDepositPercent > 0 && rawSubtotalSatang > 0) {
-    depositAmountSatang = Math.round((rawSubtotalSatang * cfg.financePayment.defaultDepositPercent) / 100)
-  }
+  const depositAmountSatang = Math.max(0, toSatang(options.depositAmount))
   const depositAmount = toBaht(depositAmountSatang)
 
   // 8. Bill Amount & Grand Total (Strictly excludes Security Deposit per MASTER v2.3.0)
@@ -437,7 +438,8 @@ export function getBillFinancialCoreSummary(
  */
 export function validateDiscountCeiling(subtotal: number, discountAmount: number, settings?: SystemConfig): void {
   const cfg = settings || loadSystemSettings()
-  const maxPercent = cfg.financePayment.maximumDiscountPercent ?? 50
+  const maxPercent = discountLimitPercent(cfg)
+  if (maxPercent === null) return
   const maxAllowed = (subtotal * maxPercent) / 100
   if (discountAmount > maxAllowed + 0.01) {
     throw new Error(

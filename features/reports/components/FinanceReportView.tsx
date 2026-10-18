@@ -49,13 +49,12 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
               <span className="text-slate-300 dark:text-slate-700">•</span>
               <span
                 className={`font-bold font-mono flex items-center ${
-                  data.incomeGrowth >= 0
-                    ? 'text-emerald-600 dark:text-emerald-400'
+                  data.incomeGrowth === null || data.incomeGrowth >= 0
+                    ? data.incomeGrowth === null ? 'text-slate-500 dark:text-slate-400' : 'text-emerald-600 dark:text-emerald-400'
                     : 'text-rose-600 dark:text-rose-400'
                 }`}
               >
-                {data.incomeGrowth >= 0 ? '+' : ''}
-                {data.incomeGrowth}%
+                {data.incomeGrowth === null ? '—' : `${data.incomeGrowth >= 0 ? '+' : ''}${data.incomeGrowth}%`}
               </span>
             </div>
           </div>
@@ -84,13 +83,12 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
               <span className="text-slate-300 dark:text-slate-700">•</span>
               <span
                 className={`font-bold font-mono flex items-center ${
-                  data.expenseGrowth <= 0
-                    ? 'text-emerald-600 dark:text-emerald-400'
+                  data.expenseGrowth === null || data.expenseGrowth <= 0
+                    ? data.expenseGrowth === null ? 'text-slate-500 dark:text-slate-400' : 'text-emerald-600 dark:text-emerald-400'
                     : 'text-rose-600 dark:text-rose-400'
                 }`}
               >
-                {data.expenseGrowth >= 0 ? '+' : ''}
-                {data.expenseGrowth}%
+                {data.expenseGrowth === null ? '—' : `${data.expenseGrowth >= 0 ? '+' : ''}${data.expenseGrowth}%`}
               </span>
             </div>
           </div>
@@ -138,13 +136,12 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
               <span>เติบโต:</span>
               <span
                 className={`font-bold font-mono ${
-                  data.netIncomeGrowth >= 0
-                    ? 'text-emerald-600 dark:text-emerald-400'
+                  data.netIncomeGrowth === null || data.netIncomeGrowth >= 0
+                    ? data.netIncomeGrowth === null ? 'text-slate-500 dark:text-slate-400' : 'text-emerald-600 dark:text-emerald-400'
                     : 'text-rose-600 dark:text-rose-400'
                 }`}
               >
-                {data.netIncomeGrowth >= 0 ? '+' : ''}
-                {data.netIncomeGrowth}%
+                {data.netIncomeGrowth === null ? '—' : `${data.netIncomeGrowth >= 0 ? '+' : ''}${data.netIncomeGrowth}%`}
               </span>
             </div>
           </div>
@@ -182,7 +179,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-purple-800 dark:text-purple-300 flex items-center gap-1">
               <ShieldCheck className="w-3 h-3 text-purple-500" />
-              เงินมัดจำคงเหลือ
+              ยอดมัดจำตามบิล
             </span>
             <div className="p-1 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400">
               <CreditCard className="w-3.5 h-3.5" />
@@ -190,10 +187,10 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-purple-700 dark:text-purple-400">
-              ฿{formatCurrency(data.currentlyHeldDeposit)}
+              ฿{formatCurrency(data.billDepositAmount)}
             </div>
             <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate">
-              ถือครอง {formatNumber(data.activeDepositBillsCount)} สัญญา
+              ระบุใน {formatNumber(data.billsWithDepositCount)} บิล
             </div>
           </div>
           <div className="text-[9.5px] text-slate-400 font-mono flex items-center justify-between">
@@ -363,7 +360,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
               </h3>
             </div>
             <span className="text-[11px] font-bold font-mono text-purple-600 dark:text-purple-400">
-              คงค้างรวม ฿{formatCurrency(data.currentlyHeldDeposit)}
+              ยอดตามบิล ฿{formatCurrency(data.billDepositAmount)}
             </span>
           </div>
 
@@ -398,15 +395,15 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
 
           <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 text-[10.5px] text-slate-600 dark:text-slate-300 space-y-1 mt-1">
             <div className="flex justify-between">
-              <span>สัญญาเช่าที่ยังถือเงินมัดจำ:</span>
+              <span>บิลที่ระบุเงินมัดจำ:</span>
               <span className="font-bold font-mono text-slate-900 dark:text-slate-100">
-                {data.activeDepositBillsCount} สัญญา
+                {data.billsWithDepositCount} บิล
               </span>
             </div>
             <div className="flex justify-between">
               <span>สถานะการคืนเงินมัดจำ:</span>
               <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-                ระบบจัดการคืนตามการตรวจรับ
+                การคืนหรือหักเงินจริงจัดการที่หน้าร้าน
               </span>
             </div>
           </div>

@@ -48,12 +48,26 @@ export function DamagedRestoreModal({
     if (!isQtyValid || isSubmitting) return
 
     setIsSubmitting(true)
+    let moved = false
     try {
       // Damaged goods never jump straight back to AVAILABLE (Master §11.2): they pass through
-      // repair/inspection first — two recorded moves, each confirmed with PIN.
+      // repair/inspection first — each recorded move is confirmed with PIN. Goods already in
+      // REPAIR / INSPECTION (e.g. a step 2 that was cancelled earlier) go back first, in one move.
       const reason = note.trim() || 'ซ่อม/ตรวจแล้ว นำกลับมาใช้งาน'
-      await adjustStock({ productId: product.id, productName: `${product.name} (ขั้น 1/2 ส่งซ่อม/ตรวจ)`, from: 'DAMAGED', to: 'REPAIR', quantity: restoreQty, reason })
-      await adjustStock({ productId: product.id, productName: `${product.name} (ขั้น 2/2 นำกลับมาใช้)`, from: 'REPAIR', to: 'AVAILABLE', quantity: restoreQty, reason })
+      const states = product.stockStates ?? {}
+      let left = restoreQty
+      for (const state of ['REPAIR', 'INSPECTION'] as const) {
+        const qty = Math.min(left, Number(states[state] ?? 0))
+        if (qty <= 0) continue
+        await adjustStock({ productId: product.id, productName: `${product.name} (นำกลับมาใช้)`, from: state, to: 'AVAILABLE', quantity: qty, reason })
+        moved = true
+        left -= qty
+      }
+      if (left > 0) {
+        await adjustStock({ productId: product.id, productName: `${product.name} (ขั้น 1/2 ส่งซ่อม/ตรวจ)`, from: 'DAMAGED', to: 'REPAIR', quantity: left, reason })
+        moved = true
+        await adjustStock({ productId: product.id, productName: `${product.name} (ขั้น 2/2 นำกลับมาใช้)`, from: 'REPAIR', to: 'AVAILABLE', quantity: left, reason })
+      }
       const fresh = await syncProductsFromSupabase()
       const updatedProduct: Product = fresh.find((p) => p.id === product.id) ?? product
 
@@ -66,6 +80,14 @@ export function DamagedRestoreModal({
       onSuccess({ product: updatedProduct, restoredQty: restoreQty })
       onClose()
     } catch (err: any) {
+      if (moved) {
+        // Some moves were saved before the stop: show the real stock, which stays in "ชำรุด"
+        // (REPAIR) and can be finished with this button again.
+        const fresh = await syncProductsFromSupabase().catch(() => null)
+        const updatedProduct = fresh?.find((p) => p.id === product.id)
+        if (updatedProduct) onSuccess({ product: updatedProduct, restoredQty: 0 })
+        onClose()
+      }
       if (isPinCancelled(err)) return
       logger.error('Error restoring damaged stock in modal:', err)
       onShowToast(

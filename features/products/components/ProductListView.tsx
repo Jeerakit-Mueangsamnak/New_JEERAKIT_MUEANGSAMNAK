@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useRef } from 'react'
+import { isLowStock } from '@/features/products/utils/low-stock'
 import {
   Search,
   RotateCcw,
@@ -33,9 +34,10 @@ interface ProductListViewProps {
   totalProducts?: number
   productsPerPage?: number
   setCurrentPage?: React.Dispatch<React.SetStateAction<number>>
-  defaultMinStock?: number
   onRestoreDamaged: (product: Product) => void
   onTransformDamaged: (product: Product) => void
+  /** Member may adjust stock (menu + OWNER grant); UI hint, the server re-checks. */
+  canAdjustStock?: boolean
   onOpenHistory: (product: Product) => void
   onDeleteProduct: (product: Product) => void
   focusedProductId?: string | null
@@ -55,9 +57,9 @@ export function ProductListView({
   setActiveViewTab,
   categories,
   damagedProductsCount,
-  defaultMinStock = 2,
   onRestoreDamaged,
   onTransformDamaged,
+  canAdjustStock = true,
   onOpenHistory,
   onDeleteProduct,
   focusedProductId = null,
@@ -233,8 +235,9 @@ export function ProductListView({
                           <button
                             type="button"
                             onClick={() => onRestoreDamaged(p)}
-                            className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs hover:scale-102 cursor-pointer"
-                            title="นำสินค้าชำรุดกลับมาใช้งานต่อ"
+                            disabled={!canAdjustStock}
+                            className="disabled:opacity-40 disabled:cursor-not-allowed px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs hover:scale-102 cursor-pointer"
+                            title={canAdjustStock ? 'นำสินค้าชำรุดกลับมาใช้งานต่อ' : 'ไม่มีสิทธิ์ปรับสต็อก — ให้เจ้าของร้านเปิดสิทธิ์ที่หน้า จัดการสิทธิ์'}
                           >
                             <RotateCcw className="w-3 h-3" />
                             <span>ใช้งานต่อ</span>
@@ -242,8 +245,9 @@ export function ProductListView({
                           <button
                             type="button"
                             onClick={() => onTransformDamaged(p)}
-                            className="px-2 py-0.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs hover:scale-102 cursor-pointer"
-                            title="ดัดแปลงสินค้าชำรุดเป็นสินค้าอื่น"
+                            disabled={!canAdjustStock}
+                            className="disabled:opacity-40 disabled:cursor-not-allowed px-2 py-0.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs hover:scale-102 cursor-pointer"
+                            title={canAdjustStock ? 'ดัดแปลงสินค้าชำรุดเป็นสินค้าอื่น' : 'ไม่มีสิทธิ์ปรับสต็อก — ให้เจ้าของร้านเปิดสิทธิ์ที่หน้า จัดการสิทธิ์'}
                           >
                             <Shuffle className="w-3 h-3" />
                             <span>ดัดแปลงเป็น...</span>
@@ -287,7 +291,7 @@ export function ProductListView({
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {effectivePaginatedProducts.map((p) => {
-                    const isLow = defaultMinStock > 0 && p.availableQuantity <= defaultMinStock
+                    const isLow = isLowStock(p)
                     return (
                       <tr key={p.id} {...focusRowProps(p)} className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors${focusRowCls(p)}`}>
                         <td className="py-1.5 px-2 min-w-0">

@@ -3,112 +3,54 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import {
   SystemConfig,
+  SettingsSection,
   DEFAULT_SYSTEM_CONFIG,
   loadSystemSettings,
-  saveSystemSettings,
   setCachedSystemSettings,
-  ActorInfo,
 } from '@/features/settings/services/settings-storage'
-import { fetchSharedSystemConfig, saveSharedSystemConfig } from '@/features/settings/api/settings-repository'
-import { createClient } from '@/lib/supabase/client'
+import { saveSettingsSection } from '@/features/settings/api/settings-repository'
 
+/**
+ * Read side of the shop settings. Loading has ONE owner: MasterDataProvider fetches
+ * store_settings (sign-in, tab refocus) and puts it in the settings cache; this provider only
+ * follows that cache and saves one section at a time (the saved row comes back from the
+ * server, so nothing is fetched again).
+ */
 interface SystemSettingsContextValue {
   settings: SystemConfig
   isLoaded: boolean
-  updateSettings: (newConfig: SystemConfig, actor: ActorInfo, reason?: string) => Promise<SystemConfig>
-  reloadSettings: () => void
+  saveSection: (section: SettingsSection, draft: SystemConfig) => Promise<SystemConfig>
 }
 
 const SystemSettingsContext = createContext<SystemSettingsContextValue>({
   settings: DEFAULT_SYSTEM_CONFIG,
   isLoaded: false,
-  updateSettings: async () => DEFAULT_SYSTEM_CONFIG,
-  reloadSettings: () => {},
+  saveSection: async () => DEFAULT_SYSTEM_CONFIG,
 })
 
 export function SystemSettingsProvider({ children }: { children: React.ReactNode }) {
-  const [settings, setSettings] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG)
+  const [settings, setSettings] = useState<SystemConfig>(() => loadSystemSettings())
   const [isLoaded, setIsLoaded] = useState(false)
 
-  const reloadSettings = useCallback(() => {
-    const loaded = loadSystemSettings()
-    setSettings(loaded)
-    setIsLoaded(true)
+  useEffect(() => {
+    setSettings(loadSystemSettings())
+    const handleSettingsChanged = (e: Event) => {
+      const detail = (e as CustomEvent<SystemConfig>).detail
+      setSettings(detail ?? loadSystemSettings())
+      setIsLoaded(true)
+    }
+    window.addEventListener('app_settings_changed', handleSettingsChanged)
+    return () => window.removeEventListener('app_settings_changed', handleSettingsChanged)
   }, [])
 
-  useEffect(() => {
-    let active = true
-    const supabase = createClient()
-    async function hydrateSettings() {
-      setSettings(loadSystemSettings())
-      try {
-        // store_settings is readable only by signed-in ACTIVE members: do not ask before login
-        // (an anonymous read is refused by the database).
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) return
-        const shared = await fetchSharedSystemConfig()
-        if (!active) return
-        if (shared) {
-          const loaded = setCachedSystemSettings(shared)
-          setSettings(loaded)
-        }
-      } catch (error) {
-        console.error('Failed to load shared system settings:', error)
-      } finally {
-        if (active) setIsLoaded(true)
-      }
-    }
+  const saveSection = useCallback(async (section: SettingsSection, draft: SystemConfig): Promise<SystemConfig> => {
+    const saved = await saveSettingsSection(section, draft)
+    return setCachedSystemSettings(saved)
+  }, [])
 
-    void hydrateSettings()
-
-    const handleSettingsChanged = (e: Event) => {
-      const customEvent = e as CustomEvent<SystemConfig>
-      if (customEvent.detail) {
-        setSettings(customEvent.detail)
-      } else {
-        reloadSettings()
-      }
-    }
-
-    window.addEventListener('app_settings_changed', handleSettingsChanged)
-    // Reload the shop settings whenever the signed-in user changes (login, logout, refresh).
-    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') void hydrateSettings()
-    })
-
-    return () => {
-      active = false
-      authListener.subscription.unsubscribe()
-      window.removeEventListener('app_settings_changed', handleSettingsChanged)
-    }
-  }, [reloadSettings])
-
-  const updateSettings = useCallback(
-    // The actor is taken from the signed-in session on the server (audit); kept for callers.
-    async (newConfig: SystemConfig, _actor: ActorInfo, reason?: string): Promise<SystemConfig> => {
-      await saveSharedSystemConfig(newConfig, reason)
-      const saved = saveSystemSettings(newConfig)
-      setSettings(saved)
-      return saved
-    },
-    []
-  )
-
-  return (
-    <SystemSettingsContext.Provider
-      value={{
-        settings,
-        isLoaded,
-        updateSettings,
-        reloadSettings,
-      }}
-    >
-      {children}
-    </SystemSettingsContext.Provider>
-  )
+  return <SystemSettingsContext.Provider value={{ settings, isLoaded, saveSection }}>{children}</SystemSettingsContext.Provider>
 }
 
 export function useSystemSettings() {
-  const context = useContext(SystemSettingsContext)
-  return context
+  return useContext(SystemSettingsContext)
 }

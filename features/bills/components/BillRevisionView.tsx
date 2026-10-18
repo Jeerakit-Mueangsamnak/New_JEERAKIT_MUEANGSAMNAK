@@ -523,15 +523,16 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           <div className="overflow-y-auto">
             <table className="w-full text-left border-collapse text-[10.5px] leading-tight">
               <colgroup>
-                <col className="w-auto" /> {/* สินค้า */}
-                <col className="w-[52px] sm:w-[60px]" />  {/* คืนแล้ว */}
-                <col className="w-[52px] sm:w-[60px]" />  {/* กำลังเช่า */}
-                <col className="w-[52px] sm:w-[60px]" />  {/* จำนวนในบิล */}
-                <col className="w-[64px] sm:w-[76px]" />  {/* ราคาต่อหน่วย */}
-                <col className="w-[96px] sm:w-[115px]" /> {/* วันที่เช่า */}
-                <col className="w-[96px] sm:w-[115px]" /> {/* วันที่กำหนดคืน */}
-                <col className="w-[40px] sm:w-[48px]" />  {/* รอบ */}
-                <col className="w-[38px] sm:w-[44px]" />  {/* จัดการ */}
+                {/* สินค้า / คืนแล้ว / กำลังเช่า / จำนวนในบิล / ราคาต่อหน่วย / วันที่เช่า / วันที่กำหนดคืน / รอบ / จัดการ — no text between <col>s (hydration) */}
+                <col className="w-auto" />
+                <col className="w-[52px] sm:w-[60px]" />
+                <col className="w-[52px] sm:w-[60px]" />
+                <col className="w-[52px] sm:w-[60px]" />
+                <col className="w-[64px] sm:w-[76px]" />
+                <col className="w-[96px] sm:w-[115px]" />
+                <col className="w-[96px] sm:w-[115px]" />
+                <col className="w-[40px] sm:w-[48px]" />
+                <col className="w-[38px] sm:w-[44px]" />
               </colgroup>
               <thead className="bg-[#E3E3E3] dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 text-slate-500 font-bold uppercase tracking-wider text-xs">
                 <tr>

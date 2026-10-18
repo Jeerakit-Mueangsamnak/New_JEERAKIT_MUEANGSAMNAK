@@ -64,12 +64,13 @@ export function DamagedTransformModal({
 
   if (!isOpen || !sourceProduct) return null
 
-  const maxTransform = sourceProduct.damagedQuantity || 0
+  // The server converts only goods in DAMAGED (not those already in repair / inspection).
+  const maxTransform = Number(sourceProduct.stockStates?.DAMAGED ?? sourceProduct.damagedQuantity ?? 0)
   const isQtyValid = transformQty > 0 && transformQty <= maxTransform
   const isTargetValid = !!targetProductId && targetProductId !== sourceProduct.id
 
   // Source previews
-  const sourceTargetDamaged = Math.max(0, maxTransform - transformQty)
+  const sourceTargetDamaged = Math.max(0, (sourceProduct.damagedQuantity || 0) - transformQty)
   const sourceTargetTotal = Math.max(0, sourceProduct.totalQuantity - transformQty)
 
   // Target previews

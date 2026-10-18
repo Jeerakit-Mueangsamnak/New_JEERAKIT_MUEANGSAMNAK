@@ -1,4 +1,5 @@
 import { loadBills } from '@/features/bills/services/bill-storage'
+import { getBillRevenueAmount } from '@/features/bills/services/bill-reporting'
 import { loadCustomers } from '@/features/customers/services/customer-storage'
 import { calculateGrowth, generateTimeBuckets, getPreviousPeriod, isDateInRange, type ReportDateFilter } from './report-data-common'
 
@@ -9,19 +10,19 @@ export interface BusinessReportData {
   // Topic 4: Growth
   currentRevenue: number
   previousRevenue: number
-  revenueGrowth: number
+  revenueGrowth: number | null
 
   currentOrders: number
   previousOrders: number
-  orderGrowth: number
+  orderGrowth: number | null
 
   currentAvgTicket: number
   previousAvgTicket: number
-  avgTicketGrowth: number
+  avgTicketGrowth: number | null
 
   currentActiveCustomers: number
   previousActiveCustomers: number
-  customerGrowth: number
+  customerGrowth: number | null
 
   // Topic 17: Top Customers
   topCustomers: Array<{
@@ -66,6 +67,7 @@ export function getBusinessReportData(filter: ReportDateFilter): BusinessReportD
   // Bills in range
   const curBills = allBills.filter(
     (b) =>
+      b.rentalStatus !== 'DRAFT' &&
       b.rentalStatus !== 'VOID' &&
       b.rentalStatus !== 'CANCELLED' &&
       isDateInRange(b.billDate || b.rentalStartDate, filter.startDate, filter.endDate)
@@ -73,20 +75,21 @@ export function getBusinessReportData(filter: ReportDateFilter): BusinessReportD
 
   const prevBills = allBills.filter(
     (b) =>
+      b.rentalStatus !== 'DRAFT' &&
       b.rentalStatus !== 'VOID' &&
       b.rentalStatus !== 'CANCELLED' &&
       isDateInRange(b.billDate || b.rentalStartDate, prevStart, prevEnd)
   )
 
   // Current Metrics
-  const currentRevenue = curBills.reduce((s, b) => s + (b.grandTotal || 0), 0)
+  const currentRevenue = curBills.reduce((s, b) => s + getBillRevenueAmount(b), 0)
   const currentOrders = curBills.length
   const currentAvgTicket = currentOrders > 0 ? Math.round(currentRevenue / currentOrders) : 0
   const curCustomerIds = new Set(curBills.map((b) => b.customerId || b.customerName).filter(Boolean))
   const currentActiveCustomers = curCustomerIds.size
 
   // Previous Metrics
-  const previousRevenue = prevBills.reduce((s, b) => s + (b.grandTotal || 0), 0)
+  const previousRevenue = prevBills.reduce((s, b) => s + getBillRevenueAmount(b), 0)
   const previousOrders = prevBills.length
   const previousAvgTicket = previousOrders > 0 ? Math.round(previousRevenue / previousOrders) : 0
   const prevCustomerIds = new Set(prevBills.map((b) => b.customerId || b.customerName).filter(Boolean))
@@ -197,7 +200,7 @@ export function getBusinessReportData(filter: ReportDateFilter): BusinessReportD
     const key = filter.granularity === 'daily' ? clean : clean.slice(0, 7)
     const entry = bucketMap.get(key)
     if (entry) {
-      entry.revenue += b.grandTotal || 0
+      entry.revenue += getBillRevenueAmount(b)
       entry.orders++
     }
   }

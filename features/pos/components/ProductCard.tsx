@@ -3,7 +3,7 @@
 import React from 'react'
 import { Product } from '@/lib/types/rental-pos'
 import { Clock, RefreshCw, AlertCircle, ShoppingCart } from 'lucide-react'
-import { getDefaultMinimumStock } from '@/features/settings/services/settings-storage'
+import { isLowStock as isBelowReorderPoint } from '@/features/products/utils/low-stock'
 
 interface ProductCardProps {
   product: Product
@@ -12,10 +12,10 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product, mode = 'RENT', onClick }: ProductCardProps) {
-  const available = product.available_qty ?? product.availableQuantity ?? product.totalQuantity ?? 0
+  const stockValue = Number(product.availableQuantity ?? product.available_qty ?? 0)
+  const available = Number.isFinite(stockValue) && stockValue > 0 ? stockValue : 0
   const isOutOfStock = available <= 0
-  const minQty = getDefaultMinimumStock()
-  const isLowStock = !isOutOfStock && minQty > 0 && available <= minQty
+  const isLowStock = !isOutOfStock && isBelowReorderPoint({ availableQuantity: available, minimumStock: product.minimumStock })
 
   let borderStyle = 'border-emerald-200 dark:border-emerald-900 bg-white dark:bg-slate-800 hover:border-emerald-500 hover:shadow-lg'
   if (isOutOfStock) {

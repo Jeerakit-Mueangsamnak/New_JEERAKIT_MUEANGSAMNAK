@@ -29,6 +29,7 @@ import { PostSavePrintModal } from '@/components/common/PostSavePrintModal'
 import { BusinessSettings } from '@/lib/types/rental-pos'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { processReturn, receivePayment } from '@/features/bills/services/bill-service'
+import { refreshBillsCache } from '@/features/bills/services/bill-storage'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { ReturnInspectionStep } from '@/features/bills/components/ReturnInspectionStep'
 import type { ReturnQuantityField } from '@/features/bills/components/ReturnInspectionStep'
@@ -107,7 +108,11 @@ export function BillActionView({
 
 
   // Saved return & payment document numbers for accurate post-save printing
-  const [savedReturnInfo, setSavedReturnInfo] = useState<{ returnNo?: string } | null>(null)
+  const [savedReturnInfo, setSavedReturnInfo] = useState<{
+    returnNo?: string
+    receiptNo?: string
+    paidAmount?: number
+  } | null>(null)
   const [savedPaymentInfo, setSavedPaymentInfo] = useState<{
     paymentNo?: string
     receiptNo?: string
@@ -191,7 +196,7 @@ export function BillActionView({
       const todayStr = getLocalDateString(new Date())
       setBillRentalStartDate(activeBill.rentalStartDate)
       setBillScheduledReturnDate(activeBill.scheduledReturnDate)
-      setActualReturnDate(activeBill.actualReturnDate || todayStr)
+      setActualReturnDate(todayStr)
       setPaymentDate(todayStr)
       setInspectionItems(
         activeBill.items
@@ -200,9 +205,6 @@ export function BillActionView({
           const itemStart =
             item.rentalStartDate || activeBill.rentalStartDate || activeBill.billDate || ''
           const itemSched = item.scheduledReturnDate || activeBill.scheduledReturnDate || ''
-          const itemActual =
-            item.actualReturnDate || activeBill.actualReturnDate || todayStr
-
           const allProds = typeof window !== 'undefined' ? loadProducts() : []
           const prod = allProds.find((p) => p.id === item.productId)
           const repairFee = item.defaultRepairFee !== undefined && item.defaultRepairFee > 0
@@ -233,7 +235,7 @@ export function BillActionView({
             selected: false,
             rentalStartDate: itemStart,
             scheduledReturnDate: itemSched,
-            actualReturnDate: itemActual,
+            actualReturnDate: todayStr,
           }
         })
       )
@@ -371,7 +373,8 @@ export function BillActionView({
           businessPhone={business?.phone}
           customerName={activeBill.customerName}
           customerPhone={activeBill.customerPhone}
-          billNo={customReturnNo || activeBill.billNo}
+          slipNo={customReturnNo || savedReturnInfo?.returnNo || 'รอสร้างเลขเอกสาร'}
+          billNo={activeBill.billNo}
           returnDate={actualReturnDate}
           rentalStartDate={billRentalStartDate}
           scheduledReturnDate={billScheduledReturnDate}
@@ -381,7 +384,7 @@ export function BillActionView({
           totalDamageFee={calcResult.totalDamageFee}
           grandTotalCharge={calcResult.grandTotalCharge}
           netAmount={calcResult.netAmount}
-          userCollectedAmount={userCollectedAmount}
+          userCollectedAmount={savedReturnInfo?.paidAmount ?? userCollectedAmount}
           items={inspectionItems
             .filter((i) => i.returnQty > 0)
             .map((i) => {
@@ -403,7 +406,7 @@ export function BillActionView({
                 damageFee: i.totalDamageFee,
                 rentalStartDate: i.rentalStartDate || billRentalStartDate,
                 scheduledReturnDate: i.scheduledReturnDate || billScheduledReturnDate,
-                actualReturnDate: i.actualReturnDate || actualReturnDate,
+                actualReturnDate,
                 actualRentalDays: itemCalc.actualRentalDays,
                 overdueDays: itemCalc.overdueDays,
                 isOverdue: itemCalc.isOverdue,
@@ -426,7 +429,7 @@ export function BillActionView({
           customerAddress={activeBill.customerAddress}
           receiptNo={customDamageDocNo || savedDamageDocNo}
           billNo={activeBill.billNo}
-          paymentDate={actualReturnDate}
+          paymentDate={paymentDate}
           paymentChannel={paymentChannel}
           totalDamageFee={calcResult.repairFeeTotal}
           totalLossFee={calcResult.replacementFeeTotal}
@@ -477,10 +480,10 @@ export function BillActionView({
         customerName={activeBill.customerName}
         customerPhone={activeBill.customerPhone}
         customerAddress={activeBill.customerAddress}
-        receiptNo={customReceiptNo || savedReceiptDocNo}
+        receiptNo={customReceiptNo || savedReturnInfo?.receiptNo || savedReceiptDocNo}
         billNo={activeBill.billNo}
-        paymentDate={actualReturnDate}
-        amount={userCollectedAmount || (calcResult.netAmount > 0 ? calcResult.netAmount : 0)}
+        paymentDate={paymentDate}
+        amount={savedReturnInfo?.paidAmount ?? (userCollectedAmount || (calcResult.netAmount > 0 ? calcResult.netAmount : 0))}
         paymentChannel={paymentChannel}
         outstandingRemaining={Math.max(0, calcResult.netAmount - userCollectedAmount)}
         originalBillTotal={calcResult.grandTotalCharge}
@@ -728,6 +731,11 @@ export function BillActionView({
   const handleFinalCloseAndConfirmReturn = async (_isExtendRental: boolean = false) => {
     if (!activeBill) return
 
+    if (!actualReturnDate) {
+      showToast('ยังไม่ได้กำหนดวันรับคืน', 'กรุณาเลือกวันรับคืนก่อนบันทึกรายการ', 'ERROR')
+      return
+    }
+
     const returnedItems = inspectionItems.filter((i) => (i.normalQty + i.damagedQty + i.lostQty) > 0)
     if (returnedItems.length === 0) {
       showToast('ไม่มีรายการคืน', 'กรุณาระบุจำนวนสินค้าที่ต้องการคืนอย่างน้อย 1 ชิ้น', 'ERROR')
@@ -761,11 +769,16 @@ export function BillActionView({
         })),
       })
       let updatedBill = result.bill
+      let receiptNo: string | null = null
+      let paidAmount: number | null = null
       // Money collected at the counter during the return (never more than now owed).
       if (updatedBill && paymentChannel !== 'UNPAID' && userCollectedAmount > 0 && updatedBill.outstandingAmount > 0) {
-        updatedBill = await receivePayment(activeBill.id, [
+        const paymentResult = await receivePayment(activeBill.id, [
           { method: paymentChannel, amount: Math.min(userCollectedAmount, updatedBill.outstandingAmount), reference: bankRef || undefined },
-        ])
+        ], paymentDate)
+        updatedBill = paymentResult.bill
+        receiptNo = paymentResult.receiptNo
+        paidAmount = paymentResult.totalAmount
       }
       const returnNo = result.returnNo || ''
 
@@ -782,13 +795,22 @@ export function BillActionView({
         'SUCCESS'
       )
 
-      setSavedReturnInfo({ returnNo })
+      setSavedReturnInfo({ returnNo, receiptNo: receiptNo || undefined, paidAmount: paidAmount ?? undefined })
       setPostSavePrintModal({
         isOpen: true,
         title: 'บันทึกรับคืนสินค้าสำเร็จ',
         description: 'รับคืนสินค้าเรียบร้อยแล้ว\nต้องการพิมพ์ใบรับคืนสินค้าหรือไม่?',
       })
     } catch (err: any) {
+      // A return runs as several server steps: reload so the screen shows what was already
+      // saved and a retry cannot receive the same goods twice.
+      try {
+        const latest = await refreshBillsCache()
+        setBills(latest)
+        setCurrentStep(1)
+      } catch {
+        // keep the error below; the bill list still offers a manual reload
+      }
       if (isPinCancelled(err)) return
       showToast('เกิดข้อผิดพลาดในการรับคืนสินค้า', err?.message || 'ไม่สามารถบันทึกรับคืนสินค้าได้', 'ERROR')
     } finally {
@@ -798,6 +820,11 @@ export function BillActionView({
 
   const handleFinalConfirmPayment = async () => {
     if (!activeBill) return
+
+    if (!paymentDate || paymentDate > getLocalDateString(new Date())) {
+      showToast('วันที่รับชำระไม่ถูกต้อง', 'วันที่รับเงินจริงต้องไม่อยู่ในอนาคต', 'ERROR')
+      return
+    }
 
     const validTenders = splitTenders.filter((tender) => Number(tender.amount || 0) > 0)
     const totalPayment = validTenders.reduce((sum, tender) => sum + Number(tender.amount || 0), 0)
@@ -822,15 +849,14 @@ export function BillActionView({
     setIsSubmitting(true)
 
     try {
-      const fresh = await receivePayment(
+      const paymentResult = await receivePayment(
         activeBill.id,
-        validTenders.map((t) => ({ method: t.paymentMethod, amount: Number(t.amount || 0), reference: t.referenceNo || undefined }))
+        validTenders.map((t) => ({ method: t.paymentMethod, amount: Number(t.amount || 0), reference: t.referenceNo || undefined })),
+        paymentDate
       )
+      const fresh = paymentResult.bill
       if (!fresh) throw new Error('บันทึกแล้วแต่โหลดบิลใหม่ไม่สำเร็จ — กรุณารีเฟรช')
       const updatedBill = fresh
-      const batchId = ''
-      const confirmedReceiptNo = undefined
-
 
       setBills((prev) =>
         prev.map((b) => (b.id === updatedBill.id ? updatedBill : b))
@@ -843,11 +869,10 @@ export function BillActionView({
       )
 
       setSavedPaymentInfo({
-        paymentNo: batchId,
-        receiptNo: confirmedReceiptNo,
+        receiptNo: paymentResult.receiptNo || undefined,
         outstandingAfter: updatedBill.outstandingAmount,
         paidAmountAfter: updatedBill.paidAmount,
-        totalAmount: totalPayment,
+        totalAmount: paymentResult.totalAmount ?? totalPayment,
         tenders: validTenders,
       })
       const isPartial = updatedBill.outstandingAmount > 0
@@ -920,7 +945,7 @@ export function BillActionView({
         {/* RETURN WORKFLOW STEPS */}
         {mode === 'RETURN' && activeBill && (
           <>
-            {/* STEP 1: Select Items + Item Dates */}
+            {/* STEP 1: Select Items + Return Date */}
             {currentStep === 1 && (
               <div className="flex-1 min-h-0 flex flex-col space-y-2 overflow-hidden">
                 {/* Top Summary Bar */}
@@ -937,7 +962,17 @@ export function BillActionView({
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 font-medium shrink-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-slate-700 dark:text-slate-300">วันรับคืน:</span>
+                      <CustomDatePicker
+                        value={parseLocalDate(actualReturnDate)}
+                        onChange={(date) => setActualReturnDate(date ? getLocalDateString(date) : '')}
+                        align="right"
+                        placeholder="เลือกวันรับคืน..."
+                        className="text-xs"
+                      />
+                    </div>
                     <span>เลือกแล้ว: <strong className="text-emerald-600 dark:text-emerald-400 font-bold">{inspectionItems.filter((i) => i.selected).length}</strong>/{inspectionItems.length} รายการ</span>
                   </div>
                 </div>
@@ -946,13 +981,14 @@ export function BillActionView({
                 <div className="flex-1 min-h-0 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xs">
                   <table className="w-full text-xs text-left border-collapse">
                     <colgroup>
-                      <col className="w-[36px] sm:w-[42px]" />  {/* Checkbox */}
-                      <col className="w-[36px] sm:w-[42px]" />  {/* ลำดับ */}
-                      <col className="w-auto" />                {/* รายการ */}
-                      <col className="w-[104px] sm:w-[125px]" /> {/* วันที่เช่า */}
-                      <col className="w-[104px] sm:w-[125px]" /> {/* กำหนดคืน */}
-                      <col className="w-[104px] sm:w-[125px]" /> {/* วันคืนจริง */}
-                      <col className="w-[56px] sm:w-[68px]" />  {/* วันใช้จริง */}
+                      {/* Checkbox / ลำดับ / รายการ / วันที่เช่า / กำหนดคืน / วันใช้จริง — no text between
+                          <col>s: spaces inside <colgroup> break hydration */}
+                      <col className="w-[36px] sm:w-[42px]" />
+                      <col className="w-[36px] sm:w-[42px]" />
+                      <col className="w-auto" />
+                      <col className="w-[84px] sm:w-[112px]" />
+                      <col className="w-[84px] sm:w-[112px]" />
+                      <col className="w-[56px] sm:w-[68px]" />
                     </colgroup>
                     <thead className="sticky top-0 z-10 bg-slate-800 dark:bg-slate-900 text-white font-bold border-b border-slate-700 shadow-xs text-xs">
                       <tr>
@@ -969,7 +1005,6 @@ export function BillActionView({
                         <th className="py-2 px-1.5 bg-slate-800 dark:bg-slate-900 text-white">รายการ</th>
                         <th className="py-2 px-1 text-center bg-slate-800 dark:bg-slate-900 text-white">วันที่เช่า</th>
                         <th className="py-2 px-1 text-center bg-slate-800 dark:bg-slate-900 text-white">กำหนดคืน</th>
-                        <th className="py-2 px-1 text-center bg-slate-800 dark:bg-slate-900 text-white">วันคืนจริง</th>
                         <th className="py-2 px-1 text-center bg-slate-800 dark:bg-slate-900 text-white">วันใช้จริง</th>
                       </tr>
                     </thead>
@@ -1009,50 +1044,11 @@ export function BillActionView({
                                 </span>
                               )}
                             </td>
-                            <td className="py-1 px-1 text-center">
-                              <CustomDatePicker
-                                value={parseLocalDate(item.rentalStartDate)}
-                                onChange={(d) =>
-                                  handleItemDateChange(
-                                    idx,
-                                    'rentalStartDate',
-                                    d ? getLocalDateString(d) : ''
-                                  )
-                                }
-                                align="left"
-                                placeholder="วันที่เช่า..."
-                                className="text-xs"
-                              />
+                            <td className="py-1 px-1 text-center text-slate-600 dark:text-slate-300">
+                              {parseLocalDate(item.rentalStartDate)?.toLocaleDateString('th-TH') || '-'}
                             </td>
-                            <td className="py-1 px-1 text-center">
-                              <CustomDatePicker
-                                value={parseLocalDate(item.scheduledReturnDate)}
-                                onChange={(d) =>
-                                  handleItemDateChange(
-                                    idx,
-                                    'scheduledReturnDate',
-                                    d ? getLocalDateString(d) : ''
-                                  )
-                                }
-                                align="left"
-                                placeholder="วันกำหนดคืน..."
-                                className="text-xs"
-                              />
-                            </td>
-                            <td className="py-1 px-1 text-center">
-                              <CustomDatePicker
-                                value={parseLocalDate(item.actualReturnDate)}
-                                onChange={(d) =>
-                                  handleItemDateChange(
-                                    idx,
-                                    'actualReturnDate',
-                                    d ? getLocalDateString(d) : ''
-                                  )
-                                }
-                                align="left"
-                                placeholder="วันคืนจริง..."
-                                className="text-xs"
-                              />
+                            <td className="py-1 px-1 text-center text-slate-600 dark:text-slate-300">
+                              {parseLocalDate(item.scheduledReturnDate)?.toLocaleDateString('th-TH') || '-'}
                             </td>
                             <td className="py-1 px-1 text-center">
                               <span className="px-1.5 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 font-black text-[10.5px] sm:text-[11px] whitespace-nowrap">
@@ -1356,7 +1352,7 @@ export function BillActionView({
                     <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">วันที่ชำระ:</span>
                     <div className="w-32 sm:w-36">
                       <CustomDatePicker
-                        value={paymentDate ? new Date(paymentDate) : new Date()}
+                        value={parseLocalDate(paymentDate) || new Date()}
                         onChange={(d) =>
                           setPaymentDate(
                             getLocalDateString(d ?? new Date())

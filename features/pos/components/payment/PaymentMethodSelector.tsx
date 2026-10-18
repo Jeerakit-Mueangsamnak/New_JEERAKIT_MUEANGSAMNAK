@@ -6,9 +6,11 @@ import { Banknote, CreditCard, QrCode, ShieldAlert } from 'lucide-react'
 export type PaymentMethodType = 'CASH' | 'TRANSFER' | 'QR' | 'UNPAID'
 
 interface PaymentMethodSelectorProps {
-  selectedMethod: PaymentMethodType
+  selectedMethod: PaymentMethodType | null
   onSelectMethod: (method: PaymentMethodType) => void
   disabled?: boolean
+  showPromptPay?: boolean
+  autoSelectFirst?: boolean
   className?: string
 }
 
@@ -16,12 +18,14 @@ export function PaymentMethodSelector({
   selectedMethod,
   onSelectMethod,
   disabled = false,
+  showPromptPay = true,
+  autoSelectFirst = true,
   className = '',
 }: PaymentMethodSelectorProps) {
   const methods = {
     cash: true,
     bankTransfer: true,
-    promptPay: true,
+    promptPay: showPromptPay,
     credit: true,
   }
 
@@ -54,7 +58,7 @@ export function PaymentMethodSelector({
     if (methods.credit) {
       list.push({
         key: 'UNPAID',
-        label: 'ค้างชำระ (เครดิต)',
+        label: 'ค้างชำระ',
         icon: <ShieldAlert className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-500 shrink-0" />,
         activeClass: 'border-amber-500 bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 shadow-sm',
       })
@@ -63,10 +67,10 @@ export function PaymentMethodSelector({
   }, [methods.cash, methods.bankTransfer, methods.promptPay, methods.credit])
 
   useEffect(() => {
-    if (enabledList.length > 0 && !enabledList.some((item) => item.key === selectedMethod)) {
+    if (autoSelectFirst && enabledList.length > 0 && !enabledList.some((item) => item.key === selectedMethod)) {
       onSelectMethod(enabledList[0].key)
     }
-  }, [enabledList, selectedMethod, onSelectMethod])
+  }, [autoSelectFirst, enabledList, selectedMethod, onSelectMethod])
 
   return (
     <div className={`space-y-1.5 ${className}`}>

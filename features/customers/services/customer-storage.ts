@@ -37,26 +37,42 @@ export async function addCustomerAsync(incoming: Customer): Promise<Customer[]> 
   return syncCustomersFromSupabase()
 }
 
-/** Creates the customer and returns the saved record (with the server id). */
-export async function createCustomerAsync(incoming: Customer): Promise<Customer> {
-  const saved = await saveCustomerToSupabase(incoming, true)
-  await syncCustomersFromSupabase()
-  return saved
+/** The row was saved but the ID card photo upload failed (see saveCustomerToSupabase). */
+export function isIdCardUploadError(err: unknown): err is Error & { saved: Customer } {
+  return (err as { tag?: string } | null)?.tag === 'ID_CARD_UPLOAD_FAILED'
 }
 
-export async function updateCustomerAsync(updated: Customer): Promise<Customer[]> {
+/** Creates the customer and returns the saved record (with the server id). */
+export async function createCustomerAsync(incoming: Customer): Promise<Customer> {
+  try {
+    const saved = await saveCustomerToSupabase(incoming, true)
+    await syncCustomersFromSupabase()
+    return saved
+  } catch (err) {
+    if (isIdCardUploadError(err)) await syncCustomersFromSupabase()
+    throw err
+  }
+}
+
+/** `reason` is the user's reason, kept in the audit log of the update / (de)activation. */
+export async function updateCustomerAsync(updated: Customer, reason?: string): Promise<Customer[]> {
   const before = loadCustomers().find((c) => c.id === updated.id)
-  await saveCustomerToSupabase(updated, false)
+  try {
+    await saveCustomerToSupabase(updated, false, reason)
+  } catch (err) {
+    if (isIdCardUploadError(err)) await syncCustomersFromSupabase()
+    throw err
+  }
   const wasActive = before ? !before.isSuspended && before.status !== 'INACTIVE' : true
   const isActive = !updated.isSuspended && updated.status !== 'INACTIVE'
   if (before && wasActive !== isActive) {
-    await setCustomerActive(updated.id, isActive, isActive ? 'เปิดใช้งานลูกค้า' : 'ระงับลูกค้า')
+    await setCustomerActive(updated.id, isActive, reason?.trim() || (isActive ? 'เปิดใช้งานลูกค้า' : 'ระงับลูกค้า'))
   }
   return syncCustomersFromSupabase()
 }
 
 /** Soft delete (history is kept): the customer is deactivated. */
-export async function deleteCustomerAsync(id: string): Promise<Customer[]> {
-  await setCustomerActive(id, false, 'ลบลูกค้าออกจากรายการ')
+export async function deleteCustomerAsync(id: string, reason?: string): Promise<Customer[]> {
+  await setCustomerActive(id, false, reason?.trim() || 'ลบลูกค้าออกจากรายการ')
   return syncCustomersFromSupabase()
 }

@@ -333,8 +333,10 @@ CREATE FUNCTION t.draft(p_extra text, p_line_extra text, p_pin text) RETURNS tex
 $f$;
 SELECT t.check('SET', 'VAT off with no preset rate or price mode',
     (SELECT NOT vat_enabled AND vat_rate IS NULL AND vat_mode IS NULL FROM public.store_settings));
-SELECT t.err('SET', 'VAT cannot be switched on before the tax setup', 'owner',
-    $q$select public.settings_update('{"vat_enabled":true}'::jsonb, 'try')$q$, 'VAT_SETUP_REQUIRED');
+-- Owner rule 2026-10-07: VAT ON/OFF is chosen per bill at the POS, not in the shop settings
+-- (the per-bill checks live in 20_settings_v1.sql).
+SELECT t.err('SET', 'VAT ON/OFF is no longer a shop setting', 'owner',
+    $q$select public.settings_update('{"vat_enabled":true}'::jsonb, 'try')$q$, 'UNKNOWN_FIELDS');
 SELECT t.check('SET', 'no preset discount limit; notices like the app panel (on, 1 day); no auto-release',
     (SELECT policies -> 'discount_limit_enabled' = 'false'::jsonb AND policies -> 'discount_limit_percent' = 'null'::jsonb
         AND policies -> 'notifications' -> 'returnReminder' = '{"enabled": true, "daysBefore": 1}'::jsonb

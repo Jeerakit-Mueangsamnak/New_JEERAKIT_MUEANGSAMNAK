@@ -34,6 +34,7 @@ export function ProductGrid({
   // Filter products by mode: RENT shows RENT + BOTH; SALE shows SALE + BOTH
   const modeProducts = useMemo(() => {
     return products.filter((p) => {
+      if (p.status !== 'ACTIVE') return false
       const pType = getProductType(p)
       if (posMode === 'RENT') {
         if (pType === 'SALE') return false

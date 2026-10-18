@@ -35,6 +35,8 @@ export interface BillDraftInput {
   billId?: string | null
   customerId?: string | null
   quotationId?: string | null
+  /** VAT ON/OFF of this bill (POS); the server snapshots it with the shop's rate and mode. */
+  vatEnabled?: boolean
   note?: string
   /** Bill-level discount in baht (ลดแล้วก็ลดไป). */
   discountAmount?: number
@@ -51,6 +53,12 @@ export interface TenderInput {
   method: string
   amount: number
   reference?: string
+}
+
+export interface PaymentReceiveResult {
+  bill: FullBill | null
+  receiptNo: string | null
+  totalAmount: number | null
 }
 
 /** App payment channels → server tender methods. */
@@ -103,6 +111,7 @@ export async function saveBillDraft(input: BillDraftInput): Promise<string> {
   const data: Record<string, unknown> = {
     customer_id: input.customerId || null,
     quotation_id: input.quotationId || null,
+    vat_enabled: input.vatEnabled === true,
     note: input.note || null,
     bill_discount_type: Number(input.discountAmount) > 0 ? 'FIXED' : null,
     bill_discount_value: Number(input.discountAmount) || 0,
@@ -144,9 +153,26 @@ export async function checkoutBill(input: BillDraftInput, tenders: TenderInput[]
 
 // ─── money ───────────────────────────────────────────────────────────────────
 
-export async function receivePayment(billId: string, tenders: TenderInput[]): Promise<FullBill | null> {
-  await rpc('payment_receive', { p_bill_id: billId, p_tenders: tendersPayload(tenders), p_idempotency_key: newIdempotencyKey() })
-  return refreshAfterChange(billId)
+export async function receivePayment(
+  billId: string,
+  tenders: TenderInput[],
+  receivedDay?: string | null
+): Promise<PaymentReceiveResult> {
+  const payload: Record<string, unknown> = {
+    p_bill_id: billId,
+    p_tenders: tendersPayload(tenders),
+    p_idempotency_key: newIdempotencyKey(),
+  }
+  if (receivedDay) payload.p_received_on = receivedDay.slice(0, 10)
+  const result = await rpc<{ receipt_no?: string | null; total_amount?: number | string | null }>('payment_receive', {
+    ...payload,
+  })
+  const totalAmount = Number(result.total_amount)
+  return {
+    bill: await refreshAfterChange(billId),
+    receiptNo: result.receipt_no || null,
+    totalAmount: Number.isFinite(totalAmount) ? totalAmount : null,
+  }
 }
 
 export async function voidPayment(billId: string, paymentId: string, reason: string): Promise<FullBill | null> {

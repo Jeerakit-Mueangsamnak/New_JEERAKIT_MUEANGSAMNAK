@@ -5,7 +5,7 @@
  */
 import { Quotation, QuotationStatus, Customer, Product } from '@/lib/types/rental-pos'
 import { CartItem, cartLineListPrice } from '@/features/pos/services/cart-storage'
-import { loadSystemSettings } from '@/features/settings/services/settings-storage'
+import { validateProductMode } from '@/features/products/services/product-storage'
 import {
   fetchQuotationsFromSupabase as fetchQuotationsFromRepository,
   saveQuotationDraft,
@@ -62,7 +62,7 @@ export interface QuotationToPosValues {
   discount: number
   shippingFee: number
   depositAmount: number
-  taxRate: number
+  vatEnabled: boolean
   shippingAddress: string
   rentalStartDate: string
   rentalEndDate: string
@@ -98,37 +98,22 @@ export function mapQuotationToPos(
   // 2. Set cart items from quote.items
   const cartItems: CartItem[] = quote.items.map((qItem, idx) => {
     const matchedProd = products.find((p) => p.id === qItem.productId)
+    if (!matchedProd || matchedProd.status !== 'ACTIVE') {
+      throw new Error(`ไม่พบสินค้า "${qItem.productName}" ที่เปิดใช้งานในระบบ กรุณาตรวจสอบใบเสนอราคาก่อนแปลงเป็นบิล`)
+    }
     const isSale = qItem.rentalType === 'SALE'
-    const fallbackProduct: Product = {
-      id: qItem.productId,
-      code: qItem.productId,
-      name: qItem.productName,
-      category: 'ทั่วไป',
-      unit: qItem.unitName || 'ชิ้น',
-      rentalType: qItem.rentalType,
+    try {
+      validateProductMode(matchedProd, isSale ? 'SALE' : 'RENT')
+    } catch (error) {
+      throw new Error(`${qItem.productName}: ${error instanceof Error ? error.message : 'ประเภทสินค้าไม่ถูกต้อง'}`)
+    }
+    const baseProduct: Product = {
+      ...matchedProd,
       normalPrice: qItem.unitPrice,
       dailyPrice: qItem.unitPrice,
-      rentPrice: qItem.unitPrice,
-      defaultDamageFee: 0,
-      defaultLossFee: 0,
-      totalQuantity: 999,
-      availableQuantity: 999,
-      rentedQuantity: 0,
-      damagedQuantity: 0,
-      lostQuantity: 0,
-      minimumStock: 0,
-      status: 'ACTIVE',
+      rentPrice: isSale ? matchedProd.rentPrice : qItem.unitPrice,
+      salePrice: isSale ? qItem.unitPrice : matchedProd.salePrice,
     }
-
-    const baseProduct: Product = matchedProd
-      ? {
-          ...matchedProd,
-          normalPrice: qItem.unitPrice,
-          dailyPrice: qItem.unitPrice,
-          rentPrice: qItem.unitPrice,
-          salePrice: isSale ? qItem.unitPrice : (matchedProd.salePrice ?? qItem.unitPrice),
-        }
-      : fallbackProduct
 
     return {
       id: qItem.id || `cart-${Date.now()}-${idx}`,
@@ -136,16 +121,14 @@ export function mapQuotationToPos(
       productId: qItem.productId,
       productName: qItem.productName,
       itemType: isSale ? 'SALE' : 'RENT',
-      unitName: qItem.unitName || matchedProd?.unit || 'ชิ้น',
-      calculationType: matchedProd?.calculationType,
-      calculationLabel: matchedProd?.calculationLabel,
+      unitName: qItem.unitName || matchedProd.unit || 'ชิ้น',
+      calculationType: matchedProd.calculationType,
+      calculationLabel: matchedProd.calculationLabel,
       rentalType: qItem.rentalType,
       quantity: qItem.quantity,
       unitPrice: qItem.unitPrice,
       // baseProduct carries the quoted price, so keep the product's own price to detect the override
-      listUnitPrice: matchedProd
-        ? cartLineListPrice({ product: matchedProd, rentalType: qItem.rentalType, itemType: isSale ? 'SALE' : 'RENT' })
-        : null,
+      listUnitPrice: cartLineListPrice({ product: matchedProd, rentalType: qItem.rentalType, itemType: isSale ? 'SALE' : 'RENT' }),
       usageCount: qItem.usageCountOrDays || 1,
       billableDays: qItem.usageCountOrDays || 1,
       dailyStartDate: qItem.dailyStartDate,
@@ -155,14 +138,11 @@ export function mapQuotationToPos(
   })
 
   // 3. Set financial & dates
-  const settings = loadSystemSettings()
-  const defaultVatRate = (settings.financePayment.defaultVatPercent || 7) / 100
-
   const values: QuotationToPosValues = {
     discount: quote.discountAmount,
     shippingFee: quote.shippingFee,
     depositAmount: quote.depositAmount,
-    taxRate: quote.taxAmount > 0 ? defaultVatRate : 0,
+    vatEnabled: quote.taxAmount > 0,
     shippingAddress: quote.siteName || quote.customerAddress || '',
     rentalStartDate: quote.rentalStartDate,
     rentalEndDate: quote.rentalEndDate,

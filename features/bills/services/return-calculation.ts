@@ -44,7 +44,7 @@ export function computeItemRentalCalculation(
 ) {
   const rentalStartDate = item.rentalStartDate || dates?.rentalStartDate
   const scheduledReturnDate = item.scheduledReturnDate || dates?.scheduledReturnDate
-  const actualReturnDate = item.actualReturnDate || dates?.actualReturnDate
+  const actualReturnDate = dates?.actualReturnDate ?? item.actualReturnDate
   const actualRentalDays = Math.max(1, getInclusiveDays(rentalStartDate, actualReturnDate))
   const scheduledDay = getCalendarDay(scheduledReturnDate)
   const actualDay = getCalendarDay(actualReturnDate)

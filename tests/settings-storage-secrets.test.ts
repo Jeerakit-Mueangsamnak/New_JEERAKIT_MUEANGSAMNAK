@@ -8,11 +8,11 @@ describe('settings storage keeps nothing in the browser', () => {
   })
 
   it('loading / caching / saving settings never writes browser storage', async () => {
-    const { DEFAULT_SYSTEM_CONFIG, loadSystemSettings, saveSystemSettings, setCachedSystemSettings } =
+    const { DEFAULT_SYSTEM_CONFIG, loadSystemSettings, resetSystemSettings, setCachedSystemSettings } =
       await import('@/features/settings/services/settings-storage')
     loadSystemSettings()
     setCachedSystemSettings({ ...DEFAULT_SYSTEM_CONFIG, business: { ...DEFAULT_SYSTEM_CONFIG.business, businessName: 'ร้าน' } })
-    saveSystemSettings(DEFAULT_SYSTEM_CONFIG)
+    resetSystemSettings()
     expect(localStorage.length).toBe(0)
   })
 
@@ -22,10 +22,10 @@ describe('settings storage keeps nothing in the browser', () => {
     expect(loadSystemSettings().business.businessName).toBe('')
   })
 
-  it('defaults follow the owner decisions: VAT off, no rate, no discount limit, BL yearly numbering', async () => {
+  it('defaults follow the owner decisions: no VAT rate/mode, no discount limit, PREFIX-DDMMBBBB-001 numbering', async () => {
     const { DEFAULT_SYSTEM_CONFIG } = await import('@/features/settings/services/settings-storage')
-    expect(DEFAULT_SYSTEM_CONFIG.financePayment).toMatchObject({ vatEnabled: false, defaultVatPercent: 0, maximumDiscountPercent: 100 })
-    expect(DEFAULT_SYSTEM_CONFIG.documentNumbering.rentalBill).toMatchObject({ prefix: 'BL', runningDigits: 6, resetCycle: 'YEARLY' })
+    expect(DEFAULT_SYSTEM_CONFIG.taxDiscount).toMatchObject({ vatRate: null, vatMode: null, discountLimitEnabled: false, discountLimitPercent: null })
+    expect(DEFAULT_SYSTEM_CONFIG.documentNumbering.BILL).toEqual({ prefix: 'BL', digits: 3 })
     expect(DEFAULT_SYSTEM_CONFIG.notifications.returnReminder).toEqual({ enabled: true, daysBefore: 1 })
   })
 })

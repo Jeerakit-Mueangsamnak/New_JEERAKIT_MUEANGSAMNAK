@@ -101,6 +101,36 @@ export function getAppLockedState(userId: string): boolean {
   }
 }
 
+/**
+ * Last user activity on THIS device (ms). Kept per user in this browser only — it is never sent
+ * to the server, so an unlock on one device never unlocks another. Lets the lock survive
+ * background, device sleep, a closed tab and a reopened session.
+ */
+const activityKey = (userId: string) => `pos_last_activity:${userId}`
+
+export function getLastActivity(userId: string): number | null {
+  try {
+    const v = Number(window.localStorage.getItem(activityKey(userId)))
+    return Number.isFinite(v) && v > 0 ? v : null
+  } catch {
+    return null
+  }
+}
+
+export function setLastActivity(userId: string, at: number): void {
+  try {
+    window.localStorage.setItem(activityKey(userId), String(at))
+  } catch {
+    // storage unavailable: the in-memory timer still applies
+  }
+}
+
+/** True when the idle time since the last activity reached the user's auto-lock time (0 = never). */
+export function isIdleExpired(lastActivityMs: number | null, nowMs: number, autoLockSeconds: number): boolean {
+  if (!autoLockSeconds || autoLockSeconds <= 0 || lastActivityMs === null) return false
+  return nowMs - lastActivityMs >= autoLockSeconds * 1000
+}
+
 export function setAppLockedState(userId: string, locked: boolean): void {
   try {
     if (locked) window.localStorage.setItem(lockKey(userId), '1')

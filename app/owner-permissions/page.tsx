@@ -1,7 +1,7 @@
 'use client'
 
 import { useAskText } from '@/components/common/ConfirmDialogProvider'
-import { SETTINGS_HELPER, SETTINGS_INPUT, SETTINGS_SECTION_TITLE } from '@/features/settings/components/settings-ui'
+import { SETTINGS_INPUT } from '@/features/settings/components/settings-ui'
 import { ActionButton, TAB_BUTTON_ACTIVE_CLASSES, TAB_BUTTON_BASE_CLASSES, TAB_BUTTON_INACTIVE_CLASSES, TAB_CONTAINER_CLASSES } from '@/components/common/ActionButton'
 import { DataTableFrame, DATA_TABLE_CLASSES } from '@/components/common/DataTableFrame'
 import React, { useState, useEffect, useCallback } from 'react'
@@ -20,15 +20,14 @@ import {
   FileSpreadsheet,
   Trash2,
   Lock,
-  Save,
-  X,
   FileText,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { CustomSelect, SelectOption } from '@/components/common/CustomSelect'
 import { GRANTABLE_MENUS, POS_STAFF_PRESET } from '@/features/auth/services/permissions'
-import { listMembers, resetMemberPin, setMemberMenus, setMemberRole, setMemberStatus } from '@/app/actions/members'
+import { listMembers, resetMemberPin, setMemberActions, setMemberMenus, setMemberRole, setMemberStatus } from '@/app/actions/members'
 import { fetchAuditLogs } from '@/features/audits/services/audit-storage'
+import { PermissionMatrixPanel } from '@/features/auth/components/PermissionMatrixPanel'
 
 type ActivityLogCategory = 'BILL' | 'STOCK' | 'SYSTEM' | 'CUSTOMER' | 'MEMBER' | 'FINANCE'
 
@@ -39,6 +38,7 @@ interface BusinessMemberUser {
   role?: 'OWNER' | 'USER'
   status?: string
   menus?: string[]
+  actions?: string[]
   profile?: {
     id?: string
     username?: string
@@ -61,8 +61,7 @@ interface UserActivityLog {
 }
 
 // Menu access (Master v4.3.1 §4.2): the OWNER grants whole menus per person; same list as
-// public.menu_catalog. Owner-only menus (member management) are never offered here.
-const PERMISSION_MODULE_LABELS: Record<string, string> = { MENU: 'เมนูที่ผู้ใช้นี้เข้าได้' }
+// public.menu_catalog. Owner-only menus (settings, member management) are never granted.
 
 const PERMISSIONS_CATALOG: Array<{ code: string; label: string; module: string; description: string }> =
   GRANTABLE_MENUS.map((m) => ({ code: m.code, label: m.label, module: 'MENU', description: m.href }))
@@ -128,9 +127,11 @@ export default function OwnerPermissionsPage() {
   // Modal states for delete confirmation
   const [deleteConfirmMember, setDeleteConfirmMember] = useState<BusinessMemberUser | null>(null)
 
-  // Granular Permission Modal states
-  const [permModalMember, setPermModalMember] = useState<BusinessMemberUser | null>(null)
+  // Permission matrix of the selected member (menus are the only stored grant)
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null)
   const [selectedPermCodes, setSelectedPermCodes] = useState<string[]>([])
+  const [selectedActionCodes, setSelectedActionCodes] = useState<string[]>([])
+  const [actionGrantsAvailable, setActionGrantsAvailable] = useState(true)
   const [savingPerms, setSavingPerms] = useState(false)
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
@@ -147,13 +148,15 @@ export default function OwnerPermissionsPage() {
         setFeedback({ message: result.error || 'โหลดรายชื่อผู้ใช้งานไม่สำเร็จ', type: 'error' })
         return
       }
+      setActionGrantsAvailable(result.data.actionGrantsAvailable)
       setMembers(
-        result.data.map((m) => ({
+        result.data.members.map((m) => ({
           id: m.userId,
           userId: m.userId,
           role: m.role,
           status: m.status,
           menus: m.menus,
+          actions: m.actions,
           profile: {
             id: m.userId,
             username: m.username,
@@ -198,6 +201,13 @@ export default function OwnerPermissionsPage() {
   useEffect(() => {
     loadMembers()
   }, [loadMembers])
+
+  // After a reload the matrix shows what the server saved.
+  useEffect(() => {
+    const m = members.find((x) => x.id === selectedMemberId)
+    setSelectedPermCodes(m?.menus || [])
+    setSelectedActionCodes(m?.actions || [])
+  }, [members, selectedMemberId])
 
   useEffect(() => {
     if (activeTab === 'AUDIT_REPORT' || activeTab === 'AUDIT_LOGS') {
@@ -258,13 +268,22 @@ export default function OwnerPermissionsPage() {
     showNotification('ลบผู้ใช้งานไม่ได้เพราะต้องเก็บประวัติการทำรายการ กรุณาใช้ "ระงับสิทธิ์" แทน', 'error')
   }
 
-  const handleOpenPermissionsModal = (member: BusinessMemberUser) => {
-    if (member.role === 'OWNER') {
-      showNotification('เจ้าของร้านมีสิทธิ์ทั้งหมดโดยสมบูรณ์ ไม่จำเป็นต้องกำหนดสิทธิ์รายบุคคล', 'error')
-      return
-    }
-    setPermModalMember(member)
+  const selectedMember = members.find((m) => m.id === selectedMemberId) ?? null
+  const savedMenus = selectedMember?.menus ?? []
+  const savedActions = selectedMember?.actions ?? []
+  const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((c) => b.includes(c))
+  const menusDirty = selectedMember?.role === 'USER' && !sameSet(selectedPermCodes, savedMenus)
+  const actionsDirty = selectedMember?.role === 'USER' && !sameSet(selectedActionCodes, savedActions)
+  const permsDirty = menusDirty || actionsDirty
+
+  const handleSelectMember = (member: BusinessMemberUser) => {
+    setSelectedMemberId(member.id)
     setSelectedPermCodes(member.menus || [])
+    setSelectedActionCodes(member.actions || [])
+  }
+
+  const handleToggleAction = (code: string) => {
+    setSelectedActionCodes((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]))
   }
 
   const handleTogglePermission = (code: string) => {
@@ -286,17 +305,26 @@ export default function OwnerPermissionsPage() {
   }
 
   const handleSavePermissions = async () => {
-    if (!permModalMember) return
+    if (!selectedMember || selectedMember.role !== 'USER') return
     const reason = await askReason('เหตุผลที่เปลี่ยนสิทธิ์การทำงาน')
     if (!reason) return
     setSavingPerms(true)
     try {
-      const result = await setMemberMenus(permModalMember.id, selectedPermCodes, reason)
-      if (!result.success) {
-        showNotification(result.error || 'บันทึกสิทธิ์ไม่สำเร็จ', 'error')
-        return
+      if (menusDirty) {
+        const result = await setMemberMenus(selectedMember.id, selectedPermCodes, reason)
+        if (!result.success) {
+          showNotification(result.error || 'บันทึกสิทธิ์ไม่สำเร็จ', 'error')
+          return
+        }
       }
-      setPermModalMember(null)
+      if (actionsDirty) {
+        const result = await setMemberActions(selectedMember.id, selectedActionCodes, reason)
+        if (!result.success) {
+          showNotification(result.error || 'บันทึกสิทธิ์การทำรายการไม่สำเร็จ', 'error')
+          await loadMembers()
+          return
+        }
+      }
       showNotification('บันทึกสิทธิ์แล้ว')
       await loadMembers()
     } finally {
@@ -370,46 +398,51 @@ export default function OwnerPermissionsPage() {
     { id: 'SYSTEM', label: 'ระบบ', icon: Lock },
   ]
 
-  const ownerBadge = (
-    <span className="px-1.5 py-px rounded-full bg-emerald-50 dark:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
-      OWNER
-    </span>
-  )
-
   return (
-    <div className="h-full min-h-0 p-2 gap-2 bg-slate-100 dark:bg-slate-900 flex flex-col overflow-hidden text-xs">
-      {/* Main Workspace Card */}
+    <div className="h-full min-h-0 p-2 bg-slate-100 dark:bg-slate-900 flex flex-col overflow-hidden text-xs">
       <div className="w-full flex-1 min-h-0 min-w-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col">
-        {/* Top Tabs */}
-        <div className="px-2 py-1.5 border-b border-slate-200 dark:border-slate-700 shrink-0">
-          <div className={`${TAB_CONTAINER_CLASSES} w-full min-w-0`}>
+        {/* Toolbar: tabs + the active tab's actions (same pattern as the appointments page) */}
+        <div className="p-2 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0">
+          <div className={TAB_CONTAINER_CLASSES}>
             <button
               type="button"
               onClick={() => setActiveTab('PERMISSIONS')}
-              className={`${TAB_BUTTON_BASE_CLASSES} flex-1 min-w-0 ${activeTab === 'PERMISSIONS' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
+              className={`${TAB_BUTTON_BASE_CLASSES} ${activeTab === 'PERMISSIONS' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
             >
               <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate min-w-0">สิทธิ์ผู้ใช้งาน</span>
+              <span>สิทธิ์ผู้ใช้งาน</span>
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('AUDIT_REPORT')}
-              className={`${TAB_BUTTON_BASE_CLASSES} flex-1 min-w-0 ${
-                activeTab === 'AUDIT_REPORT' || (activeTab as string) === 'AUDIT_LOGS' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES
-              }`}
+              className={`${TAB_BUTTON_BASE_CLASSES} ${activeTab !== 'PERMISSIONS' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
             >
               <FileText className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate min-w-0">ประวัติการทำรายการ (Audit Log)</span>
+              <span>ประวัติการทำรายการ (Audit Log)</span>
             </button>
+          </div>
+          <div className="flex items-center gap-1.5 justify-end">
+            {activeTab !== 'PERMISSIONS' && (
+              <ActionButton size="sm" variant="neutral" onClick={handleExportAuditExcel} disabled={logs.length === 0} icon={<FileSpreadsheet />}>
+                Export
+              </ActionButton>
+            )}
+            <ActionButton
+              size="sm"
+              variant="neutral"
+              className="w-9 px-0"
+              title="รีเฟรชข้อมูล"
+              onClick={activeTab === 'PERMISSIONS' ? loadMembers : loadLogs}
+              disabled={activeTab === 'PERMISSIONS' ? loadingMembers : loadingLogs}
+              icon={<RefreshCw className={(activeTab === 'PERMISSIONS' ? loadingMembers : loadingLogs) ? 'animate-spin' : ''} />}
+            />
           </div>
         </div>
 
-        {/* Content (tables scroll inside their own frame) */}
-        <div className="w-full flex-1 min-h-0 min-w-0 p-2 gap-2 flex flex-col overflow-hidden">
             {/* Feedback alert toast */}
             {feedback && (
               <div
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold animate-in fade-in slide-in-from-top-1 flex items-center gap-2 border ${
+                className={`shrink-0 m-2 mb-0 px-3 py-1.5 rounded-lg text-xs font-bold animate-in fade-in slide-in-from-top-1 flex items-center gap-2 border ${
                   feedback.type === 'success'
                     ? 'bg-emerald-50 border-emerald-300 text-emerald-800 dark:bg-emerald-950/80 dark:border-emerald-500 dark:text-emerald-200'
                     : 'bg-rose-50 border-rose-300 text-rose-800 dark:bg-rose-950/80 dark:border-rose-500 dark:text-rose-200'
@@ -424,48 +457,28 @@ export default function OwnerPermissionsPage() {
               </div>
             )}
 
-            {/* ================= TAB 1: PERMISSION MATRIX ================= */}
-            {activeTab === 'PERMISSIONS' && (
-              <div className="flex-1 min-h-0 flex flex-col gap-2">
-                {/* Section Header */}
-                <div className="shrink-0 flex flex-wrap items-center justify-between gap-2">
-                  <div className="min-w-0 flex items-center gap-2 flex-wrap">
-                    <h3 className={SETTINGS_SECTION_TITLE}>
-                      <Users className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span>สิทธิ์ผู้ใช้งาน</span>
-                      {ownerBadge}
-                    </h3>
-                    <span className={SETTINGS_HELPER}>คนใหม่ต้องอนุมัติก่อนใช้งาน</span>
-                  </div>
-                  <ActionButton
-                    size="sm"
-                    variant="neutral"
-                    onClick={loadMembers}
-                    disabled={loadingMembers}
-                    icon={<RefreshCw className={loadingMembers ? 'animate-spin' : ''} />}
-                  >
-                    รีเฟรช
-                  </ActionButton>
-                </div>
-
-                {/* Members Table */}
-                <DataTableFrame fill rowCount={loadingMembers ? undefined : members.length} className="flex-1 p-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-                    <table className={`${DATA_TABLE_CLASSES} text-xs`}>
+        {/* ================= TAB 1: USERS + PERMISSION MATRIX ================= */}
+        {activeTab === 'PERMISSIONS' && (
+          <div className="flex-1 min-h-0 flex flex-col 2xl:flex-row overflow-hidden">
+            <div className="flex-1 min-h-0 min-w-0 flex flex-col border-b 2xl:border-b-0 2xl:border-r border-slate-200 dark:border-slate-700">
+              <DataTableFrame fill rowCount={loadingMembers ? undefined : members.length} className="flex-1 min-h-0 rounded-none border-0 bg-transparent shadow-none p-0">
+<table className={`${DATA_TABLE_CLASSES} text-xs`}>
                       <thead>
                         <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs">
-                          <th className="px-3">รหัสผู้ใช้</th>
+                          <th className="px-3 hidden 2xl:table-cell">รหัสผู้ใช้</th>
                           <th className="px-3">ชื่อแสดงผล</th>
                           <th className="px-3">Username</th>
                           <th className="px-3 text-center">ระดับสิทธิ์</th>
                           <th className="px-3 text-center">สถานะ</th>
-                          <th className="px-3">วันที่สร้าง</th>
+                          <th className="px-3 text-center">เมนู</th>
+                          <th className="px-3 hidden 2xl:table-cell">วันที่สร้าง</th>
                           <th className="px-3 text-right sticky right-0 bg-[#E3E3E3] dark:bg-slate-800">จัดการ</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700 font-medium">
                         {loadingMembers ? (
                           <tr>
-                            <td colSpan={7} className="py-8 text-center text-slate-500 dark:text-slate-400">
+                            <td colSpan={8} className="py-8 text-center text-slate-500 dark:text-slate-400">
                               <div className="flex items-center justify-center gap-2">
                                 <RefreshCw className="w-4 h-4 animate-spin text-emerald-600 dark:text-emerald-400" />
                                 <span>กำลังโหลด...</span>
@@ -474,7 +487,7 @@ export default function OwnerPermissionsPage() {
                           </tr>
                         ) : members.length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="py-8 text-center text-slate-500 dark:text-slate-400 italic">
+                            <td colSpan={8} className="py-8 text-center text-slate-500 dark:text-slate-400 italic">
                               ไม่พบผู้ใช้งาน
                             </td>
                           </tr>
@@ -486,12 +499,16 @@ export default function OwnerPermissionsPage() {
                             return (
                               <tr
                                 key={member.id}
-                                className={`hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors ${
-                                  isPending ? 'bg-amber-50/70 dark:bg-amber-950/20' : ''
+                                onClick={() => handleSelectMember(member)}
+                                aria-selected={selectedMemberId === member.id}
+                                className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors ${
+                                  selectedMemberId === member.id
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/30'
+                                    : isPending ? 'bg-amber-50/70 dark:bg-amber-950/20' : ''
                                 }`}
                               >
                                 {/* 1. User UUID */}
-                                <td className="px-3 font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                                <td className="px-3 font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap hidden 2xl:table-cell">
                                   <span title={member.userId || '-'}>
                                     {member.userId ? `${member.userId.slice(0, 8)}…` : '-'}
                                   </span>
@@ -520,6 +537,7 @@ export default function OwnerPermissionsPage() {
                                 {/* 4. Role Selector */}
                                 <td className="px-3 text-center">
                                   <select
+                                    onClick={(e) => e.stopPropagation()}
                                     value={member.role}
                                     disabled={isSelf || member.role === 'OWNER' || actionLoading === member.id}
                                     onChange={(e) => handleRoleChange(member, e.target.value)}
@@ -545,14 +563,18 @@ export default function OwnerPermissionsPage() {
                                   )}
                                 </td>
 
+                                <td className="px-3 text-center font-mono text-slate-600 dark:text-slate-300">
+                                  {member.role === 'OWNER' ? 'ทั้งหมด' : member.menus?.length || 0}
+                                </td>
+
                                 {/* 6. Created */}
-                                <td className="px-3 text-slate-500 dark:text-slate-400 text-[11px] font-mono whitespace-nowrap">
+                                <td className="px-3 text-slate-500 dark:text-slate-400 text-[11px] font-mono whitespace-nowrap hidden 2xl:table-cell">
                                   {formatDateTime(member.profile?.createdAt)}
                                 </td>
 
                                 {/* 7. Action Buttons (pinned right so they stay visible on tablet widths) */}
                                 <td className={`px-3 text-right sticky right-0 ${isPending ? 'bg-amber-50 dark:bg-slate-800' : 'bg-white dark:bg-slate-800'}`}>
-                                  <div className="flex items-center justify-end gap-1">
+                                  <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                                     {member.status !== 'ACTIVE' && (
                                       <ActionButton
                                         size="sm"
@@ -563,18 +585,6 @@ export default function OwnerPermissionsPage() {
                                         icon={<CheckCircle2 />}
                                       >
                                         อนุมัติ
-                                      </ActionButton>
-                                    )}
-
-                                    {member.role === 'USER' && member.status === 'ACTIVE' && (
-                                      <ActionButton
-                                        size="sm"
-                                        onClick={() => handleOpenPermissionsModal(member)}
-                                        className="bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-600/20 dark:hover:bg-indigo-600/30 border border-indigo-200 dark:border-indigo-500/40 text-indigo-700 dark:text-indigo-300"
-                                        title="กำหนดเมนูที่เข้าได้"
-                                        icon={<ShieldCheck />}
-                                      >
-                                        เมนู ({member.menus?.length || 0})
                                       </ActionButton>
                                     )}
 
@@ -622,48 +632,44 @@ export default function OwnerPermissionsPage() {
                         )}
                       </tbody>
                     </table>
-                </DataTableFrame>
-              </div>
-            )}
+              </DataTableFrame>
+            </div>
+            <div className="min-h-0 h-[55%] 2xl:h-auto 2xl:w-[420px] shrink-0 flex flex-col">
+              <PermissionMatrixPanel
+                member={
+                  selectedMember
+                    ? {
+                        id: selectedMember.id,
+                        name: selectedMember.profile?.fullName || selectedMember.profile?.username || 'ไม่ระบุชื่อ',
+                        role: selectedMember.role,
+                        status: selectedMember.status,
+                      }
+                    : null
+                }
+                draftMenus={selectedMember?.role === 'USER' ? selectedPermCodes : []}
+                draftActions={selectedMember?.role === 'USER' ? selectedActionCodes : []}
+                actionGrantsAvailable={actionGrantsAvailable}
+                onToggleAction={handleToggleAction}
+                dirty={Boolean(permsDirty)}
+                saving={savingPerms}
+                onToggle={handleTogglePermission}
+                onPresetPos={handlePresetPosPerms}
+                onSelectAll={handleSelectAllPerms}
+                onClear={handleClearAllPerms}
+                onCancel={() => {
+                  setSelectedPermCodes(savedMenus)
+                  setSelectedActionCodes(savedActions)
+                }}
+                onSave={() => void handleSavePermissions()}
+              />
+            </div>
+          </div>
+        )}
 
-            {/* ================= TAB 2: AUDIT REPORT ================= */}
-            {(activeTab === 'AUDIT_REPORT' || (activeTab as string) === 'AUDIT_LOGS') && (
-              <div className="flex-1 min-h-0 flex flex-col gap-2">
-                {/* Section Header */}
-                <div className="shrink-0 flex flex-wrap items-center justify-between gap-2">
-                  <div className="min-w-0 flex items-center gap-2 flex-wrap">
-                    <h3 className={SETTINGS_SECTION_TITLE}>
-                      <Activity className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span>ประวัติการทำรายการ</span>
-                      {ownerBadge}
-                    </h3>
-                    <span className={SETTINGS_HELPER}>ดูว่าใครทำอะไร เมื่อไร</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <ActionButton
-                      size="sm"
-                      onClick={handleExportAuditExcel}
-                      disabled={logs.length === 0}
-                      className="bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-600/20 dark:hover:bg-emerald-600/30 border border-emerald-200 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-300"
-                      icon={<FileSpreadsheet />}
-                    >
-                      Export
-                    </ActionButton>
-                    <ActionButton
-                      size="sm"
-                      variant="neutral"
-                      onClick={loadLogs}
-                      disabled={loadingLogs}
-                      title="รีเฟรชประวัติ"
-                      icon={<RefreshCw className={loadingLogs ? 'animate-spin' : ''} />}
-                    >
-                      รีเฟรช
-                    </ActionButton>
-                  </div>
-                </div>
-
-                {/* Filters + category tabs */}
-                <div className="shrink-0 flex flex-col lg:flex-row lg:items-center gap-2">
+        {/* ================= TAB 2: AUDIT LOG ================= */}
+        {activeTab !== 'PERMISSIONS' && (
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <div className="p-2 border-b border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row lg:items-center gap-2 shrink-0">
                   <div className={`${TAB_CONTAINER_CLASSES} max-w-full`}>
                     {auditSubTabs.map((t) => {
                       const Icon = t.icon
@@ -679,7 +685,7 @@ export default function OwnerPermissionsPage() {
                         </button>
                       )
                     })}
-                  </div>
+              </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1 min-w-0">
                     <CustomSelect
                       value={selectedActorId}
@@ -697,12 +703,10 @@ export default function OwnerPermissionsPage() {
                       />
                       <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                     </div>
-                  </div>
-                </div>
-
-                {/* Audit Table */}
-                <DataTableFrame fill rowCount={logs.length} className="flex-1 p-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-                    <table className={`${DATA_TABLE_CLASSES} text-xs`}>
+              </div>
+            </div>
+            <DataTableFrame fill rowCount={logs.length} className="flex-1 min-h-0 rounded-none border-0 bg-transparent shadow-none p-0">
+<table className={`${DATA_TABLE_CLASSES} text-xs`}>
                       <thead>
                         <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs">
                           <th className="px-3 w-12 text-center">#</th>
@@ -770,11 +774,10 @@ export default function OwnerPermissionsPage() {
                         )}
                       </tbody>
                     </table>
-                </DataTableFrame>
-              </div>
-            )}
+            </DataTableFrame>
           </div>
-        </div>
+        )}
+      </div>
 
       {/* Delete User Modal Confirmation */}
       {deleteConfirmMember && (
@@ -812,147 +815,6 @@ export default function OwnerPermissionsPage() {
                 className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 dark:hover:bg-rose-500 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
               >
                 ยืนยันการลบ
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Granular Permissions Modal */}
-      {permModalMember && (
-        <div className="fixed inset-0 z-50 bg-black/60 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 max-w-2xl w-full shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-700 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-xl">
-                  <ShieldCheck className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                    <span>กำหนดสิทธิ์การทำงาน: {permModalMember.profile?.fullName || permModalMember.profile?.username}</span>
-                    <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-bold">
-                      {permModalMember.role}
-                    </span>
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    เลือกสิทธิ์ที่อนุญาตให้พนักงานเข้าถึงและดำเนินการในระบบ
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPermModalMember(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Quick Actions Bar */}
-            <div className="py-3 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-700 text-xs shrink-0">
-              <span className="text-slate-500 dark:text-slate-400 font-medium">
-                เลือกแล้ว <strong className="text-indigo-600 dark:text-indigo-400 font-bold">{selectedPermCodes.length}</strong> จาก {PERMISSIONS_CATALOG.length} สิทธิ์
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handlePresetPosPerms}
-                  className="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/20 dark:hover:bg-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-bold text-xs border border-emerald-200 dark:border-emerald-500/30 transition-colors cursor-pointer"
-                >
-                  ⚡ ชุดพนักงานขาย (POS)
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSelectAllPerms}
-                  className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold text-xs transition-colors cursor-pointer"
-                >
-                  เลือกทั้งหมด
-                </button>
-                <button
-                  type="button"
-                  onClick={handleClearAllPerms}
-                  className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold text-xs transition-colors cursor-pointer"
-                >
-                  ล้างทั้งหมด
-                </button>
-              </div>
-            </div>
-
-            {/* Permissions List (Grouped by module) */}
-            <div className="flex-1 overflow-y-auto py-3 space-y-4 pr-1">
-              {Object.entries(PERMISSION_MODULE_LABELS).map(([moduleKey, moduleLabel]) => {
-                const modulePerms = PERMISSIONS_CATALOG.filter((p) => p.module === moduleKey)
-                if (modulePerms.length === 0) return null
-
-                return (
-                  <div key={moduleKey} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/30 p-3">
-                    <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-2 flex items-center justify-between">
-                      <span>{moduleLabel}</span>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        {modulePerms.filter((p) => selectedPermCodes.includes(p.code)).length}/{modulePerms.length}
-                      </span>
-                    </h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {modulePerms.map((perm) => {
-                        const isChecked = selectedPermCodes.includes(perm.code)
-                        return (
-                          <label
-                            key={perm.code}
-                            className={`flex items-start gap-2.5 p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
-                              isChecked
-                                ? 'bg-indigo-50/70 border-indigo-200 dark:bg-indigo-950/40 dark:border-indigo-500/40 text-slate-900 dark:text-slate-100'
-                                : 'bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/40'
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => handleTogglePermission(perm.code)}
-                              className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                            />
-                            <div className="min-w-0">
-                              <span className="font-bold block text-[11px] leading-snug">{perm.label}</span>
-                              <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug block">
-                                {perm.description}
-                              </span>
-                            </div>
-                          </label>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-700 shrink-0">
-              <button
-                type="button"
-                disabled={savingPerms}
-                onClick={() => setPermModalMember(null)}
-                className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
-              >
-                ยกเลิก
-              </button>
-              <button
-                type="button"
-                disabled={savingPerms}
-                onClick={handleSavePermissions}
-                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 dark:hover:bg-indigo-500 text-white text-xs font-bold shadow flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-              >
-                {savingPerms ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>กำลังบันทึก...</span>
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-3.5 h-3.5" />
-                    <span>บันทึกสิทธิ์</span>
-                  </>
-                )}
               </button>
             </div>
           </div>

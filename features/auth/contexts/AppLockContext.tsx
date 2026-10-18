@@ -8,6 +8,9 @@ import {
   verifyPinOnServer,
   getAppLockedState,
   setAppLockedState,
+  getLastActivity,
+  setLastActivity,
+  isIdleExpired,
   type PinStatus,
   type PinVerifyResult,
 } from '@/features/auth/services/pin-lock'
@@ -52,8 +55,10 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
       setStatus(s)
       setIsLocked(s.pinSet && getAppLockedState(userId))
     } catch (err) {
+      // Fail closed: a device that was locked stays locked when the PIN status cannot be read
+      // (unlocking still needs verify_pin on the server). Keep the last known status.
       console.error('[PIN] cannot read PIN status', err)
-      setStatus(null)
+      setIsLocked(getAppLockedState(userId))
     }
     setCheckedUserId(userId)
   }, [userId, authLoading])
@@ -62,7 +67,8 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
     void refreshLockState()
   }, [refreshLockState])
 
-  const pinEnabled = Boolean(status?.pinSet)
+  // A locked device implies a PIN was set (the lock flag is only written when it was).
+  const pinEnabled = Boolean(status?.pinSet) || isLocked
 
   const lockApp = useCallback(() => {
     if (!userId || !pinEnabled) return
@@ -74,21 +80,50 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
     if (!userId) return
     setIsLocked(false)
     setAppLockedState(userId, false)
+    setLastActivity(userId, Date.now())
   }, [userId])
 
-  // Auto-lock after the user's chosen idle time (0 = never). The session stays signed in.
+  // Auto-lock after the user's own idle time (PROFILE value; 0 = never). The session stays
+  // signed in. The last activity is kept on this device, and the elapsed time is checked again
+  // when the app comes back from the background, after device sleep and on a reopened session,
+  // because timers do not run (or run late) while the page is hidden or the device sleeps.
   const lastActivity = useRef(Date.now())
   useEffect(() => {
     const seconds = status?.autoLockSeconds ?? 0
     if (!userId || !pinEnabled || isLocked || seconds <= 0) return
-    lastActivity.current = Date.now()
-    const touch = () => { lastActivity.current = Date.now() }
+    const stored = getLastActivity(userId)
+    if (isIdleExpired(stored, Date.now(), seconds)) {
+      lockApp()
+      return
+    }
+    lastActivity.current = stored ?? Date.now()
+    let lastSaved = 0
+    const touch = () => {
+      const now = Date.now()
+      lastActivity.current = now
+      if (now - lastSaved >= 5000) {
+        lastSaved = now
+        setLastActivity(userId, now)
+      }
+    }
+    touch()
+    const check = () => {
+      if (isIdleExpired(lastActivity.current, Date.now(), seconds)) lockApp()
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') setLastActivity(userId, lastActivity.current)
+      else check()
+    }
     ACTIVITY_EVENTS.forEach((e) => window.addEventListener(e, touch, { passive: true }))
-    const timer = setInterval(() => {
-      if (Date.now() - lastActivity.current >= seconds * 1000) lockApp()
-    }, 5000)
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('focus', check)
+    window.addEventListener('pageshow', check)
+    const timer = setInterval(check, 5000)
     return () => {
       ACTIVITY_EVENTS.forEach((e) => window.removeEventListener(e, touch))
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('focus', check)
+      window.removeEventListener('pageshow', check)
       clearInterval(timer)
     }
   }, [userId, pinEnabled, isLocked, status?.autoLockSeconds, lockApp])

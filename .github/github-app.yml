@@ -1,6 +1,6 @@
 scripts:
   - name: Baseline Check
-    command: pnpm exec tsc --noEmit; pnpm exec vitest run
+    command: pnpm exec tsc --noEmit && pnpm exec vitest run
     triggers: 
       - session.create
       - session.archive

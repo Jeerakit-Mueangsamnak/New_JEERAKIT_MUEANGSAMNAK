@@ -325,8 +325,8 @@ export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAcco
 
   const tabs: Array<{ id: MyAccountTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
     { id: 'PROFILE', label: 'โปรไฟล์', icon: User },
-    { id: 'SECURITY', label: 'รหัสผ่าน / PIN / ความปลอดภัย', icon: Shield },
-    { id: 'APPEARANCE', label: 'รูปลักษณ์', icon: Palette },
+    { id: 'SECURITY', label: 'ความปลอดภัย / PIN / ล็อกอัตโนมัติ', icon: Shield },
+    { id: 'APPEARANCE', label: 'เครื่องนี้ / Theme', icon: Palette },
   ]
 
   const passwordField = (
@@ -762,7 +762,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAcco
               <div className={SECTION_CLASSES}>
                 <span className={SECTION_TITLE_CLASSES}>
                   <Palette className="w-4 h-4 text-blue-500" />
-                  <span>โหมดการแสดงผล (เฉพาะเครื่องนี้)</span>
+                  <span>ธีม</span>
                 </span>
                 <div className="grid grid-cols-2 gap-2 max-w-sm">
                   {([
@@ -789,9 +789,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAcco
                     )
                   })}
                 </div>
-                <p className="text-[11px] text-slate-500">
-                  โลโก้ ชื่อระบบ และหน้าตาร้านตั้งได้ที่ ตั้งค่าระบบ &rsaquo; กิจการ &rsaquo; แบรนด์ (เฉพาะผู้มีสิทธิ์เมนูตั้งค่า)
-                </p>
+                <p className="text-[11px] text-slate-500">ใช้กับเครื่อง/เบราว์เซอร์นี้เท่านั้น ไม่ถูกบันทึกไปที่เซิร์ฟเวอร์</p>
               </div>
             )}
           </div>

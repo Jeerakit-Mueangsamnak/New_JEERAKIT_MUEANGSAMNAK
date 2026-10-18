@@ -1,4 +1,5 @@
 import { loadBills } from '@/features/bills/services/bill-storage'
+import { getBillItemAmounts } from '@/features/bills/services/bill-reporting'
 import { loadQuotations } from '@/features/quotations/services/quotation-storage'
 import { generateTimeBuckets, isDateInRange, toLocalDateString, type ReportDateFilter } from './report-data-common'
 
@@ -112,9 +113,13 @@ export function getSalesRentalReportData(filter: ReportDateFilter): SalesRentalR
   }
 
   for (const b of inRangeBills) {
-    totalBillsValue += b.grandTotal || 0
-    totalBillsPaid += b.paidAmount || 0
-    totalBillsOutstanding += b.outstandingAmount || 0
+    const isCancelled = b.rentalStatus === 'CANCELLED' || b.rentalStatus === 'VOID'
+    const isDraft = b.rentalStatus === 'DRAFT'
+    if (!isCancelled && !isDraft) {
+      totalBillsValue += b.grandTotal || 0
+      totalBillsPaid += b.paidAmount || 0
+      totalBillsOutstanding += b.outstandingAmount || 0
+    }
 
     const st = b.rentalStatus || 'DRAFT'
     if (statusCountMap[st]) {
@@ -122,12 +127,13 @@ export function getSalesRentalReportData(filter: ReportDateFilter): SalesRentalR
       statusCountMap[st].amount += b.grandTotal || 0
     }
 
+    if (isCancelled || isDraft) continue
+
     let hasSale = false
     let hasRental = false
 
-    for (const it of b.items || []) {
+    for (const { item: it, amount: lineAmt } of getBillItemAmounts(b)) {
       const isSale = it.rentalType === 'SALE' || it.requiresReturn === false
-      const lineAmt = it.lineTotal ?? (it.quantity || 0) * (it.dailyRate || 0)
 
       if (isSale) {
         hasSale = true
@@ -276,16 +282,16 @@ export function getSalesRentalReportData(filter: ReportDateFilter): SalesRentalR
   }
 
   for (const b of inRangeBills) {
+    if (b.rentalStatus === 'DRAFT' || b.rentalStatus === 'CANCELLED' || b.rentalStatus === 'VOID') continue
     const rawDate = b.billDate || b.rentalStartDate || ''
     const clean = rawDate.includes('T') ? rawDate.split('T')[0] : rawDate.slice(0, 10)
     const key = filter.granularity === 'daily' ? clean : clean.slice(0, 7)
     const entry = bucketMap.get(key)
     if (entry) {
-      for (const it of b.items || []) {
-        const isSale = it.rentalType === 'SALE' || it.requiresReturn === false
-        const lineAmt = it.lineTotal ?? (it.quantity || 0) * (it.dailyRate || 0)
-        if (isSale) entry.sales += lineAmt
-        else entry.rental += lineAmt
+      for (const { item, amount } of getBillItemAmounts(b)) {
+        const isSale = item.rentalType === 'SALE' || item.requiresReturn === false
+        if (isSale) entry.sales += amount
+        else entry.rental += amount
       }
     }
   }

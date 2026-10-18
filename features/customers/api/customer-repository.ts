@@ -109,7 +109,7 @@ export async function fetchCustomersFromSupabase(): Promise<Customer[]> {
  * Creates (no id / unknown id) or updates a customer; returns the saved row.
  * A possible duplicate (same phone or name, Master §5) asks the user before saving anyway.
  */
-export async function saveCustomerToSupabase(customer: Customer, isNew: boolean): Promise<Customer> {
+export async function saveCustomerToSupabase(customer: Customer, isNew: boolean, reason?: string): Promise<Customer> {
   const payload = customerPayload(customer)
   let saved: Customer
   if (isNew) {
@@ -124,14 +124,24 @@ export async function saveCustomerToSupabase(customer: Customer, isNew: boolean)
     }
   } else {
     saved = mapCustomerRow(
-      await rpc<CustomerRow>('customer_update', { p_customer_id: customer.id, p_data: payload, p_reason: 'แก้ไขข้อมูลลูกค้า' })
+      await rpc<CustomerRow>('customer_update', { p_customer_id: customer.id, p_data: payload, p_reason: reason?.trim() || 'แก้ไขข้อมูลลูกค้า' })
     )
   }
   // A newly scanned ID card photo (data URL) goes to private Storage as an ID_CARD document;
   // the customer row never holds the image itself (Master §6).
   if (customer.idCardImageUrl?.startsWith('data:')) {
-    const blob = await (await fetch(customer.idCardImageUrl)).blob()
-    await uploadCustomerImage(saved.id, blob, 'ID_CARD', 'สแกนบัตรประชาชน')
+    try {
+      const blob = await (await fetch(customer.idCardImageUrl)).blob()
+      await uploadCustomerImage(saved.id, blob, 'ID_CARD', 'สแกนบัตรประชาชน')
+    } catch (err) {
+      // The customer row is already saved: report the photo on its own so the form is not
+      // submitted again (which would create a duplicate customer).
+      throw Object.assign(new Error('บันทึกข้อมูลลูกค้าแล้ว แต่อัปโหลดรูปบัตรประชาชนไม่สำเร็จ กรุณาแก้ไขลูกค้าแล้วแนบรูปอีกครั้ง'), {
+        tag: 'ID_CARD_UPLOAD_FAILED',
+        saved,
+        cause: err,
+      })
+    }
   }
   return saved
 }

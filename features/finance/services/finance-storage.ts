@@ -8,6 +8,7 @@ import {
   createExpense,
   createOtherIncome,
 } from '@/features/finance/api/finance-repository'
+import { getLocalDateString } from '@/components/common/CustomDatePicker'
 
 export interface StatementTransaction {
   id: string
@@ -57,6 +58,21 @@ export async function addManualTransaction(input: {
     await createExpense(input.category, input.amount, input.channel, input.description)
   }
   return fetchTransactionsFromSupabase()
+}
+
+/** Keeps entries whose local (shop) day is within [startDate, endDate]; dateTime is a UTC timestamp. */
+export function filterTransactionsByLocalDate(
+  transactions: StatementTransaction[],
+  startDate: Date | null,
+  endDate: Date | null
+): StatementTransaction[] {
+  if (!startDate && !endDate) return transactions
+  const fromStr = startDate ? getLocalDateString(startDate) : null
+  const toStr = endDate ? getLocalDateString(endDate) : null
+  return transactions.filter((t) => {
+    const tDateStr = getLocalDateString(new Date(t.dateTime))
+    return (!fromStr || tDateStr >= fromStr) && (!toStr || tDateStr <= toStr)
+  })
 }
 
 export function getTransactionsForBill(billId: string): StatementTransaction[] {

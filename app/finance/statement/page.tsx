@@ -9,7 +9,7 @@ import { CustomDatePicker, getLocalDateString } from '@/components/common/Custom
 import { useToast } from '@/components/common/Toast'
 import { logger } from '@/lib/utils/logger'
 import * as XLSX from 'xlsx'
-import { loadTransactions as fetchTransactions, addManualTransaction, type StatementTransaction } from '@/features/finance/services/finance-storage'
+import { loadTransactions as fetchTransactions, addManualTransaction, filterTransactionsByLocalDate, type StatementTransaction } from '@/features/finance/services/finance-storage'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { EXPENSE_CATEGORIES } from '@/features/finance/api/finance-repository'
 import { getPolicy, savePolicies } from '@/lib/db/policies'
@@ -46,6 +46,9 @@ export default function StatementPage() {
   const [startDate, setStartDate] = useState<Date | null>(null)
   const [endDate, setEndDate] = useState<Date | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
+  // Blocks a second submit (double-click / Enter) while one save is in flight.
+  const savingRef = React.useRef(false)
+  const [saving, setSaving] = useState(false)
 
   const loadTransactions = React.useCallback(async () => {
     const list = fetchTransactions()
@@ -98,31 +101,10 @@ export default function StatementPage() {
   }, [manualType, activeQuickItems, quickItem])
 
   // Date Range Filtered Transactions [startDate, endDate]
-  const dateFilteredTransactions = useMemo(() => {
-    return transactions.filter((t) => {
-      if (!startDate && !endDate) return true
-
-      const tDateStr = t.dateTime.substring(0, 10)
-
-      if (startDate && endDate) {
-        const fromStr = getLocalDateString(startDate)
-        const toStr = getLocalDateString(endDate)
-        return tDateStr >= fromStr && tDateStr <= toStr
-      }
-
-      if (startDate) {
-        const fromStr = getLocalDateString(startDate)
-        return tDateStr >= fromStr
-      }
-
-      if (endDate) {
-        const toStr = getLocalDateString(endDate)
-        return tDateStr <= toStr
-      }
-
-      return true
-    })
-  }, [transactions, startDate, endDate])
+  const dateFilteredTransactions = useMemo(
+    () => filterTransactionsByLocalDate(transactions, startDate, endDate),
+    [transactions, startDate, endDate]
+  )
 
   // Summary Metrics calculated according to the selected date filter
   const totalIncome = useMemo(() => {
@@ -134,6 +116,21 @@ export default function StatementPage() {
   }, [dateFilteredTransactions])
 
   const netBalance = totalIncome - totalExpense
+
+  // Totals per category for the selected dates (largest first), shown in "สรุปตามหมวด"
+  const [showCategorySummary, setShowCategorySummary] = useState(false)
+  const categorySummary = useMemo(() => {
+    const sum = (type: 'INCOME' | 'EXPENSE') => {
+      const map = new Map<string, number>()
+      for (const t of dateFilteredTransactions) {
+        if (t.type !== type) continue
+        const key = t.category || 'ไม่ระบุหมวด'
+        map.set(key, (map.get(key) || 0) + (type === 'INCOME' ? t.incomeAmount : t.expenseAmount))
+      }
+      return [...map.entries()].map(([label, amount]) => ({ label, amount })).sort((a, b) => b.amount - a.amount)
+    }
+    return { income: sum('INCOME'), expense: sum('EXPENSE') }
+  }, [dateFilteredTransactions])
 
   // Combined Filtered Transactions (Date + Search + Type)
   const filtered = useMemo(() => {
@@ -194,6 +191,9 @@ export default function StatementPage() {
     const categoryToSave = trimmedQuick || fallbackCategory
 
     // Income outside a bill = รายรับอื่น; expense = รายจ่าย (PIN). A product sale needs a sale bill.
+    if (savingRef.current) return
+    savingRef.current = true
+    setSaving(true)
     try {
       const next = await addManualTransaction({
         type: manualType,
@@ -210,6 +210,9 @@ export default function StatementPage() {
       showToast('บันทึกรายการสำเร็จ', finalDescription, 'SUCCESS')
     } catch (err) {
       if (!isPinCancelled(err)) showToast('บันทึกไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
     }
   }
 
@@ -295,6 +298,51 @@ export default function StatementPage() {
             <Wallet className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
         </div>
+      </div>
+
+      {/* Category summary (collapsed by default so the table keeps its room) */}
+      <div className="shrink-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setShowCategorySummary((v) => !v)}
+          aria-expanded={showCategorySummary}
+          className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+        >
+          <span>สรุปตามหมวด (ตามช่วงวันที่เลือก)</span>
+          <span className="text-blue-600 dark:text-blue-400">{showCategorySummary ? 'ซ่อน' : 'แสดง'}</span>
+        </button>
+        {showCategorySummary && (
+          <div className="px-3 pb-3 grid grid-cols-1 md:grid-cols-2 gap-3 max-h-56 overflow-y-auto">
+            {([
+              { key: 'income', title: 'รายรับตามหมวด', rows: categorySummary.income, total: totalIncome, bar: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
+              { key: 'expense', title: 'รายจ่ายตามหมวด', rows: categorySummary.expense, total: totalExpense, bar: 'bg-red-500', text: 'text-red-600 dark:text-red-400' },
+            ] as const).map((col) => (
+              <div key={col.key} className="space-y-1.5 min-w-0">
+                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">{col.title}</p>
+                {col.rows.length === 0 ? (
+                  <p className="text-[11px] text-slate-400">ไม่มีรายการในช่วงนี้</p>
+                ) : (
+                  col.rows.map((r) => {
+                    const pct = col.total > 0 ? (r.amount / col.total) * 100 : 0
+                    return (
+                      <div key={r.label} className="space-y-0.5">
+                        <div className="flex justify-between gap-2 text-[11px]">
+                          <span className="truncate text-slate-700 dark:text-slate-200">{r.label}</span>
+                          <span className={`font-bold tabular-nums whitespace-nowrap ${col.text}`}>
+                            ฿{r.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ({pct.toFixed(0)}%)
+                          </span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                          <div className={`h-full rounded-full ${col.bar}`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Main Table Card */}
@@ -558,7 +606,8 @@ export default function StatementPage() {
                 </button>
                 <button
                   type="submit"
-                  className="h-9 px-5 py-0 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center justify-center"
+                  disabled={saving}
+                  className="h-9 px-5 py-0 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center justify-center disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   บันทึกรายการ
                 </button>

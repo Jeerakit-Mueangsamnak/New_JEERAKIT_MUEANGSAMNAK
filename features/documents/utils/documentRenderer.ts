@@ -20,10 +20,15 @@ export interface BillRenderSnapshot {
   lateFee?: number
   damageFee?: number
   paymentMethod?: string
+  checkStage?: 'DISPATCH' | 'RETURN'
   items?: Array<{
     code?: string
     name: string
     quantity: number
+    deliveredQty?: number
+    normalReturnedQty?: number
+    remainingQty?: number
+    outstandingQty?: number
     unit?: string
     price?: number
     rentalType?: string
@@ -51,13 +56,20 @@ export function generate20ItemRowsHtml(
     code?: string
     name: string
     quantity?: number
+    deliveredQty?: number
+    normalReturnedQty?: number
+    returnedQty?: number
+    damagedQty?: number
+    lostQty?: number
+    remainingQty?: number
+    outstandingQty?: number
     unit?: string
     price?: number
     rentalType?: string
     billableDays?: number
     lineTotal?: number
   }> = [],
-  tableType: 'STANDARD_BILL' | 'DELIVERY' | 'RETURN' | 'DAMAGE' | 'STATEMENT' | 'CONTRACT' = 'STANDARD_BILL'
+  tableType: 'STANDARD_BILL' | 'DELIVERY' | 'RETURN' | 'DAMAGE' | 'STATEMENT' | 'CONTRACT' | 'CHECK_DISPATCH' | 'CHECK_RETURN' = 'STANDARD_BILL'
 ): string {
   const TOTAL_ROWS = 20
   const rowsHtml: string[] = []
@@ -74,8 +86,32 @@ export function generate20ItemRowsHtml(
             <td class="border-r border-slate-300 px-1.5 py-0.5 font-bold truncate max-w-[180px]">${escapeDocumentHtml(item.name)}</td>
             <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono font-bold">${item.quantity ?? 1}</td>
             <td class="border-r border-slate-300 px-1 py-0.5 text-center">${escapeDocumentHtml(item.unit || 'ชิ้น')}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-center text-emerald-700 font-bold">✓ สมบูรณ์ 100%</td>
+            <td class="border-r border-slate-300 px-1.5 py-0.5 text-center font-mono font-bold">${item.deliveredQty ?? 0}</td>
             <td class="border-r border-slate-300 px-1.5 py-0.5 text-slate-600 truncate max-w-[100px]">${escapeDocumentHtml(item.code || '-')}</td>
+          </tr>
+        `)
+      } else if (tableType === 'CHECK_DISPATCH') {
+        rowsHtml.push(`
+          <tr class="h-[18px] border-b border-slate-300 text-[8.5px]">
+            <td class="border-x border-slate-300 px-1 py-0.5 text-center font-mono">${rowNum}</td>
+            <td class="border-r border-slate-300 px-1.5 py-0.5 font-bold truncate max-w-[180px]">${escapeDocumentHtml(item.name)}</td>
+            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono">${item.quantity ?? 0}</td>
+            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono font-bold">${item.deliveredQty ?? 0}</td>
+            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono">${item.remainingQty ?? 0}</td>
+            <td class="border-r border-slate-300 px-1 py-0.5 text-center">${escapeDocumentHtml(item.unit || 'ชิ้น')}</td>
+            <td class="border-r border-slate-300 px-1.5 py-0.5 text-slate-600 truncate max-w-[100px]">${escapeDocumentHtml(item.code || '-')}</td>
+          </tr>
+        `)
+      } else if (tableType === 'CHECK_RETURN') {
+        rowsHtml.push(`
+          <tr class="h-[18px] border-b border-slate-300 text-[8.5px]">
+            <td class="border-x border-slate-300 px-1 py-0.5 text-center font-mono">${rowNum}</td>
+            <td class="border-r border-slate-300 px-1.5 py-0.5 font-bold truncate max-w-[180px]">${escapeDocumentHtml(item.name)}</td>
+            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono">${item.deliveredQty ?? 0}</td>
+            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono font-bold">${item.normalReturnedQty ?? 0}</td>
+            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono">${item.damagedQty ?? 0}</td>
+            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono">${item.lostQty ?? 0}</td>
+            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono">${item.outstandingQty ?? 0}</td>
           </tr>
         `)
       } else if (tableType === 'RETURN') {
@@ -121,6 +157,18 @@ export function generate20ItemRowsHtml(
         rowsHtml.push(`
           <tr class="h-[18px] border-b border-slate-200 text-[8.5px] bg-white">
             <td class="border-x border-slate-300 px-1 py-0.5 text-center font-mono text-slate-300">${rowNum}</td>
+            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
+            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
+            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
+            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
+            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
+          </tr>
+        `)
+      } else if (tableType === 'CHECK_DISPATCH' || tableType === 'CHECK_RETURN') {
+        rowsHtml.push(`
+          <tr class="h-[18px] border-b border-slate-200 text-[8.5px] bg-white">
+            <td class="border-x border-slate-300 px-1 py-0.5 text-center font-mono text-slate-300">${rowNum}</td>
+            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
             <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
             <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
             <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
@@ -240,6 +288,16 @@ export function renderDocumentTemplate(
   replace(/\{\{\s*document\.rental_end_date\s*\}\}/g, bill.rentalEndDate || createdDate)
   replace(/\{\{\s*document\.site_name\s*\}\}/g, bill.siteName || cust.address || 'ตามที่อยู่ลูกค้า')
   replace(/\{\{\s*document\.custom_terms\s*\}\}/g, customTerms || '')
+  replace(
+    /\{\{\s*document\.check_stage\s*\}\}/g,
+    bill.checkStage === 'RETURN' ? 'ตรวจเช็กตอนเก็บคืน' : 'ตรวจเช็กตอนส่ง'
+  )
+  const checkColumns = bill.checkStage === 'RETURN'
+    ? ['จำนวนส่งมอบ', 'รับคืนปกติ', 'ชำรุด/ไม่พร้อมใช้', 'สูญหาย', 'คงค้างคืน']
+    : ['จำนวนตามบิล', 'ส่งแล้ว', 'คงส่ง', 'หน่วย', 'รหัสสินค้า']
+  checkColumns.forEach((label, index) => {
+    replace(new RegExp(`\\{\\{\\s*document\\.check_col_${index + 1}\\s*\\}\\}`, 'g'), label)
+  })
 
   // Mapping financial / bill fields
   replace(/\{\{\s*bill\.no\s*\}\}/g, bill.billNo || docNo)
@@ -254,7 +312,7 @@ export function renderDocumentTemplate(
   replace(/\{\{\s*bill\.refund_amount\s*\}\}/g, formatBahtCurrency(bill.refundAmount ?? 0))
   replace(/\{\{\s*bill\.late_fee\s*\}\}/g, formatBahtCurrency(bill.lateFee ?? 0))
   replace(/\{\{\s*bill\.damage_fee\s*\}\}/g, formatBahtCurrency(bill.damageFee ?? 0))
-  replace(/\{\{\s*bill\.payment_method\s*\}\}/g, bill.paymentMethod || 'เงินสด (Cash)')
+  replace(/\{\{\s*bill\.payment_method\s*\}\}/g, bill.paymentMethod || '')
 
   // Dynamic 20-row table injection if tags are present
   const itemsForTable = bill.items || (rawItems ? rawItems.map(i => ({
@@ -271,6 +329,14 @@ export function renderDocumentTemplate(
   if (html.includes('{{items.rows_delivery_20}}')) {
     html = html.replace(/\{\{\s*items\.rows_delivery_20\s*\}\}/g, generate20ItemRowsHtml(itemsForTable, 'DELIVERY'))
   }
+  if (html.includes('{{items.rows_check_20}}')) {
+    const tableType = bill.checkStage === 'RETURN' ? 'CHECK_RETURN' : 'CHECK_DISPATCH'
+    html = html.replace(/\{\{\s*items\.rows_check_20\s*\}\}/g, generate20ItemRowsHtml(itemsForTable, tableType))
+  }
+
+  if (bill.outstandingAmount === undefined || bill.outstandingAmount === null) {
+    html = html.replace(/<div data-requires-outstanding[^>]*>[\s\S]*?<\/div>/, '')
+  }
   if (html.includes('{{items.rows_return_20}}')) {
     html = html.replace(/\{\{\s*items\.rows_return_20\s*\}\}/g, generate20ItemRowsHtml(itemsForTable, 'RETURN'))
   }
@@ -280,4 +346,3 @@ export function renderDocumentTemplate(
 
   return sanitizeDocumentHtml(html)
 }
-

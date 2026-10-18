@@ -116,3 +116,29 @@ export async function runNotificationScan(): Promise<void> {
     // not the OWNER: the scheduled job / OWNER session creates the notices
   }
 }
+
+/** Bell tabs: the four kinds of notice the shop follows (system, due work, bills, stock). */
+export type NotificationGroup = 'SYSTEM' | 'WORK' | 'BILL' | 'STOCK'
+
+export const NOTIFICATION_GROUPS: { key: NotificationGroup; label: string }[] = [
+  { key: 'SYSTEM', label: 'ระบบ' },
+  { key: 'WORK', label: 'งานถึงกำหนด' },
+  { key: 'BILL', label: 'บิล' },
+  { key: 'STOCK', label: 'สต็อก' },
+]
+
+export function notificationGroup(n: Pick<ActionableNotification, 'type'>): NotificationGroup {
+  switch (n.type) {
+    case 'APPOINTMENT_DUE':
+    case 'DELIVERY_DUE':
+      return 'WORK'
+    case 'PAYMENT_DUE':
+    case 'RENTAL_DUE_SOON':
+    case 'RENTAL_OVERDUE':
+      return 'BILL'
+    case 'LOW_STOCK':
+      return 'STOCK'
+    default:
+      return 'SYSTEM'
+  }
+}

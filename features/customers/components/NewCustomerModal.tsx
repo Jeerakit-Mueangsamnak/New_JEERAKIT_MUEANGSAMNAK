@@ -9,11 +9,13 @@ import { CustomDatePicker, getLocalDateString } from '@/components/common/Custom
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
 import { validateThaiNationalId, formatThaiNationalId } from '@/lib/ocr/thai-id-parser'
+import { CustomerLineLink } from './CustomerLineLink'
 
 interface NewCustomerModalProps {
   isOpen: boolean
   onClose: () => void
-  onSave: (customer: Customer, reason?: string) => void
+  /** Resolve false to keep the form open (save failed / cancelled). */
+  onSave: (customer: Customer, reason?: string) => Promise<boolean | void> | boolean | void
   editingCustomer?: Customer | null
 }
 
@@ -248,9 +250,11 @@ export function NewCustomerModal({
     return null
   }, [idCardNumber])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim()) return
+    if (!name.trim() || isSubmitting) return
 
     const fullHouseAddress = [
       houseNo && `เลขที่ ${houseNo}`,
@@ -259,7 +263,14 @@ export function NewCustomerModal({
       road && `ถนน ${road}`,
     ].filter(Boolean).join(' ') || houseNo
 
-    const fullFormattedAddress = `${fullHouseAddress} ต.${selectedSubDistrict} อ.${selectedDistrict} จ.${selectedProvince} ${postalCode}`.trim()
+    // Only the parts that were filled in (no bare "ต. อ. จ." when the address is empty).
+    const fullFormattedAddress = [
+      fullHouseAddress,
+      selectedSubDistrict && `ต.${selectedSubDistrict}`,
+      selectedDistrict && `อ.${selectedDistrict}`,
+      selectedProvince && `จ.${selectedProvince}`,
+      postalCode,
+    ].filter(Boolean).join(' ')
 
     const newCustomer: Customer = {
       id: editingCustomer ? editingCustomer.id : `c_${Date.now()}`,
@@ -290,8 +301,13 @@ export function NewCustomerModal({
       return
     }
 
-    onSave(newCustomer, editingCustomer ? updateReason.trim() : undefined)
-    onClose()
+    setIsSubmitting(true)
+    try {
+      const saved = await onSave(newCustomer, editingCustomer ? updateReason.trim() : undefined)
+      if (saved !== false) onClose()
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   if (!isOpen) return null
@@ -397,7 +413,7 @@ export function NewCustomerModal({
                   </label>
                   <input
                     type="text"
-                    placeholder="line_id"
+                    placeholder="line_id (บันทึกไว้ดูเท่านั้น)"
                     value={lineId}
                     onChange={(e) => setLineId(e.target.value)}
                     className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -416,6 +432,8 @@ export function NewCustomerModal({
                   />
                 </div>
               </div>
+
+              <CustomerLineLink customerId={editingCustomer?.id} customerName={editingCustomer?.customerName || name} />
             </div>
 
             {/* SECTION 2: ที่อยู่ตามเอกสาร */}
@@ -748,10 +766,11 @@ export function NewCustomerModal({
             </button>
             <button
               type="submit"
-              className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-md shadow-emerald-600/20 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+              disabled={isSubmitting}
+              className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-md shadow-emerald-600/20 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <Check className="w-3.5 h-3.5" />
-              <span>บันทึกข้อมูลลูกค้า</span>
+              <span>{isSubmitting ? 'กำลังบันทึก...' : 'บันทึกข้อมูลลูกค้า'}</span>
             </button>
           </AppModalFooter>
         </form>

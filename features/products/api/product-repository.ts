@@ -75,11 +75,13 @@ export function mapProductRow(
   const available = q('AVAILABLE')
   const reserved = q('RESERVED')
   const rented = q('RENTED_OUT') + q('DELIVERY_PENDING') + q('RETURN_PENDING')
-  const damaged = q('DAMAGED') + q('INSPECTION')
+  // Not usable yet: damaged, waiting for inspection, or in repair (one "ชำรุด" figure on every screen,
+  // so goods left in REPAIR / INSPECTION never drop out of sight).
   const repair = q('REPAIR')
+  const damaged = q('DAMAGED') + q('INSPECTION') + repair
   const lost = q('LOST')
   // Owned and still in the business (excludes LOST / SOLD / WRITTEN_OFF / INACTIVE).
-  const total = available + reserved + rented + damaged + repair
+  const total = available + reserved + rented + damaged
   const rentalType = rentalTypeOf(p)
   const rentPrice = p.can_rent ? Number(p.rental_price ?? 0) : null
   const salePrice = p.can_sell ? Number(p.sale_price ?? 0) : null
@@ -113,6 +115,7 @@ export function mapProductRow(
     reservedQuantity: reserved,
     inRepairQuantity: repair,
     maintenanceQuantity: repair,
+    stockStates: { ...b },
     minimumStock: Number(p.reorder_point ?? 0),
     status: p.active ? 'ACTIVE' : 'INACTIVE',
     calculationType: calcType,
@@ -392,28 +395,31 @@ export async function confirmStockCount(
   lines: Array<{ productId: string; countedQty: number }>,
   note?: string
 ): Promise<void> {
-  const count = await rpc<{ id: string }>('stock_count_open', { p_note: note ?? null })
-  // The server opens a line for every active product and confirms only when all are counted:
-  // products not counted on screen keep their snapshot (no change).
-  const snapshot = await selectRows<{ product_id: string; snapshot_qty: number }>(
-    createClient().from('stock_count_lines').select('product_id, snapshot_qty').eq('stock_count_id', count.id)
-  )
-  const counted = new Map(lines.map((l) => [l.productId, l.countedQty]))
-  const missing = lines.filter((l) => !snapshot.some((s) => s.product_id === l.productId))
-  if (missing.length > 0) {
-    throw new Error(`นับสต็อกไม่ได้: มีสินค้าที่ปิดใช้งานหรือไม่อยู่ในรอบนับ ${missing.length} รายการ`)
-  }
-  await rpc('stock_count_record', {
-    p_count_id: count.id,
-    // Every line that changes stock needs a reason (stock_count_confirm rejects it otherwise);
-    // the round's note serves as that reason.
-    p_lines: snapshot.map((s) => ({
-      product_id: s.product_id,
-      counted_qty: counted.get(s.product_id) ?? Number(s.snapshot_qty),
-      reason: note || 'ตรวจนับสต็อก',
-    })),
+  // PIN first: cancelling it opens no count round at all. After the PIN the round is opened,
+  // recorded and confirmed straight away; if a step fails the round stays a draft (OPEN /
+  // COUNTED) and stock is unchanged — only stock_count_confirm moves stock.
+  await withPin({ action: 'STOCK_COUNT_CONFIRM', title: 'ยืนยันผลนับสต็อก', detail: `${lines.length} รายการ` }, async (token) => {
+    const count = await rpc<{ id: string }>('stock_count_open', { p_note: note ?? null })
+    // The server opens a line for every active product and confirms only when all are counted:
+    // products not counted on screen keep their snapshot (no change).
+    const snapshot = await selectRows<{ product_id: string; snapshot_qty: number }>(
+      createClient().from('stock_count_lines').select('product_id, snapshot_qty').eq('stock_count_id', count.id)
+    )
+    const counted = new Map(lines.map((l) => [l.productId, l.countedQty]))
+    const missing = lines.filter((l) => !snapshot.some((s) => s.product_id === l.productId))
+    if (missing.length > 0) {
+      throw new Error(`นับสต็อกไม่ได้: มีสินค้าที่ปิดใช้งานหรือไม่อยู่ในรอบนับ ${missing.length} รายการ`)
+    }
+    await rpc('stock_count_record', {
+      p_count_id: count.id,
+      // Every line that changes stock needs a reason (stock_count_confirm rejects it otherwise);
+      // the round's note serves as that reason.
+      p_lines: snapshot.map((s) => ({
+        product_id: s.product_id,
+        counted_qty: counted.get(s.product_id) ?? Number(s.snapshot_qty),
+        reason: note || 'ตรวจนับสต็อก',
+      })),
+    })
+    return rpc('stock_count_confirm', { p_count_id: count.id, p_pin_token: token })
   })
-  await withPin({ action: 'STOCK_COUNT_CONFIRM', title: 'ยืนยันผลนับสต็อก', detail: `${lines.length} รายการ` }, (token) =>
-    rpc('stock_count_confirm', { p_count_id: count.id, p_pin_token: token })
-  )
 }

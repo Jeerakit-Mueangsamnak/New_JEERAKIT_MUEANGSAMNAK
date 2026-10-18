@@ -594,7 +594,7 @@ export function DoubleLineAreaTrendChart({
   data,
   height = 170,
 }: {
-  data: Array<{ label: string; revenue: number; grossProfit: number }>
+  data: Array<{ label: string; revenue: number; receivedAmount: number }>
   height?: number
 }) {
   if (!data || data.length === 0) {
@@ -605,7 +605,8 @@ export function DoubleLineAreaTrendChart({
     )
   }
 
-  const maxVal = Math.max(...data.map((d) => Math.max(d.revenue, d.grossProfit)), 1000) * 1.2
+  const minVal = Math.min(0, ...data.map((d) => d.receivedAmount))
+  const maxVal = Math.max(...data.map((d) => Math.max(d.revenue, d.receivedAmount)), 1000) * 1.2
   const width = 500
   const paddingLeft = 55
   const paddingRight = 20
@@ -613,16 +614,18 @@ export function DoubleLineAreaTrendChart({
   const paddingBottom = 26
   const innerWidth = width - paddingLeft - paddingRight
   const innerHeight = height - paddingTop - paddingBottom
+  const yFor = (value: number) => paddingTop + ((maxVal - value) / (maxVal - minVal)) * innerHeight
+  const zeroY = yFor(0)
 
   const pointsRev = data.map((d, i) => {
     const x = paddingLeft + (i / Math.max(1, data.length - 1)) * innerWidth
-    const y = paddingTop + innerHeight - (d.revenue / maxVal) * innerHeight
+    const y = yFor(d.revenue)
     return { x, y }
   })
 
-  const pointsProfit = data.map((d, i) => {
+  const pointsReceived = data.map((d, i) => {
     const x = paddingLeft + (i / Math.max(1, data.length - 1)) * innerWidth
-    const y = paddingTop + innerHeight - (d.grossProfit / maxVal) * innerHeight
+    const y = yFor(d.receivedAmount)
     return { x, y }
   })
 
@@ -630,16 +633,16 @@ export function DoubleLineAreaTrendChart({
     (acc, p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`),
     ''
   )
-  const areaRev = `${pathRev} L ${pointsRev[pointsRev.length - 1].x} ${height - paddingBottom} L ${pointsRev[0].x} ${height - paddingBottom} Z`
+  const areaRev = `${pathRev} L ${pointsRev[pointsRev.length - 1].x} ${zeroY} L ${pointsRev[0].x} ${zeroY} Z`
 
-  const pathProfit = pointsProfit.reduce(
+  const pathReceived = pointsReceived.reduce(
     (acc, p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`),
     ''
   )
 
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => ({
     ratio,
-    val: Math.round(maxVal * (1 - ratio)),
+    val: Math.round(maxVal - (maxVal - minVal) * ratio),
     y: paddingTop + innerHeight * ratio,
   }))
 
@@ -648,13 +651,13 @@ export function DoubleLineAreaTrendChart({
   return (
     <div className="w-full">
       <div className="flex items-center justify-between text-[10.5px] mb-1 font-bold">
-        <span className="text-[9.5px] text-slate-400 font-normal">รายรับ (บาท)</span>
+        <span className="text-[9.5px] text-slate-400 font-normal">บาท</span>
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
-            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" /> รายรับ
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" /> ยอดบิลไม่รวม VAT
           </span>
           <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> กำไรขั้นต้น
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> รับจริงสุทธิจากบิล
           </span>
         </div>
       </div>
@@ -696,14 +699,14 @@ export function DoubleLineAreaTrendChart({
           {/* Revenue Line */}
           <path d={pathRev} fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
 
-          {/* Profit Line */}
-          <path d={pathProfit} fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          {/* Net receipts line */}
+          <path d={pathReceived} fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
 
           {/* Dots */}
           {pointsRev.map((p, i) => (
             <g key={i}>
               <circle cx={p.x} cy={p.y} r="3.5" fill="#3b82f6" className="stroke-white dark:stroke-slate-900" strokeWidth="1.5" />
-              <circle cx={pointsProfit[i].x} cy={pointsProfit[i].y} r="3.5" fill="#10b981" className="stroke-white dark:stroke-slate-900" strokeWidth="1.5" />
+              <circle cx={pointsReceived[i].x} cy={pointsReceived[i].y} r="3.5" fill="#10b981" className="stroke-white dark:stroke-slate-900" strokeWidth="1.5" />
               <text
                 x={p.x}
                 y={height - 6}
@@ -721,10 +724,10 @@ export function DoubleLineAreaTrendChart({
           <div className="hidden sm:block absolute top-2 right-6 bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 shadow-sm text-[9.5px] pointer-events-none">
             <div className="font-bold text-slate-500 mb-0.5">{lastPoint.label}</div>
             <div className="flex items-center gap-2">
-              <span className="text-blue-500 font-mono font-bold">รายรับ: ฿{lastPoint.revenue.toLocaleString()}</span>
+              <span className="text-blue-500 font-mono font-bold">ยอดบิล: ฿{lastPoint.revenue.toLocaleString()}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-emerald-500 font-mono font-bold">กำไรขั้นต้น: ฿{lastPoint.grossProfit.toLocaleString()}</span>
+              <span className="text-emerald-500 font-mono font-bold">รับสุทธิ: ฿{lastPoint.receivedAmount.toLocaleString()}</span>
             </div>
           </div>
         )}

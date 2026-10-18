@@ -1,11 +1,12 @@
 import { createClient } from '@/lib/supabase/client'
 import { selectRows } from '@/lib/db/rpc'
+import { loadSystemSettings } from '@/features/settings/services/settings-storage'
 import type { FullBill, FullBillItem, BillChargeRecord, BillPaymentRecord, BillRefundRecord } from '@/lib/types/rental-return'
 import type { RentalStatus } from '@/lib/types/rental-pos'
 
 /**
- * Bill reads (Master v4.3.1 §12–§21) on the v4.3 schema: bills + bill_lines + payments +
- * refunds + charges, mapped onto the FullBill shape the screens use. Money, stock and status
+ * Bill reads (Master v4.3.1 §12–§21) on the v4.3 schema: bills + bill_lines + deliveries +
+ * returns + payments/receipts + refunds + charges, mapped onto the FullBill shape the screens use. Money, stock and status
  * fields are the server's numbers (cached by _bill_recalculate) — never recomputed here.
  * All writes live in features/bills/services/bill-service.ts (RPC only).
  */
@@ -23,6 +24,7 @@ interface BillRow {
   sale_subtotal: number
   rental_subtotal: number
   bill_discount_amount: number
+  taxable_amount: number
   delivery_fee: number
   installation_fee: number
   service_fee: number
@@ -39,6 +41,7 @@ interface BillRow {
   due_date: string | null
   is_credit_bill: boolean
   confirmed_at: string | null
+  pricing_snapshot: { vat_mode?: string | null } | null
   closed_at: string | null
   cancelled_at: string | null
   cancel_reason: string | null
@@ -70,13 +73,33 @@ interface LineRow {
   physical_returned_qty: number
   approved_lost_qty: number
   carried_forward_qty: number
+  /** Taken over from the parent bill by a continuation (เช่าต่อ): already with the customer, never delivered here. */
+  carried_in_qty: number
   obligation_held_here: number
 }
+
+/** Quantity of a line that still waits to be handed over (carried-in goods are already out). */
+const pendingDeliveryQty = (l: LineRow): number =>
+  Math.max(0, Number(l.ordered_qty) - Number(l.delivered_qty) - Number(l.cancelled_qty) - Number(l.carried_in_qty ?? 0))
 
 interface ProductLite { id: string; sku: string; name: string; default_damage_fee: number; default_loss_fee: number; unit_id: string }
 interface CustomerLite { id: string; name: string; phone: string; address: string }
 
-export const toDate = (ts: string | null | undefined): string => (ts ? ts.slice(0, 10) : '')
+export const toDate = (ts: string | null | undefined): string => {
+  if (!ts) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(ts)) return ts
+  const date = new Date(ts)
+  if (Number.isNaN(date.getTime())) return ts.slice(0, 10)
+  const timeZone = loadSystemSettings().timezone || 'Asia/Bangkok'
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return `${values.year}-${values.month}-${values.day}`
+}
 
 function lineStatus(l: LineRow): FullBillItem['status'] {
   if (l.line_mode === 'SALE') {
@@ -85,15 +108,15 @@ function lineStatus(l: LineRow): FullBillItem['status'] {
   if (l.approved_lost_qty > 0 && l.obligation_held_here === 0 && l.physical_returned_qty === 0) return 'LOST'
   if (l.return_status === 'RETURNED') return 'RETURNED'
   if (l.return_status === 'PARTIALLY_RETURNED') return 'PARTIAL_RETURNED'
-  if (l.delivered_qty > 0) return 'RENTING'
+  if (l.delivered_qty > 0 || Number(l.carried_in_qty ?? 0) > 0) return 'RENTING'
   return 'PENDING'
 }
 
 function deliveryOf(lines: LineRow[]): 'PENDING' | 'PARTIAL_DELIVERED' | 'DELIVERED' {
   const open = lines.filter((l) => l.ordered_qty - l.cancelled_qty > 0)
   if (open.length === 0) return 'PENDING'
-  if (open.every((l) => l.delivered_qty + l.cancelled_qty >= l.ordered_qty)) return 'DELIVERED'
-  return open.some((l) => l.delivered_qty > 0) ? 'PARTIAL_DELIVERED' : 'PENDING'
+  if (open.every((l) => pendingDeliveryQty(l) === 0)) return 'DELIVERED'
+  return open.some((l) => l.delivered_qty > 0 || Number(l.carried_in_qty ?? 0) > 0) ? 'PARTIAL_DELIVERED' : 'PENDING'
 }
 
 /** Bill status for the screens: the server status plus where the rented goods are. */
@@ -107,6 +130,11 @@ export function rentalStatusOf(b: Pick<BillRow, 'status'>, lines: LineRow[]): Re
   }
   const rental = lines.filter((l) => l.line_mode === 'RENTAL')
   if (rental.length === 0) return 'RENTING'
+  // Confirmed and paid (ACTIVE) but nothing handed over yet: goods are only reserved, not returned.
+  if (rental.every((l) => Number(l.delivered_qty) === 0 && Number(l.carried_in_qty ?? 0) === 0)) return 'CONFIRMED'
+  const nothingHeldHere = rental.every((l) => Number(l.obligation_held_here) === 0)
+  // Goods moved on to a continuation bill (เช่าต่อ) are still with the customer — not returned.
+  if (nothingHeldHere && rental.some((l) => Number(l.carried_forward_qty ?? 0) > 0)) return 'EXTENDED'
   if (rental.every((l) => l.return_status === 'RETURNED' || l.obligation_held_here === 0)) return 'RETURNED'
   if (rental.some((l) => l.physical_returned_qty > 0)) return 'PARTIAL_RETURNED'
   return 'RENTING'
@@ -156,9 +184,11 @@ export function mapBill(
       quantity: Number(l.ordered_qty),
       orderedQty: Number(l.ordered_qty),
       deliveredQty: Number(l.delivered_qty),
-      remainingQty: Math.max(0, Number(l.ordered_qty) - Number(l.delivered_qty) - Number(l.cancelled_qty)),
+      remainingQty: pendingDeliveryQty(l),
       returnedQty: Number(l.physical_returned_qty),
       outstandingQty: isRental ? Number(l.obligation_held_here) : 0,
+      carriedInQty: Number(l.carried_in_qty ?? 0),
+      carriedForwardQty: Number(l.carried_forward_qty ?? 0),
       lostQuantity: Number(l.approved_lost_qty),
       dailyRate: Number(l.unit_price),
       unit: (p && ctx.units.get(p.unit_id)) || '',
@@ -173,7 +203,7 @@ export function mapBill(
       usageCount: l.period_count ?? undefined,
       lineTotal: Number(l.extended_amount),
       status: lineStatus(l),
-      deliveryStatus: l.delivered_qty + l.cancelled_qty >= l.ordered_qty ? 'DELIVERED' : l.delivered_qty > 0 ? 'PARTIAL_DELIVERED' : 'PENDING',
+      deliveryStatus: pendingDeliveryQty(l) === 0 ? 'DELIVERED' : l.delivered_qty > 0 ? 'PARTIAL_DELIVERED' : 'PENDING',
     }
   })
 
@@ -199,10 +229,16 @@ export function mapBill(
     depositNote: b.deposit_note || undefined,
     subtotal: Number(b.sale_subtotal) + Number(b.rental_subtotal),
     discountAmount: Number(b.bill_discount_amount) + lineDiscounts,
+    billDiscountAmount: Number(b.bill_discount_amount),
+    taxableAmount: Number(b.taxable_amount),
     shippingFee: Number(b.delivery_fee) + Number(b.installation_fee) + Number(b.service_fee),
     taxAmount: Number(b.vat_amount),
+    vatMode: b.pricing_snapshot?.vat_mode === 'INCLUSIVE' || b.pricing_snapshot?.vat_mode === 'EXCLUSIVE'
+      ? b.pricing_snapshot.vat_mode
+      : undefined,
     billAmount: Number(b.grand_total),
     grandTotal: due,
+    confirmedAt: b.confirmed_at || undefined,
     paidAmount: Number(b.paid_amount) - Number(b.refunded_amount),
     receivedAmount: Number(b.paid_amount),
     refundedAmount: Number(b.refunded_amount),

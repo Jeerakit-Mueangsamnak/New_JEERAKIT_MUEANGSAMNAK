@@ -1,4 +1,5 @@
 import type { AppointmentStatus } from '@/lib/types/rental-pos'
+import { currentRunEvents } from '@/lib/work-order-stages'
 
 /** Labels and badge colours for the appointment lifecycle (Master §9 / §26). */
 export const APPOINTMENT_STATUS_META: Record<AppointmentStatus, { label: string; badge: string; color: string }> = {
@@ -48,32 +49,37 @@ export const APPOINTMENT_STATUS_META: Record<AppointmentStatus, { label: string;
 export const isAppointmentClosed = (status: AppointmentStatus) =>
   status === 'COMPLETED' || status === 'CANCELLED' || status === 'NO_SHOW'
 
-/** Statuses a new appointment may start with. */
-export const APPOINTMENT_INITIAL_STATUSES: AppointmentStatus[] = ['DRAFT', 'SCHEDULED', 'CONFIRMED']
-
 /**
- * Next lifecycle steps offered in the UI for the current status (cancel is offered separately
- * for every open appointment). The server accepts any of these from an open appointment.
+ * Status shown for a job (no one picks it by hand). Finished jobs keep their saved end status
+ * (COMPLETED / CANCELLED / NO_SHOW). An open job is "in progress" once it was dispatched to a
+ * driver; before that it follows the clock: before the start time, between start and end, after
+ * the end. Nothing here is saved: the server status of an open job is left as it is.
  */
-export function nextAppointmentSteps(status: AppointmentStatus): { status: AppointmentStatus; label: string }[] {
-  switch (status) {
-    case 'DRAFT':
-      return [{ status: 'SCHEDULED', label: 'ลงนัด' }]
-    case 'SCHEDULED':
-    case 'RESCHEDULED':
-      return [
-        { status: 'CONFIRMED', label: 'ยืนยันนัด' },
-        { status: 'IN_PROGRESS', label: 'เริ่มงาน' },
-        { status: 'NO_SHOW', label: 'ไม่มาตามนัด' },
-      ]
-    case 'CONFIRMED':
-      return [
-        { status: 'IN_PROGRESS', label: 'เริ่มงาน' },
-        { status: 'NO_SHOW', label: 'ไม่มาตามนัด' },
-      ]
-    case 'IN_PROGRESS':
-      return [{ status: 'COMPLETED', label: 'เสร็จงาน' }]
-    default:
-      return []
-  }
+export type JobStatusKey = 'WAITING' | 'DUE' | 'OVERDUE' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW'
+
+export const JOB_STATUS_META: Record<JobStatusKey, { label: string; badge: string }> = {
+  WAITING: { label: 'รอถึงกำหนด', badge: APPOINTMENT_STATUS_META.SCHEDULED.badge },
+  DUE: { label: 'รอสั่งงาน', badge: APPOINTMENT_STATUS_META.CONFIRMED.badge },
+  OVERDUE: { label: 'เลยกำหนด', badge: APPOINTMENT_STATUS_META.NO_SHOW.badge },
+  IN_PROGRESS: { label: 'กำลังดำเนินการ', badge: APPOINTMENT_STATUS_META.IN_PROGRESS.badge },
+  COMPLETED: { label: APPOINTMENT_STATUS_META.COMPLETED.label, badge: APPOINTMENT_STATUS_META.COMPLETED.badge },
+  CANCELLED: { label: APPOINTMENT_STATUS_META.CANCELLED.label, badge: APPOINTMENT_STATUS_META.CANCELLED.badge },
+  NO_SHOW: { label: APPOINTMENT_STATUS_META.NO_SHOW.label, badge: APPOINTMENT_STATUS_META.NO_SHOW.badge },
+}
+
+/** The job is with a driver now: a DISPATCH was recorded and no WITHDRAW came after it. */
+export const isDispatched = (apt: { events?: { stage: string; status: string }[] }) =>
+  currentRunEvents(apt.events).some((e) => e.stage.toUpperCase() === 'DISPATCH' && e.status === 'DONE')
+
+export function jobStatusOf(
+  apt: { status: AppointmentStatus; date: string; startTime: string; endTime?: string; events?: { stage: string; status: string }[] },
+  now: Date = new Date()
+): JobStatusKey {
+  if (apt.status === 'COMPLETED' || apt.status === 'CANCELLED' || apt.status === 'NO_SHOW') return apt.status
+  if (isDispatched(apt)) return 'IN_PROGRESS'
+  const start = new Date(`${apt.date}T${apt.startTime || '00:00'}:00`)
+  const endRaw = new Date(`${apt.date}T${apt.endTime || apt.startTime || '00:00'}:00`)
+  const end = endRaw < start ? start : endRaw
+  if (Number.isNaN(start.getTime()) || now < start) return 'WAITING'
+  return now <= end ? 'DUE' : 'OVERDUE'
 }

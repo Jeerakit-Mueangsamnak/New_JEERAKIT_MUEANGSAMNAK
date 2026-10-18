@@ -7,14 +7,17 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 const fake = vi.hoisted(() => ({
   rpcCalls: [] as string[],
+  rpcArgs: [] as Array<Record<string, unknown>>,
   cancelError: null as unknown,
   voids: 0,
 }))
 
 vi.mock('@/lib/db/rpc', async (orig) => ({
   ...(await orig<object>()),
-  rpc: vi.fn(async (fn: string) => {
+  rpc: vi.fn(async (fn: string, args: Record<string, unknown> = {}) => {
     fake.rpcCalls.push(fn)
+    fake.rpcArgs.push(args)
+    if (fn === 'payment_receive') return { receipt_no: 'RCPT-1', total_amount: 25 }
     return {}
   }),
 }))
@@ -48,11 +51,11 @@ vi.mock('@/features/settings/api/settings-repository', () => ({
   saveSharedSystemConfig: vi.fn(async () => {}),
 }))
 
-import { cancelOrVoidBill } from '@/features/bills/services/bill-service'
+import { cancelOrVoidBill, receivePayment } from '@/features/bills/services/bill-service'
 import { PinCancelledError } from '@/lib/db/pin-confirm'
 import { DbError } from '@/lib/db/rpc'
 import { calculateBillTotals } from '@/lib/calculation-service'
-import { DEFAULT_SYSTEM_CONFIG, loadSystemSettings, saveSystemSettings } from '@/features/settings/services/settings-storage'
+import { DEFAULT_SYSTEM_CONFIG, setCachedSystemSettings } from '@/features/settings/services/settings-storage'
 import { correctionDelta } from '@/features/bills/components/BillRevisionView'
 import { CartPanel } from '@/features/pos/components/CartPanel'
 import { SystemSettingsProvider } from '@/lib/contexts/SystemSettingsContext'
@@ -61,6 +64,7 @@ import type { FullBill } from '@/lib/types/rental-return'
 
 beforeEach(() => {
   fake.rpcCalls = []
+  fake.rpcArgs = []
   fake.cancelError = null
   fake.voids = 0
 })
@@ -95,10 +99,22 @@ describe('P1-B5 a cancelled PIN ends the cancel — no Void afterwards', () => {
   })
 })
 
+describe('bill payment receipt response', () => {
+  it('sends the selected receive day and returns the server receipt number', async () => {
+    const result = await receivePayment('bill-1', [{ method: 'CASH', amount: 25 }], '2026-10-05')
+
+    expect(fake.rpcArgs[0]).toMatchObject({
+      p_bill_id: 'bill-1',
+      p_received_on: '2026-10-05',
+    })
+    expect(result).toMatchObject({ receiptNo: 'RCPT-1', totalAmount: 25 })
+  })
+})
+
 describe('P1-B4 checkout shows the discount the server charges', () => {
   const settings = {
     ...DEFAULT_SYSTEM_CONFIG,
-    financePayment: { ...DEFAULT_SYSTEM_CONFIG.financePayment, vatEnabled: false, maximumDiscountPercent: 10, defaultDepositPercent: 0 },
+    taxDiscount: { ...DEFAULT_SYSTEM_CONFIG.taxDiscount, discountLimitEnabled: true, discountLimitPercent: 10 },
   }
   it('a discount over the limit is kept (PIN at save), not cut, and flagged', () => {
     const t = calculateBillTotals({ settings, items: [{ lineTotal: 1000 }], discount: 300 })
@@ -111,8 +127,8 @@ describe('P1-B4 checkout shows the discount the server charges', () => {
     expect(t).toMatchObject({ discountAmount: 50, grandTotal: 950, isDiscountExceeded: false })
   })
   it('VAT is computed on the full discount the server uses', () => {
-    const vat = { ...settings, financePayment: { ...settings.financePayment, vatEnabled: true, defaultVatPercent: 7, vatCalculationMode: 'EXCLUSIVE' as const } }
-    const t = calculateBillTotals({ settings: vat, items: [{ lineTotal: 1000 }], discount: 300 })
+    const vat = { ...settings, taxDiscount: { ...settings.taxDiscount, vatRate: 7, vatMode: 'EXCLUSIVE' as const } }
+    const t = calculateBillTotals({ settings: vat, items: [{ lineTotal: 1000 }], discount: 300, enableVat: true })
     expect(t.vatAmount).toBe(49)
     expect(t.grandTotal).toBe(749)
   })
@@ -157,7 +173,7 @@ describe('P1-B3 picked dates stay on the local day', () => {
   it('cart dates before 07:00 Bangkok time are not moved back a day', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-10-07T01:30:00+07:00')) // = 2026-10-06T18:30Z
-    saveSystemSettings({ ...loadSystemSettings(), financePayment: { ...loadSystemSettings().financePayment, vatEnabled: false } })
+    setCachedSystemSettings(DEFAULT_SYSTEM_CONFIG)
     const item: CartItem = {
       id: 's', product: { id: 'p', code: 'p', name: 'p', rentalType: 'SALE' } as CartItem['product'],
       itemType: 'SALE', rentalType: 'SALE', unitPrice: 10, quantity: 1, usageCount: 1, lineTotal: 10,
