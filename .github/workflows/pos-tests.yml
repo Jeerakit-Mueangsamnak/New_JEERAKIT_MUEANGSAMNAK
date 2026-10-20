@@ -1,0 +1,178 @@
+name: JEERAKIT POS - Full Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pos-tests-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CI: 'true'
+  NEXT_TELEMETRY_DISABLED: '1'
+  NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: test-publishable-key
+  SUPABASE_SECRET_KEY: test-secret-key
+
+jobs:
+  app-checks:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: TypeScript
+            script: typecheck
+          - name: TypeScript Strict
+            script: typecheck:strict
+          - name: ESLint
+            script: lint
+          - name: Unit and Component Tests
+            script: test
+          - name: Next.js Production Build
+            script: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run ${{ matrix.name }}
+        run: pnpm run ${{ matrix.script }}
+
+  supabase-sql:
+    name: Supabase Local SQL and Race Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run SQL tests in disposable Docker
+        run: bash supabase/tests/run_local.sh
+
+  browser-smoke:
+    name: Playwright Browser Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Start local Next.js
+        run: |
+          nohup pnpm exec next dev -H 127.0.0.1 -p 3100 > /tmp/pos-next.log 2>&1 &
+          for i in $(seq 1 90); do
+            if curl --silent --show-error --fail http://127.0.0.1:3100/login > /dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          tail -n 120 /tmp/pos-next.log
+          exit 1
+
+      - name: Test login page in real browser
+        run: |
+          node --input-type=module <<'NODE'
+          import { chromium } from '@playwright/test';
+          const browser = await chromium.launch();
+          try {
+            const page = await browser.newPage();
+            const errors = [];
+            page.on('pageerror', error => errors.push(error.message));
+            const response = await page.goto('http://127.0.0.1:3100/login', {
+              waitUntil: 'domcontentloaded', timeout: 60000
+            });
+            if (!response || !response.ok()) {
+              throw new Error('Login page returned an HTTP error');
+            }
+            await page.locator('input[placeholder="Username"]').waitFor();
+            await page.locator('input[type="password"]').waitFor();
+            if (errors.length) {
+              throw new Error(errors.join('\n'));
+            }
+            console.log('PASS: Login page renders in Chromium');
+          } finally {
+            await browser.close();
+          }
+          NODE
+
+      - name: Show server logs if failed
+        if: failure()
+        run: tail -n 120 /tmp/pos-next.log || true
+
+  dependency-security:
+    name: Dependency Vulnerability Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check high and critical vulnerabilities
+        run: pnpm audit --audit-level high
+
+  codeql:
+    name: CodeQL JS and TS Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+
+      - uses: github/codeql-action/analyze@v4
