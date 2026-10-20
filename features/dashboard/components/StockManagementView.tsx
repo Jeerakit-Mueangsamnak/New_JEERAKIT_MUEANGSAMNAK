@@ -46,9 +46,8 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">
                 {metrics.availableStock.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">+12.5%</span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">จากสัปดาห์ที่ผ่านมา</span>
+            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">จำนวนคงเหลือปัจจุบันจาก Supabase</span>
           </div>
         </div>
 
@@ -65,7 +64,6 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 font-mono">
                 {metrics.rentedOrReservedStock.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400">+8.3%</span>
             </div>
             <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">อยู่ระหว่างการใช้งาน</span>
           </div>
@@ -84,7 +82,6 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-rose-600 dark:text-rose-400 font-mono">
                 {metrics.damagedOrLostStock.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-rose-600 dark:text-rose-400">+33.3%</span>
             </div>
             <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">ต้องตรวจสอบ / ซ่อมแซม</span>
           </div>
@@ -93,7 +90,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
         {/* 4. การจองสินค้า */}
         <div className="p-2 bg-purple-50/60 dark:bg-purple-950/30 rounded-2xl border border-purple-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">การจองสินค้า</span>
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">รายการรอส่งมอบตามบิล</span>
             <div className="w-6 h-6 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
               <Calendar className="w-3.5 h-3.5" />
             </div>
@@ -101,11 +98,10 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-purple-600 dark:text-purple-400 font-mono">
-                {metrics.activeReservationsCount.toLocaleString()}
+                {metrics.pendingBillDeliveryItemCount.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-purple-600 dark:text-purple-400">+15.2%</span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">รายการรอรับ/รอจ่ายออก</span>
+            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">สินค้าที่บิลยืนยันแล้วแต่ยังส่งไม่ครบ</span>
           </div>
         </div>
 
@@ -135,7 +131,6 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400 font-mono">
                 {urgentCount.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400">+50.0%</span>
             </div>
             <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">ต้องดำเนินการทันที</span>
           </div>
@@ -225,7 +220,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
                     </span>
                   </div>
                   <span className="font-mono font-bold text-slate-800 dark:text-slate-100 shrink-0">
-                    {p.rentalCount} ครั้ง
+                    {p.rentalCount} หน่วย
                   </span>
                 </div>
               ))}
@@ -239,7 +234,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
             <div className="flex items-center gap-1.5">
               <span className="w-1 h-3 bg-purple-500 rounded-full" />
               <h3 className="text-xs font-black text-slate-800 dark:text-slate-100">
-                การจองสินค้าแยกตามช่วงเวลา
+                กำหนดส่ง/คืนตามบิล
               </h3>
             </div>
             <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 font-bold">
@@ -247,14 +242,14 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
             </span>
           </div>
           <GroupedBarChart
-            data={metrics.reservationTrendData.map((d) => ({
+            data={metrics.billFulfillmentTrendData.map((d) => ({
               label: d.displayDate,
               val1: d.incomingQty,
               val2: d.outgoingQty,
             }))}
-            label1="จองเข้า (รับในอนาคต)"
+            label1="กำหนดคืนจากบิล"
             color1="#8b5cf6"
-            label2="จองออก (รอส่งมอบ)"
+            label2="กำหนดส่งจากบิล"
             color2="#3b82f6"
             height={130}
           />
@@ -293,7 +288,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 min-w-0">
                 <AlertOctagon className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                <span className="text-slate-700 dark:text-slate-200 truncate">สต็อกใกล้หมด (ต่ำกว่า 10 หน่วย)</span>
+                <span className="text-slate-700 dark:text-slate-200 truncate">ถึงจุดสั่งซื้อของสินค้า</span>
               </div>
               <span className="font-mono font-black text-amber-600 dark:text-amber-400 shrink-0">
                 {metrics.stockAlertsSummary.lowStockCount}
@@ -315,10 +310,10 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 min-w-0">
                 <Calendar className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                <span className="text-slate-700 dark:text-slate-200 truncate">รายการจองรอรับเข้า</span>
+                <span className="text-slate-700 dark:text-slate-200 truncate">รายการรอส่งมอบตามบิล</span>
               </div>
               <span className="font-mono font-black text-purple-600 dark:text-purple-400 shrink-0">
-                {metrics.stockAlertsSummary.incomingReservationCount}
+                {metrics.stockAlertsSummary.pendingBillDeliveryItemCount}
               </span>
             </div>
 
@@ -338,6 +333,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
 
       {/* 4. BOTTOM ROW: รายการงานสต็อกเร่งด่วน (TABLE) */}
       <DataTableFrame
+        rowCount={metrics.stockUrgentList.length}
         className="p-2 bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs"
         header={
           <div className="flex items-center justify-between mb-2 shrink-0">

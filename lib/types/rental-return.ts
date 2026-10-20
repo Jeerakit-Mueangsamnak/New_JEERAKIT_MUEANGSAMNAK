@@ -105,6 +105,10 @@ export interface FullBillItem {
   quantity: number
   returnedQty: number
   outstandingQty: number
+  /** Taken over from the parent bill by a continuation (เช่าต่อ). */
+  carriedInQty?: number
+  /** Moved on to a continuation bill (เช่าต่อ). */
+  carriedForwardQty?: number
   damagedQuantity?: number
   lostQuantity?: number
   dailyRate: number
@@ -162,9 +166,13 @@ export interface FullBill {
   deposits: FullBillDeposit[]
   subtotal?: number
   discountAmount?: number
+  billDiscountAmount?: number
+  taxableAmount?: number
   shippingFee?: number
   taxAmount?: number
+  vatMode?: 'INCLUSIVE' | 'EXCLUSIVE'
   billAmount?: number
+  confirmedAt?: string
   grandTotal: number
   paidAmount: number
   outstandingAmount: number
@@ -187,6 +195,49 @@ export interface FullBill {
   cancelledAt?: string
   cancelReason?: string
   remark?: string
+  /** v4.3 server records (Master §13–§21): what the bill screen shows and refunds point to. */
+  serverStatus?: string
+  dueDate?: string
+  isCreditBill?: boolean
+  depositNote?: string
+  chargeTotal?: number
+  adjustmentNet?: number
+  refundedAmount?: number
+  receivedAmount?: number
+  payments?: BillPaymentRecord[]
+  refunds?: BillRefundRecord[]
+  charges?: BillChargeRecord[]
 }
 
+export interface BillPaymentRecord {
+  id: string
+  method: string
+  amount: number
+  reference?: string
+  status: string
+  receivedAt: string
+  refundedAmount: number
+}
 
+export interface BillRefundRecord {
+  id: string
+  refundNo: string
+  paymentId: string
+  amount: number
+  method: string
+  reason: string
+  paidAt: string
+  status: string
+}
+
+export interface BillChargeRecord {
+  id: string
+  chargeType: string
+  amount: number
+  suggestedAmount?: number
+  status: string
+  reason: string
+  billLineId?: string
+  incidentCaseId?: string
+  createdAt: string
+}

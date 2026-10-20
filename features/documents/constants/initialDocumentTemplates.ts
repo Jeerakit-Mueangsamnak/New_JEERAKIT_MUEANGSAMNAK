@@ -8,6 +8,7 @@ export const INITIAL_DOC_CATEGORIES = [
   'ใบกำกับภาษี',
   'ใบเสร็จรับเงิน/ใบกำกับภาษี',
   'ใบส่งสินค้า/ติดตั้ง',
+  'ใบเช็กของ (ส่ง/เก็บคืน)',
   'สัญญาเช่าสินค้า',
   'ใบรับคืนสินค้า',
   'ใบรับเงินมัดจำ',
@@ -19,8 +20,34 @@ export const INITIAL_DOC_CATEGORIES = [
   'แบบฟอร์มอื่น ๆ'
 ]
 
+export const CUSTOMER_DOC_CATEGORIES = [
+  'สัญญาเช่าสินค้า',
+  'แบบฟอร์มยืนยันลายเซ็น',
+  'หนังสือมอบอำนาจ',
+  'เอกสารยินยอม/ข้อตกลง',
+  'แบบฟอร์มลูกค้าอื่น ๆ'
+]
+
+export const BILL_DOC_CATEGORIES = [
+  'ใบเสนอราคา',
+  'ใบจองสินค้า',
+  'ใบแจ้งหนี้/บิลเช่า',
+  'ใบเสร็จรับเงิน',
+  'ใบกำกับภาษี',
+  'ใบเสร็จรับเงิน/ใบกำกับภาษี',
+  'ใบส่งสินค้า/ติดตั้ง',
+  'ใบเช็กของ (ส่ง/เก็บคืน)',
+  'ใบรับคืนสินค้า',
+  'ใบรับเงินมัดจำ',
+  'ใบสำคัญจ่าย',
+  'สเตทเมนต์',
+  'ใบเสร็จค่าชำรุด',
+  'ใบแจ้งหนี้ค่าชำรุด',
+  'แบบฟอร์มบิลอื่น ๆ'
+]
+
 // Base HTML header generator for template schema consistency
-function renderTemplateHeader(docTitle: string, _docCategoryBadge?: string) {
+function renderTemplateHeader(docTitle: string, _docCategoryBadge?: string, numberLabel = 'เลขที่เอกสาร') {
   return `
   <!-- Header Info -->
   <div class="mb-2 flex items-start justify-between gap-3 border-b-2 border-red-700 pb-2.5">
@@ -47,7 +74,7 @@ function renderTemplateHeader(docTitle: string, _docCategoryBadge?: string) {
         ${docTitle}
       </div>
       <p class="whitespace-nowrap text-[10px] font-bold text-slate-800">
-        เลขที่เอกสาร: <span class="text-red-700 font-extrabold">{{document.number}}</span>
+        ${numberLabel}: <span class="text-red-700 font-extrabold">{{document.number}}</span>
       </p>
       <p class="text-slate-600 text-[8.5px]">
         วันที่ออกเอกสาร: {{document.date}}
@@ -82,6 +109,23 @@ function renderStandard20ItemTable(headers: { col2?: string; col6?: string } = {
       </tbody>
     </table>
   </div>
+  `
+}
+
+function renderQuotationTable() {
+  const widths = ['6%', '38%', '8%', '8%', '11%', '13%', '16%']
+
+  return `
+    <table aria-label="รายการสินค้า 16 แถว" style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px;color:#111827;">
+      <thead>
+        <tr>
+          ${['ลำดับ', 'รายการ', 'จำนวน', 'หน่วย', 'ราคา', 'การเช่า', 'จำนวนเงิน'].map((label, index) => `
+            <th style="width:${widths[index]};height:25px;background:#f1f5f9;text-align:center;${index < widths.length - 1 ? 'border-right:1px solid #64748b;' : ''}border-bottom:1px solid #64748b;padding:0 3px;">${label}</th>
+          `).join('')}
+        </tr>
+      </thead>
+      <tbody>{{items.rows_quotation_16}}</tbody>
+    </table>
   `
 }
 
@@ -144,70 +188,101 @@ export const INITIAL_TEMPLATES: DocumentTemplate[] = [
     createdAt: '2026-01-01',
     updatedAt: '2026-01-01',
     createdBy: 'ระบบ',
-    description: 'แบบฟอร์มใบเสนอราคาทางการ พร้อมตาราง 20 บรรทัด สรุปภาษี/มัดจำ บัญชีธนาคาร และช่องลงนามอนุมัติสั่งจ้าง',
-    defaultTerms: '1. กำหนดยืนราคา 15 วัน นับตั้งแต่วันที่ระบุในใบเสนอราคา\n2. ชำระเงินมัดจำล่วงหน้า 30% ณ วันยืนยันการจองสินค้า\n3. ส่วนที่เหลือชำระครบถ้วนในวันส่งมอบสินค้า',
+    description: 'แบบฟอร์มใบเสนอราคาตามรูปแบบกิจการ มีตาราง 16 บรรทัด สรุปยอด และช่องลงนาม 3 ฝ่าย',
+    defaultTerms: '1. กำหนดส่งมอบสินค้าภายใน 3-5 วันทำการ หลังจากได้รับการยืนยันใบสั่งจ้าง/สั่งเช่า\n2. การชำระเงิน: มัดจำ 30% ณ วันสั่งจ้าง และส่วนที่เหลือชำระ ณ วันส่งมอบสินค้า\n3. สินค้าเช่าต้องส่งคืนในสภาพสมบูรณ์ หากชำรุดหรือสูญหายคิดค่าปรับตามราคาตลาด',
     templateSchema: `
-<div class="box-border flex h-full w-full flex-col justify-between overflow-hidden bg-white px-[10mm] py-[8mm] font-sans text-[9.5px] leading-[1.3] text-slate-900">
-  ${renderTemplateHeader('ใบเสนอราคา / QUOTATION', 'ใบเสนอราคา')}
-
-  <!-- Customer & Proposal Details -->
-  <div class="mb-2 grid grid-cols-2 gap-3 rounded border border-slate-300 bg-slate-50/80 p-2 text-[9px]">
-    <div>
-      <h4 class="font-extrabold text-red-800 uppercase mb-0.5 text-[9.5px]">เรียน / ลูกค้า (Customer):</h4>
-      <p class="whitespace-nowrap font-bold text-slate-900 text-[10px]">{{customer.name}}</p>
-      <p class="text-slate-600 truncate">{{customer.company_name}}</p>
-      <p class="text-slate-600 truncate">{{customer.address}}</p>
-      <p class="text-slate-600">โทร: <span class="font-semibold text-slate-900">{{customer.phone}}</span> | เลขผู้เสียภาษี: <span class="font-semibold text-slate-900">{{customer.tax_id}}</span></p>
+<div style="box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;gap:4px;width:calc(100% + 64px);height:297mm;min-height:297mm;max-height:297mm;margin:-32px;padding:5mm;overflow:hidden;background:#fff;color:#111827;font-family:Sarabun,Tahoma,'Leelawadee UI',sans-serif;font-size:15px;line-height:1.25;">
+  <div style="flex-shrink:0;border:1.5px solid #111827;border-radius:6px;padding:8px;background:#fff;">
+    <div style="display:grid;grid-template-columns:33.333% minmax(0,1fr);gap:8px;align-items:center;padding-bottom:4px;">
+      <div style="display:flex;align-items:center;justify-content:center;min-height:92px;height:100%;padding-right:8px;border-right:1px solid #cbd5e1;overflow:hidden;">
+        <img src="/logo.png" alt="JJK Jeerakit Plastic Formwork" style="display:block;width:100%;height:auto;max-height:125px;object-fit:contain;">
+      </div>
+      <div style="min-width:0;padding-left:4px;text-align:center;">
+        <div style="font-size:30px;font-weight:700;line-height:35px;">จีรกิตติ์ ไม้แบบพลาสติก อุตรดิตถ์</div>
+        <div style="font-size:21px;font-weight:600;line-height:25px;color:#334155;">JEERAKIT PLASTIC FORMWORK UTTARADIT</div>
+        <div style="font-size:16px;line-height:21px;color:#334155;">98/12 หมู่ 4 ต.ท่าเสา อ.เมืองอุตรดิตถ์ จ.อุตรดิตถ์ 53000</div>
+        <div style="font-size:16px;line-height:20px;color:#1e293b;">โทร 093-170-3949 , 093-282-8517</div>
+        <div style="font-size:16px;line-height:20px;color:#1e293b;">เลขประจำตัวผู้เสียภาษี: 1-5399-00535-23-9</div>
+      </div>
     </div>
-    <div>
-      <h4 class="font-extrabold text-red-800 uppercase mb-0.5 text-[9.5px]">รายละเอียดข้อเสนอ:</h4>
-      <p>กำหนดยืนราคา: <span class="font-bold text-slate-900">{{document.valid_until}}</span></p>
-      <p>วันเริ่มใช้งานที่คาดไว้: <span class="font-bold text-slate-900">{{document.rental_start_date}}</span></p>
-      <p>สถานที่จัดส่ง/หน้างาน: <span class="font-semibold text-slate-800">{{document.site_name}}</span></p>
+    <div style="display:flex;flex-direction:column;gap:2px;margin-top:2px;padding-top:4px;border-top:1px solid #111827;">
+      <div style="height:18px;font-size:14px;font-weight:700;line-height:18px;">บริการให้เช่า : ไม้แบบพลาสติก (แบบเสา, แบบเสาตอม่อ, แบบเสารั้ว, แบบคาน และนั่งร้าน)</div>
+      <div style="height:18px;font-size:14px;font-weight:700;line-height:18px;">การบริการ : - จัดส่งถึงที่ - แกะระยะแบบ(ฟรี) - รูปภาพแปลนระยะไม้แบบ(ฟรี)</div>
     </div>
   </div>
 
-  ${renderStandard20ItemTable({ col2: 'รายการอุปกรณ์ / บริการที่เสนอ', col6: 'ระยะเวลา' })}
-
-  <!-- Financial & Terms -->
-  <div class="mb-2 grid grid-cols-12 gap-3 items-start">
-    <div class="col-span-7 space-y-1.5">
-      <div class="rounded border border-slate-300 bg-slate-50/70 p-2 text-[8px] leading-relaxed text-slate-700">
-        <p class="font-extrabold text-red-800 mb-0.5 text-[8.5px]">เงื่อนไขการเสนอราคาและการชำระเงิน:</p>
-        <p class="whitespace-pre-line">{{document.custom_terms}}</p>
-      </div>
-      ${renderBankAndQrBox()}
+  <div style="display:flex;flex-shrink:0;align-items:center;justify-content:space-between;gap:8px;height:60px;padding:3px 10px;border:1.5px solid #111827;border-radius:6px;">
+    <div style="min-width:0;flex:1;">
+      <div style="height:25px;font-size:20px;font-weight:700;line-height:25px;">ใบเสนอราคา / QUOTATION</div>
+      <div style="margin-top:4px;color:#64748b;font-size:10px;line-height:16px;">(ต้นฉบับ / Original - สำหรับลูกค้า)</div>
     </div>
+    <div style="display:flex;flex-shrink:0;flex-direction:column;font-size:14px;">
+      <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;height:21px;"><span style="font-weight:600;color:#475569;white-space:nowrap;">เลขที่เอกสาร:</span><span style="width:154px;height:20px;line-height:20px;font-weight:700;white-space:nowrap;">{{document.number}}</span></div>
+      <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;height:21px;"><span style="font-weight:600;color:#475569;white-space:nowrap;">วันที่:</span><span style="width:154px;height:20px;line-height:20px;font-weight:700;white-space:nowrap;">{{document.date}}</span></div>
+    </div>
+  </div>
 
-    <div class="col-span-5 rounded border border-slate-300 bg-slate-50 p-2 text-[8.5px] space-y-0.5">
-      <div class="flex justify-between border-b border-slate-200 py-0.5">
-        <span class="text-slate-600">รวมเป็นเงิน:</span>
-        <span class="font-mono font-bold">฿{{bill.subtotal}}</span>
+  <div style="flex-shrink:0;padding:5px 10px;border:1.5px solid #111827;border-radius:6px;">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;font-size:13px;">
+      <div style="display:flex;min-width:0;flex-direction:column;gap:4px;padding-right:12px;border-right:1px solid #cbd5e1;">
+        <div style="display:flex;align-items:center;gap:6px;height:18px;"><strong style="width:33px;text-align:right;">ชื่อ:</strong><span style="flex:1;min-width:0;height:18px;line-height:18px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">{{customer.name}}</span></div>
+        <div style="display:flex;align-items:center;gap:6px;height:18px;"><strong style="width:33px;text-align:right;">ที่อยู่:</strong><span style="flex:1;min-width:0;height:18px;line-height:18px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">{{customer.address}}</span></div>
+        <div style="display:flex;align-items:center;gap:6px;height:18px;"><strong style="width:33px;text-align:right;"></strong><span style="flex:1;min-width:0;height:18px;line-height:18px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;"></span></div>
       </div>
-      <div class="flex justify-between border-b border-slate-200 py-0.5 text-emerald-700 font-bold">
-        <span>ส่วนลดพิเศษ:</span>
-        <span class="font-mono">-฿{{bill.discount}}</span>
-      </div>
-      <div class="flex justify-between border-b border-slate-200 py-0.5 text-slate-700">
-        <span>ค่าขนส่งและติดตั้ง:</span>
-        <span class="font-mono">+฿{{bill.shipping_fee}}</span>
-      </div>
-      <div class="flex justify-between border-b border-slate-200 py-0.5 text-slate-700">
-        <span>ภาษีมูลค่าเพิ่ม (7%):</span>
-        <span class="font-mono">+฿{{bill.tax_amount}}</span>
-      </div>
-      <div class="flex justify-between border-b border-slate-200 py-0.5 text-amber-800 font-bold">
-        <span>เงินมัดจำประกันอุปกรณ์:</span>
-        <span class="font-mono">฿{{bill.deposit_amount}}</span>
-      </div>
-      <div class="flex justify-between rounded bg-red-700 p-1.5 text-white font-extrabold text-[9.5px] mt-1 shadow-xs">
-        <span>ยอดเงินสุทธิรวมทั้งสิ้น:</span>
-        <span class="font-mono">฿{{bill.grand_total}}</span>
+      <div style="display:flex;min-width:0;flex-direction:column;gap:4px;">
+        <div style="display:flex;align-items:center;gap:6px;height:18px;"><strong style="width:83px;text-align:right;white-space:nowrap;">เลขผู้เสียภาษี:</strong><span style="flex:1;min-width:0;height:18px;line-height:18px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">{{customer.tax_id}}</span></div>
+        <div style="display:flex;align-items:center;gap:6px;height:18px;"><strong style="width:83px;text-align:right;white-space:nowrap;">เบอร์โทร:</strong><span style="flex:1;min-width:0;height:18px;line-height:18px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">{{customer.phone}}</span></div>
+        <div style="display:flex;align-items:center;gap:6px;height:18px;"><strong style="width:83px;text-align:right;white-space:nowrap;">สถานที่จัดส่ง:</strong><span style="flex:1;min-width:0;height:18px;line-height:18px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">{{document.site_name}}</span></div>
       </div>
     </div>
   </div>
 
-  ${renderSignatureBox('ลงชื่อ ( {{customer.name}} )', 'ผู้อนุมัติสั่งจ้าง / ตกลงตามข้อเสนอ', 'ลงชื่อ ( {{business.authorized_person}} )', '{{business.name}} (ผู้เสนอราคา)')}
+  <div style="flex-shrink:0;overflow:hidden;border:1.5px solid #111827;border-radius:6px;">
+    ${renderQuotationTable()}
+  </div>
+
+  <div style="display:grid;flex-shrink:0;grid-template-columns:minmax(0,56fr) minmax(0,44fr);gap:8px;">
+    <div style="box-sizing:border-box;height:128px;min-width:0;padding:6px 8px;border:1.5px solid #111827;border-radius:6px;">
+      <div style="margin-bottom:4px;font-size:13px;font-weight:700;line-height:18px;color:#1e293b;">หมายเหตุ / Terms &amp; Conditions:</div>
+      <div style="font-size:12px;line-height:18px;white-space:pre-line;">{{document.custom_terms}}</div>
+    </div>
+    <div style="box-sizing:border-box;height:128px;overflow:hidden;border:1.5px solid #111827;border-radius:6px;">
+      <table style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;font-size:13px;">
+        <tbody>
+          <tr style="height:16.66%;border-bottom:1px solid #64748b;"><td style="padding:1px 8px;">รวมเป็นเงิน (Subtotal)</td><td style="width:44%;border-left:1px solid #64748b;padding:1px 8px;text-align:right;font-size:12px;font-weight:600;">{{bill.subtotal}}</td></tr>
+          <tr style="height:16.66%;border-bottom:1px solid #64748b;background:#f8fafc;"><td style="padding:1px 8px;">ส่วนลด (Discount)</td><td style="width:44%;border-left:1px solid #64748b;padding:1px 8px;text-align:right;font-size:12px;font-weight:600;color:#be123c;">{{bill.discount}}</td></tr>
+          <tr style="height:16.66%;border-bottom:1px solid #64748b;"><td style="padding:1px 8px;">ค่าขนส่ง (Delivery)</td><td style="width:44%;border-left:1px solid #64748b;padding:1px 8px;text-align:right;font-size:12px;font-weight:600;">{{bill.shipping_fee}}</td></tr>
+          <tr style="height:16.66%;border-bottom:1px solid #64748b;background:#fffbeb;"><td style="padding:1px 8px;white-space:nowrap;">ภาษีมูลค่าเพิ่ม&nbsp; <span style="display:inline-block;min-width:50px;height:16px;line-height:14px;border:1px solid #cbd5e1;border-radius:4px;text-align:center;font-weight:700;color:#065f46;">{{document.vat_label}}</span> (VAT)</td><td style="width:44%;border-left:1px solid #64748b;padding:1px 8px;text-align:right;font-size:12px;font-weight:600;">{{bill.tax_amount}}</td></tr>
+          <tr style="height:16.66%;border-bottom:1px solid #64748b;background:#f1f5f9;"><td style="padding:1px 8px;font-weight:800;white-space:nowrap;">จำนวนเงินรวมทั้งสิ้น</td><td style="width:44%;border-left:1px solid #64748b;padding:1px 8px;text-align:right;font-size:12px;font-weight:800;color:#065f46;">฿{{bill.grand_total}}</td></tr>
+          <tr style="height:16.66%;"><td style="padding:1px 8px;white-space:nowrap;color:#92400e;">มัดจำ (ไม่รวมยอด)</td><td style="width:44%;border-left:1px solid #64748b;padding:1px 8px;text-align:right;font-size:12px;font-weight:600;color:#92400e;">{{bill.deposit_amount}}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;padding:4px 10px;border:1.5px solid #111827;border-radius:6px;font-size:15px;">
+    <strong>จำนวนเงินตัวอักษร:</strong> <span style="font-weight:700;">({{bill.grand_total_text}})</span>
+  </div>
+
+  <div style="flex-shrink:0;margin-top:0;padding:8px 12px;border:1.5px solid #111827;border-radius:6px;">
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;text-align:center;">
+      <div style="position:relative;height:103.5px;min-width:0;padding:0 8px;border-right:1px solid #64748b;">
+        <div style="font-size:12px;font-weight:700;color:#1e293b;white-space:nowrap;">ผู้เสนอราคา / จัดทำโดย</div>
+        <div style="position:absolute;right:8px;bottom:23px;left:8px;"><div style="width:80%;margin:auto;border-bottom:1px dotted #64748b;"></div><div style="height:18px;margin-top:2px;font-size:14px;line-height:18px;">(________________________)</div></div>
+        <div style="position:absolute;right:0;bottom:0;left:0;font-size:14px;line-height:20px;color:#64748b;">วันที่ __________________</div>
+      </div>
+      <div style="position:relative;height:103.5px;min-width:0;padding:0 8px;border-right:1px solid #64748b;">
+        <div style="font-size:12px;font-weight:700;color:#1e293b;white-space:nowrap;">ผู้ตรวจสอบ / ฝ่ายบริหาร</div>
+        <div style="position:absolute;right:8px;bottom:23px;left:8px;"><div style="width:80%;margin:auto;border-bottom:1px dotted #64748b;"></div><div style="height:18px;margin-top:2px;font-size:14px;line-height:18px;">(________________________)</div></div>
+        <div style="position:absolute;right:0;bottom:0;left:0;font-size:14px;line-height:20px;color:#64748b;">วันที่ __________________</div>
+      </div>
+      <div style="position:relative;height:103.5px;min-width:0;padding:0 8px;">
+        <div style="font-size:12px;font-weight:700;color:#1e293b;white-space:nowrap;">อนุมัติสั่งจ้าง / สั่งเช่า (ลูกค้า)</div>
+        <div style="position:absolute;right:8px;bottom:23px;left:8px;"><div style="width:80%;margin:auto;border-bottom:1px dotted #64748b;"></div><div style="height:18px;margin-top:2px;font-size:14px;line-height:18px;">(________________________)</div></div>
+        <div style="position:absolute;right:0;bottom:0;left:0;font-size:14px;line-height:20px;color:#64748b;">วันที่ __________________</div>
+      </div>
+    </div>
+  </div>
 </div>
     `.trim()
   },
@@ -427,7 +502,7 @@ export const INITIAL_TEMPLATES: DocumentTemplate[] = [
         <span>ช่องทางชำระ:</span>
         <span class="font-bold text-slate-900">{{bill.payment_method}}</span>
       </div>
-      <div class="flex justify-between border-t border-slate-200 py-0.5 font-bold">
+      <div data-requires-outstanding class="flex justify-between border-t border-slate-200 py-0.5 font-bold">
         <span class="text-slate-700">ยอดคงค้างคงเหลือ:</span>
         <span class="font-mono text-emerald-700">฿{{bill.outstanding_amount}}</span>
       </div>
@@ -588,11 +663,11 @@ export const INITIAL_TEMPLATES: DocumentTemplate[] = [
     createdAt: '2026-01-01',
     updatedAt: '2026-01-01',
     createdBy: 'ระบบ',
-    description: 'แบบฟอร์มตรวจรับและส่งมอบอุปกรณ์ ณ จุดใช้งาน พร้อมตาราง 20 บรรทัด ระบุสถานะสมบูรณ์ 100%',
-    defaultTerms: '1. ผู้รับมอบได้ตรวจสอบสินค้าและอุปกรณ์แล้ว ครบถ้วนตามจำนวนและอยู่ในสภาพใช้งานได้สมบูรณ์\n2. ความเสียหายที่เกิดขึ้นหลังจากเซ็นรับมอบ ถือเป็นความรับผิดชอบของผู้เช่า',
+    description: 'แบบฟอร์มส่งมอบอุปกรณ์ พร้อมตาราง 20 บรรทัดสำหรับระบุจำนวนและรหัสอุปกรณ์',
+    defaultTerms: 'ผู้ส่งมอบและผู้รับมอบโปรดตรวจนับจำนวนและสภาพอุปกรณ์ก่อนลงนาม หากพบข้อแตกต่างให้บันทึกหมายเหตุไว้ในเอกสาร',
     templateSchema: `
 <div class="box-border flex h-full w-full flex-col justify-between overflow-hidden bg-white px-[10mm] py-[8mm] font-sans text-[9.5px] leading-[1.3] text-slate-900">
-  ${renderTemplateHeader('ใบส่งมอบอุปกรณ์ / DELIVERY NOTE', 'ใบส่งสินค้า/ติดตั้ง')}
+  ${renderTemplateHeader('ใบส่งมอบอุปกรณ์ / DELIVERY NOTE', 'ใบส่งสินค้า/ติดตั้ง', 'อ้างอิงบิล')}
 
   <div class="mb-2 grid grid-cols-2 gap-3 rounded border border-slate-300 bg-slate-50/80 p-2 text-[9px]">
     <div>
@@ -618,7 +693,7 @@ export const INITIAL_TEMPLATES: DocumentTemplate[] = [
           <th class="w-[44%] border border-slate-700 px-1.5 py-1 text-left">รายการอุปกรณ์ที่ส่งมอบ</th>
           <th class="w-[10%] border border-slate-700 px-1 py-1 text-center">จำนวน</th>
           <th class="w-[10%] border border-slate-700 px-1 py-1 text-center">หน่วย</th>
-          <th class="w-[16%] border border-slate-700 px-1.5 py-1 text-center">สภาพสินค้า</th>
+          <th class="w-[16%] border border-slate-700 px-1.5 py-1 text-center">จำนวนส่งแล้ว</th>
           <th class="w-[14%] border border-slate-700 px-1.5 py-1 text-left">รหัสอุปกรณ์</th>
         </tr>
       </thead>
@@ -636,6 +711,61 @@ export const INITIAL_TEMPLATES: DocumentTemplate[] = [
   ${renderSignatureBox('ลงชื่อ ( {{customer.name}} )', 'ผู้ตรวจรับมอบสินค้า ณ หน้างาน', 'ลงชื่อ ( {{business.authorized_person}} )', 'พนักงานจัดส่งและทดสอบระบบ')}
 </div>
     `.trim()
+  },
+  {
+    id: 'tpl_equipment_check',
+    name: 'ใบเช็กของ (ส่ง/เก็บคืน) (Equipment Check)',
+    category: 'ใบเช็กของ (ส่ง/เก็บคืน)',
+    source: 'BUILTIN',
+    fileType: 'HTML',
+    version: 1,
+    paperSize: 'A4',
+    orientation: 'PORTRAIT',
+    pageCount: 1,
+    isDefault: true,
+    createdAt: '2026-01-01',
+    updatedAt: '2026-01-01',
+    createdBy: 'ระบบ',
+    description: 'ตรวจนับจำนวนส่งมอบหรือจำนวนรับคืน โดยอ้างอิงจำนวนจริงจากบิลและไม่กำหนดสภาพสินค้าแทนผู้ตรวจ',
+    defaultTerms: 'ตรวจนับรายการและจำนวนตามข้อมูลบิล หากพบจำนวนหรือสภาพสินค้าไม่ตรง ให้บันทึกข้อมูลจริงก่อนลงนาม',
+    templateSchema: `
+<div class="box-border flex h-full w-full flex-col justify-between overflow-hidden bg-white px-[10mm] py-[8mm] font-sans text-[9.5px] leading-[1.3] text-slate-900">
+  ${renderTemplateHeader('ใบเช็กของ / EQUIPMENT CHECK', 'ใบเช็กของ (ส่ง/เก็บคืน)', 'อ้างอิงบิล')}
+  <div class="mb-2 grid grid-cols-2 gap-3 rounded border border-slate-300 bg-slate-50/80 p-2 text-[9px]">
+    <div>
+      <h4 class="font-extrabold text-red-800 mb-0.5 text-[9.5px]">ลูกค้า / สถานที่:</h4>
+      <p class="font-bold text-slate-900 text-[10px]">{{customer.name}}</p>
+      <p class="text-slate-600">{{document.site_name}}</p>
+    </div>
+    <div>
+      <h4 class="font-extrabold text-red-800 mb-0.5 text-[9.5px]">ขั้นตอนตรวจ:</h4>
+      <p class="font-bold">{{document.check_stage}}</p>
+      <p>วันที่: <span class="font-bold">{{document.date}}</span></p>
+      <p>อ้างอิงบิล: <span class="font-bold">{{bill.no}}</span></p>
+    </div>
+  </div>
+  <div class="mb-2 w-full overflow-hidden">
+    <table class="w-full table-fixed border-collapse text-[8.5px] leading-tight border border-slate-400">
+      <thead>
+        <tr class="bg-slate-900 text-white font-extrabold border-b-2 border-red-700">
+          <th class="w-[6%] border border-slate-700 px-1 py-1 text-center">ลำดับ</th>
+          <th class="w-[34%] border border-slate-700 px-1.5 py-1 text-left">รายการอุปกรณ์</th>
+          <th class="w-[12%] border border-slate-700 px-1 py-1 text-center">{{document.check_col_1}}</th>
+          <th class="w-[12%] border border-slate-700 px-1 py-1 text-center">{{document.check_col_2}}</th>
+          <th class="w-[12%] border border-slate-700 px-1 py-1 text-center">{{document.check_col_3}}</th>
+          <th class="w-[12%] border border-slate-700 px-1 py-1 text-center">{{document.check_col_4}}</th>
+          <th class="w-[12%] border border-slate-700 px-1 py-1 text-center">{{document.check_col_5}}</th>
+        </tr>
+      </thead>
+      <tbody>{{items.rows_check_20}}</tbody>
+    </table>
+  </div>
+  <div class="mb-2 rounded border border-slate-300 bg-slate-50/70 p-2 text-[8px] leading-relaxed text-slate-700">
+    <p class="font-extrabold text-red-800 mb-0.5 text-[8.5px]">หมายเหตุการตรวจ:</p>
+    <p class="whitespace-pre-line">{{document.custom_terms}}</p>
+  </div>
+  ${renderSignatureBox('ลงชื่อ ( {{customer.name}} )', 'ผู้ตรวจนับ / ผู้รับมอบ', 'ลงชื่อ ( {{business.authorized_person}} )', 'ผู้ส่งมอบ / ผู้รับคืน')}
+</div>`.trim()
   },
 
   // 8. RENTAL_CONTRACT (หนังสือสัญญาเช่าสินค้าและอุปกรณ์)

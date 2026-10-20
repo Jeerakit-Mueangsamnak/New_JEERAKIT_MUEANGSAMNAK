@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, Suspense, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { loadAllBusinessData } from '@/components/common/MasterDataProvider'
 import { ReportFilter } from '@/features/reports/components/ReportFilter'
 import { FinanceReportView } from '@/features/reports/components/FinanceReportView'
 import { SalesRentalReportView } from '@/features/reports/components/SalesRentalReportView'
@@ -98,12 +99,15 @@ function ReportsWorkspace() {
     }
   }, [])
 
+  // รีเฟรช = reload the latest data from the server, then recompute the reports.
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true)
-    setRefreshKey((k) => k + 1)
-    setTimeout(() => {
-      setIsRefreshing(false)
-    }, 400)
+    void loadAllBusinessData()
+      .catch((err: unknown) => console.error('Report refresh failed:', err))
+      .finally(() => {
+        setRefreshKey((k) => k + 1)
+        setIsRefreshing(false)
+      })
   }, [])
 
   // Filter Object
@@ -113,6 +117,8 @@ function ReportsWorkspace() {
       endDate,
       granularity,
     }),
+    // refreshKey is intentional: the refresh button needs a new filter object so the reports below recompute
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [startDate, endDate, granularity, refreshKey]
   )
 

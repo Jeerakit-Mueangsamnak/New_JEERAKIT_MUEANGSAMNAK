@@ -2,17 +2,17 @@
 
 import React, { Suspense } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { Calendar, Clock } from 'lucide-react'
 import { NotificationBell } from '@/components/common/NotificationBell'
 import { QuickActionLauncher } from '@/components/common/QuickActionLauncher'
 import { AppLockButton } from '@/features/auth/components/AppLockButton'
 import { getPageName } from '@/lib/navigation-meta'
-import { useLiveClock } from '@/lib/hooks/useLiveClock'
+import { useMediaQuery, XL_MEDIA_QUERY } from '@/lib/hooks/useMediaQuery'
+import { LiveClockBadge } from '@/components/common/LiveClockBadge'
 
 function TopHeaderContent() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const { currentDateStr, currentTimeStr } = useLiveClock()
+  const isXl = useMediaQuery(XL_MEDIA_QUERY)
 
   const isAuthRoute = pathname === '/login' || pathname.startsWith('/auth')
   const pageName = getPageName(pathname, searchParams)
@@ -30,17 +30,16 @@ function TopHeaderContent() {
 
       {/* Right: Actions (Date & Time + Lock Button + Notification Bell & Quick Action Launcher) */}
       <div className="flex items-center gap-3 shrink-0 z-10">
-        <div className="flex items-center gap-2.5 px-4 py-1.5 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700/80 text-xs text-slate-700 dark:text-slate-300 font-semibold shadow-xs">
-          <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-          <span>{currentDateStr || 'กำลังโหลด...'}</span>
-          <span className="text-slate-300 dark:text-slate-600">|</span>
-          <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-          <span className="font-mono text-slate-900 dark:text-slate-100 font-bold">{currentTimeStr}</span>
-        </div>
+        <LiveClockBadge variant="header" />
 
         <AppLockButton variant="header" />
-        <NotificationBell />
-        <QuickActionLauncher />
+        {/* One bell / launcher in the app: here from xl up, in the Sidebar's mobile header below */}
+        {isXl !== false && (
+          <>
+            <NotificationBell />
+            <QuickActionLauncher />
+          </>
+        )}
       </div>
     </header>
   )

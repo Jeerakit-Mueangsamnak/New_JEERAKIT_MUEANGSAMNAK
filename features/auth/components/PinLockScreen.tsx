@@ -6,13 +6,8 @@ import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { useAppLock } from '@/features/auth/contexts/AppLockContext'
 import { AuthLayout } from '@/features/auth/components/AuthLayout'
 
-import {
-  getPinLockoutState,
-  savePinLockoutState,
-  clearPinLockoutState,
-  getPinLockoutDuration,
-  setAppLockedState,
-} from '@/features/auth/services/pin-lock'
+import Link from 'next/link'
+import { describePinRefusal, formatWait, setAppLockedState } from '@/features/auth/services/pin-lock'
 
 interface PinLockScreenProps {
   onUnlockSuccess?: () => void
@@ -20,80 +15,27 @@ interface PinLockScreenProps {
 
 export function PinLockScreen({ onUnlockSuccess }: PinLockScreenProps) {
   const { user, signOut: logout } = useAuth()
-  const { verifyPin, unlockApp } = useAppLock()
+  const { verifyPin, unlockApp, status, pinBlocked } = useAppLock()
   const userId = user?.id || ''
 
   const [pin, setPin] = useState('')
   const [showPin, setShowPin] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [isShaking, setIsShaking] = useState(false)
-  const [failedAttempts, setFailedAttempts] = useState(0)
-  const [lockoutLevel, setLockoutLevel] = useState(0)
-  const [lockoutSeconds, setLockoutSeconds] = useState(0)
+  const [lockedUntil, setLockedUntil] = useState<string | null>(status?.lockedUntil ?? null)
+  const [blocked, setBlocked] = useState<boolean>(pinBlocked)
+  const [now, setNow] = useState(Date.now())
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Initialize lockout state from persistent sessionStorage for current user
+  // Countdown while the server makes us wait (iOS-style waits, Master §4.3)
   useEffect(() => {
-    if (!userId) return
-    const stored = getPinLockoutState(userId)
-    setFailedAttempts(stored.failedAttempts)
-    setLockoutLevel(stored.lockoutLevel)
-    if (stored.lockUntil > Date.now()) {
-      const remaining = Math.ceil((stored.lockUntil - Date.now()) / 1000)
-      setLockoutSeconds(remaining)
-    } else {
-      setLockoutSeconds(0)
-    }
-  }, [userId])
-
-  // Lockout Countdown Timer
-  useEffect(() => {
-    if (lockoutSeconds <= 0) return
-    const timer = setInterval(() => {
-      setLockoutSeconds((prev) => (prev > 1 ? prev - 1 : 0))
-    }, 1000)
+    if (!lockedUntil) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
-  }, [lockoutSeconds])
+  }, [lockedUntil])
 
-  const isLockedOut = lockoutSeconds > 0
-
-  const handleFailedAttempt = useCallback(
-    (customMsg?: string) => {
-      if (!userId) return
-      const nextFailures = failedAttempts + 1
-      let nextLevel = 0
-      let duration = 0
-
-      if (nextFailures >= 5) {
-        nextLevel = nextFailures === 5 ? 0 : lockoutLevel + 1
-        duration = getPinLockoutDuration(nextLevel)
-      }
-
-      const lockUntil = duration > 0 ? Date.now() + duration * 1000 : 0
-
-      savePinLockoutState(userId, {
-        failedAttempts: nextFailures,
-        lockoutLevel: nextLevel,
-        lockUntil,
-      })
-
-      setFailedAttempts(nextFailures)
-      setLockoutLevel(nextLevel)
-      setLockoutSeconds(duration)
-
-      setIsShaking(true)
-      setTimeout(() => setIsShaking(false), 500)
-      setPin('')
-
-      if (duration > 0) {
-        const displayTime = duration >= 60 ? `${Math.floor(duration / 60)} นาที (${duration} วินาที)` : `${duration} วินาที`
-        setErrorMsg(`ใส่ PIN ผิดครบ ${nextFailures} ครั้ง ระบบถูกระงับชั่วคราว ${displayTime}`)
-      } else {
-        setErrorMsg(customMsg || `PIN ไม่ถูกต้อง (เหลือโอกาสอีก ${5 - nextFailures} ครั้ง)`)
-      }
-    },
-    [userId, failedAttempts, lockoutLevel]
-  )
+  const lockoutSeconds = lockedUntil ? Math.max(0, Math.ceil((new Date(lockedUntil).getTime() - now) / 1000)) : 0
+  const isLockedOut = blocked || lockoutSeconds > 0
 
   const handleKeyPress = useCallback(
     async (digit: string) => {
@@ -107,30 +49,28 @@ export function PinLockScreen({ onUnlockSuccess }: PinLockScreenProps) {
       if (nextPin.length === 6) {
         setIsSubmitting(true)
         try {
-          const success = await verifyPin(nextPin)
-          if (success) {
-            if (userId) {
-              clearPinLockoutState(userId)
-            }
-            setFailedAttempts(0)
-            setLockoutLevel(0)
-            setLockoutSeconds(0)
-            setPin('')
-            if (onUnlockSuccess) {
-              onUnlockSuccess()
-            }
+          const result = await verifyPin(nextPin)
+          setPin('')
+          if (result.ok) {
+            setLockedUntil(null)
+            onUnlockSuccess?.()
           } else {
-            handleFailedAttempt()
+            setIsShaking(true)
+            setTimeout(() => setIsShaking(false), 500)
+            setBlocked(result.blocked)
+            setLockedUntil(result.lockedUntil)
+            setNow(Date.now())
+            setErrorMsg(describePinRefusal(result))
           }
         } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการตรวจสอบ PIN'
-          handleFailedAttempt(message)
+          setPin('')
+          setErrorMsg(err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการตรวจสอบ PIN')
         } finally {
           setIsSubmitting(false)
         }
       }
     },
-    [pin, isLockedOut, isSubmitting, verifyPin, onUnlockSuccess, handleFailedAttempt, userId]
+    [pin, isLockedOut, isSubmitting, verifyPin, onUnlockSuccess]
   )
 
   const handleDigitPress = handleKeyPress
@@ -164,10 +104,7 @@ export function PinLockScreen({ onUnlockSuccess }: PinLockScreenProps) {
   }, [handleKeyPress, handleDelete, handleClear])
 
   const handleLogout = async () => {
-    if (userId) {
-      setAppLockedState(userId, false)
-      clearPinLockoutState(userId)
-    }
+    if (userId) setAppLockedState(userId, false)
     unlockApp()
     await logout()
   }
@@ -215,9 +152,10 @@ export function PinLockScreen({ onUnlockSuccess }: PinLockScreenProps) {
         </div>
 
         {/* 6 PIN Display / Dots (with Visibility Toggle) */}
-        <div className="relative flex items-center justify-center mb-2">
+        {/* The eye toggle is a normal item beside the boxes (never positioned over them). */}
+        <div className="flex items-center justify-center gap-1 my-3">
           <div
-            className={`flex items-center justify-center gap-2.5 sm:gap-3 py-1 ${
+            className={`flex items-center justify-center gap-3 py-1 ${
               isShaking ? 'animate-shake' : ''
             }`}
           >
@@ -227,9 +165,9 @@ export function PinLockScreen({ onUnlockSuccess }: PinLockScreenProps) {
               return (
                 <div
                   key={index}
-                  className={`w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center transition-all duration-200 ${
+                  className={`w-10 h-12 rounded-xl flex items-center justify-center transition-all duration-200 ${
                     isFilled
-                      ? 'bg-blue-500/20 border-2 border-blue-500 text-blue-600 dark:text-white font-mono font-black text-sm shadow-md shadow-blue-500/30'
+                      ? 'bg-blue-500/20 border-2 border-blue-500 text-blue-600 dark:text-white font-mono font-black text-lg shadow-md shadow-blue-500/30'
                       : 'bg-slate-100 dark:bg-slate-800/80 border-2 border-slate-300 dark:border-slate-700 text-transparent'
                   }`}
                 >
@@ -241,7 +179,7 @@ export function PinLockScreen({ onUnlockSuccess }: PinLockScreenProps) {
           <button
             type="button"
             onClick={() => setShowPin(!showPin)}
-            className="absolute -right-8 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 focus:outline-none transition-colors cursor-pointer"
+            className="ml-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-2 focus:outline-none transition-colors cursor-pointer"
             aria-label={showPin ? "ซ่อน PIN" : "แสดง PIN"}
           >
             {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -250,10 +188,10 @@ export function PinLockScreen({ onUnlockSuccess }: PinLockScreenProps) {
 
         {/* Error / Lockout Message */}
         <div className="min-h-[26px] text-center mb-2">
-          {lockoutSeconds > 0 ? (
+          {isLockedOut ? (
             <div className="flex items-center justify-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-900 px-3 py-1 rounded-xl">
               <ShieldAlert className="w-4 h-4 shrink-0" />
-              <span>ระงับการใส่ PIN ชั่วคราว: {lockoutSeconds} วินาที</span>
+              <span>{blocked ? 'PIN ถูกล็อก' : `รออีก ${formatWait(lockedUntil || '')} แล้วลองใหม่`}</span>
             </div>
           ) : errorMsg ? (
             <div className="flex items-center justify-center gap-1.5 text-xs text-rose-600 dark:text-rose-400 font-bold bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-900 px-3 py-1 rounded-xl animate-in fade-in">
@@ -266,12 +204,12 @@ export function PinLockScreen({ onUnlockSuccess }: PinLockScreenProps) {
         </div>
 
         {/* Numeric Keypad (1-9, 0) */}
-        <div className="grid grid-cols-3 gap-2.5 sm:gap-3 w-full max-w-[280px]">
+        <div className="grid grid-cols-3 gap-x-6 gap-y-4 w-full max-w-[300px] mt-1">
           {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
             <button
               key={num}
               type="button"
-              disabled={lockoutSeconds > 0 || isSubmitting}
+              disabled={isLockedOut || isSubmitting}
               onClick={() => handleDigitPress(num.toString())}
               aria-label={`ตัวเลข ${num}`}
               className="aspect-square w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 active:bg-blue-600 active:text-white border border-slate-300 dark:border-slate-700/80 text-slate-900 dark:text-white font-black text-xl sm:text-2xl flex items-center justify-center mx-auto transition-all shadow-xs active:scale-95 disabled:opacity-40 disabled:pointer-events-none cursor-pointer select-none"
@@ -283,7 +221,7 @@ export function PinLockScreen({ onUnlockSuccess }: PinLockScreenProps) {
           {/* Bottom row: Clear, 0, Backspace */}
           <button
             type="button"
-            disabled={lockoutSeconds > 0 || isSubmitting || pin.length === 0}
+            disabled={isLockedOut || isSubmitting || pin.length === 0}
             onClick={handleClear}
             className="aspect-square w-14 h-14 sm:w-16 sm:h-16 rounded-full text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 active:bg-slate-200 dark:active:bg-slate-800 text-xs font-bold flex items-center justify-center mx-auto transition-colors disabled:opacity-0 cursor-pointer select-none"
           >
@@ -292,7 +230,7 @@ export function PinLockScreen({ onUnlockSuccess }: PinLockScreenProps) {
 
           <button
             type="button"
-            disabled={lockoutSeconds > 0 || isSubmitting}
+            disabled={isLockedOut || isSubmitting}
             onClick={() => handleDigitPress('0')}
             aria-label="ตัวเลข 0"
             className="aspect-square w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 active:bg-blue-600 active:text-white border border-slate-300 dark:border-slate-700/80 text-slate-900 dark:text-white font-black text-xl sm:text-2xl flex items-center justify-center mx-auto transition-all shadow-xs active:scale-95 disabled:opacity-40 disabled:pointer-events-none cursor-pointer select-none"
@@ -302,7 +240,7 @@ export function PinLockScreen({ onUnlockSuccess }: PinLockScreenProps) {
 
           <button
             type="button"
-            disabled={lockoutSeconds > 0 || isSubmitting || pin.length === 0}
+            disabled={isLockedOut || isSubmitting || pin.length === 0}
             onClick={handleDelete}
             aria-label="ลบตัวเลข"
             className="aspect-square w-14 h-14 sm:w-16 sm:h-16 rounded-full text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 active:bg-slate-200 dark:active:bg-slate-800 flex items-center justify-center mx-auto transition-colors disabled:opacity-0 cursor-pointer select-none"
@@ -311,6 +249,16 @@ export function PinLockScreen({ onUnlockSuccess }: PinLockScreenProps) {
           </button>
         </div>
 
+        {/* Forgot PIN: OWNER re-authenticates by e-mail / password; a USER asks the OWNER */}
+        <div className="text-center pt-2">
+          {user?.role === 'OWNER' ? (
+            <Link href="/forgot-pin" className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline">
+              ลืม PIN?
+            </Link>
+          ) : (
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">ลืม PIN? ให้เจ้าของร้านล้าง PIN ให้ที่เมนูจัดการสิทธิ์</span>
+          )}
+        </div>
         {/* Footer info */}
         <div className="text-center pt-3 pb-1 shrink-0">
           <p className="text-[10px] text-slate-500 dark:text-slate-400">

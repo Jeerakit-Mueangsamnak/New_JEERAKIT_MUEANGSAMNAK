@@ -3,6 +3,7 @@
 import React, { useMemo } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { NumericInput } from '@/components/common/NumericInput'
+import { CustomSelect } from '@/components/common/CustomSelect'
 
 export type SplitTenderMethod = 'CASH' | 'TRANSFER' | 'QR' | 'CHEQUE' | 'OTHER'
 
@@ -38,8 +39,9 @@ export function SplitTenderEditor({
   createTender,
   disabled = false,
 }: SplitTenderEditorProps) {
+  // No cheque option: the server stores CASH / TRANSFER / CARD / QR / OTHER only (owner 2026-10-18).
   const enabledMethods: SplitTenderMethod[] = useMemo(
-    () => ['CASH', 'TRANSFER', 'QR', 'CHEQUE', 'OTHER'],
+    () => ['CASH', 'TRANSFER', 'QR', 'OTHER'],
     []
   )
 
@@ -111,23 +113,21 @@ export function SplitTenderEditor({
               <div className="grid grid-cols-[110px_minmax(0,1fr)_auto] items-end gap-1.5">
                 <div>
                   <label className="mb-0.5 block text-[10px] font-bold text-slate-500">ช่องทาง</label>
-                  <select
+                  <CustomSelect
+                    ariaLabel="ช่องทาง"
                     value={tender.paymentMethod}
                     disabled={disabled}
-                    onChange={(e) => {
-                      const method = e.target.value as SplitTenderMethod
+                    onChange={(value) => {
+                      const method = value as SplitTenderMethod
                       updateTender(tender.id, {
                         paymentMethod: method,
                         cashReceived: method === 'CASH' ? Math.max(tender.cashReceived || 0, tender.amount || 0) : 0,
                         referenceNo: method === 'CASH' ? '' : tender.referenceNo,
                       })
                     }}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-bold dark:border-slate-700 dark:bg-slate-800"
-                  >
-                    {enabledMethods.map((method) => (
-                      <option key={method} value={method}>{METHOD_LABELS[method]}</option>
-                    ))}
-                  </select>
+                    buttonClassName="h-[30px] px-2 py-0 rounded-lg"
+                    options={enabledMethods.map((method) => ({ value: method, label: METHOD_LABELS[method] }))}
+                  />
                 </div>
 
                 <div>

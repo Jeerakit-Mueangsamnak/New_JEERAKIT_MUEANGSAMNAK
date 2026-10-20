@@ -1,6 +1,13 @@
 'use client'
 
+import { useAskText } from '@/components/common/ConfirmDialogProvider'
+import { printQuotationA4 } from '@/features/documents/utils/transaction-print'
+import { printRentalBillA4 } from '@/features/documents/utils/rental-bill-print'
+import { fetchQuotationsFromSupabase, quotationStatusView } from '@/features/quotations/services/quotation-storage'
+import type { Quotation } from '@/lib/types/rental-pos'
+import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import React, { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   Users,
   Plus,
@@ -18,16 +25,15 @@ import {
   Upload,
   CheckCircle2,
   Trash2,
-  UserCheck,
   AlertTriangle,
   Printer,
   Receipt,
   Save,
   RefreshCw,
-  ChevronLeft,
-  ChevronRight,
+  ExternalLink,
 } from 'lucide-react'
 import { CustomSelect } from '@/components/common/CustomSelect'
+import { DataTableFrame } from '@/components/common/DataTableFrame'
 import {
   ActionButton,
   TAB_BUTTON_BASE_CLASSES,
@@ -43,20 +49,29 @@ import {
 } from '@/lib/types/rental-pos'
 import { NewCustomerModal } from '@/features/customers/components/NewCustomerModal'
 import { useToast } from '@/components/common/Toast'
+import { useCreateCustomer } from '@/features/customers/hooks/useCreateCustomer'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
-import { logger } from '@/lib/utils/logger'
-import { loadCustomers, addCustomerAsync, updateCustomerAsync, deleteCustomerAsync } from '@/features/customers/services/customer-storage'
-import { loadRentalBills, deleteBill, canHardDeleteBill } from '@/features/bills/services/bill-storage'
-import { returnProductStock, restoreSaleProductStock } from '@/features/products/services/product-storage'
-import { loadTransactions } from '@/features/finance/services/finance-storage'
-import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { recordAuditLog, generateCorrelationId } from '@/features/audits/services/audit-storage'
-import { cancelOrVoidBillWorkflow } from '@/features/bills/services/bill-workflow-service'
+import { loadCustomers, updateCustomerAsync, deleteCustomerAsync, isIdCardUploadError } from '@/features/customers/services/customer-storage'
+import { getLatestIdCardUrl } from '@/features/customers/api/customer-repository'
+import { loadRentalBills, loadBillById } from '@/features/bills/services/bill-storage'
+import {
+  getBillOverdueDays,
+  getBillPaymentPresentation,
+  getRentalStatusPresentation,
+  isOwingBill,
+} from '@/features/bills/utils/bill-list-presentation'
+import { loadTransactions, formatLocalDateTime } from '@/features/finance/services/finance-storage'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
+
+// Bills whose items are still out with the customer (same set as the products menu).
+// EXTENDED = parent bill whose goods moved to a continuation bill: it holds nothing itself.
+const HOLDING_RENTAL_STATUSES: string[] = ['RENTING', 'PARTIAL_RETURNED']
 
 export default function CustomersPage() {
   const { showToast } = useToast()
-  const { user } = useAuth()
+  const createCustomer = useCreateCustomer()
+  const askText = useAskText()
+  const { settings: systemSettings } = useSystemSettings()
   const [customers, setCustomers] = useState<Customer[]>([])
   const [bills, setBills] = useState<RentalBill[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -92,6 +107,7 @@ export default function CustomersPage() {
     | 'GENERAL'
     | 'RENTAL_HISTORY'
     | 'PAYMENT_HISTORY'
+    | 'QUOTATIONS'
     | 'OUTSTANDING_ITEMS'
     | 'DOCUMENTS'
     | 'ANALYTICS'
@@ -114,6 +130,20 @@ export default function CustomersPage() {
     loadData()
   }, [loadData])
 
+  // Customer history includes the customer's quotations (Master §193), read from the database.
+  const [customerQuotations, setCustomerQuotations] = useState<Quotation[]>([])
+  useEffect(() => {
+    setCustomerQuotations([])
+    if (!selectedCustomerId) return
+    let alive = true
+    fetchQuotationsFromSupabase()
+      .then((list) => alive && setCustomerQuotations(list.filter((q) => q.customerId === selectedCustomerId)))
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [selectedCustomerId])
+
   // Fetch Customer 360 detailed records whenever selectedCustomerId changes
   useEffect(() => {
     if (!selectedCustomerId) {
@@ -127,29 +157,51 @@ export default function CustomersPage() {
     const currentCustomer = customers.find((c) => c.id === selectedCustomerId)
     setCustomerNoteInput(currentCustomer?.note || '')
 
-    // Payments from finance transactions
-    const allTx = loadTransactions()
-    const matchingTx = allTx.filter(
-      (tx) => tx.customerName && currentCustomer && tx.customerName.toLowerCase() === currentCustomer.customerName.toLowerCase()
-    )
-    const payments: CustomerPaymentRecord[] = matchingTx.map((tx) => ({
-      id: tx.id,
-      paymentNo: tx.refNo,
-      paymentDate: tx.dateTime,
-      paymentMethod: tx.channel,
-      amount: tx.incomeAmount,
-      status: 'SUCCESS',
-      billNo: tx.refNo,
-    }))
+    // Bills belong to the customer by id only (two customers may share a name).
+    const currentBills = bills.filter((b) => currentCustomer && b.customerId === currentCustomer.id)
+    const currentBillIds = new Set(currentBills.map((b) => b.id))
+
+    // Payments and refunds of this customer's bills: the receipt number of each payment, how much
+    // of it was refunded, and each refund as its own row (amount shown as money out).
+    const allTx = loadTransactions().filter((tx) => tx.billId && currentBillIds.has(tx.billId))
+    const refunds = allTx.filter((tx) => tx.source === 'REFUND')
+    const refundedOf = (paymentId: string) =>
+      refunds.filter((r) => r.originalTxId === paymentId).reduce((sum, r) => sum + r.expenseAmount, 0)
+    const payments: CustomerPaymentRecord[] = allTx
+      .filter((tx) => tx.source === 'PAYMENT' || tx.source === 'REFUND')
+      .map((tx) => {
+        if (tx.source === 'REFUND') {
+          return {
+            id: tx.id,
+            paymentNo: tx.refNo,
+            receiptNo: tx.refNo,
+            paymentDate: tx.dateTime,
+            paymentMethod: tx.channel,
+            amount: -tx.expenseAmount,
+            status: 'REFUND',
+            note: tx.description.split(' — ').slice(1).join(' — ') || null,
+            billNo: tx.billNo,
+          }
+        }
+        const refunded = refundedOf(tx.id)
+        return {
+          id: tx.id,
+          paymentNo: tx.refNo,
+          receiptNo: tx.receiptNo || null,
+          paymentDate: tx.dateTime,
+          paymentMethod: tx.channel,
+          amount: tx.incomeAmount,
+          status: refunded <= 0 ? 'COMPLETED' : refunded >= tx.incomeAmount ? 'REFUNDED' : 'PARTIAL_REFUND',
+          referenceNo: tx.reference || null,
+          billNo: tx.billNo || tx.refNo,
+        }
+      })
     setCustomerPayments(payments)
 
     // Outstanding items from customerBills
-    const currentBills = bills.filter(
-      (b) => currentCustomer && (b.customerId === currentCustomer.id || b.customerName === currentCustomer.customerName)
-    )
     const outstanding: CustomerOutstandingItemRecord[] = []
     currentBills
-      .filter((b) => b.rentalStatus === 'RENTING')
+      .filter((b) => HOLDING_RENTAL_STATUSES.includes(b.rentalStatus))
       .forEach((b) => {
         b.items.forEach((item) => {
           if (item.rentalType === 'SALE' || item.requiresReturn === false) return
@@ -182,23 +234,40 @@ export default function CustomersPage() {
     setCustomerOutstandingItems(outstanding)
   }, [selectedCustomerId, customers, bills])
 
-  const selectedCustomer: Customer | undefined = customers.find((c) => c.id === selectedCustomerId)
+  const selectedCustomerRecord: Customer | undefined = customers.find((c) => c.id === selectedCustomerId)
+  // ID card photo lives in private Storage (customer document); show it through a short-lived link.
+  const [idCardUrl, setIdCardUrl] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    setIdCardUrl(undefined)
+    if (!selectedCustomerId) return
+    let alive = true
+    getLatestIdCardUrl(selectedCustomerId)
+      .then((url) => alive && setIdCardUrl(url ?? undefined))
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [selectedCustomerId, customers])
+  const selectedCustomer: Customer | undefined = selectedCustomerRecord
+    ? { ...selectedCustomerRecord, idCardImageUrl: idCardUrl }
+    : undefined
 
   // Filter bills for selected customer
   const customerBills = selectedCustomer
-    ? bills.filter(
-        (b) => b.customerId === selectedCustomer.id || b.customerName === selectedCustomer.customerName
-      ).filter(
+    ? bills.filter((b) => b.customerId === selectedCustomer.id).filter(
         (b) =>
           b.billNo.toLowerCase().includes(billSearchTerm.toLowerCase()) ||
           b.customerName.toLowerCase().includes(billSearchTerm.toLowerCase())
       )
     : []
 
-  // Metrics calculation for RENTAL_HISTORY tab
+  // Metrics for the rental-history and analytics tabs. Cancelled / voided bills are not real
+  // rentals and owe nothing (same rule as the bills list: isOwingBill).
+  const activeCustomerBills = customerBills.filter((b) => isOwingBill(loadBillById(b.id) ?? b))
   const totalBills = customerBills.length
-  const totalSpent = customerBills.reduce((sum, b) => sum + b.grandTotal, 0)
-  const totalOutstanding = customerBills.reduce((sum, b) => sum + b.outstandingAmount, 0)
+  const activeBillCount = activeCustomerBills.length
+  const totalSpent = activeCustomerBills.reduce((sum, b) => sum + b.grandTotal, 0)
+  const totalOutstanding = activeCustomerBills.reduce((sum, b) => sum + b.outstandingAmount, 0)
   const activeRentingBills = customerBills.filter((b) => b.rentalStatus === 'RENTING').length
 
   // Auto-fit pagination for customer tabs
@@ -229,61 +298,8 @@ export default function CustomersPage() {
     outstandingAutoFit.endIndex
   )
 
-  // Bill Delete Confirmation State
-  const [billToDelete, setBillToDelete] = useState<RentalBill | null>(null)
-  const [deleteBillReason, setDeleteBillReason] = useState('')
-  const [isDeletingBill, setIsDeletingBill] = useState(false)
-
-  const handleConfirmDeleteBill = async () => {
-    if (!billToDelete) return
-    const reason = deleteBillReason.trim()
-    if (!reason) {
-      showToast('กรุณาระบุเหตุผล', 'จำเป็นต้องระบุเหตุผลในการลบบิล (DELETE_REASON_REQUIRED)', 'ERROR')
-      return
-    }
-    setIsDeletingBill(true)
-    try {
-      const actorUserId = user?.userId || 'system'
-      const actorDisplayName = user?.displayName || 'ระบบ'
-
-      if (canHardDeleteBill(billToDelete)) {
-        // Only draft bills with no transactions can be hard deleted
-        deleteBill(billToDelete.id)
-        setBills((prev) => prev.filter((b) => b.id !== billToDelete.id))
-        showToast(
-          'ลบรายการบิลฉบับร่างสำเร็จ',
-          `ลบรายการบิลฉบับร่าง ${billToDelete.billNo} ออกจากระบบเรียบร้อยแล้ว`,
-          'SUCCESS'
-        )
-      } else {
-        // Confirmed or transactional bills must NOT be hard deleted; transition to VOID via lifecycle workflow
-        cancelOrVoidBillWorkflow({
-          billId: billToDelete.id,
-          reason,
-          actor: {
-            userId: actorUserId,
-            displayName: actorDisplayName,
-          },
-          actionType: 'VOID',
-        })
-        const updatedBills = loadRentalBills()
-        setBills(updatedBills)
-        showToast(
-          'โมฆะบิลสำเร็จ',
-          `บิล ${billToDelete.billNo} มีธุรกรรมแล้ว ระบบได้เปลี่ยนสถานะเป็น VOID เพื่อรักษาประวัติการเงินและสต็อก`,
-          'SUCCESS'
-        )
-      }
-
-      setBillToDelete(null)
-      setDeleteBillReason('')
-    } catch (err: any) {
-      logger.error('Failed to delete/void bill:', err)
-      showToast('ดำเนินการไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาดในการดำเนินการกับบิล', 'ERROR')
-    } finally {
-      setIsDeletingBill(false)
-    }
-  }
+  // Bills are cancelled / voided in the bills menu (PIN + BILL_VOID grant); here a bill only opens there.
+  const router = useRouter()
 
   const handleOpenAdd = () => {
     setEditingCustomer(null)
@@ -299,24 +315,19 @@ export default function CustomersPage() {
     if (suspendingCustomerId) return
 
     const targetSuspend = !c.isSuspended
-    const reasonPrompt = window.prompt(
-      targetSuspend
-        ? `กรุณาระบุเหตุผลในการระงับสิทธิ์ลูกค้า "${c.customerName}" (จำเป็น):`
-        : `กรุณาระบุเหตุผลในการปลดระงับสิทธิ์ลูกค้า "${c.customerName}" (จำเป็น):`
-    )
-    const trimmedReason = reasonPrompt?.trim()
-    if (!trimmedReason) {
-      if (reasonPrompt !== null) {
-        showToast('กรุณาระบุเหตุผล', 'จำเป็นต้องระบุเหตุผลในการเปลี่ยนสถานะสิทธิ์ลูกค้า', 'ERROR')
-      }
-      return
-    }
+    const trimmedReason = await askText({
+      title: targetSuspend ? `ระงับสิทธิ์ลูกค้า "${c.customerName}"` : `ปลดระงับสิทธิ์ลูกค้า "${c.customerName}"`,
+      message: 'ระบุเหตุผล (บันทึกในประวัติ)',
+      danger: targetSuspend,
+    })
+    if (!trimmedReason) return
 
     setSuspendingCustomerId(c.id)
 
     try {
-      const updatedCustomer = { ...c, isSuspended: targetSuspend }
-      await updateCustomerAsync(updatedCustomer)
+      // Active state is one flag in the DB (status and isSuspended both mirror it): flip both.
+      const updatedCustomer: Customer = { ...c, isSuspended: targetSuspend, status: targetSuspend ? 'INACTIVE' : 'ACTIVE' }
+      await updateCustomerAsync(updatedCustomer, trimmedReason)
       setCustomers((prev) =>
         prev.map((item) => (item.id === updatedCustomer.id ? updatedCustomer : item))
       )
@@ -341,7 +352,7 @@ export default function CustomersPage() {
     }
 
     try {
-      await deleteCustomerAsync(customerToDelete.id)
+      await deleteCustomerAsync(customerToDelete.id, trimmedReason)
       setCustomers((prev) => prev.map((item) => (item.id === customerToDelete.id ? { ...item, isSuspended: true, status: 'INACTIVE' } : item)))
       if (selectedCustomerId === customerToDelete.id) {
         setSelectedCustomerId('')
@@ -358,51 +369,64 @@ export default function CustomersPage() {
     }
   }
 
-  const handleSaveCustomer = async (updatedCustomer: Customer, reason?: string) => {
+  /** Resolves true when the customer row was saved, so the form closes only then. */
+  const handleSaveCustomer = async (updatedCustomer: Customer, reason?: string): Promise<boolean> => {
     const exists = customers.find((c) => c.id === updatedCustomer.id)
     if (exists) {
       const trimmedReason = reason?.trim()
       if (!trimmedReason) {
         showToast('กรุณาระบุเหตุผล', 'จำเป็นต้องระบุเหตุผลในการแก้ไขข้อมูลลูกค้า', 'ERROR')
-        return
+        return false
       }
       try {
-        await updateCustomerAsync(updatedCustomer)
-        setCustomers(customers.map((c) => (c.id === updatedCustomer.id ? updatedCustomer : c)))
+        setCustomers(await updateCustomerAsync(updatedCustomer, trimmedReason))
         showToast('แก้ไขข้อมูลลูกค้าสำเร็จ', `ปรับปรุงข้อมูลของ ${updatedCustomer.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
+        return true
       } catch (err: any) {
+        if (isIdCardUploadError(err)) {
+          setCustomers(loadCustomers())
+          showToast('บันทึกข้อมูลลูกค้าแล้ว', err.message, 'INFO')
+          return true
+        }
         showToast('แก้ไขข้อมูลลูกค้าไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
+        return false
       }
     } else {
-      const newCustomer = { ...updatedCustomer, id: updatedCustomer.id || `cust-${Date.now()}` }
       try {
-        await addCustomerAsync(newCustomer)
-        setCustomers([newCustomer, ...customers])
+        // The server assigns the id (and asks before saving a possible duplicate).
+        const newCustomer = await createCustomer(updatedCustomer)
+        setCustomers(loadCustomers())
         setSelectedCustomerId(newCustomer.id)
         showToast('เพิ่มลูกค้าใหม่สำเร็จ', `บันทึกข้อมูลลูกค้า ${newCustomer.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
+        return true
       } catch (err: any) {
+        if (isIdCardUploadError(err)) {
+          setCustomers(loadCustomers())
+          setSelectedCustomerId(err.saved.id)
+          showToast('บันทึกข้อมูลลูกค้าแล้ว', err.message, 'INFO')
+          return true
+        }
+        if (err?.tag === 'DUPLICATE_CUSTOMER') return false
         showToast('เพิ่มลูกค้าใหม่ไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
+        return false
       }
     }
   }
 
   const handleSaveNote = async () => {
     if (!selectedCustomer) return
-    const reasonPrompt = window.prompt(`กรุณาระบุเหตุผลในการแก้ไขหมายเหตุลูกค้า "${selectedCustomer.customerName}" (จำเป็น):`)
-    const trimmedReason = reasonPrompt?.trim()
-    if (!trimmedReason) {
-      if (reasonPrompt !== null) {
-        showToast('กรุณาระบุเหตุผล', 'จำเป็นต้องระบุเหตุผลในการแก้ไขหมายเหตุลูกค้า', 'ERROR')
-      }
-      return
-    }
+    const trimmedReason = await askText({
+      title: `แก้ไขหมายเหตุลูกค้า "${selectedCustomer.customerName}"`,
+      message: 'ระบุเหตุผล (บันทึกในประวัติ)',
+    })
+    if (!trimmedReason) return
     setIsSavingNote(true)
     try {
       const updated = {
         ...selectedCustomer,
         note: customerNoteInput.trim() || undefined,
       }
-      await updateCustomerAsync(updated)
+      await updateCustomerAsync(updated, trimmedReason)
       setCustomers((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
       showToast('บันทึกหมายเหตุสำเร็จ', `อัปเดตหมายเหตุของ ${updated.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
     } catch (err: any) {
@@ -437,7 +461,7 @@ export default function CustomersPage() {
             variant="primary"
             icon={<Plus className="w-4 h-4" />}
           >
-            + เพิ่มลูกค้าใหม่
+            เพิ่มลูกค้าใหม่
           </ActionButton>
         </div>
       </div>
@@ -446,7 +470,7 @@ export default function CustomersPage() {
       <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col">
         {/* Sub-tabs Navigation Bar (ปุ่มแถบติดอยู่บนหัวการ์ดเนื้อหา) */}
         <div className="p-2 bg-slate-50/50 dark:bg-slate-900/30 border-b border-slate-200 dark:border-slate-700 shrink-0">
-          <div className="bg-slate-100 dark:bg-slate-900/80 h-9 p-1 gap-1 rounded-xl border border-slate-200 dark:border-slate-700 grid grid-cols-7 items-center w-full min-w-0">
+          <div className="bg-slate-100 dark:bg-slate-900/80 h-9 p-1 gap-1 rounded-xl border border-slate-200 dark:border-slate-700 grid grid-cols-8 items-center w-full min-w-0">
             <button
               type="button"
               onClick={() => setActive360Tab('GENERAL')}
@@ -484,6 +508,19 @@ export default function CustomersPage() {
             >
               <CreditCard className="w-3.5 h-3.5 shrink-0" />
               <span className="truncate min-w-0">ประวัติการชำระเงิน</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActive360Tab('QUOTATIONS')}
+              className={`w-full min-w-0 ${TAB_BUTTON_BASE_CLASSES} ${
+                active360Tab === 'QUOTATIONS'
+                  ? TAB_BUTTON_ACTIVE_CLASSES
+                  : TAB_BUTTON_INACTIVE_CLASSES
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate min-w-0">ใบเสนอราคา</span>
             </button>
 
             <button
@@ -783,14 +820,14 @@ export default function CustomersPage() {
                       <CreditCard className="w-3.5 h-3.5 text-sky-600" />
                       <span>สำเนาบัตรประชาชน</span>
                     </span>
-                    {selectedCustomer ? (
+                    {selectedCustomer?.idCardImageUrl ? (
                       <span className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-full font-bold text-[10px] flex items-center gap-1">
                         <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                         <span>ยืนยันตัวตนแล้ว</span>
                       </span>
                     ) : (
                       <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-full font-bold text-[10px] flex items-center gap-1">
-                        <span>รอเลือกลูกค้า</span>
+                        <span>{selectedCustomer ? 'ยังไม่มีรูปบัตร' : 'รอเลือกลูกค้า'}</span>
                       </span>
                     )}
                   </div>
@@ -836,7 +873,6 @@ export default function CustomersPage() {
 
                           <div className="flex justify-between items-end text-[7px] font-mono text-sky-200 border-t border-white/20 pt-1">
                             <span>หมดอายุ: {selectedCustomer.idCardExpiry || '-'}</span>
-                            <span className="font-bold text-emerald-300">✓ VERIFIED</span>
                           </div>
                         </div>
                       ) : (
@@ -962,11 +998,13 @@ export default function CustomersPage() {
                 </div>
 
                   {/* Table Area: Fills 100% of remaining vertical height */}
-                  <div
-                    ref={rentalAutoFit.containerRef}
-                    className="flex-1 min-h-0 overflow-hidden flex flex-col"
+                  <DataTableFrame
+                    fill
+                    scrollRef={rentalAutoFit.containerRef}
+                    rowCount={customerBills.length}
+                    shownCount={rentalAutoFit.endIndex}
+                    className="flex-1 min-h-0 rounded-none bg-transparent"
                   >
-                  <div className="flex-1 min-h-0 overflow-hidden">
                     <table className="w-full text-left border-collapse text-[10px] leading-tight table-fixed">
                       <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 uppercase tracking-wider shadow-xs text-xs">
                         <tr>
@@ -992,40 +1030,12 @@ export default function CustomersPage() {
                           </tr>
                         ) : (
                           paginatedCustomerBills.map((b) => {
-                            let rentalBadgeClass = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                            let rentalBadgeText = 'ฉบับร่าง'
-                            if (b.rentalStatus === 'RENTING') {
-                              rentalBadgeClass = 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-                              rentalBadgeText = 'กำลังเช่า'
-                            } else if (b.rentalStatus === 'PARTIAL_RETURNED') {
-                              rentalBadgeClass = 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
-                              rentalBadgeText = 'คืนบางส่วน'
-                            } else if (b.rentalStatus === 'RETURNED') {
-                              rentalBadgeClass = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                              rentalBadgeText = 'คืนครบแล้ว'
-                            } else if (b.rentalStatus === 'CLOSED') {
-                              rentalBadgeClass = 'bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-200 font-bold'
-                              rentalBadgeText = 'ปิดบิล'
-                            } else if (b.rentalStatus === 'CANCELLED') {
-                              rentalBadgeClass = 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
-                              rentalBadgeText = 'ยกเลิก'
-                            }
-
-                            let paymentBadgeClass = 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
-                            let paymentBadgeText = 'ค้างชำระ'
-                            if (b.paymentStatus === 'PAID') {
-                              paymentBadgeClass = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                              paymentBadgeText = 'ชำระแล้ว'
-                            } else if (b.paymentStatus === 'PARTIAL') {
-                              paymentBadgeClass = 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                              paymentBadgeText = 'ชำระบางส่วน'
-                            } else if (b.paymentStatus === 'REFUNDED') {
-                              paymentBadgeClass = 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
-                              paymentBadgeText = 'คืนเงินแล้ว'
-                            } else if (b.paymentStatus === 'REFUND_PARTIAL') {
-                              paymentBadgeClass = 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
-                              paymentBadgeText = 'คืนเงินบางส่วน'
-                            }
+                            // Same badges as the bills list (cancelled / void bills owe nothing).
+                            const fullBill = loadBillById(b.id)
+                            const rentalPresentation = fullBill
+                              ? getRentalStatusPresentation(fullBill.rentalStatus, getBillOverdueDays(fullBill))
+                              : getRentalStatusPresentation(b.rentalStatus)
+                            const paymentPresentation = getBillPaymentPresentation(fullBill ?? b)
 
                             return (
                               <tr key={b.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
@@ -1046,20 +1056,21 @@ export default function CustomersPage() {
                                   ฿{b.outstandingAmount.toLocaleString('th-TH')}
                                 </td>
                                 <td className="px-1.5 sm:px-2 py-2.5 text-center whitespace-nowrap">
-                                  <span className={`inline-flex shrink-0 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold ${rentalBadgeClass}`}>
-                                    {rentalBadgeText}
+                                  <span className={`inline-flex shrink-0 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold ${rentalPresentation.className}`}>
+                                    {rentalPresentation.label}
                                   </span>
                                 </td>
                                 <td className="px-1.5 sm:px-2 py-2.5 text-center whitespace-nowrap">
-                                  <span className={`inline-flex shrink-0 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold ${paymentBadgeClass}`}>
-                                    {paymentBadgeText}
+                                  <span className={`inline-flex shrink-0 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold ${paymentPresentation.className}`}>
+                                    {paymentPresentation.label}
                                   </span>
                                 </td>
                                 <td className="w-[72px] min-w-[72px] px-1 py-2.5 text-center whitespace-nowrap">
                                   <div className="flex items-center justify-center gap-1 flex-nowrap shrink-0">
                                     <button
                                       type="button"
-                                      onClick={() => window.print()}
+                                      onClick={() => fullBill && printRentalBillA4(fullBill, systemSettings.business)}
+                                      disabled={!fullBill}
                                       title="พิมพ์เอกสาร A4"
                                       className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 transition-colors shadow-xs cursor-pointer shrink-0"
                                     >
@@ -1067,11 +1078,12 @@ export default function CustomersPage() {
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => setBillToDelete(b)}
-                                      title="ลบรายการบิล"
-                                      className="p-1.5 rounded-lg bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors shadow-xs cursor-pointer shrink-0"
+                                      onClick={() => router.push(`/bills?id=${encodeURIComponent(b.id)}`)}
+                                      title="เปิดบิลในเมนูบิล"
+                                      aria-label={`เปิดบิล ${b.billNo}`}
+                                      className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors shadow-xs cursor-pointer shrink-0"
                                     >
-                                      <Trash2 className="w-3.5 h-3.5" />
+                                      <ExternalLink className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
                                 </td>
@@ -1081,44 +1093,7 @@ export default function CustomersPage() {
                         )}
                       </tbody>
                     </table>
-                  </div>
-
-                  {/* Pagination footer */}
-                  <div className="px-3 py-1.5 border-t border-slate-200 dark:border-slate-700/60 flex items-center justify-between text-xs text-slate-500 shrink-0 bg-slate-50/50 dark:bg-slate-900/50">
-                    <div>
-                      {customerBills.length > 0 ? (
-                        <span>
-                          แสดง {rentalAutoFit.startIndex + 1} - {rentalAutoFit.endIndex} จาก {customerBills.length} รายการ
-                        </span>
-                      ) : (
-                        <span>0 รายการ</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        disabled={rentalAutoFit.currentPage <= 1}
-                        onClick={() => rentalAutoFit.setCurrentPage((p) => Math.max(1, p - 1))}
-                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-medium flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <ChevronLeft className="w-3.5 h-3.5" />
-                        <span>ก่อนหน้า</span>
-                      </button>
-                      <span className="px-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        {rentalAutoFit.currentPage} / {rentalAutoFit.totalPages}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={rentalAutoFit.currentPage >= rentalAutoFit.totalPages}
-                        onClick={() => rentalAutoFit.setCurrentPage((p) => Math.min(rentalAutoFit.totalPages, p + 1))}
-                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-medium flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <span>ถัดไป</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                  </DataTableFrame>
               </div>
             )}
 
@@ -1129,15 +1104,16 @@ export default function CustomersPage() {
                 <div className="px-3 pt-2.5 pb-1.5 shrink-0">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2 text-xs">
                     <div className="bg-emerald-50/60 dark:bg-emerald-950/40 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-emerald-200 dark:border-emerald-800 flex flex-col justify-center h-full">
-                      <span className="text-emerald-700 dark:text-emerald-300 block text-[10px] font-bold truncate">ยอดรับชำระเงินสะสมรวม</span>
+                      <span className="text-emerald-700 dark:text-emerald-300 block text-[10px] font-bold truncate">ยอดรับชำระสุทธิ (หักคืนเงินแล้ว)</span>
                       <span className="text-xs sm:text-sm font-extrabold text-emerald-600 dark:text-emerald-400 truncate mt-0.5">
-                        ฿{customerPayments.filter((p) => p.status === 'COMPLETED').reduce((sum, p) => sum + p.amount, 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                        ฿{customerPayments.reduce((sum, p) => sum + p.amount, 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                       </span>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-900/60 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col justify-center h-full">
                       <span className="text-slate-600 dark:text-slate-400 block text-[10px] font-bold truncate">จำนวนรายการชำระเงิน</span>
                       <span className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100 truncate mt-0.5">
-                        {customerPayments.length} รายการ
+                        {customerPayments.filter((p) => p.status !== 'REFUND').length} รายการ
+                        {customerPayments.some((p) => p.status === 'REFUND') && ` · คืนเงิน ${customerPayments.filter((p) => p.status === 'REFUND').length}`}
                       </span>
                     </div>
                   </div>
@@ -1156,11 +1132,13 @@ export default function CustomersPage() {
                 </div>
 
                   {/* Table Area */}
-                  <div
-                    ref={paymentAutoFit.containerRef}
-                    className="flex-1 min-h-0 overflow-hidden flex flex-col"
+                  <DataTableFrame
+                    fill
+                    scrollRef={paymentAutoFit.containerRef}
+                    rowCount={customerPayments.length}
+                    shownCount={paymentAutoFit.endIndex}
+                    className="flex-1 min-h-0 rounded-none bg-transparent"
                   >
-                    <div className="flex-1 min-h-0 overflow-hidden">
                       <table className="w-full text-left border-collapse text-[10px] leading-tight table-fixed">
                         <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800/80 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 uppercase tracking-wider shadow-xs text-xs">
                           <tr>
@@ -1192,11 +1170,10 @@ export default function CustomersPage() {
                             if (p.paymentMethod === 'CASH') methodLabel = '💵 เงินสด'
                             else if (p.paymentMethod === 'TRANSFER') methodLabel = '🏦 โอนเงินธนาคาร'
                             else if (p.paymentMethod === 'QR') methodLabel = '📱 PromptPay QR'
-                            else if (p.paymentMethod === 'CHEQUE') methodLabel = '📑 เช็ค'
 
                             return (
                               <tr key={p.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors">
-                                <td className="px-2 py-2.5 text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap">{p.paymentDate}</td>
+                                <td className="px-2 py-2.5 text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap">{formatLocalDateTime(p.paymentDate)}</td>
                                 <td className="px-2 py-2.5 font-bold text-emerald-600 dark:text-emerald-400 font-mono whitespace-nowrap">
                                   {p.receiptNo || p.paymentNo}
                                 </td>
@@ -1206,8 +1183,8 @@ export default function CustomersPage() {
                                 <td className="px-2 py-2.5 text-slate-700 dark:text-slate-300 whitespace-nowrap">
                                   {methodLabel}
                                 </td>
-                                <td className="px-2 py-2.5 text-right font-extrabold text-emerald-600 dark:text-emerald-400 whitespace-nowrap tabular-nums">
-                                  ฿{p.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                <td className={`px-2 py-2.5 text-right font-extrabold whitespace-nowrap tabular-nums ${p.amount < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                                  {p.amount < 0 ? '-' : ''}฿{Math.abs(p.amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                                 </td>
                                 <td className="px-2 py-2.5 text-slate-500 whitespace-nowrap truncate max-w-[160px]" title={p.referenceNo || p.note || '-'}>
                                   {p.referenceNo || p.note || '-'}
@@ -1217,10 +1194,18 @@ export default function CustomersPage() {
                                     className={`inline-flex shrink-0 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                       p.status === 'COMPLETED'
                                         ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                                        : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+                                        : p.status === 'PARTIAL_REFUND'
+                                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                                          : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
                                     }`}
                                   >
-                                    {p.status === 'COMPLETED' ? 'ชำระสำเร็จ' : 'ยกเลิก'}
+                                    {p.status === 'COMPLETED'
+                                      ? 'ชำระสำเร็จ'
+                                      : p.status === 'REFUNDED'
+                                        ? 'คืนเงินแล้ว'
+                                        : p.status === 'PARTIAL_REFUND'
+                                          ? 'คืนเงินบางส่วน'
+                                          : 'คืนเงิน'}
                                   </span>
                                 </td>
                               </tr>
@@ -1229,44 +1214,69 @@ export default function CustomersPage() {
                         )}
                       </tbody>
                     </table>
-                  </div>
+                  </DataTableFrame>
+              </div>
+            )}
 
-                  {/* Pagination footer */}
-                  <div className="px-3 py-1.5 border-t border-slate-200 dark:border-slate-700/60 flex items-center justify-between text-xs text-slate-500 shrink-0 bg-slate-50/50 dark:bg-slate-900/50">
-                    <div>
-                      {customerPayments.length > 0 ? (
-                        <span>
-                          แสดง {paymentAutoFit.startIndex + 1} - {paymentAutoFit.endIndex} จาก {customerPayments.length} รายการ
-                        </span>
-                      ) : (
-                        <span>0 รายการ</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        disabled={paymentAutoFit.currentPage <= 1}
-                        onClick={() => paymentAutoFit.setCurrentPage((p) => Math.max(1, p - 1))}
-                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-medium flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <ChevronLeft className="w-3.5 h-3.5" />
-                        <span>ก่อนหน้า</span>
-                      </button>
-                      <span className="px-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        {paymentAutoFit.currentPage} / {paymentAutoFit.totalPages}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={paymentAutoFit.currentPage >= paymentAutoFit.totalPages}
-                        onClick={() => paymentAutoFit.setCurrentPage((p) => Math.min(paymentAutoFit.totalPages, p + 1))}
-                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-medium flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <span>ถัดไป</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
+            {/* TAB: ใบเสนอราคาของลูกค้า (Master §193) */}
+            {active360Tab === 'QUOTATIONS' && (
+              <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                <div className="px-3 sm:px-3.5 py-2 flex items-center justify-between shrink-0 border-b border-slate-200 dark:border-slate-700">
+                  <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100">
+                    ใบเสนอราคาของลูกค้า ({customerQuotations.length} รายการ)
+                  </h4>
                 </div>
+                <DataTableFrame fill rowCount={customerQuotations.length} className="flex-1 min-h-0 rounded-none bg-transparent">
+                  <table className="w-full text-left border-collapse text-[10px] leading-tight table-fixed">
+                    <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800/80 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 text-xs">
+                      <tr>
+                        <th className="px-2 py-2.5 whitespace-nowrap">เลขที่ใบเสนอราคา</th>
+                        <th className="px-2 py-2.5 whitespace-nowrap">วันที่เอกสาร</th>
+                        <th className="px-2 py-2.5 whitespace-nowrap">ช่วงเช่า</th>
+                        <th className="px-2 py-2.5 text-right whitespace-nowrap">ยอดรวมสุทธิ</th>
+                        <th className="px-2 py-2.5 text-center whitespace-nowrap">สถานะ</th>
+                        <th className="px-2 py-2.5 text-center whitespace-nowrap">พิมพ์</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                      {customerQuotations.length === 0 ? (
+                        <tr data-empty-row="true">
+                          <td colSpan={6} className="px-4 py-8 text-center text-slate-400 italic">
+                            <FileText className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-1.5 opacity-50" />
+                            <p>{!selectedCustomer ? 'กรุณาเลือกลูกค้าเพื่อแสดงข้อมูล' : 'ยังไม่มีใบเสนอราคาสำหรับลูกค้ารายนี้'}</p>
+                          </td>
+                        </tr>
+                      ) : (
+                        customerQuotations.map((q) => (
+                          <tr key={q.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors">
+                            <td className="px-2 py-2.5 font-bold text-blue-600 dark:text-blue-400 font-mono whitespace-nowrap truncate">{q.quotationNo}</td>
+                            <td className="px-2 py-2.5 text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap">{q.quotationDate}</td>
+                            <td className="px-2 py-2.5 text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap truncate">{q.rentalStartDate} ถึง {q.rentalEndDate}</td>
+                            <td className="px-2 py-2.5 text-right font-extrabold text-slate-900 dark:text-slate-100 whitespace-nowrap tabular-nums">
+                              ฿{q.grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-2 py-2.5 text-center whitespace-nowrap">
+                              <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                {quotationStatusView(q.status).label}
+                              </span>
+                            </td>
+                            <td className="px-2 py-2.5 text-center whitespace-nowrap">
+                              <button
+                                type="button"
+                                onClick={() => printQuotationA4(q, systemSettings.business)}
+                                className="px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer"
+                                title="พิมพ์ใบเสนอราคา"
+                              >
+                                <Printer className="w-3 h-3" />
+                                <span>พิมพ์</span>
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </DataTableFrame>
               </div>
             )}
 
@@ -1310,11 +1320,13 @@ export default function CustomersPage() {
                 </div>
 
                   {/* Table Area */}
-                  <div
-                    ref={outstandingAutoFit.containerRef}
-                    className="flex-1 min-h-0 overflow-hidden flex flex-col"
+                  <DataTableFrame
+                    fill
+                    scrollRef={outstandingAutoFit.containerRef}
+                    rowCount={customerOutstandingItems.length}
+                    shownCount={outstandingAutoFit.endIndex}
+                    className="flex-1 min-h-0 rounded-none bg-transparent"
                   >
-                    <div className="flex-1 min-h-0 overflow-hidden">
                       <table className="w-full text-left border-collapse text-[10px] leading-tight table-fixed">
                         <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800/80 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 uppercase tracking-wider shadow-xs text-xs">
                           <tr>
@@ -1381,44 +1393,7 @@ export default function CustomersPage() {
                         )}
                       </tbody>
                     </table>
-                  </div>
-
-                  {/* Pagination footer */}
-                  <div className="px-3 py-1.5 border-t border-slate-200 dark:border-slate-700/60 flex items-center justify-between text-xs text-slate-500 shrink-0 bg-slate-50/50 dark:bg-slate-900/50">
-                    <div>
-                      {customerOutstandingItems.length > 0 ? (
-                        <span>
-                          แสดง {outstandingAutoFit.startIndex + 1} - {outstandingAutoFit.endIndex} จาก {customerOutstandingItems.length} รายการ
-                        </span>
-                      ) : (
-                        <span>0 รายการ</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        disabled={outstandingAutoFit.currentPage <= 1}
-                        onClick={() => outstandingAutoFit.setCurrentPage((p) => Math.max(1, p - 1))}
-                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-medium flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <ChevronLeft className="w-3.5 h-3.5" />
-                        <span>ก่อนหน้า</span>
-                      </button>
-                      <span className="px-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        {outstandingAutoFit.currentPage} / {outstandingAutoFit.totalPages}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={outstandingAutoFit.currentPage >= outstandingAutoFit.totalPages}
-                        onClick={() => outstandingAutoFit.setCurrentPage((p) => Math.min(outstandingAutoFit.totalPages, p + 1))}
-                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-medium flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <span>ถัดไป</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                  </DataTableFrame>
               </div>
             )}
 
@@ -1564,7 +1539,7 @@ export default function CustomersPage() {
                   <div className="p-3 bg-blue-50 dark:bg-blue-950/50 border border-blue-100 dark:border-blue-900 rounded-xl">
                     <span className="text-slate-500 block text-xs">เช่ารวมสะสม</span>
                     <strong className="text-xl font-black text-blue-600 dark:text-blue-400 block mt-0.5">
-                      {customerBills.filter((b) => b.rentalStatus !== 'CANCELLED').length} บิล
+                      {activeBillCount} บิล
                     </strong>
                     <span className="text-[10px] text-slate-400">บิลที่ใช้งานจริงทั้งหมด</span>
                   </div>
@@ -1584,8 +1559,8 @@ export default function CustomersPage() {
                   <div className="p-3 bg-purple-50 dark:bg-purple-950/50 border border-purple-100 dark:border-purple-900 rounded-xl">
                     <span className="text-slate-500 block text-xs">มูลค่าเฉลี่ยต่อบิล</span>
                     <strong className="text-xl font-black text-purple-600 dark:text-purple-400 block mt-0.5">
-                      {customerBills.filter((b) => b.rentalStatus !== 'CANCELLED').length > 0
-                        ? `฿${Math.round(totalSpent / customerBills.filter((b) => b.rentalStatus !== 'CANCELLED').length).toLocaleString('th-TH')}`
+                      {activeBillCount > 0
+                        ? `฿${Math.round(totalSpent / activeBillCount).toLocaleString('th-TH')}`
                         : '-'}
                     </strong>
                     <span className="text-[10px] text-slate-400">คำนวณจากยอดบิลจริง</span>
@@ -1680,7 +1655,7 @@ export default function CustomersPage() {
                   ยืนยันการลบลูกค้า?
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  คุณกำลังจะลบข้อมูลลูกค้า <strong className="text-slate-800 dark:text-slate-200">{customerToDelete.customerName}</strong> ({customerToDelete.customerCode}) ข้อมูลที่ถูกลบจะไม่สามารถกู้คืนได้
+                  คุณกำลังจะลบข้อมูลลูกค้า <strong className="text-slate-800 dark:text-slate-200">{customerToDelete.customerName}</strong> ({customerToDelete.customerCode}) ลูกค้าจะถูกปิดใช้งานและซ่อนจากรายการ ประวัติบิลยังเก็บไว้ครบ และเปิดใช้งานกลับได้ภายหลัง
                 </p>
               </div>
 
@@ -1762,68 +1737,6 @@ export default function CustomersPage() {
         )}
       </AppModal>
 
-      {/* DELETE BILL CONFIRMATION MODAL */}
-      <AppModal
-        isOpen={!!billToDelete}
-        onClose={() => {
-          if (!isDeletingBill) {
-            setBillToDelete(null)
-            setDeleteBillReason('')
-          }
-        }}
-        size="sm"
-      >
-        <AppModalHeader
-          title="ยืนยันการลบรายการบิล"
-          icon={<Trash2 className="w-5 h-5 text-red-600" />}
-          onClose={() => {
-            if (!isDeletingBill) {
-              setBillToDelete(null)
-              setDeleteBillReason('')
-            }
-          }}
-        />
-        <AppModalBody className="space-y-3 text-xs py-3">
-          <p className="text-slate-700 dark:text-slate-300">
-            คุณต้องการลบรายการบิล <strong className="text-slate-900 dark:text-slate-100 font-bold">{billToDelete?.billNo}</strong> ของลูกค้า <strong className="text-slate-900 dark:text-slate-100 font-bold">&quot;{selectedCustomer?.customerName || billToDelete?.customerName}&quot;</strong> หรือไม่?
-          </p>
-
-          <div className="space-y-1.5 text-left pt-1">
-            <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300">
-              เหตุผลในการลบบิล <span className="text-red-500 font-bold">* (จำเป็นต้องระบุ)</span>:
-            </label>
-            <input
-              type="text"
-              value={deleteBillReason}
-              onChange={(e) => setDeleteBillReason(e.target.value)}
-              placeholder="เช่น ลูกค้ายกเลิกคำขอก่อนส่งมอบ / เปิดบิลผิดพลาด..."
-              className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:border-red-500"
-            />
-          </div>
-
-          {billToDelete && canHardDeleteBill(billToDelete) ? (
-            <div className="p-2.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-xl text-blue-800 dark:text-blue-300 text-[11px] leading-relaxed">
-              * บิลนี้เป็นแบบร่างที่ยังไม่มีธุรกรรม/การเคลื่อนไหว จะถูกลบออกจากระบบอย่างถาวร
-            </div>
-          ) : (
-            <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-xl text-amber-800 dark:text-amber-300 text-[11px] leading-relaxed">
-              * บิลนี้มีรายการธุรกรรม/ยืนยันแล้ว ระบบจะเปลี่ยนสถานะเป็น VOID พร้อมบันทึกประวัติ Audit Log เพื่อความถูกต้องของบัญชีและสต็อก
-            </div>
-          )}
-        </AppModalBody>
-        <AppModalFooter
-          onCancel={() => {
-            setBillToDelete(null)
-            setDeleteBillReason('')
-          }}
-          cancelText="ยกเลิก"
-          onConfirm={handleConfirmDeleteBill}
-          confirmText={billToDelete && canHardDeleteBill(billToDelete) ? 'ยืนยันลบฉบับร่าง' : 'ยืนยันยกเลิก/VOID'}
-          confirmButtonColor="red"
-          isConfirmDisabled={isDeletingBill || !deleteBillReason.trim()}
-          isConfirmLoading={isDeletingBill}
-        />
-      </AppModal>
 
     </div>
   )

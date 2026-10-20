@@ -3,10 +3,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
 import { NumericInput } from '@/components/common/NumericInput'
-import { getBillFinanceSummary } from '@/features/finance/services/finance-storage'
-import { loadBillById } from '@/features/bills/services/bill-storage'
-import { processPaymentRefundWorkflow } from '@/features/bills/services/bill-workflow-service'
-import { useAuth } from '@/features/auth/contexts/AuthContext'
+import { getRefundSuggestion, refundPayment } from '@/features/bills/services/bill-service'
+import { isPinCancelled } from '@/lib/db/pin-confirm'
+import { CustomSelect } from '@/components/common/CustomSelect'
 
 export type RefundMethod = 'CASH' | 'TRANSFER' | 'QR' | 'CHEQUE' | 'OTHER'
 
@@ -16,8 +15,6 @@ export interface RefundablePayment {
   paymentMethod: string
   paidAmount: number
   refundableAmount: number
-  paymentDate: string
-  referenceNo?: string
 }
 
 interface PaymentRefundModalProps {
@@ -28,15 +25,20 @@ interface PaymentRefundModalProps {
   onSuccess: (message: string) => void | Promise<void>
 }
 
-const today = () => new Date().toISOString().slice(0, 10)
+const METHOD_LABEL: Record<string, string> = { CASH: 'เงินสด', TRANSFER: 'โอน', QR: 'QR', CARD: 'บัตร', OTHER: 'อื่น ๆ' }
+const money = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2 })
 
+/**
+ * คืนเงิน (Master v4.3.1 §20): every refund points back to the payment it returns, never more
+ * than that payment still has (received − already refunded), with a reason and the user's PIN.
+ * The suggested amount comes from the server (e.g. overpaid after an early return).
+ */
 export function PaymentRefundModal({ isOpen, rentalBillId, billNo, onClose, onSuccess }: PaymentRefundModalProps) {
-  const { user } = useAuth()
   const [payments, setPayments] = useState<RefundablePayment[]>([])
   const [paymentId, setPaymentId] = useState('')
   const [amount, setAmount] = useState(0)
+  const [suggested, setSuggested] = useState(0)
   const [refundMethod, setRefundMethod] = useState<RefundMethod>('CASH')
-  const [refundDate, setRefundDate] = useState(today())
   const [referenceNo, setReferenceNo] = useState('')
   const [reason, setReason] = useState('')
   const [loading, setLoading] = useState(false)
@@ -45,109 +47,74 @@ export function PaymentRefundModal({ isOpen, rentalBillId, billNo, onClose, onSu
 
   const selected = useMemo(() => payments.find((payment) => payment.id === paymentId) || null, [payments, paymentId])
 
+  const defaultAmount = (row: RefundablePayment | undefined, suggestion: number) =>
+    row ? Math.min(row.refundableAmount, suggestion > 0 ? suggestion : row.refundableAmount) : 0
+
   useEffect(() => {
     if (!isOpen || !rentalBillId) return
+    let alive = true
     setLoading(true)
     setError('')
-    try {
-      const summary = getBillFinanceSummary(rentalBillId)
-      const incomeTxs = summary.transactions.filter(
-        (t) => t.type === 'INCOME' && !t.isDeposit && t.category !== 'เงินมัดจำ'
-      )
-      const refundTxs = summary.transactions.filter(
-        (t) => t.type === 'EXPENSE' && !t.isDeposit
-      )
-
-      let list: RefundablePayment[] = incomeTxs
-        .map((tx) => {
-          const refundedForThis = refundTxs
-            .filter((r) => r.originalTxId === tx.id)
-            .reduce((s, r) => s + (r.expenseAmount || 0), 0)
-          const refundable = Math.max(0, (tx.incomeAmount || 0) - refundedForThis)
-          return {
-            id: tx.id,
-            paymentNo: tx.refNo || tx.id.slice(0, 8),
-            paymentMethod: tx.channel,
-            paidAmount: tx.incomeAmount || 0,
-            refundableAmount: refundable,
-            paymentDate: tx.dateTime ? tx.dateTime.slice(0, 10) : today(),
-            referenceNo: tx.refNo,
-          }
-        })
-        .filter((p) => p.refundableAmount > 0)
-
-      if (list.length === 0) {
-        const bill = loadBillById(rentalBillId)
-        if (bill && (bill.paidAmount || 0) > 0) {
-          const refundable = Math.max(0, (bill.paidAmount || 0) - summary.totalRefunded)
-          if (refundable > 0) {
-            list = [
-              {
-                id: 'bill-paid',
-                paymentNo: 'ยอดชำระตามบิล',
-                paymentMethod: 'CASH',
-                paidAmount: bill.paidAmount || 0,
-                refundableAmount: refundable,
-                paymentDate: bill.billDate || today(),
-              },
-            ]
-          }
-        }
-      }
-
-      setPayments(list)
-      if (list.length > 0) {
-        setPaymentId(list[0].id)
-        setAmount(list[0].refundableAmount)
-        if (['CASH', 'TRANSFER', 'QR', 'CHEQUE', 'OTHER'].includes(list[0].paymentMethod)) {
-          setRefundMethod(list[0].paymentMethod as RefundMethod)
-        }
-      } else {
-        setPaymentId('')
-        setAmount(0)
-      }
-    } catch (e: any) {
-      setError(e?.message || 'ไม่สามารถโหลดรายการรับชำระได้')
-    } finally {
-      setLoading(false)
+    getRefundSuggestion(rentalBillId)
+      .then((s) => {
+        if (!alive) return
+        const list: RefundablePayment[] = s.payments
+          .filter((p) => p.refundable > 0)
+          .map((p) => ({
+            id: p.paymentId,
+            paymentNo: p.paymentId.slice(0, 8),
+            paymentMethod: p.method,
+            paidAmount: p.amount,
+            refundableAmount: p.refundable,
+          }))
+        const first = list[0]
+        setPayments(list)
+        setSuggested(s.suggestedRefund)
+        setPaymentId(first?.id || '')
+        setAmount(defaultAmount(first, s.suggestedRefund))
+        if (first && ['CASH', 'TRANSFER', 'QR', 'OTHER'].includes(first.paymentMethod)) setRefundMethod(first.paymentMethod as RefundMethod)
+        setReason(s.suggestedRefund > 0 ? 'คืนส่วนที่ลูกค้าจ่ายเกิน' : '')
+        setReferenceNo('')
+      })
+      .catch((e: unknown) => {
+        if (alive) setError(e instanceof Error ? e.message : 'ไม่สามารถโหลดรายการรับชำระได้')
+      })
+      .finally(() => {
+        if (alive) setLoading(false)
+      })
+    return () => {
+      alive = false
     }
   }, [isOpen, rentalBillId])
 
   const choosePayment = (id: string) => {
     setPaymentId(id)
     const row = payments.find((payment) => payment.id === id)
-    setAmount(row?.refundableAmount || 0)
-    if (row && ['CASH', 'TRANSFER', 'QR', 'CHEQUE', 'OTHER'].includes(row.paymentMethod)) {
-      setRefundMethod(row.paymentMethod as RefundMethod)
-    }
+    setAmount(defaultAmount(row, suggested))
+    if (row && ['CASH', 'TRANSFER', 'QR', 'OTHER'].includes(row.paymentMethod)) setRefundMethod(row.paymentMethod as RefundMethod)
   }
 
   const submit = async () => {
     if (!selected) return setError('กรุณาเลือกรายการรับชำระที่ต้องการคืนเงิน')
     if (amount <= 0 || amount > selected.refundableAmount + 0.001) {
-      return setError(`ยอดคืนเงินต้องอยู่ระหว่าง 0.01 ถึง ${selected.refundableAmount.toLocaleString('th-TH')} บาท`)
+      return setError(`ยอดคืนเงินต้องอยู่ระหว่าง 0.01 ถึง ${money(selected.refundableAmount)} บาท`)
     }
     if (!reason.trim()) return setError('กรุณาระบุเหตุผลการคืนเงิน')
 
     setSaving(true)
     setError('')
     try {
-      processPaymentRefundWorkflow({
+      await refundPayment({
         billId: rentalBillId,
+        paymentId: selected.id,
         amount,
-        channel: refundMethod,
-        reason,
-        referenceNo,
-        originalTxId: selected.id !== 'bill-paid' ? selected.id : undefined,
-        actor: {
-          userId: user?.userId || 'system',
-          displayName: user?.displayName || 'ระบบ',
-        },
+        method: refundMethod,
+        reason: referenceNo.trim() ? `${reason.trim()} (อ้างอิง ${referenceNo.trim()})` : reason.trim(),
       })
-      await onSuccess(`คืนเงินจำนวน ฿${amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} สำเร็จ`)
+      await onSuccess(`คืนเงินจำนวน ฿${money(amount)} สำเร็จ`)
       onClose()
-    } catch (e: any) {
-      setError(e?.message || 'เกิดข้อผิดพลาดในการคืนเงิน')
+    } catch (e: unknown) {
+      if (!isPinCancelled(e)) setError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาดในการคืนเงิน')
     } finally {
       setSaving(false)
     }
@@ -166,49 +133,54 @@ export function PaymentRefundModal({ isOpen, rentalBillId, billNo, onClose, onSu
             </div>
           ) : (
             <>
+              {suggested > 0 && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+                  ระบบคำนวณว่าลูกค้าจ่ายเกิน ฿{money(suggested)} — ตรวจสอบแล้วกดยืนยันเพื่อคืนเงิน
+                </div>
+              )}
               <div>
-                <label className="mb-1 block font-bold text-slate-600 dark:text-slate-300">รายการรับชำระ</label>
-                <select value={paymentId} onChange={(event) => choosePayment(event.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
-                  {payments.map((payment) => (
-                    <option key={payment.id} value={payment.id}>
-                      {payment.paymentNo} · {payment.paymentMethod} · คืนได้ ฿{payment.refundableAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                    </option>
-                  ))}
-                </select>
+                <label className="mb-1 block font-bold text-slate-600 dark:text-slate-300">คืนจากรายการรับชำระ</label>
+                <CustomSelect
+                  ariaLabel="คืนจากรายการรับชำระ"
+                  value={paymentId}
+                  onChange={(value) => choosePayment(String(value))}
+                  options={payments.map((payment) => ({
+                    value: payment.id,
+                    label: `${METHOD_LABEL[payment.paymentMethod] || payment.paymentMethod} ฿${money(payment.paidAmount)} · คืนได้ ฿${money(payment.refundableAmount)}`,
+                  }))}
+                />
               </div>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block font-bold text-slate-600 dark:text-slate-300">ยอดคืนเงิน (บาท)</label>
                   <NumericInput value={amount} min={0} max={selected?.refundableAmount || 0} onChange={(value) => setAmount(value === '' ? 0 : Number(value))} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-bold dark:border-slate-700 dark:bg-slate-900" />
-                  <div className="mt-1 text-[10px] text-slate-500">คืนได้สูงสุด ฿{(selected?.refundableAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</div>
+                  <div className="mt-1 text-[10px] text-slate-500">คืนได้สูงสุด ฿{money(selected?.refundableAmount || 0)}</div>
                 </div>
-                <div>
-                  <label className="mb-1 block font-bold text-slate-600 dark:text-slate-300">วันที่คืนเงิน</label>
-                  <input type="date" value={refundDate} onChange={(event) => setRefundDate(event.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900" />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block font-bold text-slate-600 dark:text-slate-300">ช่องทางคืนเงิน</label>
-                  <select value={refundMethod} onChange={(event) => setRefundMethod(event.target.value as RefundMethod)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
-                    <option value="CASH">เงินสด</option>
-                    <option value="TRANSFER">โอนเงิน</option>
-                    <option value="QR">QR</option>
-                    <option value="CHEQUE">เช็ค</option>
-                    <option value="OTHER">อื่น ๆ</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1 block font-bold text-slate-600 dark:text-slate-300">เลขอ้างอิง</label>
-                  <input value={referenceNo} onChange={(event) => setReferenceNo(event.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900" placeholder="ถ้ามี" />
+                  <CustomSelect
+                    ariaLabel="ช่องทางคืนเงิน"
+                    value={refundMethod}
+                    onChange={(value) => setRefundMethod(value as RefundMethod)}
+                    options={[
+                      { value: 'CASH', label: 'เงินสด' },
+                      { value: 'TRANSFER', label: 'โอนเงิน' },
+                      { value: 'QR', label: 'QR' },
+                      { value: 'OTHER', label: 'อื่น ๆ' },
+                    ]}
+                  />
                 </div>
               </div>
 
               <div>
+                <label className="mb-1 block font-bold text-slate-600 dark:text-slate-300">เลขอ้างอิง</label>
+                <input value={referenceNo} onChange={(event) => setReferenceNo(event.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900" placeholder="ถ้ามี" />
+              </div>
+
+              <div>
                 <label className="mb-1 block font-bold text-slate-600 dark:text-slate-300">เหตุผลการคืนเงิน *</label>
-                <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={3} className="w-full resize-none rounded-xl border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900" placeholder="ระบุเหตุผลเพื่อเก็บ Audit Trail" />
+                <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={3} className="w-full resize-none rounded-xl border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900" placeholder="ระบุเหตุผล (บันทึกในประวัติการทำรายการ)" />
               </div>
             </>
           )}
@@ -218,7 +190,7 @@ export function PaymentRefundModal({ isOpen, rentalBillId, billNo, onClose, onSu
       </AppModalBody>
       <AppModalFooter>
         <button type="button" onClick={onClose} disabled={saving} className="rounded-xl border border-slate-300 px-4 py-2 font-bold text-slate-700 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200">ยกเลิก</button>
-        <button type="button" onClick={submit} disabled={saving || loading || !selected} className="rounded-xl bg-red-600 px-4 py-2 font-extrabold text-white hover:bg-red-700 disabled:opacity-50">{saving ? 'กำลังคืนเงิน...' : 'ยืนยันคืนเงิน'}</button>
+        <button type="button" onClick={submit} disabled={saving || loading || !selected} className="rounded-xl bg-red-600 px-4 py-2 font-extrabold text-white hover:bg-red-700 disabled:opacity-50">{saving ? 'กำลังคืนเงิน...' : 'ยืนยันคืนเงิน (ใส่ PIN)'}</button>
       </AppModalFooter>
     </AppModal>
   )

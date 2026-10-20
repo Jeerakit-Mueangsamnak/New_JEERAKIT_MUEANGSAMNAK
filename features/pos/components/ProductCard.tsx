@@ -3,22 +3,26 @@
 import React from 'react'
 import { Product } from '@/lib/types/rental-pos'
 import { Clock, RefreshCw, AlertCircle, ShoppingCart } from 'lucide-react'
-import { getDefaultMinimumStock } from '@/features/settings/services/settings-storage'
+import { isLowStock as isBelowReorderPoint } from '@/features/products/utils/low-stock'
 
 interface ProductCardProps {
   product: Product
   mode?: 'RENT' | 'SALE'
   onClick: (product: Product) => void
+  /** Quotation mode: an out-of-stock product can still be quoted (shown dimmed, not locked). */
+  allowOutOfStock?: boolean
 }
 
-export function ProductCard({ product, mode = 'RENT', onClick }: ProductCardProps) {
-  const available = product.available_qty ?? product.availableQuantity ?? product.totalQuantity ?? 0
+export function ProductCard({ product, mode = 'RENT', onClick, allowOutOfStock = false }: ProductCardProps) {
+  const stockValue = Number(product.availableQuantity ?? product.available_qty ?? 0)
+  const available = Number.isFinite(stockValue) && stockValue > 0 ? stockValue : 0
   const isOutOfStock = available <= 0
-  const minQty = getDefaultMinimumStock()
-  const isLowStock = !isOutOfStock && minQty > 0 && available <= minQty
+  const isLowStock = !isOutOfStock && isBelowReorderPoint({ availableQuantity: available, minimumStock: product.minimumStock })
 
   let borderStyle = 'border-emerald-200 dark:border-emerald-900 bg-white dark:bg-slate-800 hover:border-emerald-500 hover:shadow-lg'
-  if (isOutOfStock) {
+  if (isOutOfStock && allowOutOfStock) {
+    borderStyle = 'border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/60 opacity-70 hover:border-amber-400'
+  } else if (isOutOfStock) {
     borderStyle = 'border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/60 opacity-50 cursor-not-allowed'
   } else if (isLowStock) {
     borderStyle = 'border-amber-300 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 hover:border-amber-500 hover:shadow-md'
@@ -55,7 +59,7 @@ export function ProductCard({ product, mode = 'RENT', onClick }: ProductCardProp
 
   return (
     <div
-      onClick={() => !isOutOfStock && onClick(product)}
+      onClick={() => (allowOutOfStock || !isOutOfStock) && onClick(product)}
       className={`relative group min-h-[132px] rounded-xl p-2.5 md:p-3 border transition-all duration-200 cursor-pointer flex flex-col justify-between ${borderStyle}`}
     >
       <div>

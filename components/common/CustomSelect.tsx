@@ -25,6 +25,8 @@ interface CustomSelectProps {
   searchable?: boolean
   emptyText?: string
   hideChevron?: boolean
+  /** Accessible name when no visible <label> names the field. */
+  ariaLabel?: string
 }
 
 export function CustomSelect({
@@ -39,6 +41,7 @@ export function CustomSelect({
   searchable = false,
   emptyText = 'ยังไม่มีรายการ',
   hideChevron = false,
+  ariaLabel,
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -61,10 +64,13 @@ export function CustomSelect({
   useEffect(() => {
     if (!isOpen) return
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsOpen(false)
+      if (e.key !== 'Escape') return
+      // Closes only this list, not the modal it sits in
+      e.preventDefault()
+      setIsOpen(false)
     }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => document.removeEventListener('keydown', handleKeyDown, true)
   }, [isOpen])
 
   const handleSelect = (val: string | number) => {
@@ -87,6 +93,9 @@ export function CustomSelect({
         ref={triggerRef}
         type="button"
         disabled={disabled}
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
         onClick={() => !disabled && setIsOpen((prev) => {
           if (!prev) setSearchTerm('')
           return !prev

@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { getSupabasePublicKey, getSupabaseUrl } from '@/lib/supabase/env'
 
 export async function createClient() {
   let cookieStore: Awaited<ReturnType<typeof cookies>> | null = null
@@ -10,8 +11,8 @@ export async function createClient() {
   }
 
   const memoryCookies = new Map<string, { value: string; options?: unknown }>()
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
-  const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'placeholder-publishable-key'
+  const supabaseUrl = getSupabaseUrl() || 'https://placeholder.supabase.co'
+  const supabasePublishableKey = getSupabasePublicKey() || 'placeholder-publishable-key'
 
   return createServerClient(supabaseUrl, supabasePublishableKey, {
     cookies: {

@@ -24,8 +24,8 @@ import { ReportAreaTrendChart } from './ReportCharts'
 import { DataTableFrame } from '@/components/common/DataTableFrame'
 
 export function BusinessReportView({ data }: { data: BusinessReportData }) {
-  const isRevGrowthPos = data.revenueGrowth >= 0
-  const isOrderGrowthPos = data.orderGrowth >= 0
+  const isRevGrowthPos = data.revenueGrowth !== null && data.revenueGrowth >= 0
+  const isOrderGrowthPos = data.orderGrowth !== null && data.orderGrowth >= 0
 
   return (
     <div className="space-y-2">
@@ -34,7 +34,9 @@ export function BusinessReportView({ data }: { data: BusinessReportData }) {
         {/* Metric 1: การเติบโตของรายได้ (Revenue Growth) */}
         <div
           className={`p-2 rounded-xl border flex flex-col justify-between ${
-            isRevGrowthPos
+            data.revenueGrowth === null
+              ? 'border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900'
+              : isRevGrowthPos
               ? 'border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-950/20'
               : 'border-rose-500/20 bg-rose-50/50 dark:bg-rose-950/20'
           }`}
@@ -46,14 +48,19 @@ export function BusinessReportView({ data }: { data: BusinessReportData }) {
             </span>
             <span
               className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-xs text-[9.5px] font-bold font-mono ${
-                isRevGrowthPos
+                data.revenueGrowth === null
+                  ? 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                  : isRevGrowthPos
                   ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                   : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
               }`}
             >
-              {isRevGrowthPos ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-              {data.revenueGrowth >= 0 ? '+' : ''}
-              {data.revenueGrowth}%
+              {data.revenueGrowth === null
+                ? null
+                : isRevGrowthPos
+                  ? <ArrowUpRight className="w-3 h-3" />
+                  : <ArrowDownRight className="w-3 h-3" />}
+              {data.revenueGrowth === null ? '—' : `${data.revenueGrowth >= 0 ? '+' : ''}${data.revenueGrowth}%`}
             </span>
           </div>
           <div className="my-1">
@@ -65,7 +72,11 @@ export function BusinessReportView({ data }: { data: BusinessReportData }) {
             </div>
           </div>
           <div className="text-[9.5px] text-slate-500 font-mono">
-            {isRevGrowthPos ? 'รายได้เพิ่มขึ้นจากงวดก่อน' : 'รายได้ลดลงเมื่อเทียบงวดก่อน'}
+            {data.revenueGrowth === null
+              ? 'ไม่มีฐานเปรียบเทียบ'
+              : isRevGrowthPos
+                ? 'รายได้เพิ่มขึ้นจากงวดก่อน'
+                : 'รายได้ลดลงเมื่อเทียบงวดก่อน'}
           </div>
         </div>
 
@@ -78,13 +89,14 @@ export function BusinessReportView({ data }: { data: BusinessReportData }) {
             </span>
             <span
               className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-xs text-[9.5px] font-bold font-mono ${
-                isOrderGrowthPos
+                data.orderGrowth === null
+                  ? 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                  : isOrderGrowthPos
                   ? 'bg-emerald-500/10 text-emerald-600'
                   : 'bg-rose-500/10 text-rose-600'
               }`}
             >
-              {data.orderGrowth >= 0 ? '+' : ''}
-              {data.orderGrowth}%
+              {data.orderGrowth === null ? '—' : `${data.orderGrowth >= 0 ? '+' : ''}${data.orderGrowth}%`}
             </span>
           </div>
           <div className="my-1">
@@ -109,8 +121,7 @@ export function BusinessReportView({ data }: { data: BusinessReportData }) {
               ยอดเฉลี่ยต่อบิล
             </span>
             <span className="px-1.5 py-0.5 rounded-xs text-[9.5px] font-bold font-mono bg-purple-500/10 text-purple-600">
-              {data.avgTicketGrowth >= 0 ? '+' : ''}
-              {data.avgTicketGrowth}%
+              {data.avgTicketGrowth === null ? '—' : `${data.avgTicketGrowth >= 0 ? '+' : ''}${data.avgTicketGrowth}%`}
             </span>
           </div>
           <div className="my-1">
@@ -134,8 +145,7 @@ export function BusinessReportView({ data }: { data: BusinessReportData }) {
               ลูกค้าที่มีการซื้อ/เช่า
             </span>
             <span className="px-1.5 py-0.5 rounded-xs text-[9.5px] font-bold font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-              {data.customerGrowth >= 0 ? '+' : ''}
-              {data.customerGrowth}%
+              {data.customerGrowth === null ? '—' : `${data.customerGrowth >= 0 ? '+' : ''}${data.customerGrowth}%`}
             </span>
           </div>
           <div className="my-1">
@@ -251,6 +261,7 @@ export function BusinessReportView({ data }: { data: BusinessReportData }) {
 
       {/* ─── 4. DETAILED CUSTOMER & PERFORMANCE RANKING TABLE ──────────────── */}
       <DataTableFrame
+        rowCount={data.customerRankings.length}
         className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs"
         header={
           <div className="flex items-center justify-between mb-2 shrink-0">

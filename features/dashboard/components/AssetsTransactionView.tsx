@@ -28,9 +28,11 @@ import { DataTableFrame } from '@/components/common/DataTableFrame'
 interface ViewProps {
   metrics: DashboardMetrics
   onRefresh?: () => void
+  /** Money in/out cards need the finance menu (expenses / other income are finance-only data). */
+  showFinance?: boolean
 }
 
-export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
+export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }: ViewProps) {
   const billStatusBarData = [
     { label: 'ชำระแล้ว', count: metrics.billStatusCounts.paid, color: '#10b981' },
     { label: 'กำลังดำเนินการ', count: metrics.billStatusCounts.inProgress, color: '#3b82f6' },
@@ -38,17 +40,16 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
     { label: 'ยกเลิก', count: metrics.billStatusCounts.cancelled, color: '#94a3b8' },
   ]
 
-  const top5Tasks = metrics.todayKeyTasks.slice(0, 5)
-
   return (
     <div className="space-y-2">
       {/* 1. TOP 10 KPI (2 ROWS × 5) */}
       {/* Row 1: KPI 1 - 5 */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+        {showFinance && (<>
         {/* 1. รายรับ */}
         <div className="p-2 bg-emerald-50/60 dark:bg-emerald-950/30 rounded-2xl border border-emerald-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">รายรับ</span>
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">เงินรับสุทธิหลังคืน</span>
             <div className="w-6 h-6 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
               <TrendingUp className="w-3.5 h-3.5" />
             </div>
@@ -56,20 +57,20 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">
-                ฿{metrics.totalIncome.toLocaleString()}
+                ฿{metrics.netCashReceived.toLocaleString()}
               </span>
               <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">
-                +{metrics.growthRate >= 0 ? metrics.growthRate : 12.5}%
+                {metrics.growthRate === null ? '—' : `${metrics.growthRate >= 0 ? '+' : ''}${metrics.growthRate}%`}
               </span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">ยอดรับเงินทั้งหมด (ขาย + เช่า)</span>
+            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">รับเงินจริงหักเงินคืน ไม่รวมเงินมัดจำ</span>
           </div>
         </div>
 
         {/* 2. รายจ่าย / เงินคืน */}
         <div className="p-2 bg-rose-50/60 dark:bg-rose-950/30 rounded-2xl border border-rose-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">รายจ่าย / เงินคืน</span>
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">เงินออก (รายจ่าย + คืนเงิน)</span>
             <div className="w-6 h-6 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
               <TrendingDown className="w-3.5 h-3.5" />
             </div>
@@ -79,9 +80,8 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-rose-600 dark:text-rose-400 font-mono">
                 ฿{metrics.totalExpense.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-rose-600 dark:text-rose-400">+8.3%</span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">ค่าใช้จ่ายและเงินคืนลูกค้า</span>
+            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">รายจ่ายและเงินคืนลูกค้าจากรายการการเงิน</span>
           </div>
         </div>
 
@@ -98,11 +98,11 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 font-mono">
                 ฿{metrics.netIncome.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400">+15.2%</span>
             </div>
             <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">หลังหักค่าใช้จ่ายแล้ว</span>
           </div>
         </div>
+        </>)}
 
         {/* 4. ลูกหนี้ค้างชำระ */}
         <div className="p-2 bg-amber-50/60 dark:bg-amber-950/30 rounded-2xl border border-amber-500/20 shadow-xs flex flex-col justify-between">
@@ -118,14 +118,14 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
                 ฿{metrics.outstandingReceivable.toLocaleString()}
               </span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">จำนวน {metrics.debtorCount} ราย</span>
+            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">จำนวน {metrics.debtorCount} บิล</span>
           </div>
         </div>
 
         {/* 5. เงินมัดจำ */}
         <div className="p-2 bg-purple-50/60 dark:bg-purple-950/30 rounded-2xl border border-purple-500/20 shadow-xs flex flex-col justify-between col-span-2 sm:col-span-1">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">เงินมัดจำ</span>
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">มัดจำที่ระบุในบิล</span>
             <div className="flex items-center gap-1">
               {onRefresh && (
                 <button
@@ -149,7 +149,7 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
                 ฿{metrics.depositBalance.toLocaleString()}
               </span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">จาก {metrics.depositCount} รายการ</span>
+            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">ข้อมูลประกอบ ไม่ใช่รายรับ · {metrics.depositCount} บิล</span>
           </div>
         </div>
       </div>
@@ -159,7 +159,7 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
         {/* 6. ยอดขายสินค้า */}
         <div className="p-2 bg-emerald-50/60 dark:bg-emerald-950/30 rounded-2xl border border-emerald-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">ยอดขายสินค้า</span>
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">มูลค่าสินค้าขายเดือนนี้</span>
             <div className="w-6 h-6 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
               <ShoppingCart className="w-3.5 h-3.5" />
             </div>
@@ -169,16 +169,15 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">
                 ฿{metrics.salesRevenue.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">+18.1%</span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">จากการขายอุปกรณ์</span>
+            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">ตามบิล ไม่รวม VAT และส่วนลดถูกจัดสรรแล้ว</span>
           </div>
         </div>
 
         {/* 7. รายได้จากการเช่า */}
         <div className="p-2 bg-teal-50/60 dark:bg-teal-950/30 rounded-2xl border border-teal-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">รายได้จากการเช่า</span>
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">มูลค่าสินค้าเช่าเดือนนี้</span>
             <div className="w-6 h-6 rounded-lg bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
               <Key className="w-3.5 h-3.5" />
             </div>
@@ -188,9 +187,8 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-teal-600 dark:text-teal-400 font-mono">
                 ฿{metrics.rentalRevenue.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-teal-600 dark:text-teal-400">+10.2%</span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">จากการให้เช่าอุปกรณ์</span>
+            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">ตามบิล ไม่รวม VAT และส่วนลดถูกจัดสรรแล้ว</span>
           </div>
         </div>
 
@@ -257,6 +255,7 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
       {/* 2. MIDDLE ROW: CHARTS (AreaTrendChart + SalesVsRentBarChart) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-2">
         {/* Left: แนวโน้มกระแสเงินสดรายรับ-รายจ่าย (7 วันล่าสุด) */}
+        {showFinance && (
         <div className="lg:col-span-7 p-2 bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs flex flex-col justify-between">
           <div className="mb-1 flex items-center justify-between">
             <div className="flex items-center gap-1.5">
@@ -275,9 +274,10 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
             height={160}
           />
         </div>
+        )}
 
         {/* Right: เปรียบเทียบรายได้จากการขาย vs การเช่า */}
-        <div className="lg:col-span-5 p-2 bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs flex flex-col justify-between">
+        <div className={`${showFinance ? 'lg:col-span-5' : 'lg:col-span-12'} p-2 bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs flex flex-col justify-between`}>
           <div className="mb-1 flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <span className="w-1 h-3.5 bg-emerald-500 rounded-full" />
@@ -297,14 +297,14 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
         </div>
       </div>
 
-      {/* 3. ROW 3: 4 CARDS (Donut, Bar, Top 5 Activity, Donut) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+      {/* 3. ROW 3: 3 CARDS (Donuts and bill status) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
         {/* Card 1: สัดส่วนรายรับ (แยกตามประเภท) */}
         <div className="p-2 bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs flex flex-col justify-between">
           <div className="mb-1.5 flex items-center gap-1.5">
             <span className="w-1 h-3 bg-emerald-500 rounded-full" />
             <h3 className="text-xs font-black text-slate-800 dark:text-slate-100">
-              สัดส่วนรายรับ (แยกตามประเภท)
+              สัดส่วนมูลค่าสินค้าในบิล (ไม่รวม VAT)
             </h3>
           </div>
           <DonutChart
@@ -327,61 +327,12 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
           <VerticalBarChart data={billStatusBarData} height={120} />
         </div>
 
-        {/* Card 3: งานสำคัญวันนี้ (Top 5) */}
-        <div className="p-2 bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs flex flex-col justify-between">
-          <div className="mb-1.5 flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <span className="w-1 h-3 bg-amber-500 rounded-full" />
-              <h3 className="text-xs font-black text-slate-800 dark:text-slate-100">
-                งานสำคัญวันนี้ (Top 5)
-              </h3>
-            </div>
-          </div>
-          {top5Tasks.length === 0 ? (
-            <div className="py-6 text-center text-xs text-slate-400">ไม่มีงานสำคัญวันนี้</div>
-          ) : (
-            <div className="space-y-1.5">
-              {top5Tasks.map((t, idx) => {
-                const badgeBg =
-                  t.type === 'DISPATCH'
-                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                    : t.type === 'RETURN'
-                    ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400'
-                    : t.type === 'FOLLOWUP'
-                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-                    : t.type === 'INSPECT'
-                    ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400'
-                    : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-
-                return (
-                  <div key={t.id || idx} className="flex items-center justify-between text-[11px] gap-1.5">
-                    <div className="flex items-center gap-1.5 min-w-0 truncate">
-                      <span className="w-4 h-4 rounded-full bg-amber-500 text-white font-bold text-[9.5px] flex items-center justify-center shrink-0">
-                        {idx + 1}
-                      </span>
-                      <span className="font-semibold text-slate-700 dark:text-slate-200 truncate">
-                        {t.itemsSummary}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className={`px-1.5 py-0.2 rounded text-[9.5px] font-bold ${badgeBg}`}>
-                        {t.typeLabel}
-                      </span>
-                      <span className="font-mono text-[10px] text-slate-400">{t.time}</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Card 4: สัดส่วนเงินมัดจำ vs ลูกหนี้ค้างชำระ */}
+        {/* Card 3: สัดส่วนเงินมัดจำ vs ลูกหนี้ค้างชำระ */}
         <div className="p-2 bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs flex flex-col justify-between">
           <div className="mb-1.5 flex items-center gap-1.5">
             <span className="w-1 h-3 bg-purple-500 rounded-full" />
             <h3 className="text-xs font-black text-slate-800 dark:text-slate-100">
-              สัดส่วนเงินมัดจำ vs ลูกหนี้ค้างชำระ
+              มัดจำที่ระบุในบิล vs ยอดค้างชำระ
             </h3>
           </div>
           <DonutChart
@@ -396,17 +347,18 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
 
       {/* 4. BOTTOM ROW: งาน / รายการสำคัญวันนี้ (TABLE) */}
       <DataTableFrame
+        rowCount={metrics.todayKeyTasks.length}
         className="p-2 bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs"
         header={
           <div className="flex items-center justify-between mb-2 shrink-0">
             <div className="flex items-center gap-2">
               <Truck className="w-3.5 h-3.5 text-blue-500" />
               <h3 className="text-xs font-black text-slate-800 dark:text-slate-100">
-                งาน / รายการสำคัญวันนี้
+                งานจากนัดหมายวันนี้
               </h3>
             </div>
             <Link
-              href="/bills"
+              href="/appointments"
               className="text-[10.5px] font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
             >
               ดูทั้งหมด <ArrowRight className="w-3 h-3" />
@@ -432,7 +384,7 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
             {metrics.todayKeyTasks.length === 0 ? (
               <tr>
                 <td colSpan={9} className="py-8 text-center text-xs text-slate-400">
-                  ไม่มีงานสำคัญค้างในวันนี้
+                  ไม่มีนัดหมายที่บันทึกไว้ในวันนี้
                 </td>
               </tr>
             ) : (
@@ -456,7 +408,7 @@ export function AssetsTransactionView({ metrics, onRefresh }: ViewProps) {
                     {t.itemsSummary}
                   </td>
                   <td className="px-2 text-right font-mono font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                    {t.quantity}
+                    {t.quantity > 0 ? t.quantity : '—'}
                   </td>
                   <td className="px-2 whitespace-nowrap">
                     <span className="inline-flex items-center gap-1 text-[10px] font-bold">

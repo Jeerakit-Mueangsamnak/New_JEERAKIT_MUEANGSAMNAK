@@ -6,36 +6,25 @@ import {
   Bell,
   CheckCheck,
   Truck,
-  RotateCcw,
   AlertTriangle,
-  CreditCard,
   Package,
   Calendar,
   ChevronRight,
   Sparkles,
-  CheckCircle2,
-  Box,
-  User,
-  FileText,
-  Layers,
-  ArrowRight,
+  Send,
+  Check,
 } from 'lucide-react'
 import {
   loadNotifications,
   markNotificationStatus,
-  saveNotifications,
+  markAllNotificationsRead,
+  fetchNotificationsFromSupabase,
   ActionableNotification,
   NotificationType,
+  NotificationGroup,
+  NOTIFICATION_GROUPS,
+  notificationGroup,
 } from '@/features/notifications/services/notification-storage'
-import { fulfillBackorderWorkflow } from '@/features/bills/services/bill-workflow-service'
-import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { useToast } from '@/components/common/Toast'
-import {
-  AppModal,
-  AppModalHeader,
-  AppModalBody,
-  AppModalFooter,
-} from '@/components/common/AppModal'
 
 interface NotificationBellProps {
   className?: string
@@ -43,17 +32,12 @@ interface NotificationBellProps {
 
 export function NotificationBell({ className = '' }: NotificationBellProps) {
   const router = useRouter()
-  const { user } = useAuth()
-  const { showToast } = useToast()
 
   const [isOpen, setIsOpen] = useState(false)
   const [notifications, setNotifications] = useState<ActionableNotification[]>([])
+  const [group, setGroup] = useState<NotificationGroup | 'ALL'>('ALL')
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Backorder Fulfillment Modal State
-  const [selectedBackorderNotif, setSelectedBackorderNotif] = useState<ActionableNotification | null>(null)
-  const [allocateQty, setAllocateQty] = useState<number>(1)
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
 
   // Load notifications from persistence
   const refreshNotifications = useCallback(() => {
@@ -63,6 +47,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
 
   useEffect(() => {
     refreshNotifications()
+    void fetchNotificationsFromSupabase().catch(() => undefined)
 
     const handleStorageUpdate = () => {
       refreshNotifications()
@@ -81,6 +66,18 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
     return notifications.filter((n) => n.status === 'UNREAD').length
   }, [notifications])
 
+  // Open (not yet handled) notices per tab
+  const groupCounts = useMemo(() => {
+    const counts: Record<NotificationGroup, number> = { SYSTEM: 0, WORK: 0, BILL: 0, STOCK: 0 }
+    for (const n of notifications) if (n.status !== 'HANDLED') counts[notificationGroup(n)]++
+    return counts
+  }, [notifications])
+
+  const visibleNotifications = useMemo(
+    () => (group === 'ALL' ? notifications : notifications.filter((n) => notificationGroup(n) === group)),
+    [notifications, group]
+  )
+
   // Handle clicking outside popover to close
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -98,87 +95,52 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
 
   const handleItemClick = (item: ActionableNotification) => {
     if (item.status === 'UNREAD') {
-      const updated = markNotificationStatus(item.id, 'READ', user?.displayName || 'STAFF')
-      setNotifications(updated)
+      void markNotificationStatus(item.id, 'READ').then(setNotifications).catch(() => undefined)
     }
-
     setIsOpen(false)
-
-    if (item.type === 'BACKORDER_READY' && item.status !== 'ACTIONED') {
-      const initialQty = Number(item.data?.readyQty || item.data?.outstandingQty || 1)
-      setAllocateQty(Math.max(1, initialQty))
-      setSelectedBackorderNotif(item)
-      return
-    }
-
     if (item.data?.sourceType === 'BILL' && item.data?.sourceId) {
       router.push(`/bills?id=${item.data.sourceId}`)
+    } else if (item.data?.sourceType === 'PRODUCT') {
+      router.push('/products')
+    } else if (item.data?.sourceType === 'APPOINTMENT') {
+      router.push('/appointments')
     } else if (item.data?.sourceType === 'QUOTATION' && item.data?.sourceId) {
       router.push(`/quotations?id=${item.data.sourceId}`)
     }
   }
 
-  const handleMarkAllRead = (e: React.MouseEvent) => {
+  // Bill notices: open the bill with the existing LINE send window
+  const handleSendBill = (e: React.MouseEvent, item: ActionableNotification) => {
     e.stopPropagation()
-    const updated = notifications.map((n) =>
-      n.status === 'UNREAD' ? { ...n, status: 'READ' as const } : n
-    )
-    saveNotifications(updated)
-    setNotifications(updated)
-    window.dispatchEvent(new Event('app-storage-update'))
+    if (item.status === 'UNREAD') {
+      void markNotificationStatus(item.id, 'READ').then(setNotifications).catch(() => undefined)
+    }
+    setIsOpen(false)
+    router.push(`/bills?id=${encodeURIComponent(item.data.sourceId as string)}&send=line`)
   }
 
-  const handleConfirmFulfillBackorder = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!selectedBackorderNotif?.data?.backorderId) {
-      showToast('ไม่พบข้อมูล Backorder', 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
-      return
-    }
+  const handleMarkHandled = (e: React.MouseEvent, item: ActionableNotification) => {
+    e.stopPropagation()
+    void markNotificationStatus(item.id, 'HANDLED').then(setNotifications).catch(() => undefined)
+  }
 
-    const backorderId = selectedBackorderNotif.data.backorderId
-    const maxQty = Number(selectedBackorderNotif.data.readyQty || selectedBackorderNotif.data.outstandingQty || 1)
-
-    if (allocateQty <= 0 || allocateQty > maxQty) {
-      showToast('จำนวนไม่ถูกต้อง', `กรุณาระบุจำนวนระหว่าง 1 ถึง ${maxQty}`, 'ERROR')
-      return
-    }
-
-    setIsSubmitting(true)
-    try {
-      const result = fulfillBackorderWorkflow({
-        backorderId,
-        allocateQty,
-        actor: {
-          userId: user?.id || 'staff',
-          displayName: user?.displayName || 'เจ้าหน้าที่',
-        },
-      })
-
-      showToast(
-        'จัดสรรสินค้าสำเร็จ',
-        `สร้างรายการจอง ${result.reservation.reservationNo} สำหรับ Backorder ${result.backorder.backorderNo} เรียบร้อยแล้ว`,
-        'SUCCESS'
-      )
-
-      refreshNotifications()
-      window.dispatchEvent(new Event('app-storage-update'))
-      setSelectedBackorderNotif(null)
-    } catch (err: any) {
-      showToast('เกิดข้อผิดพลาดในการจัดสรร', err?.message || 'ไม่สามารถจัดสรรสินค้าได้', 'ERROR')
-    } finally {
-      setIsSubmitting(false)
-    }
+  const handleMarkAllRead = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    void markAllNotificationsRead().then(setNotifications).catch(() => undefined)
   }
 
   const getIconForType = (type: NotificationType) => {
     switch (type) {
-      case 'BACKORDER_READY':
+      case 'PAYMENT_DUE':
         return <Package className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-      case 'RESERVATION_EXPIRING':
+      case 'RENTAL_DUE_SOON':
+      case 'RENTAL_OVERDUE':
         return <Calendar className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-      case 'DISPATCH_DUE':
+      case 'APPOINTMENT_DUE':
+        return <Calendar className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+      case 'DELIVERY_DUE':
         return <Truck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-      case 'STOCK_LOW':
+      case 'LOW_STOCK':
         return <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
       default:
         return <Bell className="w-4 h-4 text-slate-600 dark:text-slate-400" />
@@ -186,17 +148,18 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
   }
 
   const getBadgeStyle = (item: ActionableNotification) => {
-    if (item.status === 'ACTIONED') {
+    if (item.status === 'HANDLED') {
       return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
     }
     switch (item.type) {
-      case 'BACKORDER_READY':
+      case 'PAYMENT_DUE':
         return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
-      case 'RESERVATION_EXPIRING':
+      case 'RENTAL_DUE_SOON':
         return 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
-      case 'DISPATCH_DUE':
+      case 'DELIVERY_DUE':
         return 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'
-      case 'STOCK_LOW':
+      case 'RENTAL_OVERDUE':
+      case 'LOW_STOCK':
         return 'bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300'
       default:
         return 'bg-slate-100 text-slate-700'
@@ -204,15 +167,19 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
   }
 
   const getBadgeLabel = (item: ActionableNotification) => {
-    if (item.status === 'ACTIONED') return 'จัดสรรแล้ว'
+    if (item.status === 'HANDLED') return 'จัดการแล้ว'
     switch (item.type) {
-      case 'BACKORDER_READY':
-        return 'พร้อมจัดสรร'
-      case 'RESERVATION_EXPIRING':
-        return 'ใกล้หมดอายุ'
-      case 'DISPATCH_DUE':
-        return 'ถึงกำหนดส่งมอบ'
-      case 'STOCK_LOW':
+      case 'PAYMENT_DUE':
+        return 'ยอดค้าง'
+      case 'RENTAL_DUE_SOON':
+        return 'ใกล้ถึงวันคืน'
+      case 'RENTAL_OVERDUE':
+        return 'เลยกำหนดคืน'
+      case 'DELIVERY_DUE':
+        return 'ถึงวันส่งของ'
+      case 'APPOINTMENT_DUE':
+        return 'นัดหมาย'
+      case 'LOW_STOCK':
         return 'สต็อกต่ำ'
       default:
         return 'แจ้งเตือน'
@@ -273,9 +240,32 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
               )}
             </div>
 
+            {/* Tabs: ทั้งหมด / ระบบ / งานถึงกำหนด / บิล / สต็อก (count = not yet handled) */}
+            <div className="px-2 py-1.5 border-b border-slate-200 dark:border-[#263954] flex gap-1 overflow-x-auto shrink-0">
+              {[{ key: 'ALL' as const, label: 'ทั้งหมด' }, ...NOTIFICATION_GROUPS].map((g) => {
+                const count = g.key === 'ALL' ? Object.values(groupCounts).reduce((a, b) => a + b, 0) : groupCounts[g.key]
+                const active = group === g.key
+                return (
+                  <button
+                    key={g.key}
+                    type="button"
+                    onClick={() => setGroup(g.key)}
+                    className={`px-2 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap cursor-pointer transition-colors ${
+                      active
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {g.label}
+                    {count > 0 && <span className={`ml-1 ${active ? 'text-blue-100' : 'text-red-600 dark:text-red-400'}`}>{count}</span>}
+                  </button>
+                )
+              })}
+            </div>
+
             {/* Notification Items List */}
             <div className="overflow-y-auto max-h-[360px] divide-y divide-slate-100 dark:divide-slate-800/80">
-              {notifications.length === 0 ? (
+              {visibleNotifications.length === 0 ? (
                 <div className="p-8 text-center space-y-2">
                   <div className="w-10 h-10 mx-auto rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400">
                     <Sparkles className="w-5 h-5" />
@@ -288,9 +278,9 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
                   </p>
                 </div>
               ) : (
-                notifications.map((item) => {
+                visibleNotifications.map((item) => {
                   const isUnread = item.status === 'UNREAD'
-                  const isActioned = item.status === 'ACTIONED'
+                  const isActioned = item.status === 'HANDLED'
 
                   return (
                     <div
@@ -326,12 +316,29 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
                         <p className="text-[11px] text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">
                           {item.message}
                         </p>
-                        {item.type === 'BACKORDER_READY' && !isActioned && (
-                          <div className="pt-1">
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                              <span>คลิกเพื่อตรวจสอบและจัดสรรสินค้า</span>
-                              <ArrowRight className="w-3 h-3" />
-                            </span>
+                        <p className="text-[10px] text-slate-400">
+                          {new Date(item.createdAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}
+                        </p>
+                        {!isActioned && (
+                          <div className="flex gap-1.5 pt-1">
+                            {item.data?.sourceType === 'BILL' && item.data?.sourceId && (
+                              <button
+                                type="button"
+                                onClick={(e) => handleSendBill(e, item)}
+                                className="px-2 py-0.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                              >
+                                <Send className="w-3 h-3" />
+                                ส่งบิล
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => handleMarkHandled(e, item)}
+                              className="px-2 py-0.5 rounded-md border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                            >
+                              <Check className="w-3 h-3" />
+                              จัดการแล้ว
+                            </button>
                           </div>
                         )}
                       </div>
@@ -352,129 +359,6 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
         )}
       </div>
 
-      {/* Backorder Fulfillment Inspection Modal */}
-      <AppModal
-        isOpen={!!selectedBackorderNotif}
-        onClose={() => setSelectedBackorderNotif(null)}
-        size="md"
-      >
-        {selectedBackorderNotif && (
-          <>
-            <AppModalHeader
-              onClose={() => setSelectedBackorderNotif(null)}
-              icon={<Package className="w-5 h-5 text-emerald-600" />}
-              title="ตรวจสอบและจัดสรรสินค้าสำหรับ Backorder"
-            />
-
-            <form onSubmit={handleConfirmFulfillBackorder} className="flex-1 min-h-0 flex flex-col">
-              <AppModalBody className="space-y-4 text-xs">
-                {/* Details Banner */}
-                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <span className="text-[10px] text-slate-400 block">เลขที่ Backorder:</span>
-                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                        {selectedBackorderNotif.data.backorderNo || selectedBackorderNotif.data.backorderId || '-'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-400 block">เอกสารอ้างอิง:</span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200">
-                        {selectedBackorderNotif.data.sourceType || 'DOCUMENT'} #{selectedBackorderNotif.data.sourceNo || '-'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-400 block">ลูกค้า:</span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200 truncate block">
-                        {selectedBackorderNotif.data.customerName || '-'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-400 block">ประเภทรายการ:</span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200">
-                        {selectedBackorderNotif.data.itemType === 'RENT' ? 'ให้เช่า' : 'ขายขาด'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
-                    <span className="text-[10px] text-slate-400 block">สินค้า:</span>
-                    <span className="font-bold text-slate-900 dark:text-slate-100 text-sm block">
-                      {selectedBackorderNotif.data.productName}
-                    </span>
-                    {selectedBackorderNotif.data.productCode && (
-                      <span className="text-[11px] font-mono text-slate-500 block">
-                        รหัส: {selectedBackorderNotif.data.productCode}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Stock & Quantities Info */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50">
-                    <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 block">
-                      ยอดคงค้างใน Backorder
-                    </span>
-                    <span className="text-xl font-extrabold text-amber-800 dark:text-amber-200">
-                      {selectedBackorderNotif.data.outstandingQty ?? '-'}
-                    </span>
-                    <span className="text-[10px] text-amber-600 dark:text-amber-400 ml-1">ชิ้น</span>
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50">
-                    <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 block">
-                      สต็อกที่พร้อมจัดสรร
-                    </span>
-                    <span className="text-xl font-extrabold text-emerald-800 dark:text-emerald-200">
-                      {selectedBackorderNotif.data.readyQty ?? '-'}
-                    </span>
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 ml-1">ชิ้น</span>
-                  </div>
-                </div>
-
-                {/* Allocation Input */}
-                <div>
-                  <label className="block font-semibold mb-1 text-slate-700 dark:text-slate-200">
-                    ระบุจำนวนที่ต้องการยืนยันจัดสรร <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={Number(selectedBackorderNotif.data.readyQty || selectedBackorderNotif.data.outstandingQty || 1)}
-                    value={allocateQty}
-                    onChange={(e) => setAllocateQty(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 focus:outline-none text-sm font-bold"
-                    required
-                  />
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    เมื่อยืนยันแล้ว ระบบจะหักยอด Backorder และสร้างรายการจอง (Reservation) อัตโนมัติ
-                  </p>
-                </div>
-              </AppModalBody>
-
-              <AppModalFooter>
-                <button
-                  type="button"
-                  onClick={() => setSelectedBackorderNotif(null)}
-                  disabled={isSubmitting}
-                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
-                >
-                  ยกเลิก
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>{isSubmitting ? 'กำลังจัดสรร...' : 'ยืนยันจัดสรรสินค้า'}</span>
-                </button>
-              </AppModalFooter>
-            </form>
-          </>
-        )}
-      </AppModal>
     </>
   )
 }

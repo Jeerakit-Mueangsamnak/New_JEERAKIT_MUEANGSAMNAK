@@ -27,6 +27,9 @@ export interface CartItem {
   dailyStartDate?: string
   dailyEndDate?: string
   lineTotal: number
+  /** The product's own price for this line, kept when a quotation/draft puts its agreed price on `product`.
+   *  `null` = unknown (product not loaded), so checkout always sends `unitPrice`. */
+  listUnitPrice?: number | null
 }
 
 export interface ActiveCartData {
@@ -36,6 +39,8 @@ export interface ActiveCartData {
   shippingFee: number
   depositAmount: number
   taxRate: number
+  /** VAT ON/OFF chosen at the POS for this bill (transaction state, not a shop setting). */
+  vatEnabled?: boolean
   shippingAddress: string
   headerRentalDate: string // ISO string or YYYY-MM-DD
   headerReturnDate: string // ISO string or YYYY-MM-DD
@@ -82,6 +87,27 @@ export function clearActiveCart(): void {
 /** Explicit line mode wins; older carts fall back to rentalType/product type. */
 export function isSaleCartItem(item: { itemType?: 'RENT' | 'SALE'; rentalType?: string; product?: { rentalType?: string } }): boolean {
   return item.itemType ? item.itemType === 'SALE' : (item.rentalType || item.product?.rentalType) === 'SALE'
+}
+
+/** The product's own price for a cart line (what the server's `_list_price` charges when no unit price is sent). */
+export function cartLineListPrice(item: Pick<CartItem, 'product' | 'rentalType' | 'itemType' | 'listUnitPrice'>): number | null {
+  if (item.listUnitPrice !== undefined) return item.listUnitPrice
+  const p = item.product
+  return isSaleCartItem(item)
+    ? Number(p.salePrice ?? p.normalPrice ?? 0)
+    : Number(p.rentPrice ?? (item.rentalType === 'DAILY' ? p.dailyPrice : p.normalPrice) ?? 0)
+}
+
+/** Unit price to send with a draft line: omitted when it equals the list price (no override PIN). */
+export function cartLineUnitPriceForServer(item: Pick<CartItem, 'product' | 'rentalType' | 'itemType' | 'listUnitPrice' | 'unitPrice'>): number | undefined {
+  const listPrice = cartLineListPrice(item)
+  const unitPrice = Number(item.unitPrice)
+  return listPrice !== null && Math.abs(unitPrice - listPrice) < 0.005 ? undefined : unitPrice
+}
+
+/** Cash taken at checkout must cover the amount recorded as paid. */
+export function isCashShort(paymentMethod: string, receivedCash: number, amountDue: number): boolean {
+  return paymentMethod === 'CASH' && amountDue > 0 && receivedCash + 0.005 < amountDue
 }
 
 export function validateCartCustomer(

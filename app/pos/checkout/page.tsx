@@ -1,9 +1,10 @@
 'use client'
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { RentalBillTemplate, BillTemplateData } from '@/templates/rental-bill/RentalBillTemplate'
+import { billBusinessFields, printRentalBillDocument } from '@/features/documents/utils/rental-bill-print'
 import { A4FitPreview } from '@/features/pos/components/A4FitPreview'
 import {
   ArrowLeft,
@@ -11,18 +12,23 @@ import {
   CreditCard,
   FileText,
 } from 'lucide-react'
-import { PaymentMethodSelector } from '@/features/pos/components/payment/PaymentMethodSelector'
+import { PaymentMethodSelector, type PaymentMethodType } from '@/features/pos/components/payment/PaymentMethodSelector'
 import { PaymentDynamicContent } from '@/features/pos/components/payment/PaymentDynamicContent'
 import { RentalBill, Customer, Product } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
 import { PostSavePrintModal } from '@/components/common/PostSavePrintModal'
-import { loadActiveCart, clearActiveCart, isSaleCartItem, validateCartCustomer } from '@/features/pos/services/cart-storage'
-import { FullBill } from '@/lib/types/rental-return'
-import { updateQuotationConverted } from '@/features/quotations/services/quotation-storage'
-import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { generateCorrelationId } from '@/features/audits/services/audit-storage'
-import { createBillWorkflow, saveDraftBillWorkflow, confirmDraftBillWorkflow } from '@/features/bills/services/bill-workflow-service'
-import { flushPendingBillWrites, loadBillById } from '@/features/bills/services/bill-storage'
+import { getLocalDateString } from '@/components/common/CustomDatePicker'
+import {
+  loadActiveCart,
+  clearActiveCart,
+  isSaleCartItem,
+  validateCartCustomer,
+  cartLineUnitPriceForServer,
+  isCashShort,
+} from '@/features/pos/services/cart-storage'
+import { saveBillDraft, confirmBill, deliverBill, type BillDraftInput, type BillLineInput } from '@/features/bills/services/bill-service'
+import { fetchBillByIdFromSupabase, fetchBillsFromSupabase, loadBillById } from '@/features/bills/services/bill-storage'
+import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { calculateBillTotals } from '@/lib/calculation-service'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 
@@ -31,7 +37,7 @@ const safeFormatDateStr = (d?: Date | string | null): string => {
   try {
     const dt = new Date(d)
     if (isNaN(dt.getTime())) return '-'
-    return dt.toISOString().split('T')[0]
+    return getLocalDateString(dt)
   } catch {
     return '-'
   }
@@ -40,7 +46,6 @@ const safeFormatDateStr = (d?: Date | string | null): string => {
 export default function CheckoutPage() {
   const router = useRouter()
   const { showToast } = useToast()
-  const { user } = useAuth()
   const { settings } = useSystemSettings()
 
   const [customer, setCustomer] = useState<Customer | null>(null)
@@ -69,6 +74,13 @@ export default function CheckoutPage() {
   const [quotationId, setQuotationId] = useState<string | null>(null)
   const [quotationNo, setQuotationNo] = useState<string | null>(null)
   const [draftBillId, setDraftBillId] = useState<string | null>(null)
+  // Draft this page already saved on the server but has not confirmed yet (e.g. confirm failed):
+  // a retry must update it, not create another one.
+  const savedDraftIdRef = useRef<string | null>(null)
+  // Goods leave with the customer now (default) — or later / in parts from the bills screen.
+  const [deliverNow, setDeliverNow] = useState<boolean>(true)
+  // VAT ON/OFF of this bill, chosen in the cart; sent with the draft and snapshotted by the server.
+  const [vatEnabled, setVatEnabled] = useState<boolean>(false)
 
   useEffect(() => {
     const cart = loadActiveCart()
@@ -86,6 +98,7 @@ export default function CheckoutPage() {
       if (cart.quotationId) setQuotationId(cart.quotationId)
       if (cart.quotationNo) setQuotationNo(cart.quotationNo)
       if (cart.draftBillId) setDraftBillId(cart.draftBillId)
+      setVatEnabled(cart.vatEnabled === true)
     }
   }, [])
 
@@ -95,6 +108,7 @@ export default function CheckoutPage() {
     discount,
     shippingFee,
     depositAmount,
+    enableVat: vatEnabled,
   })
   const tax = totals.vatAmount
   const subtotal = totals.subtotal
@@ -107,11 +121,13 @@ export default function CheckoutPage() {
   }
 
   // Payment State
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER' | 'QR' | 'UNPAID'>('CASH')
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType | null>(null)
   const [receivedCashInput, setReceivedCashInput] = useState<string>('')
   const [bankRef, setBankRef] = useState<string>('')
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
   const [savedBill, setSavedBill] = useState<RentalBill | null>(null)
+  // What was saved, frozen before the cart is cleared, so "พิมพ์" prints the real bill
+  const [savedPrintData, setSavedPrintData] = useState<BillTemplateData | null>(null)
 
   // Post-Save Print Confirmation Modal State
   const [postSavePrintModal, setPostSavePrintModal] = useState<{
@@ -124,17 +140,7 @@ export default function CheckoutPage() {
     description: '',
   })
 
-  // QR Code State
-  const [qrCodeUrl, setQrCodeUrl] = useState<string>('')
-  const [isQrLoading, setIsQrLoading] = useState<boolean>(false)
-  const [qrError, setQrError] = useState<string | null>(null)
-
-  const promptPayId = ''
   const [mobileTab, setMobileTab] = useState<'PAYMENT' | 'PREVIEW'>('PAYMENT')
-
-  const handleGenerateQR = useCallback(async () => {
-    setQrCodeUrl('')
-  }, [])
 
   const receivedCash = receivedCashInput === '' ? grandTotal : (parseFloat(receivedCashInput) || 0)
   const changeAmount = paymentMethod === 'CASH' ? Math.max(0, receivedCash - grandTotal) : 0
@@ -142,10 +148,8 @@ export default function CheckoutPage() {
   // Format template data for live preview
   const billData: BillTemplateData = {
     documentTitle: documentType || 'บิลเช่า',
-    businessName: 'บริษัท อุปกรณ์ก่อสร้างและจัดเลี้ยง ให้เช่า จำกัด',
-    businessAddress: '99/9 ถ.สุขุมวิท แขวงคลองเตย เขตคลองเตย กรุงเทพมหานคร 10110',
-    businessTaxId: '0105560001234',
-    businessPhone: '02-123-4567',
+    // Shop details come from Settings → ข้อมูลร้าน (never made-up values)
+    ...billBusinessFields(settings.business),
     customerName: customer?.customerName || 'ลูกค้าทั่วไป',
     customerAddress: customer?.address,
     customerPhone: customer?.phone,
@@ -175,14 +179,85 @@ export default function CheckoutPage() {
     taxAmount: tax,
     depositAmount: depositAmount || 0,
     grandTotal,
-    paidAmount: paymentMethod === 'UNPAID' ? 0 : grandTotal,
-    outstandingAmount: paymentMethod === 'UNPAID' ? grandTotal : 0,
+    paidAmount: paymentMethod && paymentMethod !== 'UNPAID' ? grandTotal : 0,
+    outstandingAmount: paymentMethod === 'UNPAID' || paymentMethod === null ? grandTotal : 0,
     remark: remark || undefined,
+  }
+
+  /** Cart → server draft (Master v4.3.1 §12): the server prices it, checks price overrides
+   *  (PIN + reason) and keeps the deposit on the bill. Dates: daily items bill the days picked
+   *  on their card; per-round items use the header dates only as return reminders. */
+  const buildDraftInput = (): BillDraftInput => {
+    const startOfDay = (d?: Date | string | null) => {
+      const dt = d ? new Date(d) : new Date()
+      return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 0, 0, 0)
+    }
+    const endOfDay = (d?: Date | string | null) => {
+      const dt = d ? new Date(d) : new Date()
+      return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 23, 59, 59)
+    }
+    const headerStart = startOfDay(headerRentalDate)
+    const headerEnd = endOfDay(headerReturnDate ?? headerRentalDate)
+
+    const lines: BillLineInput[] = items.map((it) => {
+      const unitPrice = cartLineUnitPriceForServer(it)
+      if (isSaleCartItem(it)) {
+        return { productId: it.product.id, mode: 'SALE', quantity: it.quantity, unitPrice }
+      }
+      if (it.rentalType === 'DAILY') {
+        return {
+          productId: it.product.id,
+          mode: 'RENTAL',
+          quantity: it.quantity,
+          unitPrice,
+          calc: 'PER_DAY',
+          periods: Math.max(1, Number(it.billableDays) || 1),
+          startAt: startOfDay(it.dailyStartDate ?? headerRentalDate).toISOString(),
+          endAt: endOfDay(it.dailyEndDate ?? it.dailyStartDate ?? headerReturnDate ?? headerRentalDate).toISOString(),
+        }
+      }
+      return {
+        productId: it.product.id,
+        mode: 'RENTAL',
+        quantity: it.quantity,
+        unitPrice,
+        calc: 'PER_PERIOD',
+        periods: Math.max(1, Number(it.usageCount) || 1),
+        startAt: headerStart.toISOString(),
+        endAt: (headerEnd > headerStart ? headerEnd : endOfDay(headerStart)).toISOString(),
+      }
+    })
+
+    const note = [remark?.trim(), shippingAddress?.trim() ? `ส่งที่: ${shippingAddress.trim()}` : '']
+      .filter(Boolean)
+      .join('\n')
+
+    return {
+      billId:
+        savedDraftIdRef.current ??
+        (draftBillId && loadBillById(draftBillId)?.rentalStatus === 'DRAFT' ? draftBillId : null),
+      customerId: customer?.id || null,
+      quotationId: quotationId || null,
+      vatEnabled,
+      note: note || undefined,
+      discountAmount: discount || 0,
+      deliveryFee: shippingFee || 0,
+      depositAmount: depositAmount || 0,
+      isCreditBill: false,
+      dueDate: null,
+      lines,
+    }
   }
 
   const handleConfirmBill = async () => {
     if (items.length === 0) {
       showToast('ไม่สามารถออกบิลได้', 'ไม่มีรายการสินค้าในตะกร้า', 'ERROR')
+      return
+    }
+
+    const selectedPaymentMethod = paymentMethod
+    if (!selectedPaymentMethod) {
+      showToast('กรุณาเลือกช่องทางชำระเงิน', 'โปรดเลือกช่องทางชำระเงินก่อนยืนยันบิล', 'ERROR')
       return
     }
 
@@ -193,136 +268,59 @@ export default function CheckoutPage() {
       return
     }
 
+    if (isCashShort(selectedPaymentMethod, receivedCash, grandTotal)) {
+      showToast('เงินสดไม่ถูกต้อง', 'เงินสดที่รับมาต้องไม่น้อยกว่ายอดชำระ', 'ERROR')
+      return
+    }
+
     setIsSubmitting(true)
     try {
-      const correlationId = generateCorrelationId()
-      const actorUserId = user?.userId || user?.id || 'system'
-      const actorDisplayName = user?.displayName || user?.fullName || 'ระบบ'
-
-      const now = new Date()
-      const existingDraft = draftBillId ? loadBillById(draftBillId) : null
-      const billId = draftBillId || ('bill-' + Date.now())
-      const billNo = existingDraft?.billNo || `BILL-${now.toISOString().slice(0, 10).replace(/-/g, '')}-${String(Math.floor(1000 + Math.random() * 9000))}`
-      const isUnpaid = paymentMethod === 'UNPAID'
-      const paid = isUnpaid ? 0 : grandTotal
-      const outstanding = isUnpaid ? grandTotal : 0
-
       const allItemsAreSale = items.length > 0 && items.every((it) => isSaleCartItem(it))
+      const isUnpaid = selectedPaymentMethod === 'UNPAID'
 
-      const newFullBill: FullBill = {
-        id: billId,
-        billNo: billNo,
-        billDate: now.toISOString().split('T')[0],
-        customerId: customer?.id,
-        customerName: customer?.customerName || 'ลูกค้าทั่วไป',
-        customerPhone: customer?.phone || '-',
-        customerAddress: customer?.address || shippingAddress || '-',
-        rentalStartDate: headerRentalDate ? safeFormatDateStr(headerRentalDate) : now.toISOString().split('T')[0],
-        scheduledReturnDate: headerReturnDate ? safeFormatDateStr(headerReturnDate) : now.toISOString().split('T')[0],
-        heldDepositAmount: depositAmount,
-        paidDepositAmount: depositAmount,
-        deposits: depositAmount > 0 ? [{
-          id: `dep-${Date.now()}`,
-          amount: depositAmount,
-          refundAmount: 0,
-          appliedAmount: 0,
-          heldAmount: depositAmount,
-          status: 'HELD',
-          receivedDate: now.toISOString().split('T')[0],
-          paymentMethod: isUnpaid ? null : paymentMethod,
-          referenceNo: null,
-        }] : [],
-        subtotal: subtotal,
-        discountAmount: discount,
-        shippingFee: shippingFee,
-        taxAmount: tax,
-        grandTotal: grandTotal,
-        paidAmount: paid,
-        outstandingAmount: outstanding,
-        rentalStatus: 'CONFIRMED',
-        dispatchStatus: 'PENDING',
-        paymentStatus: isUnpaid ? 'UNPAID' : 'PAID',
-        remark: remark || undefined,
-        quotationId: quotationId || undefined,
-        quotationNo: quotationNo || undefined,
-        items: items.map((it, idx) => {
-          const isSale = isSaleCartItem(it)
-          return {
-            rentalBillItemId: `item-${Date.now()}-${idx}`,
-            productId: it.product.id,
-            productCode: it.product.code,
-            productName: it.product.name,
-            itemType: isSale ? 'SALE' : 'RENT',
-            quantity: it.quantity,
-            orderedQty: it.quantity,
-            deliveredQty: 0,
-            remainingQty: it.quantity,
-            returnedQty: 0,
-            outstandingQty: isSale ? 0 : it.quantity,
-            dailyRate: it.unitPrice,
-            unit: it.product.unit || 'ชิ้น',
-            defaultRepairFee: it.product.defaultDamageFee || 0,
-            defaultReplacementFee: it.product.defaultLossFee || 0,
-            requiresReturn: !isSale,
-            rentalStartDate: headerRentalDate ? safeFormatDateStr(headerRentalDate) : now.toISOString().split('T')[0],
-            scheduledReturnDate: headerReturnDate ? safeFormatDateStr(headerReturnDate) : now.toISOString().split('T')[0],
-            rentalType: it.rentalType,
-            usageCount: it.usageCount,
-            lineTotal: it.lineTotal,
-            status: 'PENDING',
-            deliveryStatus: 'PENDING',
+      // 1) server draft (prices, discount, override PIN) → 2) confirm with the server's total
+      const billId = await saveBillDraft(buildDraftInput())
+      savedDraftIdRef.current = billId
+      const draft = await fetchBillByIdFromSupabase(billId)
+      const total = draft?.grandTotal ?? grandTotal
+      // The server's total can differ from the screen's; the cash typed in must still cover it
+      if (!isUnpaid && receivedCashInput !== '' && isCashShort(selectedPaymentMethod, receivedCash, total)) {
+        showToast(
+          'เงินสดไม่ถูกต้อง',
+          `ยอดสุทธิจากระบบ ฿${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })} มากกว่าเงินสดที่รับมา — บิลบันทึกเป็นแบบร่างไว้แล้ว`,
+          'ERROR'
+        )
+        return
+      }
+      const confirmed = await confirmBill(
+        billId,
+        isUnpaid || total <= 0 ? [] : [{ method: selectedPaymentMethod, amount: total, reference: bankRef || undefined }]
+      )
+      savedDraftIdRef.current = null
+      const billNo = confirmed?.billNo || ''
+
+      // Stock moves only with a real delivery (Master §11.3): record it now if the customer takes the goods.
+      if (deliverNow && confirmed) {
+        const lines = confirmed.items
+          .filter((it) => (it.remainingQty ?? 0) > 0)
+          .map((it) => ({ lineId: it.rentalBillItemId, quantity: it.remainingQty ?? 0 }))
+        if (lines.length > 0) {
+          try {
+            await deliverBill(billId, lines)
+          } catch (deliveryErr: any) {
+            showToast('ออกบิลแล้ว แต่บันทึกส่งของไม่สำเร็จ', `${deliveryErr?.message || ''} — ส่งของได้ที่หน้าจัดการบิล`, 'ERROR')
           }
-        }),
+        }
       }
 
-      if (draftBillId) {
-        confirmDraftBillWorkflow({
-          billId: draftBillId,
-          splitTenders: isUnpaid
-            ? []
-            : [
-                {
-                  paymentMethod,
-                  amount: grandTotal,
-                  referenceNo: bankRef || undefined,
-                },
-              ],
-          depositAmount,
-          depositChannel: paymentMethod,
-          actor: {
-            userId: actorUserId,
-            displayName: actorDisplayName,
-          },
-          correlationId,
-        })
-      } else {
-        createBillWorkflow({
-          bill: newFullBill,
-          splitTenders: isUnpaid
-            ? []
-            : [
-                {
-                  paymentMethod,
-                  amount: grandTotal,
-                  referenceNo: bankRef || undefined,
-                },
-              ],
-          depositAmount,
-          depositChannel: paymentMethod,
-          actor: {
-            userId: actorUserId,
-            displayName: actorDisplayName,
-          },
-          correlationId,
-        })
-      }
-
-      await flushPendingBillWrites()
-
-      if (quotationId) {
-        updateQuotationConverted(quotationId, billId)
-      }
-
+      const savedTotal = confirmed?.grandTotal ?? total
+      setSavedPrintData({
+        ...billData,
+        billNo,
+        grandTotal: savedTotal,
+        paidAmount: isUnpaid ? 0 : savedTotal,
+        outstandingAmount: isUnpaid ? savedTotal : 0,
+      })
       clearCart()
 
       const billTitle = allItemsAreSale ? 'บันทึกการขายสำเร็จ' : 'บันทึกบิลเช่าสำเร็จ'
@@ -337,6 +335,7 @@ export default function CheckoutPage() {
         description: billDesc,
       })
     } catch (err: any) {
+      if (isPinCancelled(err)) return
       showToast('เกิดข้อผิดพลาดในการบันทึกบิล', err?.message || 'โปรดตรวจสอบข้อมูลอีกครั้ง', 'ERROR')
     } finally {
       setIsSubmitting(false)
@@ -358,85 +357,13 @@ export default function CheckoutPage() {
 
     try {
       setIsSubmitting(true)
-      const correlationId = generateCorrelationId()
-      const actorUserId = user?.userId || user?.id || 'system'
-      const actorDisplayName = user?.displayName || user?.fullName || 'ระบบ'
-
-      const now = new Date()
-      const existingDraft = draftBillId ? loadBillById(draftBillId) : null
-      const billId = draftBillId || `bill-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-      const billNo = existingDraft?.billNo || `BILL-${now.toISOString().slice(0, 10).replace(/-/g, '')}-${String(Math.floor(1000 + Math.random() * 9000))}`
-
-      const draftBill: FullBill = {
-        id: billId,
-        billNo,
-        billDate: now.toISOString().split('T')[0],
-        customerId: customer?.id,
-        customerName: customer?.customerName || 'ลูกค้าทั่วไป',
-        customerPhone: customer?.phone || '-',
-        customerAddress: customer?.address || shippingAddress || '-',
-        rentalStartDate: headerRentalDate ? safeFormatDateStr(headerRentalDate) : now.toISOString().split('T')[0],
-        scheduledReturnDate: headerReturnDate ? safeFormatDateStr(headerReturnDate) : now.toISOString().split('T')[0],
-        heldDepositAmount: depositAmount,
-        paidDepositAmount: 0,
-        deposits: [],
-        subtotal,
-        discountAmount: discount,
-        shippingFee,
-        taxAmount: tax,
-        grandTotal,
-        paidAmount: 0,
-        outstandingAmount: grandTotal,
-        rentalStatus: 'DRAFT',
-        paymentStatus: 'UNPAID',
-        dispatchStatus: 'PENDING',
-        remark: remark || undefined,
-        quotationId: quotationId || undefined,
-        quotationNo: quotationNo || undefined,
-        items: items.map((it, idx) => {
-          const isSale = isSaleCartItem(it)
-          return {
-            rentalBillItemId: `item-${Date.now()}-${idx}`,
-            productId: it.product.id,
-            productCode: it.product.code,
-            productName: it.product.name,
-            itemType: isSale ? 'SALE' : 'RENT',
-            quantity: it.quantity,
-            orderedQty: it.quantity,
-            deliveredQty: 0,
-            remainingQty: it.quantity,
-            returnedQty: 0,
-            outstandingQty: isSale ? 0 : it.quantity,
-            dailyRate: it.unitPrice,
-            unit: it.product.unit || 'ชิ้น',
-            defaultRepairFee: it.product.defaultDamageFee || 0,
-            defaultReplacementFee: it.product.defaultLossFee || 0,
-            requiresReturn: !isSale,
-            rentalStartDate: headerRentalDate ? safeFormatDateStr(headerRentalDate) : now.toISOString().split('T')[0],
-            scheduledReturnDate: headerReturnDate ? safeFormatDateStr(headerReturnDate) : now.toISOString().split('T')[0],
-            rentalType: it.rentalType,
-            usageCount: it.usageCount,
-            lineTotal: it.lineTotal,
-            status: 'PENDING',
-            deliveryStatus: 'PENDING',
-          }
-        }),
-      }
-
-      saveDraftBillWorkflow({
-        bill: draftBill,
-        actor: {
-          userId: actorUserId,
-          displayName: actorDisplayName,
-        },
-        correlationId,
-      })
-
-      await flushPendingBillWrites()
+      await saveBillDraft(buildDraftInput())
+      await fetchBillsFromSupabase()
       clearCart()
-      showToast('บันทึกแบบร่างสำเร็จ', `บันทึกแบบร่างบิล ${billNo} เรียบร้อยแล้ว`, 'SUCCESS')
+      showToast('บันทึกแบบร่างสำเร็จ', 'บันทึกแบบร่างบิลเรียบร้อยแล้ว (ยังไม่ตัดสต็อก ยังไม่มีเลขบิล)', 'SUCCESS')
       router.push('/bills?status=DRAFT')
     } catch (err: any) {
+      if (isPinCancelled(err)) return
       showToast('เกิดข้อผิดพลาดในการบันทึกแบบร่าง', err?.message || 'โปรดตรวจสอบข้อมูลอีกครั้ง', 'ERROR')
     } finally {
       setIsSubmitting(false)
@@ -487,7 +414,7 @@ export default function CheckoutPage() {
             className="h-full w-full"
             align="center"
           >
-            <RentalBillTemplate data={billData} />
+            <RentalBillTemplate data={savedPrintData ?? billData} />
           </A4FitPreview>
         </div>
       </div>
@@ -508,13 +435,13 @@ export default function CheckoutPage() {
               <span className="whitespace-nowrap">ย้อนกลับไป POS</span>
             </Link>
             <h3 className="shrink-0 whitespace-nowrap text-sm font-bold text-slate-900 dark:text-slate-100 sm:text-base">
-              ชำระเงินปิดเช่า
+              ชำระเงิน
             </h3>
           </div>
 
           {/* Amount Due Card */}
           <div className="shrink-0 rounded-2xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 p-2.5 sm:p-3 text-white shadow-lg lg:p-3.5">
-            <span className="text-[11px] sm:text-xs text-blue-100 block font-medium">ยอดสุทธิที่ต้องรับชำระ</span>
+            <span className="text-[11px] sm:text-xs text-blue-100 block font-medium">ยอดสุทธิ</span>
             <span className="whitespace-nowrap text-2xl sm:text-3xl font-black tracking-tight block">
               ฿{grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
             </span>
@@ -530,36 +457,48 @@ export default function CheckoutPage() {
           <PaymentMethodSelector
             selectedMethod={paymentMethod}
             onSelectMethod={setPaymentMethod}
+            showPromptPay={false}
+            autoSelectFirst={false}
           />
 
           {/* Dynamic Inputs per Method */}
-          <PaymentDynamicContent
-            paymentMethod={paymentMethod}
-            targetAmount={grandTotal}
-            receivedCashInput={receivedCashInput}
-            onReceivedCashInputChange={setReceivedCashInput}
-            changeAmount={changeAmount}
-            bankRef={bankRef}
-            onBankRefChange={setBankRef}
-            qrCodeUrl={qrCodeUrl}
-            isQrLoading={isQrLoading}
-            qrError={qrError}
-            onRetryQr={handleGenerateQR}
-            promptPayId={promptPayId}
-          />
+          {paymentMethod ? (
+            <PaymentDynamicContent
+              paymentMethod={paymentMethod}
+              targetAmount={grandTotal}
+              receivedCashInput={receivedCashInput}
+              onReceivedCashInputChange={setReceivedCashInput}
+              changeAmount={changeAmount}
+              bankRef={bankRef}
+              onBankRefChange={setBankRef}
+            />
+          ) : (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              กรุณาเลือกช่องทางชำระเงินก่อนยืนยันบิล
+            </p>
+          )}
         </div>
 
         {/* Action Buttons Group (Confirm, Save Draft, Cancel) */}
         <div className="flex shrink-0 flex-col gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+          <label className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={deliverNow}
+              onChange={(e) => setDeliverNow(e.target.checked)}
+              className="w-4 h-4 text-emerald-600 rounded"
+            />
+            <span>ลูกค้ารับของเลย (บันทึกส่งมอบทันที) — ไม่ติ๊ก = ส่งภายหลังที่หน้าจัดการบิล</span>
+          </label>
           <button
             type="button"
             onClick={handleConfirmBill}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !paymentMethod}
             className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 sm:py-3 hover:bg-emerald-700 active:scale-[0.99] text-white font-black text-sm sm:text-base flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
           >
             <FileCheck className="w-5 h-5 shrink-0" />
             <span className="whitespace-nowrap">
-              {isSubmitting ? 'กำลังบันทึกบิล...' : draftBillId ? 'ยืนยันออกบิลจากแบบร่าง' : 'ยืนยันออกบิลเช่า'}
+              {isSubmitting ? 'กำลังบันทึกบิล...' : draftBillId ? 'ยืนยันออกบิลจากแบบร่าง' : 'ยืนยันออกบิล'}
             </span>
           </button>
 
@@ -590,7 +529,7 @@ export default function CheckoutPage() {
         title={postSavePrintModal.title}
         description={postSavePrintModal.description}
         onPrint={() => {
-          window.print()
+          printRentalBillDocument(savedPrintData ?? billData)
           clearCart()
           setPostSavePrintModal({ isOpen: false, title: '', description: '' })
           router.push('/pos')
@@ -658,4 +597,3 @@ export default function CheckoutPage() {
     </div>
   )
 }
-

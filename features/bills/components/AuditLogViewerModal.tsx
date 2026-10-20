@@ -37,15 +37,16 @@ export function AuditLogViewerModal({
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    let alive = true
     setLoading(true)
     setError(null)
-    try {
-      const logs = getAuditLogsForBill(billId || '', billNo)
-      setAuditLogs(logs)
-    } catch (err: any) {
-      setError(err?.message || 'ไม่สามารถโหลดประวัติ Audit Log ได้')
-    } finally {
-      setLoading(false)
+    // Audit is OWNER-only on the server (RLS); other users see an empty list.
+    getAuditLogsForBill(billId || '')
+      .then((logs) => alive && setAuditLogs(logs))
+      .catch((err: unknown) => alive && setError(err instanceof Error ? err.message : 'ไม่สามารถโหลดประวัติ Audit Log ได้'))
+      .finally(() => alive && setLoading(false))
+    return () => {
+      alive = false
     }
   }, [billId, billNo])
 

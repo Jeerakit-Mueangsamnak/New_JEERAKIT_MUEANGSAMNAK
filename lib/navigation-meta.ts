@@ -27,6 +27,7 @@ export const PAGE_NAME_MAP: Record<string, string> = {
   '/quotations': 'ใบเสนอราคา',
   '/finance': 'การเงิน',
   '/settings': 'ตั้งค่าระบบ',
+  '/account': 'ตั้งค่าส่วนตัว',
   '/owner-permissions': 'จัดการสิทธิ์ & รายงาน',
 }
 

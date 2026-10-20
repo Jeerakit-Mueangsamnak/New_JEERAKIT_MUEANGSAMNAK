@@ -1,5 +1,7 @@
 'use client'
 
+import { useToast } from '@/components/common/Toast'
+import { useCreateCustomer } from '@/features/customers/hooks/useCreateCustomer'
 import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
@@ -18,7 +20,6 @@ import {
 import { useTheme } from '@/lib/contexts/ThemeContext'
 import { NewCustomerModal } from '@/features/customers/components/NewCustomerModal'
 import { AddAppointmentModal } from '@/features/appointments/components/AddAppointmentModal'
-import { addCustomerAsync } from '@/features/customers/services/customer-storage'
 import { addAppointment } from '@/features/appointments/services/appointment-storage'
 
 interface QuickActionLauncherProps {
@@ -26,6 +27,8 @@ interface QuickActionLauncherProps {
 }
 
 export function QuickActionLauncher({ className = '' }: QuickActionLauncherProps) {
+  const { showToast } = useToast()
+  const createCustomer = useCreateCustomer()
   const router = useRouter()
   const { toggleTheme, isDark } = useTheme()
   const [isOpen, setIsOpen] = useState(false)
@@ -167,11 +170,11 @@ export function QuickActionLauncher({ className = '' }: QuickActionLauncherProps
         onClose={() => setShowNewCustomerModal(false)}
         onSave={async (c) => {
           try {
-            await addCustomerAsync(c)
+            await createCustomer(c)
             setShowNewCustomerModal(false)
           } catch (err) {
             console.error(err)
-            alert('บันทึกลูกค้าไม่สำเร็จ โปรดลองอีกครั้ง')
+            showToast('บันทึกลูกค้าไม่สำเร็จ', err instanceof Error ? err.message : 'โปรดลองอีกครั้ง', 'ERROR')
           }
         }}
       />
@@ -181,7 +184,7 @@ export function QuickActionLauncher({ className = '' }: QuickActionLauncherProps
         isOpen={showAddAppointmentModal}
         onClose={() => setShowAddAppointmentModal(false)}
         onSave={(newApt) => {
-          addAppointment(newApt)
+          void addAppointment(newApt).catch((err: unknown) => console.error('บันทึกนัดหมายไม่สำเร็จ', err))
           setShowAddAppointmentModal(false)
         }}
       />

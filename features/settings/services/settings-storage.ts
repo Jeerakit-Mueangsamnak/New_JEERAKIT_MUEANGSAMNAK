@@ -1,116 +1,87 @@
 /**
- * Centralized System Settings Storage & Service
+ * Shop (SYSTEM) settings for the UI. The single source of truth is the public.store_settings
+ * row (features/settings/api/settings-repository.ts), written section by section through
+ * settings_update (OWNER only, audited on the server). This module keeps the in-memory copy
+ * the screens read — no browser storage. Only values with a real consumer live here
+ * (features/settings/settings-registry.ts lists each key, its scope and consumer).
  *
- * Backed by Supabase system_settings with local cache fallback for offline startup.
- * Single source of truth for financial rules, VAT rates, discount ceilings,
- * money precision/rounding, and reservation expiry policies across the entire app.
+ * PROFILE values (name, avatar, PIN, auto-lock choice) live on the user's own profile rows;
+ * DEVICE values (theme) live in this browser only (lib/contexts/ThemeContext).
  */
 
-import { recordAuditLog, generateCorrelationId } from '@/features/audits/services/audit-storage'
+export type VatCalculationMode = 'EXCLUSIVE' | 'INCLUSIVE'
 
+/** Shop identity + the payment details printed on documents (read by the document renderer). */
 export interface BusinessSettings {
   businessName: string
   address: string
   phone: string
   email: string
   taxId: string
-  branchNo: string
   lineId: string
   authorizedPerson: string
+  logoDataUrl?: string
+  // ── รับชำระเงิน (shown on bills / receipts) ──
   bankName: string
   bankAccountName: string
   bankAccountNumber: string
-  promptPayValue: string
   promptPayType?: string
-  logoDataUrl?: string
+  promptPayValue: string
   bankQrDataUrl?: string
 }
 
-export interface ProductStockSettings {
-  defaultMinimumStock: number
-  allowZeroStock: boolean
-  allowBackdatedStockAdjustment: boolean
-  lowStockNotificationEnabled: boolean
+/**
+ * VAT rate + price mode and the discount limit. VAT ON/OFF is NOT a shop setting: it is chosen
+ * per bill at the POS and snapshotted on the bill by the server.
+ */
+export interface TaxDiscountSettings {
+  /** null = not set by the OWNER yet (VAT cannot be switched on for a bill). */
+  vatRate: number | null
+  vatMode: VatCalculationMode | null
+  discountLimitEnabled: boolean
+  /** The OWNER's own percent; null while the limit is off. */
+  discountLimitPercent: number | null
 }
 
-export type ReservationExpiryPolicy = 'UNTIL_START_DATE' | 'MANUAL' | 'DAYS_LIMIT'
-
-export interface RentalBillingSettings {
-  defaultRentalType: string
-  defaultRentalDays: number
-  rentalDayCalculation: string
-  gracePeriodDays: number
-  lateFeeMode: string
-  lateFeeValue: number
-  dailyOverdueChargeEnabled: boolean
-  returnCutoffTime: string
-  allowPartialReturn: boolean
-  allowPartialPayment: boolean
-  allowContinueAfterPaid: boolean
-  reservationExpiryPolicy: ReservationExpiryPolicy
-  reservationExpiryDays: number
+export interface PaymentSettings {
+  /** policies.allow_overpayment — payment_receive refuses more than the balance when off. */
+  allowOverpayment: boolean
 }
 
+export interface SalesRentalSettings {
+  /** policies.allow_backorder — bill_confirm refuses lines above available stock when off. */
+  allowBackorder: boolean
+  /** policies.reservation_auto_release — the hourly job releases expired holds when on. */
+  reservationAutoRelease: boolean
+}
+
+export interface ProductSettings {
+  /** Starting reorder point (products.reorder_point) for a NEW product. Low stock itself is per product. */
+  defaultReorderPoint: number
+}
+
+/** PREFIX-DDMMBBBB-RUNNING; the running number restarts every local day (server _next_document_no). */
 export interface DocNumberFormat {
   prefix: string
-  runningDigits: number
-  resetCycle: string
-  yearMode: string
-  includeDate: boolean
-  datePattern: string
-  separator?: string
-  digits?: number
+  digits: number
 }
 
-export interface DocumentNumberingSettings {
-  rentalBill: DocNumberFormat
-  quotation: DocNumberFormat
-  receipt: DocNumberFormat
-  returnSlip: DocNumberFormat
-}
+export type DocumentType =
+  | 'QUOTATION'
+  | 'RESERVATION'
+  | 'BILL'
+  | 'RECEIPT'
+  | 'REFUND'
+  | 'CREDIT_NOTE'
+  | 'APPOINTMENT'
+  | 'STOCK_ADJUSTMENT'
+  | 'INVENTORY_COUNT'
+  | 'DELIVERY'
+  | 'RETURN'
+  | 'EXPENSE'
+  | 'OTHER_INCOME'
 
-export interface DocumentPrintingSettings {
-  defaultTemplates: {
-    rentalBill: string
-    quotation: string
-    receipt: string
-    returnSlip: string
-  }
-  paperSize: string
-  margins: {
-    top: number
-    right: number
-    bottom: number
-    left: number
-  }
-  footerText: string
-  showLogo?: boolean
-  showQRCode?: boolean
-  showAuthorizedPerson?: boolean
-  showSignature?: boolean
-  defaultCopies?: number
-}
-
-export type VatCalculationMode = 'EXCLUSIVE' | 'INCLUSIVE'
-export type RoundingMode = 'ROUND_HALF_UP' | 'ROUND_UP' | 'ROUND_DOWN'
-
-export interface FinancePaymentSettings {
-  paymentMethods: {
-    cash: boolean
-    bankTransfer: boolean
-    promptPay: boolean
-    credit: boolean
-  }
-  defaultVatPercent: number
-  vatEnabled: boolean
-  vatCalculationMode: VatCalculationMode
-  defaultWithholdingPercent: number
-  maximumDiscountPercent: number
-  defaultDepositPercent: number
-  autoCreateFinanceTransaction: boolean
-  moneyPrecision: number
-  roundingMode: RoundingMode
-}
+export type DocumentNumberingSettings = Record<DocumentType, DocNumberFormat>
 
 export interface NotificationItemSettings {
   enabled: boolean
@@ -123,322 +94,157 @@ export interface NotificationSettings {
   paymentReminder: NotificationItemSettings
   lowStockReminder: { enabled: boolean }
   overdueReturnReminder: { enabled: boolean }
+  /** Upcoming appointments: notice + the "ใกล้ถึงกำหนด" window of the calendar (days). */
+  appointmentReminder: NotificationItemSettings
 }
 
-export interface BrandingSettings {
-  systemName: string
-  authBackgroundType?: 'gradient' | 'image' | 'default'
-  authBackgroundImageUrl?: string | null
-  appLogoUrl?: string | null
+/** Which auto-lock times users may pick, and the default for users who did not pick one. */
+export interface ShopSecuritySettings {
+  autoLockOptionsSeconds: number[]
+  autoLockDefaultSeconds: number
+}
+
+/**
+ * LINE (store_settings.policies.line, checked again on the server by trg_store_settings_line_policy).
+ * The OA credentials are NOT here: they live in Vault (app/actions/system-secrets.ts).
+ */
+export interface LineSettings {
+  /** In-app notice type (notifications.event_type) → also send it to staff LINE. Off unless true. */
+  notify: Record<string, boolean>
+  /** Template key → the OWNER's own text; a missing key uses the built-in text. */
+  templates: Record<string, string>
+  /** Other policies.line keys (link limits) — not edited here, kept as they are on save. */
+  other: Record<string, unknown>
 }
 
 export interface SystemConfig {
+  /** store_settings.timezone — read only in the UI. */
+  timezone: string
   business: BusinessSettings
-  productStock: ProductStockSettings
-  rentalBilling: RentalBillingSettings
+  taxDiscount: TaxDiscountSettings
+  payment: PaymentSettings
+  salesRental: SalesRentalSettings
+  product: ProductSettings
   documentNumbering: DocumentNumberingSettings
-  documentPrinting: DocumentPrintingSettings
-  financePayment: FinancePaymentSettings
   notifications: NotificationSettings
-  branding: BrandingSettings
+  shopSecurity: ShopSecuritySettings
+  line: LineSettings
 }
 
+/** Settings page sections; each one is saved on its own (only its keys are sent). */
+export type SettingsSection =
+  | 'business'
+  | 'taxDiscount'
+  | 'payment'
+  | 'salesRental'
+  | 'product'
+  | 'documentNumbering'
+  | 'notifications'
+  | 'shopSecurity'
+  | 'line'
+
+/** Server default prefixes per document type (_next_document_no) and the Thai label. */
+export const DOCUMENT_TYPES: ReadonlyArray<{ type: DocumentType; label: string; prefix: string }> = [
+  { type: 'BILL', label: 'บิลขาย/เช่า', prefix: 'BL' },
+  { type: 'QUOTATION', label: 'ใบเสนอราคา', prefix: 'QT' },
+  { type: 'RECEIPT', label: 'ใบเสร็จรับเงิน', prefix: 'RCP' },
+  { type: 'REFUND', label: 'ใบคืนเงิน', prefix: 'RF' },
+  { type: 'CREDIT_NOTE', label: 'ใบลดหนี้', prefix: 'CN' },
+  { type: 'RESERVATION', label: 'การจองสินค้า', prefix: 'RS' },
+  { type: 'DELIVERY', label: 'ใบส่งของ', prefix: 'DL' },
+  { type: 'RETURN', label: 'ใบรับคืน', prefix: 'RT' },
+  { type: 'APPOINTMENT', label: 'นัดหมาย', prefix: 'AP' },
+  { type: 'STOCK_ADJUSTMENT', label: 'ปรับสต็อก', prefix: 'SA' },
+  { type: 'INVENTORY_COUNT', label: 'ตรวจนับสต็อก', prefix: 'IC' },
+  { type: 'EXPENSE', label: 'รายจ่าย', prefix: 'EX' },
+  { type: 'OTHER_INCOME', label: 'รายรับอื่น', prefix: 'OI' },
+]
+
+/** Running-number digits the server accepts (settings_update / _next_document_no). */
+export const DOC_DIGITS_MIN = 3
+export const DOC_DIGITS_MAX = 10
+export const DOC_DIGITS_DEFAULT = 3
+
+// Shop details are filled in by the OWNER in Settings — nothing is pre-filled.
 export const DEFAULT_BUSINESS_SETTINGS: BusinessSettings = {
-  businessName: 'บริษัท ทีเจ อุปกรณ์ก่อสร้างและจัดเลี้ยง จำกัด',
-  address: '99/9 ถ.สุขุมวิท แขวงคลองเตย เขตคลองเตย กรุงเทพมหานคร 10110',
-  phone: '02-123-4567',
-  email: 'contact@tj-rental.com',
-  taxId: '0105560001234',
-  branchNo: '00000',
-  lineId: '@tjrental',
-  authorizedPerson: 'นายทอง เจียรกิตติ์',
-  bankName: 'ธนาคารกสิกรไทย',
-  bankAccountName: 'บจก. ทีเจ อุปกรณ์',
-  bankAccountNumber: '123-4-56789-0',
-  promptPayValue: '0105560001234',
-  promptPayType: 'TAX_ID',
+  businessName: '',
+  address: '',
+  phone: '',
+  email: '',
+  taxId: '',
+  lineId: '',
+  authorizedPerson: '',
   logoDataUrl: '',
+  bankName: '',
+  bankAccountName: '',
+  bankAccountNumber: '',
+  promptPayType: 'TAX_ID',
+  promptPayValue: '',
   bankQrDataUrl: '',
 }
 
-export const DEFAULT_PRODUCT_STOCK_SETTINGS: ProductStockSettings = {
-  defaultMinimumStock: 2,
-  allowZeroStock: false,
-  allowBackdatedStockAdjustment: false,
-  lowStockNotificationEnabled: true,
-}
-
-export const DEFAULT_RENTAL_BILLING_SETTINGS: RentalBillingSettings = {
-  defaultRentalType: 'DAILY',
-  defaultRentalDays: 1,
-  rentalDayCalculation: 'INCLUSIVE',
-  gracePeriodDays: 0,
-  lateFeeMode: 'NONE',
-  lateFeeValue: 0,
-  dailyOverdueChargeEnabled: false,
-  returnCutoffTime: '18:00',
-  allowPartialReturn: true,
-  allowPartialPayment: true,
-  allowContinueAfterPaid: false,
-  reservationExpiryPolicy: 'UNTIL_START_DATE',
-  reservationExpiryDays: 7,
-}
-
-export const DEFAULT_DOCUMENT_NUMBERING_SETTINGS: DocumentNumberingSettings = {
-  rentalBill: { prefix: 'BILL', runningDigits: 4, resetCycle: 'MONTHLY', yearMode: 'BE', includeDate: true, datePattern: 'YYYYMM' },
-  quotation: { prefix: 'QT', runningDigits: 4, resetCycle: 'MONTHLY', yearMode: 'BE', includeDate: true, datePattern: 'YYYYMM' },
-  receipt: { prefix: 'REC', runningDigits: 4, resetCycle: 'MONTHLY', yearMode: 'BE', includeDate: true, datePattern: 'YYYYMM' },
-  returnSlip: { prefix: 'RET', runningDigits: 4, resetCycle: 'MONTHLY', yearMode: 'BE', includeDate: true, datePattern: 'YYYYMM' },
-}
-
-export const DEFAULT_DOCUMENT_PRINTING_SETTINGS: DocumentPrintingSettings = {
-  defaultTemplates: {
-    rentalBill: '',
-    quotation: '',
-    receipt: '',
-    returnSlip: '',
-  },
-  paperSize: 'A4',
-  margins: { top: 0, right: 0, bottom: 0, left: 0 },
-  footerText: '',
-  showLogo: true,
-  showQRCode: true,
-  showAuthorizedPerson: true,
-  showSignature: true,
-  defaultCopies: 1,
-}
-
-export const DEFAULT_FINANCE_PAYMENT_SETTINGS: FinancePaymentSettings = {
-  paymentMethods: {
-    cash: true,
-    bankTransfer: true,
-    promptPay: true,
-    credit: false,
-  },
-  defaultVatPercent: 7,
-  vatEnabled: true,
-  vatCalculationMode: 'EXCLUSIVE',
-  defaultWithholdingPercent: 0,
-  maximumDiscountPercent: 50,
-  defaultDepositPercent: 0,
-  autoCreateFinanceTransaction: true,
-  moneyPrecision: 2,
-  roundingMode: 'ROUND_HALF_UP',
-}
-
-export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
-  deliveryReminder: { enabled: true, daysBefore: 1 },
-  returnReminder: { enabled: true, daysBefore: 1 },
-  paymentReminder: { enabled: true, daysBefore: 1 },
-  lowStockReminder: { enabled: true },
-  overdueReturnReminder: { enabled: true },
-}
-
-export const DEFAULT_BRANDING_SETTINGS: BrandingSettings = {
-  systemName: 'JJK_JeeRaKiT',
-  authBackgroundType: 'gradient',
-  authBackgroundImageUrl: null,
-  appLogoUrl: null,
-}
-
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
+  timezone: 'Asia/Bangkok',
   business: DEFAULT_BUSINESS_SETTINGS,
-  productStock: DEFAULT_PRODUCT_STOCK_SETTINGS,
-  rentalBilling: DEFAULT_RENTAL_BILLING_SETTINGS,
-  documentNumbering: DEFAULT_DOCUMENT_NUMBERING_SETTINGS,
-  documentPrinting: DEFAULT_DOCUMENT_PRINTING_SETTINGS,
-  financePayment: DEFAULT_FINANCE_PAYMENT_SETTINGS,
-  notifications: DEFAULT_NOTIFICATION_SETTINGS,
-  branding: DEFAULT_BRANDING_SETTINGS,
+  // No VAT rate/mode and no discount limit until the OWNER sets them (never invented).
+  taxDiscount: { vatRate: null, vatMode: null, discountLimitEnabled: false, discountLimitPercent: null },
+  payment: { allowOverpayment: false },
+  salesRental: { allowBackorder: false, reservationAutoRelease: false },
+  // Same starting value new products had before (the old minimum-stock default).
+  product: { defaultReorderPoint: 2 },
+  documentNumbering: Object.fromEntries(
+    DOCUMENT_TYPES.map((d) => [d.type, { prefix: d.prefix, digits: DOC_DIGITS_DEFAULT }])
+  ) as DocumentNumberingSettings,
+  notifications: {
+    deliveryReminder: { enabled: true, daysBefore: 1 },
+    returnReminder: { enabled: true, daysBefore: 1 },
+    paymentReminder: { enabled: true, daysBefore: 1 },
+    lowStockReminder: { enabled: true },
+    overdueReturnReminder: { enabled: true },
+    appointmentReminder: { enabled: true, daysBefore: 3 },
+  },
+  shopSecurity: { autoLockOptionsSeconds: [30, 60, 120, 180, 240, 300, 600, 0], autoLockDefaultSeconds: 300 },
+  // LINE notices are off until the OWNER switches a type on (spec F4).
+  line: { notify: {}, templates: {}, other: {} },
 }
 
-export const SETTINGS_STORAGE_KEY = 'app_system_settings'
+/** Every auto-lock time the app offers (Master §4: 30 s … 10 min, 0 = never). */
+export const AUTO_LOCK_CHOICES_SECONDS = [30, 60, 120, 180, 240, 300, 600, 0] as const
+
 let cachedSystemSettings: SystemConfig | null = null
 
-/**
- * Merge loaded partial settings with complete defaults to guarantee field completeness.
- */
-function mergeWithDefaults(loaded: Partial<SystemConfig>): SystemConfig {
-  return {
-    business: { ...DEFAULT_BUSINESS_SETTINGS, ...(loaded.business || {}) },
-    productStock: { ...DEFAULT_PRODUCT_STOCK_SETTINGS, ...(loaded.productStock || {}) },
-    rentalBilling: {
-      ...DEFAULT_RENTAL_BILLING_SETTINGS,
-      ...(loaded.rentalBilling || {}),
-      reservationExpiryPolicy: loaded.rentalBilling?.reservationExpiryPolicy || DEFAULT_RENTAL_BILLING_SETTINGS.reservationExpiryPolicy,
-      reservationExpiryDays: Number(loaded.rentalBilling?.reservationExpiryDays) || DEFAULT_RENTAL_BILLING_SETTINGS.reservationExpiryDays,
-    },
-    documentNumbering: {
-      rentalBill: { ...DEFAULT_DOCUMENT_NUMBERING_SETTINGS.rentalBill, ...(loaded.documentNumbering?.rentalBill || {}) },
-      quotation: { ...DEFAULT_DOCUMENT_NUMBERING_SETTINGS.quotation, ...(loaded.documentNumbering?.quotation || {}) },
-      receipt: { ...DEFAULT_DOCUMENT_NUMBERING_SETTINGS.receipt, ...(loaded.documentNumbering?.receipt || {}) },
-      returnSlip: { ...DEFAULT_DOCUMENT_NUMBERING_SETTINGS.returnSlip, ...(loaded.documentNumbering?.returnSlip || {}) },
-    },
-    documentPrinting: {
-      ...DEFAULT_DOCUMENT_PRINTING_SETTINGS,
-      ...(loaded.documentPrinting || {}),
-      defaultTemplates: { ...DEFAULT_DOCUMENT_PRINTING_SETTINGS.defaultTemplates, ...(loaded.documentPrinting?.defaultTemplates || {}) },
-      margins: { ...DEFAULT_DOCUMENT_PRINTING_SETTINGS.margins, ...(loaded.documentPrinting?.margins || {}) },
-    },
-    financePayment: {
-      ...DEFAULT_FINANCE_PAYMENT_SETTINGS,
-      ...(loaded.financePayment || {}),
-      paymentMethods: { ...DEFAULT_FINANCE_PAYMENT_SETTINGS.paymentMethods, ...(loaded.financePayment?.paymentMethods || {}) },
-      defaultVatPercent: Number(loaded.financePayment?.defaultVatPercent ?? DEFAULT_FINANCE_PAYMENT_SETTINGS.defaultVatPercent),
-      vatEnabled: loaded.financePayment?.vatEnabled ?? DEFAULT_FINANCE_PAYMENT_SETTINGS.vatEnabled,
-      vatCalculationMode: loaded.financePayment?.vatCalculationMode || DEFAULT_FINANCE_PAYMENT_SETTINGS.vatCalculationMode,
-      maximumDiscountPercent: Number(loaded.financePayment?.maximumDiscountPercent ?? DEFAULT_FINANCE_PAYMENT_SETTINGS.maximumDiscountPercent),
-      defaultDepositPercent: Number(loaded.financePayment?.defaultDepositPercent ?? DEFAULT_FINANCE_PAYMENT_SETTINGS.defaultDepositPercent),
-      moneyPrecision: Number(loaded.financePayment?.moneyPrecision ?? DEFAULT_FINANCE_PAYMENT_SETTINGS.moneyPrecision),
-      roundingMode: loaded.financePayment?.roundingMode || DEFAULT_FINANCE_PAYMENT_SETTINGS.roundingMode,
-    },
-    notifications: {
-      ...DEFAULT_NOTIFICATION_SETTINGS,
-      ...(loaded.notifications || {}),
-      deliveryReminder: { ...DEFAULT_NOTIFICATION_SETTINGS.deliveryReminder, ...(loaded.notifications?.deliveryReminder || {}) },
-      returnReminder: { ...DEFAULT_NOTIFICATION_SETTINGS.returnReminder, ...(loaded.notifications?.returnReminder || {}) },
-      paymentReminder: { ...DEFAULT_NOTIFICATION_SETTINGS.paymentReminder, ...(loaded.notifications?.paymentReminder || {}) },
-      lowStockReminder: { ...DEFAULT_NOTIFICATION_SETTINGS.lowStockReminder, ...(loaded.notifications?.lowStockReminder || {}) },
-      overdueReturnReminder: { ...DEFAULT_NOTIFICATION_SETTINGS.overdueReturnReminder, ...(loaded.notifications?.overdueReturnReminder || {}) },
-    },
-    branding: { ...DEFAULT_BRANDING_SETTINGS, ...(loaded.branding || {}) },
+function notifySettingsChanged(config: SystemConfig): void {
+  if (typeof window === 'undefined') return
+  if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+    window.dispatchEvent(new CustomEvent('app_settings_changed', { detail: config }))
   }
 }
 
-/**
- * Load system settings from localStorage or fallback to defaults.
- */
+/** Current settings (server copy once loaded, defaults before). */
 export function loadSystemSettings(): SystemConfig {
-  if (typeof window === 'undefined') return cachedSystemSettings || DEFAULT_SYSTEM_CONFIG
-  try {
-    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<SystemConfig> & {
-        appointmentsNotifications?: unknown
-      }
-      if ('appointmentsNotifications' in parsed) {
-        delete parsed.appointmentsNotifications
-        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(parsed))
-      }
-      cachedSystemSettings = mergeWithDefaults(parsed)
-      return cachedSystemSettings
-    }
-  } catch {
-    // fallback
-  }
   return cachedSystemSettings || DEFAULT_SYSTEM_CONFIG
 }
 
-export function setCachedSystemSettings(config: Partial<SystemConfig>): SystemConfig {
-  cachedSystemSettings = mergeWithDefaults(config)
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(cachedSystemSettings))
-    } catch (error) {
-      console.error('[Settings] Failed to update the local settings cache:', error)
-    }
-    if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
-      window.dispatchEvent(new CustomEvent('app_settings_changed', { detail: cachedSystemSettings }))
-    }
-  }
-  return cachedSystemSettings
+/** Replace the in-memory copy with what the server returned (from the single load path). */
+export function setCachedSystemSettings(config: SystemConfig): SystemConfig {
+  cachedSystemSettings = config
+  notifySettingsChanged(config)
+  return config
 }
 
-/**
- * Helper to get current centralized default minimum stock threshold for runtime warnings.
- */
-export function getDefaultMinimumStock(): number {
-  return loadSystemSettings().productStock.defaultMinimumStock ?? DEFAULT_PRODUCT_STOCK_SETTINGS.defaultMinimumStock
-}
-
-export interface ActorInfo {
-  userId: string
-  displayName: string
-}
-
-/**
- * Persist system settings with audit logging for money/stock/workflow impacting changes.
- */
-export function saveSystemSettings(
-  config: Partial<SystemConfig> | SystemConfig,
-  actor?: ActorInfo,
-  reason?: string
-): SystemConfig {
-  const previous = loadSystemSettings()
-  const merged = mergeWithDefaults(config)
-  cachedSystemSettings = merged
-
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(merged))
-    } catch (error) {
-      console.error('[Settings] Failed to update the local settings cache:', error)
-    }
-    if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
-      window.dispatchEvent(new CustomEvent('app_settings_changed', { detail: merged }))
-    }
-  }
-
-  // Check if financial, stock, or workflow parameters changed
-  const financeChanged =
-    previous.financePayment.vatEnabled !== merged.financePayment.vatEnabled ||
-    previous.financePayment.defaultVatPercent !== merged.financePayment.defaultVatPercent ||
-    previous.financePayment.vatCalculationMode !== merged.financePayment.vatCalculationMode ||
-    previous.financePayment.maximumDiscountPercent !== merged.financePayment.maximumDiscountPercent ||
-    previous.financePayment.defaultDepositPercent !== merged.financePayment.defaultDepositPercent ||
-    previous.financePayment.moneyPrecision !== merged.financePayment.moneyPrecision ||
-    previous.financePayment.roundingMode !== merged.financePayment.roundingMode
-
-  const stockOrWorkflowChanged =
-    previous.productStock.allowZeroStock !== merged.productStock.allowZeroStock ||
-    previous.productStock.defaultMinimumStock !== merged.productStock.defaultMinimumStock ||
-    previous.rentalBilling.reservationExpiryPolicy !== merged.rentalBilling.reservationExpiryPolicy ||
-    previous.rentalBilling.reservationExpiryDays !== merged.rentalBilling.reservationExpiryDays
-
-  if (financeChanged || stockOrWorkflowChanged) {
-    const correlationId = generateCorrelationId()
-    const trimmedReason = reason?.trim() || 'อัปเดตการตั้งค่าระบบ'
-
-    recordAuditLog({
-      userId: actor?.userId || 'system',
-      displayName: actor?.displayName || 'ระบบ',
-      action: 'SETTING_FINANCE_STOCK_UPDATE',
-      entityType: 'SETTINGS',
-      entityId: 'system-config',
-      before: {
-        financePayment: previous.financePayment,
-        productStock: previous.productStock,
-        rentalBilling: {
-          reservationExpiryPolicy: previous.rentalBilling.reservationExpiryPolicy,
-          reservationExpiryDays: previous.rentalBilling.reservationExpiryDays,
-        },
-      },
-      after: {
-        financePayment: merged.financePayment,
-        productStock: merged.productStock,
-        rentalBilling: {
-          reservationExpiryPolicy: merged.rentalBilling.reservationExpiryPolicy,
-          reservationExpiryDays: merged.rentalBilling.reservationExpiryDays,
-        },
-      },
-      reason: trimmedReason,
-      correlationId,
-    })
-  }
-
-  return merged
-}
-
-/**
- * Reset system settings to factory defaults.
- */
+/** Back to defaults in memory (sign-out); the server row is unchanged. */
 export function resetSystemSettings(): SystemConfig {
-  cachedSystemSettings = DEFAULT_SYSTEM_CONFIG
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem(SETTINGS_STORAGE_KEY)
-    if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
-      window.dispatchEvent(new CustomEvent('app_settings_changed', { detail: DEFAULT_SYSTEM_CONFIG }))
-    }
-  }
+  cachedSystemSettings = null
+  notifySettingsChanged(DEFAULT_SYSTEM_CONFIG)
   return DEFAULT_SYSTEM_CONFIG
+}
+
+/** Default reorder point for a new product (per-product products.reorder_point decides low stock). */
+export function getDefaultReorderPoint(): number {
+  return loadSystemSettings().product.defaultReorderPoint
+}
+
+/** VAT can be switched on for a bill only once the OWNER has set the rate and mode. */
+export function isVatConfigured(cfg: SystemConfig = loadSystemSettings()): boolean {
+  return cfg.taxDiscount.vatRate !== null && cfg.taxDiscount.vatRate > 0 && cfg.taxDiscount.vatMode !== null
 }

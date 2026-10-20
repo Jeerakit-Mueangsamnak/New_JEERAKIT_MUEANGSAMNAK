@@ -1,6 +1,8 @@
 import 'server-only'
 
 import { createAdminClient, validateSupabaseAdminConfig } from '@/lib/supabase/admin'
+import { normalizeMemberStatus } from '@/features/auth/services/permissions'
+import type { MemberStatus } from '@/lib/types/rental-pos'
 
 interface RateLimitEntry {
   count: number
@@ -55,6 +57,8 @@ export function resetAllRateLimits(): void {
 export async function resolveUsernameToEmail(username: string): Promise<{
   success: boolean
   email?: string
+  /** Only meaningful once the password has been verified; never reveal it before */
+  memberStatus?: MemberStatus
   error?: string
 }> {
   try {
@@ -79,18 +83,29 @@ export async function resolveUsernameToEmail(username: string): Promise<{
     const adminClient = createAdminClient()
     const { data: profile, error: profileError } = await adminClient
       .from('profiles')
-      .select('id, email, username')
+      .select('id, email, username, status, is_approved')
       .eq('username', cleanUsername)
       .maybeSingle()
 
     if (profileError) {
       console.error('Supabase profile lookup error:', profileError)
+      // PGRST205 (PostgREST) / 42P01 (Postgres): public.profiles does not exist — migrations not applied
+      if (profileError.code === 'PGRST205' || profileError.code === '42P01') {
+        return {
+          success: false,
+          error: 'ฐานข้อมูล Supabase ยังไม่มีตาราง profiles (ยังไม่ได้ apply migration) กรุณาติดต่อผู้ดูแลระบบ',
+        }
+      }
       return { success: false, error: 'เกิดข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล Supabase' }
     }
 
     if (profile?.email) {
       clearRateLimit(rateLimitKey)
-      return { success: true, email: profile.email }
+      return {
+        success: true,
+        email: profile.email,
+        memberStatus: normalizeMemberStatus(profile.status, profile.is_approved),
+      }
     }
 
     recordFailedAttempt(rateLimitKey)

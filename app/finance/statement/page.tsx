@@ -2,43 +2,83 @@
 
 import React, { useState, useMemo, useEffect } from 'react'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
-import { Plus, FileSpreadsheet, Search, TrendingUp, TrendingDown, Wallet, Settings, ChevronLeft, Pencil, Trash2, Check, X } from 'lucide-react'
+import { Plus, FileSpreadsheet, Search, TrendingUp, TrendingDown, Wallet, Settings, ChevronLeft, Pencil, Trash2, Check, X, Ban } from 'lucide-react'
+import { useAskText } from '@/components/common/ConfirmDialogProvider'
 import { CustomSelect } from '@/components/common/CustomSelect'
+import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { NumericInput } from '@/components/common/NumericInput'
 import { CustomDatePicker, getLocalDateString } from '@/components/common/CustomDatePicker'
 import { useToast } from '@/components/common/Toast'
 import { logger } from '@/lib/utils/logger'
 import * as XLSX from 'xlsx'
-import { loadTransactions as fetchTransactions, addTransaction, type StatementTransaction } from '@/features/finance/services/finance-storage'
+import {
+  loadTransactions,
+  fetchTransactionsFromSupabase,
+  addManualTransaction,
+  voidManualTransaction,
+  filterTransactionsByLocalDate,
+  formatLocalDateTime as formatDateTime,
+  type StatementTransaction,
+} from '@/features/finance/services/finance-storage'
+import { isPinCancelled } from '@/lib/db/pin-confirm'
+import { EXPENSE_CATEGORIES } from '@/features/finance/api/finance-repository'
+import { getPolicy, savePolicies } from '@/lib/db/policies'
 
 export default function StatementPage() {
-  const [incomeCategories, setIncomeCategories] = useState<Array<{ id: string; label: string }>>([])
-  const [expenseCategories, setExpenseCategories] = useState<Array<{ id: string; label: string }>>([])
-
-  const addIncomeCategory = (label: string) => setIncomeCategories((prev) => [...prev, { id: 'inc-' + Date.now(), label }])
-  const updateIncomeCategory = (id: string, label: string) => setIncomeCategories((prev) => prev.map((c) => (c.id === id ? { ...c, label } : c)))
-  const removeIncomeCategory = (id: string) => setIncomeCategories((prev) => prev.filter((c) => c.id !== id))
-
-  const addExpenseCategory = (label: string) => setExpenseCategories((prev) => [...prev, { id: 'exp-' + Date.now(), label }])
-  const updateExpenseCategory = (id: string, label: string) => setExpenseCategories((prev) => prev.map((c) => (c.id === id ? { ...c, label } : c)))
-  const removeExpenseCategory = (id: string) => setExpenseCategories((prev) => prev.filter((c) => c.id !== id))
-
   const { showToast } = useToast()
+  const askText = useAskText()
+  // Quick items: income names are an adjustable shop setting (policies.finance_income_items);
+  // expense categories are the fixed server list (Master §22).
+  const [incomeCategories, setIncomeCategories] = useState<Array<{ id: string; label: string }>>(() =>
+    getPolicy<string[]>('finance_income_items', ['รายรับอื่นๆ']).map((label, i) => ({ id: 'inc-' + i, label }))
+  )
+  const [expenseCategories] = useState<Array<{ id: string; label: string }>>(() =>
+    EXPENSE_CATEGORIES.map((c) => ({ id: c.code, label: c.label }))
+  )
+
+  const persistIncomeItems = (next: Array<{ id: string; label: string }>) => {
+    setIncomeCategories(next)
+    savePolicies({ finance_income_items: next.map((c) => c.label) }, 'แก้รายการรายรับด่วน').catch((err: unknown) =>
+      showToast('บันทึกรายการด่วนไม่สำเร็จ', err instanceof Error ? err.message : 'ต้องมีสิทธิ์เมนูตั้งค่า', 'ERROR')
+    )
+  }
+  const addIncomeCategory = (label: string) => persistIncomeItems([...incomeCategories, { id: 'inc-' + Date.now(), label }])
+  const updateIncomeCategory = (id: string, label: string) => persistIncomeItems(incomeCategories.map((c) => (c.id === id ? { ...c, label } : c)))
+  const removeIncomeCategory = (id: string) => persistIncomeItems(incomeCategories.filter((c) => c.id !== id))
+
+  const fixedExpense = () => showToast('หมวดรายจ่ายเป็นรายการคงที่', 'ใส่รายละเอียดเพิ่มในช่องคำอธิบายแทน', 'INFO')
+  const addExpenseCategory = (_label: string) => fixedExpense()
+  const updateExpenseCategory = (_id: string, _label: string) => fixedExpense()
+  const removeExpenseCategory = (_id: string) => fixedExpense()
+
   const [transactions, setTransactions] = useState<StatementTransaction[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE'>('ALL')
   const [startDate, setStartDate] = useState<Date | null>(null)
   const [endDate, setEndDate] = useState<Date | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
+  // Blocks a second submit (double-click / Enter) while one save is in flight.
+  const savingRef = React.useRef(false)
+  const [saving, setSaving] = useState(false)
 
-  const loadTransactions = React.useCallback(async () => {
-    const list = fetchTransactions()
-    setTransactions(list)
-  }, [])
-
+  // Show the cached list at once, then the latest from the server (money may have moved on
+  // other pages or devices since the app loaded).
   useEffect(() => {
-    loadTransactions()
-  }, [loadTransactions])
+    let alive = true
+    setTransactions(loadTransactions())
+    const reload = () => {
+      fetchTransactionsFromSupabase()
+        .then((list) => alive && setTransactions(list))
+        .catch((err: unknown) => logger.error('Finance statement reload failed', err))
+    }
+    const fromCache = () => setTransactions(loadTransactions())
+    reload()
+    window.addEventListener('business_data_refreshed', fromCache)
+    return () => {
+      alive = false
+      window.removeEventListener('business_data_refreshed', fromCache)
+    }
+  }, [])
 
   // Form State for manual entry (Quick Item + Manual Description)
   const [modalView, setModalView] = useState<'FORM' | 'MANAGE_CATEGORIES'>('FORM')
@@ -82,31 +122,10 @@ export default function StatementPage() {
   }, [manualType, activeQuickItems, quickItem])
 
   // Date Range Filtered Transactions [startDate, endDate]
-  const dateFilteredTransactions = useMemo(() => {
-    return transactions.filter((t) => {
-      if (!startDate && !endDate) return true
-
-      const tDateStr = t.dateTime.substring(0, 10)
-
-      if (startDate && endDate) {
-        const fromStr = getLocalDateString(startDate)
-        const toStr = getLocalDateString(endDate)
-        return tDateStr >= fromStr && tDateStr <= toStr
-      }
-
-      if (startDate) {
-        const fromStr = getLocalDateString(startDate)
-        return tDateStr >= fromStr
-      }
-
-      if (endDate) {
-        const toStr = getLocalDateString(endDate)
-        return tDateStr <= toStr
-      }
-
-      return true
-    })
-  }, [transactions, startDate, endDate])
+  const dateFilteredTransactions = useMemo(
+    () => filterTransactionsByLocalDate(transactions, startDate, endDate),
+    [transactions, startDate, endDate]
+  )
 
   // Summary Metrics calculated according to the selected date filter
   const totalIncome = useMemo(() => {
@@ -118,6 +137,21 @@ export default function StatementPage() {
   }, [dateFilteredTransactions])
 
   const netBalance = totalIncome - totalExpense
+
+  // Totals per category for the selected dates (largest first), shown in "สรุปตามหมวด"
+  const [showCategorySummary, setShowCategorySummary] = useState(false)
+  const categorySummary = useMemo(() => {
+    const sum = (type: 'INCOME' | 'EXPENSE') => {
+      const map = new Map<string, number>()
+      for (const t of dateFilteredTransactions) {
+        if (t.type !== type) continue
+        const key = t.category || 'ไม่ระบุหมวด'
+        map.set(key, (map.get(key) || 0) + (type === 'INCOME' ? t.incomeAmount : t.expenseAmount))
+      }
+      return [...map.entries()].map(([label, amount]) => ({ label, amount })).sort((a, b) => b.amount - a.amount)
+    }
+    return { income: sum('INCOME'), expense: sum('EXPENSE') }
+  }, [dateFilteredTransactions])
 
   // Combined Filtered Transactions (Date + Search + Type)
   const filtered = useMemo(() => {
@@ -133,9 +167,9 @@ export default function StatementPage() {
 
   const handleExportExcel = () => {
     const dataToExport = filtered.map((t) => ({
-      'วัน-เวลา': t.dateTime,
+      'วัน-เวลา': formatDateTime(t.dateTime),
       'เลขที่รายการ': t.refNo,
-      'ประเภท': t.type === 'INCOME' ? 'รายรับ' : 'รายจ่าย',
+      'ประเภท': t.type === 'INCOME' ? 'รายรับ' : t.source === 'REFUND' ? 'คืนเงิน' : 'รายจ่าย',
       'รายละเอียด': t.description,
       'ลูกค้า': t.customerName || '-',
       'เงินเข้า (บาท)': t.incomeAmount,
@@ -177,26 +211,51 @@ export default function StatementPage() {
     const fallbackCategory = manualType === 'INCOME' ? 'รายรับอื่นๆ' : 'ค่าใช้จ่ายทั่วไป'
     const categoryToSave = trimmedQuick || fallbackCategory
 
-    const newTx: StatementTransaction = {
-      id: `tx-${Date.now()}`,
-      dateTime: new Date().toISOString(),
-      refNo: `TX-${Date.now().toString().slice(-6)}`,
-      type: manualType,
-      category: categoryToSave,
-      description: finalDescription,
-      incomeAmount: manualType === 'INCOME' ? manualAmount : 0,
-      expenseAmount: manualType === 'EXPENSE' ? manualAmount : 0,
-      runningBalance: manualAmount,
-      channel: manualChannel,
+    // Income outside a bill = รายรับอื่น; expense = รายจ่าย (PIN). A product sale needs a sale bill.
+    if (savingRef.current) return
+    savingRef.current = true
+    setSaving(true)
+    try {
+      const next = await addManualTransaction({
+        type: manualType,
+        category: categoryToSave,
+        description: finalDescription,
+        amount: manualAmount,
+        channel: manualChannel,
+      })
+      setTransactions(next)
+      setShowAddModal(false)
+      setManualAmount(0)
+      setQuickItem('')
+      setManualDesc('')
+      showToast('บันทึกรายการสำเร็จ', finalDescription, 'SUCCESS')
+    } catch (err) {
+      if (!isPinCancelled(err)) showToast('บันทึกไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
     }
+  }
 
-    addTransaction(newTx)
-    setTransactions((prev) => [newTx, ...prev])
-    setShowAddModal(false)
-    setManualAmount(0)
-    setQuickItem('')
-    setManualDesc('')
-    showToast('บันทึกรายการสำเร็จ', `บันทึกรายการ ${newTx.refNo} เรียบร้อยแล้ว`, 'SUCCESS')
+  // รายการผิด → ยกเลิก (PIN + เหตุผล) แล้วบันทึกใหม่ (Master §22). Bill payments / refunds are handled on the bill.
+  const [voidingId, setVoidingId] = useState<string | null>(null)
+  const handleVoid = async (t: StatementTransaction) => {
+    if (voidingId) return
+    const reason = await askText({
+      title: `ยกเลิกรายการ ${t.refNo}`,
+      message: `${t.description} — ฿${(t.incomeAmount || t.expenseAmount).toLocaleString('th-TH', { minimumFractionDigits: 2 })} (ระบุเหตุผล บันทึกในประวัติ)`,
+      danger: true,
+    })
+    if (!reason) return
+    setVoidingId(t.id)
+    try {
+      setTransactions(await voidManualTransaction(t, reason))
+      showToast('ยกเลิกรายการแล้ว', t.refNo, 'SUCCESS')
+    } catch (err) {
+      if (!isPinCancelled(err)) showToast('ยกเลิกไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
+    } finally {
+      setVoidingId(null)
+    }
   }
 
   const handleCreateCategory = async () => {
@@ -254,7 +313,7 @@ export default function StatementPage() {
 
         <div className="bg-red-50 dark:bg-red-950/30 p-2.5 sm:p-3 rounded-2xl border border-red-200/60 dark:border-red-900/40 shadow-sm flex items-center justify-between">
           <div>
-            <span className="text-[11px] text-red-700 dark:text-red-300 font-semibold block">รายจ่ายรวม</span>
+            <span className="text-[11px] text-red-700 dark:text-red-300 font-semibold block">เงินออกรวม (รายจ่าย + คืนเงิน)</span>
             <h3 className="text-lg sm:text-xl font-black text-red-600 dark:text-red-400 mt-0.5">
               ฿{totalExpense.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
             </h3>
@@ -281,6 +340,51 @@ export default function StatementPage() {
             <Wallet className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
         </div>
+      </div>
+
+      {/* Category summary (collapsed by default so the table keeps its room) */}
+      <div className="shrink-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setShowCategorySummary((v) => !v)}
+          aria-expanded={showCategorySummary}
+          className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+        >
+          <span>สรุปตามหมวด (ตามช่วงวันที่เลือก)</span>
+          <span className="text-blue-600 dark:text-blue-400">{showCategorySummary ? 'ซ่อน' : 'แสดง'}</span>
+        </button>
+        {showCategorySummary && (
+          <div className="px-3 pb-3 grid grid-cols-1 md:grid-cols-2 gap-3 max-h-56 overflow-y-auto">
+            {([
+              { key: 'income', title: 'รายรับตามหมวด', rows: categorySummary.income, total: totalIncome, bar: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
+              { key: 'expense', title: 'เงินออกตามหมวด', rows: categorySummary.expense, total: totalExpense, bar: 'bg-red-500', text: 'text-red-600 dark:text-red-400' },
+            ] as const).map((col) => (
+              <div key={col.key} className="space-y-1.5 min-w-0">
+                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">{col.title}</p>
+                {col.rows.length === 0 ? (
+                  <p className="text-[11px] text-slate-400">ไม่มีรายการในช่วงนี้</p>
+                ) : (
+                  col.rows.map((r) => {
+                    const pct = col.total > 0 ? (r.amount / col.total) * 100 : 0
+                    return (
+                      <div key={r.label} className="space-y-0.5">
+                        <div className="flex justify-between gap-2 text-[11px]">
+                          <span className="truncate text-slate-700 dark:text-slate-200">{r.label}</span>
+                          <span className={`font-bold tabular-nums whitespace-nowrap ${col.text}`}>
+                            ฿{r.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ({pct.toFixed(0)}%)
+                          </span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                          <div className={`h-full rounded-full ${col.bar}`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Main Table Card */}
@@ -380,23 +484,24 @@ export default function StatementPage() {
         </div>
 
         {/* Table Content */}
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col">
+        <DataTableFrame fill rowCount={filtered.length} className="flex-1 min-h-0 rounded-none bg-transparent">
           <table className={`w-full table-fixed text-left text-xs leading-tight border-collapse ${filtered.length === 0 ? 'h-full' : ''}`}>
             <thead className="sticky top-0 bg-[#E3E3E3] dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 text-slate-500 text-xs font-bold z-10">
               <tr>
                 <th className="w-[13%] py-2 px-3 whitespace-nowrap">วัน-เวลา</th>
                 <th className="w-[13%] py-2 px-3 whitespace-nowrap">เลขที่เอกสาร</th>
-                <th className="w-[30%] py-2 px-3 whitespace-nowrap">รายละเอียด</th>
+                <th className="w-[26%] py-2 px-3 whitespace-nowrap">รายละเอียด</th>
                 <th className="w-[10%] py-2 px-3 whitespace-nowrap">ช่องทาง</th>
                 <th className="w-[11%] py-2 px-3 text-right whitespace-nowrap">เงินเข้า</th>
                 <th className="w-[11%] py-2 px-3 text-right whitespace-nowrap">เงินออก</th>
                 <th className="w-[12%] py-2 px-3 text-right whitespace-nowrap">คงเหลือ</th>
+                <th className="w-[4%] py-2 px-1" aria-label="จัดการ" />
               </tr>
             </thead>
             <tbody className={`divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300 ${filtered.length === 0 ? 'h-full' : ''}`}>
               {filtered.length === 0 ? (
                 <tr className="h-full">
-                  <td colSpan={7} className="h-full px-4 text-center text-slate-400 italic align-middle">
+                  <td colSpan={8} className="h-full px-4 text-center text-slate-400 italic align-middle">
                     <div className="flex flex-col items-center justify-center py-6">
                       <p className="font-bold text-xs text-slate-600 dark:text-slate-400">ไม่พบรายการความเคลื่อนไหวทางการเงิน</p>
                     </div>
@@ -405,7 +510,7 @@ export default function StatementPage() {
               ) : (
                 filtered.map((t) => (
                   <tr key={t.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="py-1.5 px-3 whitespace-nowrap text-slate-500 font-mono text-[11px] truncate">{t.dateTime}</td>
+                    <td className="py-1.5 px-3 whitespace-nowrap text-slate-500 font-mono text-[11px] truncate">{formatDateTime(t.dateTime)}</td>
                     <td className="py-1.5 px-3 whitespace-nowrap font-bold text-slate-900 dark:text-slate-100 truncate">{t.refNo}</td>
                     <td className="py-1.5 px-3 font-semibold text-slate-800 dark:text-slate-200 truncate" title={t.description}>
                       {t.description}
@@ -420,12 +525,26 @@ export default function StatementPage() {
                     <td className="py-1.5 px-3 whitespace-nowrap text-right font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">
                       ฿{t.runningBalance.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                     </td>
+                    <td className="py-1.5 px-1 text-center">
+                      {(t.source === 'EXPENSE' || t.source === 'OTHER_INCOME') && (
+                        <button
+                          type="button"
+                          onClick={() => void handleVoid(t)}
+                          disabled={voidingId !== null}
+                          className="-my-1 p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer disabled:opacity-40"
+                          title="ยกเลิกรายการ (ใส่ PIN)"
+                          aria-label={`ยกเลิกรายการ ${t.refNo}`}
+                        >
+                          <Ban className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
-        </div>
+        </DataTableFrame>
       </div>
 
       {/* Add Manual Transaction & Inline Category Management Modal */}
@@ -517,7 +636,7 @@ export default function StatementPage() {
                       { value: 'เงินสด', label: 'เงินสด' },
                       { value: 'โอนธนาคาร', label: 'โอนธนาคาร' },
                       { value: 'PromptPay QR', label: 'PromptPay QR' },
-                      { value: 'เช็ค', label: 'เช็ค' },
+                      { value: 'อื่น ๆ', label: 'อื่น ๆ' },
                     ]}
                   />
                 </div>
@@ -544,7 +663,8 @@ export default function StatementPage() {
                 </button>
                 <button
                   type="submit"
-                  className="h-9 px-5 py-0 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center justify-center"
+                  disabled={saving}
+                  className="h-9 px-5 py-0 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center justify-center disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   บันทึกรายการ
                 </button>

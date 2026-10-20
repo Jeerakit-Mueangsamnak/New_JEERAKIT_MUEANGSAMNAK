@@ -12,6 +12,8 @@ interface ProductGridProps {
   onSelectProduct: (product: Product, mode?: 'RENT' | 'SALE') => void
   currentMode?: 'RENT' | 'SALE'
   onModeChange?: (mode: 'RENT' | 'SALE') => void
+  /** Quotation mode: out-of-stock products stay selectable. */
+  allowOutOfStock?: boolean
 }
 
 export function ProductGrid({
@@ -19,6 +21,7 @@ export function ProductGrid({
   onSelectProduct,
   currentMode,
   onModeChange,
+  allowOutOfStock = false,
 }: ProductGridProps) {
   const [internalMode, setInternalMode] = useState<'RENT' | 'SALE'>('RENT')
   const posMode = currentMode ?? internalMode
@@ -34,6 +37,7 @@ export function ProductGrid({
   // Filter products by mode: RENT shows RENT + BOTH; SALE shows SALE + BOTH
   const modeProducts = useMemo(() => {
     return products.filter((p) => {
+      if (p.status !== 'ACTIVE') return false
       const pType = getProductType(p)
       if (posMode === 'RENT') {
         if (pType === 'SALE') return false
@@ -153,6 +157,7 @@ export function ProductGrid({
               key={product.id}
               product={product}
               mode={posMode}
+              allowOutOfStock={allowOutOfStock}
               onClick={() => onSelectProduct(product, posMode)}
             />
           ))}

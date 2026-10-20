@@ -1,6 +1,7 @@
 import { loadBills } from '@/features/bills/services/bill-storage'
 import { loadQuotations } from '@/features/quotations/services/quotation-storage'
 import { loadProducts } from '@/features/products/services/product-storage'
+import { isLowStock } from '@/features/products/utils/low-stock'
 import { loadReservations } from '@/features/reservations/services/reservation-storage'
 import { formatCurrency, generateTimeBuckets, isDateInRange, toLocalDateString, type ReportDateFilter } from './report-data-common'
 
@@ -220,7 +221,8 @@ export function getOperationsReportData(filter: ReportDateFilter): OperationsRep
         suggestedHandler: 'ฝ่ายบัญชี / สต็อก',
       })
     }
-    if ((p.availableQuantity || 0) <= (p.minimumStock || 0) && (p.totalQuantity || 0) > 0) {
+    // Same rule as the products page, dashboard and the server's LOW_STOCK notice (reorder point > 0).
+    if (isLowStock(p)) {
       actionItems.push({
         id: `act-low-${p.id}`,
         category: 'LOW_STOCK',

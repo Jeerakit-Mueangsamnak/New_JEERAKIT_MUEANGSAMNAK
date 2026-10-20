@@ -21,6 +21,7 @@ export function escapeDocumentHtml(value: unknown): string {
 
 function isSafeImageSource(value: string) {
   return /^(https:\/\/|data:image\/(png|jpeg|jpg|webp|gif);base64,)/i.test(value)
+    || /^\/(?!\/)[A-Za-z0-9/_-]+\.(?:png|jpe?g|svg|webp|gif)$/i.test(value)
 }
 
 /** User-managed templates may only contain presentational markup. */

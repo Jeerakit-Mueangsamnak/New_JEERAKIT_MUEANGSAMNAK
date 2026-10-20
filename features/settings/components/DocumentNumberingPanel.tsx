@@ -1,173 +1,101 @@
 'use client'
 
-import React from 'react'
+import { SETTINGS_HELPER, SETTINGS_INPUT_MONO, SETTINGS_SECTION_TITLE } from '@/features/settings/components/settings-ui'
+import React, { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
+import { Hash } from 'lucide-react'
+import {
+  DOCUMENT_TYPES,
+  DOC_DIGITS_MAX,
+  DOC_DIGITS_MIN,
+  type DocumentType,
+  type SystemConfig,
+} from '@/features/settings/services/settings-storage'
+import { previewDocumentNumber } from '@/features/settings/api/settings-repository'
 import { CustomSelect } from '@/components/common/CustomSelect'
-import type { SystemConfig } from '@/features/settings/types/settings-page.types'
-import { previewDocumentNumber } from '@/features/settings/utils/settings-page-utils'
 
 interface DocumentNumberingPanelProps {
   config: SystemConfig
-  setConfig: React.Dispatch<React.SetStateAction<SystemConfig>>
+  setConfig: Dispatch<SetStateAction<SystemConfig>>
 }
 
+const DIGIT_CHOICES = Array.from({ length: DOC_DIGITS_MAX - DOC_DIGITS_MIN + 1 }, (_, i) => DOC_DIGITS_MIN + i)
+
+/** The next number the server would give — built by the server's own formatter. */
+function ServerPreview({ type, prefix, digits }: { type: DocumentType; prefix: string; digits: number }) {
+  const [text, setText] = useState<string>('…')
+  useEffect(() => {
+    let active = true
+    const t = setTimeout(() => {
+      previewDocumentNumber(type, prefix, digits)
+        .then((v) => active && setText(v))
+        .catch(() => active && setText('ดูตัวอย่างไม่ได้'))
+    }, 300)
+    return () => {
+      active = false
+      clearTimeout(t)
+    }
+  }, [type, prefix, digits])
+  return <span className="font-mono text-[11px] text-slate-700 dark:text-slate-200">{text}</span>
+}
+
+/** PREFIX-DDMMBBBB-RUNNING: date in the shop's timezone (Buddhist year), running number restarts every day. */
 export function DocumentNumberingPanel({ config, setConfig }: DocumentNumberingPanelProps) {
+  const update = (type: DocumentType, patch: Partial<{ prefix: string; digits: number }>) =>
+    setConfig((prev) => ({
+      ...prev,
+      documentNumbering: { ...prev.documentNumbering, [type]: { ...prev.documentNumbering[type], ...patch } },
+    }))
+
   return (
-    <div className="space-y-2">
-      {(
-        [
-          { key: 'rentalBill', name: 'บิลเช่า / สัญญาเช่า' },
-          { key: 'quotation', name: 'ใบเสนอราคา' },
-          { key: 'receipt', name: 'ใบเสร็จรับเงิน' },
-          { key: 'returnSlip', name: 'ใบรับคืนสินค้า' },
-        ] as { key: 'rentalBill' | 'quotation' | 'receipt' | 'returnSlip'; name: string }[]
-      ).map((doc) => {
-        const dConfig = config.documentNumbering[doc.key]
-        const preview = previewDocumentNumber(dConfig)
-
-        return (
-          <div key={doc.key} className="py-6 px-4 space-y-4">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <h4 className="font-bold text-slate-900 dark:text-slate-100">{doc.name}</h4>
-              <div className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-mono font-black text-xs border border-indigo-200 dark:border-indigo-800">
-                ตัวอย่าง: {preview}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs">
-              <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-1">Prefix</label>
-                <input
-                  type="text"
-                  maxLength={10}
-                  value={dConfig.prefix}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      documentNumbering: {
-                        ...config.documentNumbering,
-                        [doc.key]: { ...dConfig, prefix: e.target.value.trim() },
-                      },
-                    })
-                  }
-                  className="w-full h-9 px-3 py-0 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-blue-600 text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-1">จำนวนหลัก Running</label>
-                <CustomSelect
-                  buttonClassName="h-9 px-2.5 py-0 rounded-xl"
-                  value={dConfig.runningDigits}
-                  onChange={(val) =>
-                    setConfig({
-                      ...config,
-                      documentNumbering: {
-                        ...config.documentNumbering,
-                        [doc.key]: { ...dConfig, runningDigits: parseInt(String(val), 10) || 3 },
-                      },
-                    })
-                  }
-                  options={[
-                    { value: 3, label: '3 หลัก (001)' },
-                    { value: 4, label: '4 หลัก (0001)' },
-                    { value: 5, label: '5 หลัก (00001)' },
-                    { value: 6, label: '6 หลัก (000001)' },
-                  ]}
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-1">รอบการรีเซ็ตเลข</label>
-                <CustomSelect
-                  buttonClassName="h-9 px-2.5 py-0 rounded-xl"
-                  value={dConfig.resetCycle}
-                  onChange={(val) =>
-                    setConfig({
-                      ...config,
-                      documentNumbering: {
-                        ...config.documentNumbering,
-                        [doc.key]: { ...dConfig, resetCycle: val },
-                      },
-                    })
-                  }
-                  options={[
-                    { value: 'DAILY', label: 'รายวัน' },
-                    { value: 'MONTHLY', label: 'รายเดือน' },
-                    { value: 'YEARLY', label: 'รายปี' },
-                    { value: 'NEVER', label: 'ไม่รีเซ็ต' },
-                  ]}
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-1">รูปแบบปี</label>
-                <CustomSelect
-                  buttonClassName="h-9 px-2.5 py-0 rounded-xl"
-                  value={dConfig.yearMode}
-                  onChange={(val) =>
-                    setConfig({
-                      ...config,
-                      documentNumbering: {
-                        ...config.documentNumbering,
-                        [doc.key]: { ...dConfig, yearMode: val },
-                      },
-                    })
-                  }
-                  options={[
-                    { value: 'BE', label: 'พ.ศ. (เช่น 2569)' },
-                    { value: 'CE', label: 'ค.ศ. (เช่น 2026)' },
-                  ]}
-                />
-              </div>
-
-
-              <div>
-                <label className="block text-[11px] font-medium text-slate-500 mb-1">รูปแบบวันที่</label>
-                <CustomSelect
-                  buttonClassName="h-9 px-2.5 py-0 rounded-xl"
-                  disabled={!dConfig.includeDate}
-                  value={dConfig.datePattern}
-                  onChange={(val) =>
-                    setConfig({
-                      ...config,
-                      documentNumbering: {
-                        ...config.documentNumbering,
-                        [doc.key]: { ...dConfig, datePattern: val },
-                      },
-                    })
-                  }
-                  options={[
-                    { value: 'DDMMYYYY', label: 'วันเดือนปี (15082569)' },
-                    { value: 'MMYYYY', label: 'เดือนปี (082569)' },
-                    { value: 'YYYY', label: 'ปีอย่างเดียว (2569)' },
-                  ]}
-                />
-              </div>
-
-              <div className="flex flex-col justify-end">
-                <label className="flex items-center gap-1.5 py-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={dConfig.includeDate}
-                    onChange={(e) =>
-                      setConfig({
-                        ...config,
-                        documentNumbering: {
-                          ...config.documentNumbering,
-                          [doc.key]: { ...dConfig, includeDate: e.target.checked },
-                        },
-                      })
-                    }
-                    className="w-4 h-4 text-indigo-600 rounded"
-                  />
-                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">ใส่วันที่ในรหัส</span>
-                </label>
-              </div>
-            </div>
-          </div>
-        )
-      })}
+    <div className="space-y-2.5">
+      <h4 className={SETTINGS_SECTION_TITLE}>
+        <Hash className="w-3.5 h-3.5 text-blue-600" />
+        <span>รูปแบบเลขเอกสาร</span>
+      </h4>
+      <p className={SETTINGS_HELPER}>
+        รูปแบบ PREFIX-วันเดือนปี พ.ศ.-ลำดับ เช่น ABC-07102569-001 · ลำดับเริ่มใหม่ทุกวันตามเวลาของร้าน ({config.timezone}) · เลขที่ออกแล้วไม่ถูกใช้ซ้ำ
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="text-[11px] text-slate-500 dark:text-slate-400">
+            <tr className="border-b border-slate-200 dark:border-slate-700">
+              <th className="text-left font-semibold py-1.5 pr-2">เอกสาร</th>
+              <th className="text-left font-semibold py-1.5 pr-2 w-32">Prefix</th>
+              <th className="text-left font-semibold py-1.5 pr-2 w-24">จำนวนหลักลำดับ</th>
+              <th className="text-left font-semibold py-1.5">เลขถัดไป (จากเซิร์ฟเวอร์)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {DOCUMENT_TYPES.map(({ type, label }) => {
+              const f = config.documentNumbering[type]
+              return (
+                <tr key={type} className="border-b border-slate-100 dark:border-slate-800 last:border-b-0">
+                  <td className="py-1.5 pr-2 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">{label}</td>
+                  <td className="py-1.5 pr-2">
+                    <input
+                      aria-label={`Prefix ${label}`}
+                      value={f.prefix}
+                      maxLength={10}
+                      onChange={(e) => update(type, { prefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })}
+                      className={`${SETTINGS_INPUT_MONO} h-8`}
+                    />
+                  </td>
+                  <td className="py-1.5 pr-2">
+                    <CustomSelect
+                      ariaLabel={`จำนวนหลัก ${label}`}
+                      value={f.digits}
+                      onChange={(value) => update(type, { digits: Number(value) })}
+                      buttonClassName="h-8 px-2.5 py-0 rounded-xl font-mono"
+                      options={DIGIT_CHOICES.map((n) => ({ value: n, label: String(n) }))}
+                    />
+                  </td>
+                  <td className="py-1.5">{f.prefix ? <ServerPreview type={type} prefix={f.prefix} digits={f.digits} /> : <span className="text-red-600 text-[11px]">ต้องมี Prefix</span>}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
-

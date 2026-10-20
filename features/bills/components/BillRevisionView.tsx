@@ -1,5 +1,6 @@
 'use client'
 
+import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   CalendarPlus,
@@ -22,7 +23,8 @@ import { NumericInput } from '@/components/common/NumericInput'
 import { logger } from '@/lib/utils/logger'
 import { loadProducts } from '@/features/products/services/product-storage'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { processBillRevisionWorkflow } from '@/features/bills/services/bill-workflow-service'
+import { adjustBill, createContinuation } from '@/features/bills/services/bill-service'
+import { isPinCancelled } from '@/lib/db/pin-confirm'
 
 export type BillRevisionMode = 'CORRECTION' | 'EXTENSION'
 
@@ -81,8 +83,39 @@ function daysBetween(a: string, b: string): number {
   return Math.max(1, diffDays)
 }
 
+type CorrectionLine = Pick<EditableItem, 'rentalBillItemId' | 'unitPrice' | 'action'>
+
+/**
+ * Money change of a correction (Master §20), measured against the server's own figures:
+ * only a changed unit price, discount or fee moves the total — an untouched bill gives 0.
+ * Price changes use each line's billed quantity and periods; the bill's own VAT treatment
+ * (grand total ÷ pre-VAT base) is applied so the result matches how the bill was priced.
+ */
+export function correctionDelta(
+  bill: Pick<FullBill, 'items' | 'discountAmount' | 'shippingFee' | 'billAmount'>,
+  lines: CorrectionLine[],
+  discountAmount: number,
+  shippingFee: number
+): number {
+  const origDiscount = Number(bill.discountAmount || 0)
+  const origShipping = Number(bill.shippingFee || 0)
+  let deltaBase = (Number(shippingFee) || 0) - origShipping - ((Number(discountAmount) || 0) - origDiscount)
+  for (const line of lines) {
+    if (line.action === 'REMOVE' || !line.rentalBillItemId) continue
+    const orig = bill.items.find((it) => it.rentalBillItemId === line.rentalBillItemId)
+    if (!orig) continue
+    const periods = orig.rentalType === 'SALE' ? 1 : Number(orig.usageCount || 1)
+    deltaBase += (Number(line.unitPrice) - Number(orig.dailyRate || 0)) * Number(orig.quantity || 0) * periods
+  }
+  const preVatBase = bill.items.reduce((sum, it) => sum + Number(it.lineTotal || 0), 0) - origDiscount + origShipping
+  const billed = Number(bill.billAmount ?? 0)
+  const vatFactor = preVatBase > 0 && Math.abs(billed - preVatBase) > 0.005 ? billed / preVatBase : 1
+  return Math.round(deltaBase * vatFactor * 100) / 100
+}
+
 export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionViewProps) {
   const { showToast } = useToast()
+  const confirmDialog = useConfirm()
   const { user } = useAuth()
   const [reason, setReason] = useState('')
   const [headerRentalDate, setHeaderRentalDate] = useState<string>('')
@@ -153,8 +186,15 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
   // Live Subtotal Calculation
   const calculatedSubtotal = useMemo(() => {
     return activeItems.reduce((sum, item) => {
+      // A line already on the bill starts from the server's own line total (its real days/periods)
+      const orig = item.rentalBillItemId ? bill?.items.find((it) => it.rentalBillItemId === item.rentalBillItemId) : undefined
+      if (orig) {
+        const periods = orig.rentalType === 'SALE' ? 1 : Number(orig.usageCount || 1)
+        return sum + Number(orig.lineTotal || 0) + (item.unitPrice - Number(orig.dailyRate || 0)) * Number(orig.quantity || 0) * periods
+      }
       if (item.rentalType === 'DAILY') {
-        const days = daysBetween(item.dailyStartDate, item.dailyEndDate)
+        // Days count both ends, as in POS and เช่าต่อ
+        const days = daysBetween(item.dailyStartDate, item.dailyEndDate) + 1
         return sum + item.quantity * item.unitPrice * days
       }
       if (item.rentalType === 'SALE') {
@@ -163,12 +203,15 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
       // NORMAL rental
       return sum + item.quantity * item.unitPrice * (item.usageCount || 1)
     }, 0)
-  }, [activeItems])
+  }, [activeItems, bill])
 
+  // Deposit is held apart from the bill total (server: due = grand total + charges + adjustments)
   const calculatedGrandTotal = useMemo(() => {
-    const sub = Math.max(0, calculatedSubtotal - (discountAmount || 0) + (shippingFee || 0))
-    return sub + (bill?.heldDepositAmount || 0)
-  }, [calculatedSubtotal, discountAmount, shippingFee, bill])
+    if (bill && mode !== 'EXTENSION') {
+      return Math.max(0, Number(bill.grandTotal || 0) + correctionDelta(bill, items, discountAmount, shippingFee))
+    }
+    return Math.max(0, calculatedSubtotal - (discountAmount || 0) + (shippingFee || 0))
+  }, [calculatedSubtotal, discountAmount, shippingFee, bill, mode, items])
 
   const updateItem = (index: number, patch: Partial<EditableItem>) => {
     setItems((prev) =>
@@ -239,20 +282,77 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
 
     setIsSaving(true)
     try {
-      processBillRevisionWorkflow({
-        billId: bill.id,
-        mode,
-        reason,
-        headerRentalDate,
-        headerReturnDate,
-        discountAmount,
-        shippingFee,
-        items,
-        actor: {
-          userId: user?.userId || 'system',
-          displayName: user?.displayName || 'ระบบ',
-        },
-      })
+      const startOf = (d: string) => new Date(`${d}T00:00:00`).toISOString()
+      const endOf = (d: string) => new Date(`${d}T23:59:59`).toISOString()
+      const nextDay = (d: string) => {
+        const dt = new Date(`${d}T00:00:00`)
+        dt.setDate(dt.getDate() + 1)
+        return getLocalDateString(dt)
+      }
+
+      if (mode === 'EXTENSION') {
+        // เช่าต่อ = a new child bill for the goods still out (Master §17); the parent stays as it was.
+        const lines = items
+          .filter((i) => i.rentalBillItemId && i.action !== 'REMOVE' && i.rentalType !== 'SALE' && i.outstandingQty > 0)
+          .map((i) => {
+            const prevEnd = i.scheduledReturnDate
+            if (i.rentalType === 'DAILY') {
+              const start = nextDay(prevEnd)
+              const end = i.dailyEndDate > prevEnd ? i.dailyEndDate : headerReturnDate
+              return {
+                fromLineId: i.rentalBillItemId as string,
+                quantity: i.outstandingQty,
+                unitPrice: i.unitPrice,
+                calc: 'PER_DAY' as const,
+                periods: daysBetween(start, end) + 1,
+                startAt: startOf(start),
+                endAt: endOf(end),
+              }
+            }
+            return {
+              fromLineId: i.rentalBillItemId as string,
+              quantity: i.outstandingQty,
+              unitPrice: i.unitPrice,
+              calc: 'PER_PERIOD' as const,
+              periods: Math.max(1, i.addRounds || 1),
+              startAt: startOf(nextDay(prevEnd)),
+              endAt: endOf(headerReturnDate > prevEnd ? headerReturnDate : nextDay(prevEnd)),
+            }
+          })
+        if (lines.length === 0) {
+          showToast('ไม่มีรายการเช่าต่อ', 'ไม่มีสินค้าที่ลูกค้ายังถืออยู่ในบิลนี้', 'ERROR')
+          return
+        }
+        const isLate = getLocalDateString(new Date()) > localDate(bill.scheduledReturnDate)
+        const startMode = isLate
+          ? (await confirmDialog({
+              title: 'บิลนี้เลยวันกำหนดคืนแล้ว',
+              message: 'เลือกวันเริ่มนับรอบเช่าใหม่',
+              confirmLabel: 'ต่อจากวันครบกำหนดเดิม',
+              cancelLabel: 'เริ่มตั้งแต่วันนี้',
+            }))
+            ? ('FROM_PREVIOUS_END' as const)
+            : ('FROM_APPROVAL' as const)
+          : undefined
+        await createContinuation({ parentBillId: bill.id, reason: reason.trim(), startMode, items: lines })
+      } else {
+        // Correction after confirm (Master §20): items and quantities are history — change them with a
+        // new bill / return. Only the money can be corrected, as one CREDIT/DEBIT adjustment (PIN).
+        const changedLines = items.some((i, idx) => {
+          const orig = bill.items[idx]
+          return i.action !== 'UPDATE' || !orig || i.quantity !== orig.quantity || (i.usageCount || 1) !== (orig.usageCount || 1)
+        })
+        if (changedLines) {
+          showToast('แก้รายการหลังยืนยันบิลไม่ได้', 'เพิ่มสินค้า = เปิดบิลใหม่ / ลดสินค้า = รับคืน — แก้ได้เฉพาะยอดเงิน (ราคา ส่วนลด ค่าขนส่ง)', 'ERROR')
+          return
+        }
+        const delta = correctionDelta(bill, items, discountAmount, shippingFee)
+        if (delta === 0) {
+          showToast('ยอดเงินไม่เปลี่ยน', 'ไม่มีการแก้ราคา ส่วนลด หรือค่าขนส่ง จึงไม่ได้บันทึกรายการปรับยอด', 'INFO')
+          return
+        }
+        await adjustBill(bill.id, delta, reason.trim())
+      }
 
       showToast(
         mode === 'EXTENSION' ? 'บันทึกการเช่าต่อสำเร็จ' : 'แก้ไขบิลสำเร็จ',
@@ -261,6 +361,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
       )
       await onSaved()
     } catch (err: any) {
+      if (isPinCancelled(err)) return
       showToast('เกิดข้อผิดพลาดในการแก้ไขบิล', err?.message || 'ไม่สามารถบันทึกการแก้ไขบิลได้', 'ERROR')
     } finally {
       setIsSaving(false)
@@ -422,15 +523,16 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           <div className="overflow-y-auto">
             <table className="w-full text-left border-collapse text-[10.5px] leading-tight">
               <colgroup>
-                <col className="w-auto" /> {/* สินค้า */}
-                <col className="w-[52px] sm:w-[60px]" />  {/* คืนแล้ว */}
-                <col className="w-[52px] sm:w-[60px]" />  {/* กำลังเช่า */}
-                <col className="w-[52px] sm:w-[60px]" />  {/* จำนวนในบิล */}
-                <col className="w-[64px] sm:w-[76px]" />  {/* ราคาต่อหน่วย */}
-                <col className="w-[96px] sm:w-[115px]" /> {/* วันที่เช่า */}
-                <col className="w-[96px] sm:w-[115px]" /> {/* วันที่กำหนดคืน */}
-                <col className="w-[40px] sm:w-[48px]" />  {/* รอบ */}
-                <col className="w-[38px] sm:w-[44px]" />  {/* จัดการ */}
+                {/* สินค้า / คืนแล้ว / กำลังเช่า / จำนวนในบิล / ราคาต่อหน่วย / วันที่เช่า / วันที่กำหนดคืน / รอบ / จัดการ — no text between <col>s (hydration) */}
+                <col className="w-auto" />
+                <col className="w-[52px] sm:w-[60px]" />
+                <col className="w-[52px] sm:w-[60px]" />
+                <col className="w-[52px] sm:w-[60px]" />
+                <col className="w-[64px] sm:w-[76px]" />
+                <col className="w-[96px] sm:w-[115px]" />
+                <col className="w-[96px] sm:w-[115px]" />
+                <col className="w-[40px] sm:w-[48px]" />
+                <col className="w-[38px] sm:w-[44px]" />
               </colgroup>
               <thead className="bg-[#E3E3E3] dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 text-slate-500 font-bold uppercase tracking-wider text-xs">
                 <tr>

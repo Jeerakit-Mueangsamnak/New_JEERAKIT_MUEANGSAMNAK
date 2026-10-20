@@ -1,3 +1,4 @@
+import type { NotificationSettings } from '@/features/settings/services/settings-storage'
 // TypeScript Definitions for Rental POS Database & Domain Models
 
 export type RentalType = 'NORMAL' | 'DAILY' | 'SALE'
@@ -7,7 +8,16 @@ export type DeliveryStatus = 'PENDING' | 'PARTIAL_DELIVERED' | 'DELIVERED'
 export type CustomerType = 'INDIVIDUAL' | 'CORPORATE'
 export type CustomerStatus = 'ACTIVE' | 'INACTIVE'
 export type AppointmentType = 'DELIVERY' | 'RETURN' | 'PAYMENT' | 'CONTRACT' | 'QUOTATION' | 'INSPECTION' | 'GENERAL'
-export type AppointmentStatus = 'PENDING' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED'
+/** Master §9 / §26 lifecycle (same values as public.appointments.status). */
+export type AppointmentStatus =
+  | 'DRAFT'
+  | 'SCHEDULED'
+  | 'CONFIRMED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'NO_SHOW'
+  | 'RESCHEDULED'
 export type QuotationStatus = 'DRAFT' | 'SENT' | 'WAITING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'CONVERTED' | 'CANCELLED'
 export type RentalStatus = 'DRAFT' | 'CONFIRMED' | 'RENTING' | 'EXTENDED' | 'PARTIAL_RETURNED' | 'RETURNED' | 'CLOSED' | 'CANCELLED' | 'VOID'
 export type PaymentStatus = 'UNPAID' | 'PARTIAL' | 'PAID' | 'REFUND_PARTIAL' | 'REFUNDED'
@@ -24,6 +34,9 @@ export interface StockAdjustment {
 }
 
 export type UserRole = 'OWNER' | 'USER'
+
+/** PENDING = signed up, waiting for OWNER approval; SUSPENDED = blocked by OWNER */
+export type MemberStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED'
 
 export interface Profile {
   id: string
@@ -49,9 +62,14 @@ export interface CurrentUser {
   fullName: string
   displayName: string
   role: UserRole
+  status: MemberStatus
+  /** Menu codes granted by an OWNER (OWNER implicitly holds all) — Master §4.2 */
+  menus: string[]
   businessId: string | null
   emailVerified: boolean
   avatarUrl?: string | null
+  /** Own notification switches (profiles.notification_prefs, defaults filled in). */
+  notificationPrefs?: NotificationSettings
 }
 
 
@@ -158,6 +176,8 @@ export interface Product {
   reservedQuantity?: number
   maintenanceQuantity?: number
   inRepairQuantity?: number
+  /** Raw stock_balances per stock_state (AVAILABLE, DAMAGED, INSPECTION, REPAIR …) for stock actions. */
+  stockStates?: Partial<Record<string, number>>
   minimumStock: number
   status: 'ACTIVE' | 'INACTIVE'
   description?: string
@@ -240,7 +260,9 @@ export interface Appointment {
   phone?: string
   title: string
   type: AppointmentType
+  /** Added type (Settings list): id + name kept in work_order.type; `type` stays the base code */
   appointmentTypeId?: string
+  appointmentTypeLabel?: string
   date: string
   startTime: string
   endTime: string
@@ -255,9 +277,15 @@ export interface Appointment {
   priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
   assigneeId?: string
   assigneeName?: string
-  items?: { id: string; name: string; quantity: number }[]
+  /** Delivery driver from the driver list (Settings › LINE), kept in work_order.driver */
+  driverId?: string
+  driverName?: string
+  /** Products for the job (id = Product ID), kept in work_order.items. No bill, payment or stock change. */
+  items?: { id: string; name: string; quantity: number; unit?: string }[]
   events?: WorkOrderEvent[]
   createdAt?: string
+  /** Server updated_at when loaded: a save is refused if the row changed since (no lost update) */
+  updatedAt?: string
 }
 
 export type ReservationStatus = 'ACTIVE' | 'CONVERTED' | 'CANCELLED' | 'EXPIRED' | 'RELEASED'
@@ -322,8 +350,10 @@ export interface QuotationItem {
 export interface Quotation {
   id: string
   quotationNo: string
+  /** Document date chosen in POS (quotations.document_date). */
   quotationDate: string
-  expiryDate: string
+  /** Quotations have no expiry (owner 2026-10-18); kept empty for older callers. */
+  expiryDate?: string
   customerId: string
   customerName: string
   phone?: string
@@ -338,6 +368,10 @@ export interface Quotation {
   shippingFee: number
   depositAmount: number
   taxAmount: number
+  /** VAT chosen for this quotation in POS (pricing_snapshot.vat_enabled). */
+  vatEnabled?: boolean
+  /** VAT rate (%) used when the quotation was saved; undefined when VAT is off. */
+  vatRate?: number
   grandTotal: number
   status: QuotationStatus
   remark?: string

@@ -1,13 +1,14 @@
 import { createBrowserClient } from '@supabase/ssr'
 import { createClient as createSupabaseClient, SupabaseClient } from '@supabase/supabase-js'
+import { getSupabasePublicKey, getSupabaseUrl } from '@/lib/supabase/env'
 
 let clientInstance: SupabaseClient | null = null
 
 export function createClient(): SupabaseClient {
   if (clientInstance) return clientInstance
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
-  const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'placeholder-publishable-key'
+  const supabaseUrl = getSupabaseUrl() || 'https://placeholder.supabase.co'
+  const supabasePublishableKey = getSupabasePublicKey() || 'placeholder-publishable-key'
 
   if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     clientInstance = createBrowserClient(supabaseUrl, supabasePublishableKey)

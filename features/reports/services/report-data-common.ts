@@ -21,9 +21,19 @@ export function toLocalDateString(d: Date): string {
   return `${year}-${month}-${day}`
 }
 
+/**
+ * The local (shop) day of a stored value: a plain date stays as is; a timestamp from the
+ * server is UTC, so it is converted first (01:15 on the 18th in Thailand is 18:15 UTC on the 17th).
+ */
+export function localDayOf(dateStr: string): string {
+  if (!dateStr.includes('T')) return dateStr.slice(0, 10)
+  const d = new Date(dateStr)
+  return Number.isNaN(d.getTime()) ? dateStr.split('T')[0] : toLocalDateString(d)
+}
+
 export function formatThaiDate(dateStr?: string | null): string {
   if (!dateStr) return '-'
-  const clean = dateStr.split('T')[0]
+  const clean = localDayOf(dateStr)
   const parts = clean.split('-')
   if (parts.length === 3) {
     const day = parseInt(parts[2], 10)
@@ -47,7 +57,7 @@ export function formatNumber(val: number): string {
 
 export function isDateInRange(dateStr: string | undefined | null, start: Date, end: Date): boolean {
   if (!dateStr) return false
-  const clean = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr.slice(0, 10)
+  const clean = localDayOf(dateStr)
   const startStr = toLocalDateString(start)
   const endStr = toLocalDateString(end)
   return clean >= startStr && clean <= endStr
@@ -61,10 +71,8 @@ export function getPreviousPeriod(start: Date, end: Date): { prevStart: Date; pr
   return { prevStart, prevEnd }
 }
 
-export function calculateGrowth(current: number, previous: number): number {
-  if (previous === 0) {
-    return current > 0 ? 100 : 0
-  }
+export function calculateGrowth(current: number, previous: number): number | null {
+  if (previous === 0) return null
   return Math.round(((current - previous) / Math.abs(previous)) * 100)
 }
 

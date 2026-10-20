@@ -12,16 +12,16 @@ import {
   FileText
 } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
+import { AppModal, AppModalBody } from '@/components/common/AppModal'
 import { NewCustomerModal } from '@/features/customers/components/NewCustomerModal'
-import { CalendarPanel } from '@/components/common/CustomDatePicker'
+import { CalendarPanel, getLocalDateString } from '@/components/common/CustomDatePicker'
 import { CustomSelect, SelectOption } from '@/components/common/CustomSelect'
 import { NumericInput } from '@/components/common/NumericInput'
 import { CustomerUnifiedSelector } from '@/features/pos/components/CustomerUnifiedSelector'
-import { CartItem, saveActiveCart, validateCartCustomer } from '@/features/pos/services/cart-storage'
+import { CartItem, isSaleCartItem, saveActiveCart, validateCartCustomer } from '@/features/pos/services/cart-storage'
 import { calculateBillTotals } from '@/lib/calculation-service'
-import { loadSystemSettings } from '@/features/settings/services/settings-storage'
+import { isVatConfigured } from '@/features/settings/services/settings-storage'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
-import { useAuth } from '@/features/auth/contexts/AuthContext'
 
 export type { CartItem }
 
@@ -37,6 +37,8 @@ export interface CartPanelQuotationData {
   rentalStartDate?: string
   rentalEndDate?: string
   documentDate?: string
+  /** VAT ON/OFF chosen for this quotation (rate + mode come from the shop settings). */
+  vatEnabled?: boolean
 }
 
 interface CartPanelProps {
@@ -59,6 +61,10 @@ interface CartPanelProps {
   initialShippingAddress?: string
   initialRentalStartDate?: string
   initialRentalEndDate?: string
+  /** VAT ON/OFF of a loaded draft bill / quotation; a new cart starts with VAT off. */
+  initialVatEnabled?: boolean
+  /** Document date (yyyy-mm-dd) of a quotation being edited. */
+  initialDocumentDate?: string
 }
 
 export function CartPanel({
@@ -81,10 +87,19 @@ export function CartPanel({
   initialShippingAddress,
   initialRentalStartDate,
   initialRentalEndDate,
+  initialVatEnabled,
+  initialDocumentDate,
 }: CartPanelProps) {
   const { showToast } = useToast()
-  const { settings, updateSettings } = useSystemSettings()
-  const { user } = useAuth()
+  const { settings } = useSystemSettings()
+  // VAT ON/OFF belongs to THIS bill / quotation only (never written to the shop settings) and starts
+  // off for every new cart. Rate + mode come from the shop settings, the same for both.
+  const vatConfigured = isVatConfigured(settings)
+  const [billVatEnabled, setBillVatEnabled] = useState<boolean>(Boolean(initialVatEnabled))
+  useEffect(() => {
+    if (initialVatEnabled !== undefined) setBillVatEnabled(initialVatEnabled)
+  }, [initialVatEnabled])
+  const vatOn = billVatEnabled && vatConfigured
   
   const [internalCustomer, setInternalCustomer] = useState<Customer | null>(null)
   const [internalItems, setInternalItems] = useState<CartItem[]>([])
@@ -110,6 +125,7 @@ export function CartPanel({
   const clearCart = () => {
     setItems([])
     setCustomer(null)
+    setBillVatEnabled(false)
   }
 
   const totals = calculateBillTotals({
@@ -118,11 +134,39 @@ export function CartPanel({
     discount: Number(discount) || 0,
     shippingFee: Number(shippingFee) || 0,
     depositAmount: Number(depositAmount) || 0,
+    enableVat: vatOn,
   })
   const subtotal = totals.subtotal
   const tax = totals.vatAmount
   const taxRate = totals.vatRate
   const grandTotal = totals.grandTotal
+
+  const validateRentalPeriods = (): boolean => {
+    const day = (value?: Date | string | null) => {
+      if (!value) return null
+      const parsed = new Date(value)
+      return Number.isFinite(parsed.getTime()) ? getLocalDateString(parsed) : null
+    }
+    const roundRentalExists = items.some((item) => item.rentalType === 'NORMAL' && !isSaleCartItem(item))
+    const startDay = day(headerRentalDate)
+    const endDay = day(headerReturnDate)
+    if (roundRentalExists && (!startDay || !endDay || endDay < startDay)) {
+      showToast('ช่วงวันเช่าไม่ถูกต้อง', 'วันกำหนดคืนต้องไม่ก่อนวันเริ่มเช่า', 'ERROR')
+      return false
+    }
+
+    const invalidDailyItem = items.find((item) => {
+      if (item.rentalType !== 'DAILY' || isSaleCartItem(item)) return false
+      const start = day(item.dailyStartDate)
+      const end = day(item.dailyEndDate)
+      return !start || !end || end < start
+    })
+    if (invalidDailyItem) {
+      showToast('ช่วงวันเช่าไม่ถูกต้อง', `กรุณาตรวจสอบวันเริ่มและวันสิ้นสุดของ ${invalidDailyItem.productName || invalidDailyItem.product.name}`, 'ERROR')
+      return false
+    }
+    return true
+  }
 
   const [customerList, setCustomerList] = useState<Customer[]>(customers)
   
@@ -143,6 +187,10 @@ export function CartPanel({
   useEffect(() => {
     if (initialDiscount !== undefined) setDiscount(initialDiscount)
   }, [initialDiscount])
+
+  useEffect(() => {
+    if (initialDocumentDate) setDocumentDate(new Date(`${initialDocumentDate.slice(0, 10)}T00:00:00`))
+  }, [initialDocumentDate])
 
   useEffect(() => {
     if (initialShippingFee !== undefined) setShippingFee(initialShippingFee)
@@ -374,30 +422,21 @@ export function CartPanel({
             </div>
           </div>
 
-          <label className="flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-400 cursor-pointer">
-            <span>VAT {settings.financePayment.vatEnabled ? 'เปิด' : 'ปิด'}</span>
-            <input
-              type="checkbox"
-              role="switch"
-              aria-label="เปิดใช้งาน VAT"
-              checked={settings.financePayment.vatEnabled}
-              onChange={async (e) => {
-                const current = loadSystemSettings()
-                try {
-                  await updateSettings({
-                    ...current,
-                    financePayment: { ...current.financePayment, vatEnabled: e.target.checked },
-                  }, {
-                    userId: user?.id || 'system',
-                    displayName: user?.fullName || user?.username || 'ผู้ใช้งาน',
-                  }, 'เปลี่ยนการเปิดใช้งาน VAT จาก POS')
-                } catch (error) {
-                  showToast('บันทึก VAT ไม่สำเร็จ', (error as Error).message, 'ERROR')
-                }
-              }}
-              className="w-4 h-4 text-emerald-600 rounded"
-            />
-          </label>
+            <label className={`flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-400 ${vatConfigured ? 'cursor-pointer' : 'opacity-60'}`}>
+              <span>
+                VAT {isQuotationMode ? 'ใบเสนอราคานี้' : 'บิลนี้'} {vatOn ? 'เปิด' : 'ปิด'}
+                {!vatConfigured && <span className="block text-[11px]">เจ้าของร้านยังไม่ได้ตั้งอัตรา VAT</span>}
+              </span>
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label={isQuotationMode ? 'เปิด VAT สำหรับใบเสนอราคานี้' : 'เปิด VAT สำหรับบิลนี้'}
+                checked={vatOn}
+                disabled={!vatConfigured}
+                onChange={(e) => setBillVatEnabled(e.target.checked)}
+                className="w-4 h-4 text-emerald-600 rounded"
+              />
+            </label>
 
           {/* Breakdown summary */}
           <div className="space-y-1.5 text-xs pt-2 border-t border-slate-200 dark:border-slate-700">
@@ -446,6 +485,7 @@ export function CartPanel({
               <button
                 type="button"
                 onClick={() => {
+                  if (!validateRentalPeriods()) return
                   onSaveQuotation?.({
                     discount: Number(discount) || 0,
                     shippingFee: Number(shippingFee) || 0,
@@ -455,9 +495,10 @@ export function CartPanel({
                     subtotal,
                     grandTotal,
                     shippingAddress,
-                    rentalStartDate: headerRentalDate ? headerRentalDate.toISOString().slice(0, 10) : undefined,
-                    rentalEndDate: headerReturnDate ? headerReturnDate.toISOString().slice(0, 10) : undefined,
-                    documentDate: documentDate ? documentDate.toISOString().slice(0, 10) : undefined,
+                    rentalStartDate: headerRentalDate ? getLocalDateString(headerRentalDate) : undefined,
+                    rentalEndDate: headerReturnDate ? getLocalDateString(headerReturnDate) : undefined,
+                    documentDate: documentDate ? getLocalDateString(documentDate) : undefined,
+                    vatEnabled: vatOn,
                   })
                 }}
                 disabled={items.length === 0}
@@ -471,6 +512,7 @@ export function CartPanel({
               <button
                 type="button"
                 onClick={() => {
+                  if (!validateRentalPeriods()) return
                   try {
                     validateCartCustomer(items, customer)
                   } catch (error) {
@@ -485,11 +527,12 @@ export function CartPanel({
                     shippingFee: Number(shippingFee) || 0,
                     depositAmount: Number(depositAmount) || 0,
                     taxRate: taxRate,
+                    vatEnabled: vatOn,
                     shippingAddress,
-                    headerRentalDate: headerRentalDate ? headerRentalDate.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
-                    headerReturnDate: headerReturnDate ? headerReturnDate.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+                    headerRentalDate: getLocalDateString(headerRentalDate ?? new Date()),
+                    headerReturnDate: getLocalDateString(headerReturnDate ?? new Date()),
                     documentType,
-                    documentDate: documentDate ? documentDate.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+                    documentDate: getLocalDateString(documentDate ?? new Date()),
                     subtotal,
                     tax,
                     grandTotal,
@@ -526,17 +569,8 @@ export function CartPanel({
       />
 
       {/* Sequential Date Picker Modal */}
-      {showDatePicker && (
-        <div
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowDatePicker(false)
-          }}
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in cursor-pointer"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white dark:bg-slate-900 rounded-3xl p-5 max-w-sm w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 cursor-default"
-          >
+      <AppModal isOpen={showDatePicker} onClose={() => setShowDatePicker(false)} size="sm">
+          <AppModalBody className="space-y-4">
             <div className="text-center space-y-1">
               <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">
                 {dateStep === 0 && '📝 เลือกวันที่ออกเอกสาร'}
@@ -552,7 +586,12 @@ export function CartPanel({
                <CalendarPanel
                  value={dateStep === 0 ? documentDate : dateStep === 1 ? headerRentalDate : headerReturnDate}
                  onChange={(d) => {
+                   if (!d) return
                    if (dateStep === 0) {
+                     if (getLocalDateString(d) > getLocalDateString(new Date())) {
+                       showToast('วันที่เอกสารไม่ถูกต้อง', 'วันที่ออกเอกสารต้องไม่อยู่ในอนาคต', 'ERROR')
+                       return
+                     }
                      setDocumentDate(d)
                      setHeaderRentalDate(null)
                      setHeaderReturnDate(null)
@@ -562,6 +601,10 @@ export function CartPanel({
                      setHeaderReturnDate(null)
                      setDateStep(2)
                    } else {
+                     if (headerRentalDate && getLocalDateString(d) < getLocalDateString(headerRentalDate)) {
+                       showToast('ช่วงวันเช่าไม่ถูกต้อง', 'วันกำหนดคืนต้องไม่ก่อนวันเริ่มเช่า', 'ERROR')
+                       return
+                     }
                      setHeaderReturnDate(d)
                      setShowDatePicker(false)
                      setDateStep(0)
@@ -592,9 +635,8 @@ export function CartPanel({
                 ยกเลิก
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </AppModalBody>
+      </AppModal>
 
     </div>
   )

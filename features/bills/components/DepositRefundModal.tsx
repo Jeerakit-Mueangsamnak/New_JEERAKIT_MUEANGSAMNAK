@@ -1,147 +1,96 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
-import { RotateCcw } from 'lucide-react'
+import React, { useEffect, useState } from 'react'
+import { WalletCards } from 'lucide-react'
 import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
+import { NumericInput } from '@/components/common/NumericInput'
 import { FullBill } from '@/lib/types/rental-return'
 import { useToast } from '@/components/common/Toast'
-import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { processDepositRefundWorkflow } from '@/features/bills/services/bill-workflow-service'
+import { correctBill } from '@/features/bills/services/bill-service'
+import { isPinCancelled } from '@/lib/db/pin-confirm'
 
-interface DepositRefundModalProps {
+interface DepositModalProps {
   isOpen: boolean
   bill: FullBill | null
   onClose: () => void
   onSaved: () => void | Promise<void>
 }
 
-export function DepositRefundModal({ isOpen, bill, onClose, onSaved }: DepositRefundModalProps) {
+/**
+ * Deposit of a rental bill (Master v4.3.1 §18): the system only records and shows it.
+ * It never deducts it, refunds it, or uses it against damage/lost fees — returning or keeping
+ * the deposit at the counter is the staff's own job. A wrongly typed amount can be corrected
+ * (PIN + reason, audited).
+ */
+export function DepositModal({ isOpen, bill, onClose, onSaved }: DepositModalProps) {
   const { showToast } = useToast()
-  const { user } = useAuth()
-  const refundableDeposits = useMemo(
-    () => (bill?.deposits || []).filter((deposit) => deposit.heldAmount > 0),
-    [bill]
-  )
-  const [depositId, setDepositId] = useState('')
   const [amount, setAmount] = useState(0)
-  const [method, setMethod] = useState<'CASH' | 'TRANSFER' | 'QR' | 'CHEQUE' | 'OTHER'>('CASH')
-  const [referenceNo, setReferenceNo] = useState('')
   const [note, setNote] = useState('')
+  const [reason, setReason] = useState('')
   const [isSaving, setIsSaving] = useState(false)
 
-  const selectedDeposit = refundableDeposits.find((deposit) => deposit.id === depositId)
-
   useEffect(() => {
-    if (!isOpen) return
-    const first = refundableDeposits[0]
-    setDepositId(first?.id || '')
-    setAmount(first?.heldAmount || 0)
-    setMethod('CASH')
-    setReferenceNo('')
-    setNote('')
-  }, [isOpen, refundableDeposits])
+    if (!isOpen || !bill) return
+    setAmount(bill.heldDepositAmount || 0)
+    setNote(bill.depositNote || '')
+    setReason('')
+  }, [isOpen, bill])
 
-  useEffect(() => {
-    if (selectedDeposit && amount > selectedDeposit.heldAmount) {
-      setAmount(selectedDeposit.heldAmount)
-    }
-  }, [selectedDeposit, amount])
+  if (!bill) return null
+  const changed = amount !== (bill.heldDepositAmount || 0) || note !== (bill.depositNote || '')
 
   const handleSave = async () => {
-    if (!bill || !selectedDeposit) return
-    if (amount <= 0 || amount > selectedDeposit.heldAmount) {
-      showToast('จำนวนเงินไม่ถูกต้อง', `คืนได้สูงสุด ฿${selectedDeposit.heldAmount.toLocaleString('th-TH')}`, 'ERROR')
+    if (!changed) return onClose()
+    if (!reason.trim()) {
+      showToast('กรุณาระบุเหตุผล', 'การแก้ไขมัดจำต้องระบุเหตุผล', 'ERROR')
       return
     }
-
     setIsSaving(true)
     try {
-      processDepositRefundWorkflow({
-        billId: bill.id,
-        amount,
-        channel: method,
-        referenceNo,
-        note,
-        depositId: selectedDeposit.id,
-        actor: {
-          userId: user?.userId || 'system',
-          displayName: user?.displayName || 'ระบบ',
-        },
-      })
-      showToast('คืนเงินมัดจำสำเร็จ', `คืนเงิน ฿${amount.toLocaleString('th-TH')} เรียบร้อยแล้ว`, 'SUCCESS')
+      await correctBill(bill.id, { depositAmount: amount, depositNote: note || null }, reason.trim())
+      showToast('แก้ไขมัดจำแล้ว', `บิล ${bill.billNo}`, 'SUCCESS')
       await onSaved()
       onClose()
-    } catch (err: any) {
-      showToast('เกิดข้อผิดพลาดในการคืนเงินมัดจำ', err?.message || 'ไม่สามารถคืนเงินมัดจำได้', 'ERROR')
+    } catch (err) {
+      if (!isPinCancelled(err)) showToast('แก้ไขมัดจำไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
     } finally {
       setIsSaving(false)
     }
   }
 
   return (
-    <AppModal isOpen={isOpen} onClose={onClose} size="md" isLoading={isSaving} closeOnBackdropClick={false}>
-      <AppModalHeader title={`คืนเงินมัดจำ${bill ? ` — ${bill.billNo}` : ''}`} icon={<RotateCcw className="h-4 w-4" />} onClose={onClose} />
-      <AppModalBody className="space-y-3">
-        {!bill || refundableDeposits.length === 0 ? (
-          <div className="rounded-xl bg-slate-100 p-4 text-center font-semibold text-slate-500 dark:bg-slate-800">บิลนี้ไม่มีเงินมัดจำคงเหลือให้คืน</div>
-        ) : (
-          <>
-            <label className="block space-y-1">
-              <span className="font-semibold">รายการมัดจำ</span>
-              <select
-                value={depositId}
-                onChange={(e) => {
-                  const id = e.target.value
-                  setDepositId(id)
-                  const dep = refundableDeposits.find((row) => row.id === id)
-                  setAmount(dep?.heldAmount || 0)
-                }}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950"
-              >
-                {refundableDeposits.map((deposit) => (
-                  <option key={deposit.id} value={deposit.id}>
-                    รับ {deposit.receivedDate || '-'} — คงเหลือ ฿{deposit.heldAmount.toLocaleString('th-TH')}
-                  </option>
-                ))}
-              </select>
+    <AppModal isOpen={isOpen} onClose={onClose} size="md">
+      <AppModalHeader title={`มัดจำของบิล ${bill.billNo}`} icon={<WalletCards className="w-4 h-4" />} onClose={onClose} />
+      <AppModalBody>
+        <div className="space-y-3 text-sm">
+          <p className="rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-3 text-xs text-amber-800 dark:text-amber-200">
+            ระบบเก็บยอดมัดจำไว้เพื่อแสดงเท่านั้น — ไม่หัก ไม่คืน และไม่นำไปหักค่าเสียหายให้อัตโนมัติ
+            การคืนหรือหักมัดจำที่หน้าร้านให้พนักงานจัดการเอง
+          </p>
+          <label className="block text-xs font-semibold">
+            ยอดมัดจำ (บาท)
+            <NumericInput value={amount} onChange={(v) => setAmount(Math.max(0, Number(v) || 0))} className="mt-1 w-full rounded-xl border px-3 py-2" />
+          </label>
+          <label className="block text-xs font-semibold">
+            หมายเหตุมัดจำ
+            <input value={note} onChange={(e) => setNote(e.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2" placeholder="เช่น รับเงินสด 1,000 / บัตรประชาชนตัวจริง" />
+          </label>
+          {changed && (
+            <label className="block text-xs font-semibold">
+              เหตุผลที่แก้ไข (ต้องยืนยัน PIN)
+              <input value={reason} onChange={(e) => setReason(e.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2" placeholder="เช่น พิมพ์ยอดผิด" />
             </label>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block space-y-1">
-                <span className="font-semibold">จำนวนเงินที่คืน</span>
-                <input type="number" min="0.01" max={selectedDeposit?.heldAmount || 0} step="0.01" value={amount} onChange={(e) => setAmount(Math.max(0, Number(e.target.value || 0)))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-right dark:border-slate-700 dark:bg-slate-950" />
-              </label>
-              <label className="block space-y-1">
-                <span className="font-semibold">ช่องทางคืนเงิน</span>
-                <select value={method} onChange={(e) => setMethod(e.target.value as typeof method)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950">
-                  <option value="CASH">เงินสด</option>
-                  <option value="TRANSFER">โอนเงิน</option>
-                  <option value="QR">QR</option>
-                  <option value="CHEQUE">เช็ค</option>
-                  <option value="OTHER">อื่น ๆ</option>
-                </select>
-              </label>
-            </div>
-
-            <label className="block space-y-1">
-              <span className="font-semibold">เลขอ้างอิง (ถ้ามี)</span>
-              <input value={referenceNo} onChange={(e) => setReferenceNo(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950" />
-            </label>
-            <label className="block space-y-1">
-              <span className="font-semibold">หมายเหตุ</span>
-              <textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น คืนมัดจำหลังตรวจรับสินค้าครบ" className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950" />
-            </label>
-          </>
-        )}
+          )}
+        </div>
       </AppModalBody>
-      <AppModalFooter
-        onCancel={onClose}
-        onConfirm={() => void handleSave()}
-        confirmText="ยืนยันคืนเงินมัดจำ"
-        confirmButtonColor="amber"
-        isConfirmDisabled={!bill || !selectedDeposit || amount <= 0 || isSaving}
-        isConfirmLoading={isSaving}
-      />
+      <AppModalFooter>
+        <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl border text-sm font-semibold">ปิด</button>
+        {changed && (
+          <button type="button" disabled={isSaving} onClick={() => void handleSave()} className="px-4 py-2 rounded-xl bg-amber-600 text-white text-sm font-bold disabled:opacity-50">
+            {isSaving ? 'กำลังบันทึก…' : 'บันทึกการแก้ไข'}
+          </button>
+        )}
+      </AppModalFooter>
     </AppModal>
   )
 }

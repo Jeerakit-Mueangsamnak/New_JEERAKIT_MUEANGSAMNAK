@@ -5,8 +5,9 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { ProductGrid } from '@/features/pos/components/ProductGrid'
 import { CartPanel, CartPanelQuotationData } from '@/features/pos/components/CartPanel'
 import { QuantityModal } from '@/features/pos/components/QuantityModal'
-import { Product, Customer, Quotation, QuotationItem } from '@/lib/types/rental-pos'
+import { Product, Customer, Quotation, QuotationItem, Appointment } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
+import { useCreateCustomer } from '@/features/customers/hooks/useCreateCustomer'
 import {
   TAB_CONTAINER_CLASSES,
   TAB_BUTTON_BASE_CLASSES,
@@ -14,13 +15,22 @@ import {
   TAB_BUTTON_INACTIVE_CLASSES,
 } from '@/components/common/ActionButton'
 import { ShoppingBag, Package, FileText, ArrowLeft } from 'lucide-react'
-import { loadProducts } from '@/features/products/services/product-storage'
-import { loadCustomers, addCustomerAsync as addStorageCustomer } from '@/features/customers/services/customer-storage'
-import { CartItem } from '@/features/pos/services/cart-storage'
-import { addQuotation, getQuotationById, generateQuotationNo, mapQuotationToPos } from '@/features/quotations/services/quotation-storage'
+import { loadProducts, validateProductMode } from '@/features/products/services/product-storage'
+import { loadCustomers, isIdCardUploadError } from '@/features/customers/services/customer-storage'
+import { CartItem, cartLineListPrice } from '@/features/pos/services/cart-storage'
+import { fetchAppointmentsFromSupabase } from '@/features/appointments/services/appointment-storage'
+import { getLocalDateString } from '@/components/common/CustomDatePicker'
+import {
+  addQuotation,
+  fetchQuotationsFromSupabase,
+  getQuotationById,
+  generateQuotationNo,
+  mapQuotationToPos,
+  quotationPeriodOf,
+  quotationStatusView,
+} from '@/features/quotations/services/quotation-storage'
+import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { loadBillById } from '@/features/bills/services/bill-storage'
-import { loadSystemSettings } from '@/features/settings/services/settings-storage'
-import { checkAndExpireReservations } from '@/features/bills/services/bill-workflow-service'
 
 function POSContent() {
   const router = useRouter()
@@ -28,7 +38,12 @@ function POSContent() {
   const isQuotationMode = searchParams.get('mode') === 'quotation'
   const quotationId = searchParams.get('quotationId')
   const draftBillId = searchParams.get('draftBillId')
+  const appointmentId = searchParams.get('appointmentId')
+  // Quotation mode only: revise an existing quotation in place, or start a new one from a copy.
+  const editQuotationId = isQuotationMode ? searchParams.get('editQuotationId') : null
+  const copyQuotationId = isQuotationMode ? searchParams.get('copyQuotationId') : null
   const { showToast } = useToast()
+  const createCustomer = useCreateCustomer()
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [selectedProductMode, setSelectedProductMode] = useState<'RENT' | 'SALE'>('RENT')
@@ -42,23 +57,140 @@ function POSContent() {
     discount?: number
     shippingFee?: number
     depositAmount?: number
-    taxRate?: number
+    vatEnabled?: boolean
     shippingAddress?: string
     rentalStartDate?: string
     rentalEndDate?: string
+    documentDate?: string
   }>({})
+  const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null)
+
+  // Edit / copy: load the quotation (also after a page reload, when the list cache is empty).
+  useEffect(() => {
+    const sourceId = editQuotationId || copyQuotationId
+    if (!sourceId) return
+    let alive = true
+    void (async () => {
+      try {
+        const quote = getQuotationById(sourceId) || (await fetchQuotationsFromSupabase()).find((q) => q.id === sourceId)
+        if (!alive) return
+        if (!quote) {
+          showToast('ไม่พบใบเสนอราคา', `ไม่พบใบเสนอราคารหัส ${sourceId}`, 'ERROR')
+          return
+        }
+        if (editQuotationId && !quotationStatusView(quote.status).editable) {
+          showToast('แก้ไขไม่ได้', `ใบเสนอราคา ${quote.quotationNo} เปิดบิลหรือยกเลิกไปแล้ว — ใช้ "คัดลอก" เพื่อทำใบใหม่`, 'ERROR')
+          router.push('/quotations')
+          return
+        }
+        const { customer, cartItems: loadedItems, values } = mapQuotationToPos(quote, loadProducts(), loadCustomers())
+        setSelectedCustomer(customer.id ? customer : null)
+        setCartItems(loadedItems)
+        // A copy is a new document: it is dated today; an edit keeps its own document date.
+        setQuotationValues(editQuotationId ? values : { ...values, documentDate: undefined })
+        setEditingQuotation(editQuotationId ? quote : null)
+        showToast(
+          editQuotationId ? 'แก้ไขใบเสนอราคา' : 'คัดลอกใบเสนอราคา',
+          editQuotationId ? `กำลังแก้ไข ${quote.quotationNo} (บันทึกแล้วใช้เลขเดิม)` : `ทำใบใหม่จาก ${quote.quotationNo}`,
+          'INFO'
+        )
+      } catch (error) {
+        if (alive) showToast('โหลดใบเสนอราคาไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [editQuotationId, copyQuotationId, router, showToast])
 
   useEffect(() => {
-    try {
-      checkAndExpireReservations()
-    } catch (e) {
-      console.error('Failed to run reservation expiry check on POS mount', e)
-    }
-
     const prods = loadProducts()
     const custs = loadCustomers()
     setProductsList(prods)
     setCustomersList(custs)
+
+    if (appointmentId) {
+      void (async () => {
+        try {
+          const appointment = (await fetchAppointmentsFromSupabase()).find((item) => item.id === appointmentId)
+          if (!appointment) {
+            showToast('ไม่พบนัดหมาย', `ไม่พบนัดหมายรหัส ${appointmentId}`, 'ERROR')
+            return
+          }
+
+          let customer = appointment.customerId
+            ? custs.find((item) => item.id === appointment.customerId)
+            : undefined
+          if (!customer && !appointment.customerId && appointment.customerName && appointment.phone) {
+            const exactMatches = custs.filter(
+              (item) => item.customerName === appointment.customerName && item.phone === appointment.phone
+            )
+            if (exactMatches.length === 1) customer = exactMatches[0]
+          }
+          if (!customer) {
+            showToast('ไม่พบข้อมูลลูกค้า', 'ไม่สามารถจับคู่นัดหมายกับข้อมูลลูกค้าได้ กรุณาตรวจสอบลูกค้าในนัดหมายก่อนสร้างบิล', 'ERROR')
+            return
+          }
+
+          const appointmentItems = appointment.items ?? []
+          const missingProducts = appointmentItems.filter((item) => {
+            const product = prods.find((candidate) => candidate.id === item.id)
+            return !product || product.status !== 'ACTIVE' || !Number.isFinite(item.quantity) || item.quantity <= 0
+          })
+          if (missingProducts.length > 0) {
+            showToast(
+              'โหลดรายการสินค้าไม่ครบ',
+              `ไม่พบสินค้า เปิดใช้งานไม่ได้ หรือจำนวนไม่ถูกต้อง: ${missingProducts.map((item) => item.name).join(', ')}`,
+              'ERROR'
+            )
+            return
+          }
+
+          const productsById = new Map(prods.map((product) => [product.id, product]))
+          const convertedItems: CartItem[] = appointmentItems.map((item, index) => {
+            const product = productsById.get(item.id)
+            if (!product) throw new Error(`ไม่พบสินค้า ${item.name} ในข้อมูลสินค้า`)
+            const isSale = product.rentalType === 'SALE'
+            const isDaily = !isSale && (product.calculationType === 'PER_DAY' || product.rentalType === 'DAILY')
+            const rentalType: CartItem['rentalType'] = isSale ? 'SALE' : isDaily ? 'DAILY' : 'NORMAL'
+            const itemType: CartItem['itemType'] = isSale ? 'SALE' : 'RENT'
+            const unitPrice = cartLineListPrice({ product, rentalType, itemType })
+            if (unitPrice === null || !Number.isFinite(unitPrice)) {
+              throw new Error(`ไม่พบราคาสำหรับสินค้า ${product.name} กรุณาตรวจสอบข้อมูลสินค้าก่อนสร้างบิล`)
+            }
+            return {
+              id: `appointment-${appointment.id}-${index}`,
+              product,
+              productId: product.id,
+              productName: product.name,
+              itemType,
+              requiresReturn: !isSale && product.requiresReturn !== false,
+              unitName: item.unit || product.unit || product.unit_name || 'ชิ้น',
+              calculationType: product.calculationType,
+              calculationLabel: product.calculationLabel,
+              rentalType,
+              quantity: item.quantity,
+              unitPrice,
+              listUnitPrice: unitPrice,
+              usageCount: 1,
+              billableDays: 1,
+              lineTotal: item.quantity * unitPrice,
+            }
+          })
+          setSelectedCustomer(customer)
+          setCartItems(convertedItems)
+          setQuotationValues({ shippingAddress: appointment.location || '' })
+          if (convertedItems.length === 0) {
+            showToast('โหลดข้อมูลนัดหมายแล้ว', 'นัดหมายไม่มีรายการสินค้า กรุณาเพิ่มสินค้าใน POS', 'INFO')
+          } else {
+            showToast('โหลดข้อมูลนัดหมายสำเร็จ', `โหลดลูกค้าและสินค้า ${convertedItems.length} รายการจาก ${appointment.title}`, 'SUCCESS')
+          }
+        } catch (error) {
+          showToast('โหลดข้อมูลนัดหมายไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
+        }
+      })()
+      return
+    }
 
     if (quotationId) {
       const quote = getQuotationById(quotationId)
@@ -68,19 +200,48 @@ function POSContent() {
           router.push('/quotations')
           return
         }
-        const { customer, cartItems: convertedItems, values, quotationNo } = mapQuotationToPos(quote, prods, custs)
-        setSelectedCustomer(customer)
-        setCartItems(convertedItems)
-        setQuotationValues(values)
-        setLoadedQuotationNo(quotationNo || quote.quotationNo)
+        try {
+          const { customer, cartItems: convertedItems, values, quotationNo } = mapQuotationToPos(quote, prods, custs)
+          setSelectedCustomer(customer)
+          setCartItems(convertedItems)
+          setQuotationValues(values)
+          setLoadedQuotationNo(quotationNo || quote.quotationNo)
 
-        showToast('โหลดใบเสนอราคาสำเร็จ', `โหลดข้อมูลจากใบเสนอราคา ${quote.quotationNo} เรียบร้อยแล้ว`, 'SUCCESS')
+          showToast('โหลดใบเสนอราคาสำเร็จ', `โหลดข้อมูลจากใบเสนอราคา ${quote.quotationNo} เรียบร้อยแล้ว`, 'SUCCESS')
+        } catch (error) {
+          showToast('โหลดใบเสนอราคาไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาตรวจสอบสินค้าในใบเสนอราคา', 'ERROR')
+        }
       } else {
         showToast('ไม่พบใบเสนอราคา', `ไม่พบใบเสนอราคาที่มีรหัส ${quotationId}`, 'ERROR')
       }
     } else if (draftBillId) {
       const draftBill = loadBillById(draftBillId)
       if (draftBill && draftBill.rentalStatus === 'DRAFT') {
+        const productsById = new Map(prods.map((product) => [product.id, product]))
+        const invalidItemNames: string[] = []
+        const draftProducts: Product[] = []
+        draftBill.items.forEach((item) => {
+          const product = productsById.get(item.productId)
+          if (!product || product.status !== 'ACTIVE' || !Number.isFinite(item.quantity) || item.quantity <= 0) {
+            invalidItemNames.push(item.productName)
+            return
+          }
+          try {
+            validateProductMode(product, item.rentalType === 'SALE' ? 'SALE' : 'RENT')
+            draftProducts.push(product)
+          } catch (error) {
+            invalidItemNames.push(`${item.productName} (${error instanceof Error ? error.message : 'ประเภทสินค้าไม่ถูกต้อง'})`)
+          }
+        })
+        if (invalidItemNames.length > 0) {
+          showToast(
+            'โหลดแบบร่างไม่ได้',
+            `สินค้าไม่พร้อมทำรายการหรือจำนวนไม่ถูกต้อง: ${invalidItemNames.join(', ')}`,
+            'ERROR'
+          )
+          return
+        }
+
         const cust = custs.find((c) => c.id === draftBill.customerId) || {
           id: draftBill.customerId || 'draft-customer',
           customerName: draftBill.customerName,
@@ -90,38 +251,17 @@ function POSContent() {
         setSelectedCustomer(cust)
 
         const convertedItems: CartItem[] = draftBill.items.map((item, idx) => {
-          const matchedProd = prods.find((p) => p.id === item.productId)
+          const matchedProd = draftProducts[idx]
           const isSale = item.rentalType === 'SALE'
-          const fallbackProduct: Product = {
-            id: item.productId,
-            code: item.productCode || item.productId,
-            name: item.productName,
-            category: 'ทั่วไป',
-            rentalType: isSale ? 'SALE' : 'NORMAL',
+          const rentalType: CartItem['rentalType'] =
+            item.rentalType === 'SALE' ? 'SALE' : item.rentalType === 'DAILY' ? 'DAILY' : 'NORMAL'
+          const baseProduct: Product = {
+            ...matchedProd,
             normalPrice: item.dailyRate,
             dailyPrice: item.dailyRate,
-            salePrice: isSale ? item.dailyRate : 0,
-            unit: item.unit || 'ชิ้น',
-            defaultDamageFee: 0,
-            defaultLossFee: 0,
-            totalQuantity: 999,
-            availableQuantity: 999,
-            rentedQuantity: 0,
-            reservedQuantity: 0,
-            damagedQuantity: 0,
-            lostQuantity: 0,
-            minimumStock: 0,
-            status: 'ACTIVE',
+            rentPrice: isSale ? matchedProd.rentPrice : item.dailyRate,
+            salePrice: isSale ? item.dailyRate : matchedProd.salePrice,
           }
-
-          const baseProduct: Product = matchedProd
-            ? {
-                ...matchedProd,
-                normalPrice: item.dailyRate,
-                dailyPrice: item.dailyRate,
-                salePrice: isSale ? item.dailyRate : (matchedProd.salePrice ?? item.dailyRate),
-              }
-            : fallbackProduct
 
           return {
             id: `cart-${Date.now()}-${idx}`,
@@ -129,12 +269,18 @@ function POSContent() {
             productId: item.productId,
             productName: item.productName,
             itemType: isSale ? 'SALE' : 'RENT',
-            unitName: item.unit || matchedProd?.unit || 'ชิ้น',
-            calculationType: matchedProd?.calculationType,
-            calculationLabel: matchedProd?.calculationLabel,
-            rentalType: (item.rentalType as any) || (isSale ? 'SALE' : 'NORMAL'),
+            unitName: item.unit || matchedProd.unit || 'ชิ้น',
+            calculationType: matchedProd.calculationType,
+            calculationLabel: matchedProd.calculationLabel,
+            rentalType,
             quantity: item.quantity,
             unitPrice: item.dailyRate,
+            // baseProduct carries the draft's price, so keep the product's own price to detect the override
+            listUnitPrice: cartLineListPrice({
+              product: matchedProd,
+              rentalType,
+              itemType: isSale ? 'SALE' : 'RENT',
+            }),
             usageCount: item.usageCount || 1,
             billableDays: item.usageCount || 1,
             dailyStartDate: item.rentalStartDate,
@@ -143,15 +289,12 @@ function POSContent() {
           }
         })
 
-        const sysSettings = loadSystemSettings()
-        const defaultVat = (sysSettings.financePayment?.defaultVatPercent ?? 7) / 100
-
         setCartItems(convertedItems)
         setQuotationValues({
           discount: draftBill.discountAmount || 0,
           shippingFee: draftBill.shippingFee || 0,
           depositAmount: draftBill.heldDepositAmount || draftBill.paidDepositAmount || 0,
-          taxRate: (draftBill.taxAmount ?? 0) > 0 ? defaultVat : 0,
+          vatEnabled: Boolean(draftBill.vatMode) || (draftBill.taxAmount ?? 0) > 0,
           shippingAddress: draftBill.siteName || draftBill.customerAddress || '',
           rentalStartDate: draftBill.rentalStartDate,
           rentalEndDate: draftBill.scheduledReturnDate,
@@ -167,7 +310,7 @@ function POSContent() {
         showToast('ไม่พบแบบร่าง', `ไม่พบแบบร่างที่มีรหัส ${draftBillId}`, 'ERROR')
       }
     }
-  }, [quotationId, draftBillId, router, showToast])
+  }, [appointmentId, quotationId, draftBillId, router, showToast])
 
   const handleSelectProduct = (product: Product, mode: 'RENT' | 'SALE' = 'RENT') => {
     setSelectedProduct(product)
@@ -184,13 +327,35 @@ function POSContent() {
     dailyEndDate?: Date
     billableDays?: number
   }) => {
-    // STOCK VALIDATION
-    const available = data.product.available_qty ?? data.product.availableQuantity ?? data.product.totalQuantity ?? 0
+    if (data.product.status !== 'ACTIVE') {
+      showToast('สินค้าไม่พร้อมทำรายการ', `สินค้า ${data.product.name} ไม่ได้เปิดใช้งานแล้ว`, 'ERROR')
+      return
+    }
+    try {
+      validateProductMode(data.product, data.rentalType === 'SALE' ? 'SALE' : 'RENT')
+    } catch (error) {
+      showToast('ประเภทสินค้าไม่ถูกต้อง', error instanceof Error ? error.message : 'ตรวจสอบประเภทสินค้าก่อนเพิ่มลงตะกร้า', 'ERROR')
+      return
+    }
+
+    // STOCK VALIDATION — a quotation holds no stock, so it may quote more than is free (warning only).
+    const stockValue = Number(data.product.availableQuantity ?? data.product.available_qty ?? 0)
+    if (!Number.isFinite(stockValue) || stockValue < 0) {
+      showToast('ตรวจสอบสต็อกไม่ได้', `ไม่พบยอดสต็อกพร้อมใช้ที่ถูกต้องสำหรับ ${data.product.name}`, 'ERROR')
+      return
+    }
+    const available = stockValue
     const currentCartQty = cartItems
       .filter((item) => item.productId === data.product.id)
       .reduce((sum, item) => sum + item.quantity, 0)
 
-    if (currentCartQty + data.quantity > available) {
+    if (currentCartQty + data.quantity > available && isQuotationMode) {
+      showToast(
+        'สต็อกพร้อมใช้ไม่พอ (เสนอราคาได้)',
+        `ในใบนี้มี ${currentCartQty + data.quantity} แต่สต็อกพร้อมใช้มี ${available} — ต้องมีของพอตอนเปิดบิล`,
+        'INFO'
+      )
+    } else if (currentCartQty + data.quantity > available) {
       showToast(
         'สินค้าไม่เพียงพอ',
         `มีสินค้าในตะกร้าแล้ว ${currentCartQty} และต้องการเพิ่มอีก ${data.quantity} แต่สต็อกพร้อมใช้มีเพียง ${available}`,
@@ -219,8 +384,8 @@ function POSContent() {
       unitPrice: data.unitPrice,
       usageCount: isSale ? 1 : data.usageCount,
       billableDays: isSale ? 1 : days,
-      dailyStartDate: !isSale && data.dailyStartDate ? data.dailyStartDate.toISOString().slice(0, 10) : undefined,
-      dailyEndDate: !isSale && data.dailyEndDate ? data.dailyEndDate.toISOString().slice(0, 10) : undefined,
+      dailyStartDate: !isSale && data.dailyStartDate ? getLocalDateString(data.dailyStartDate) : undefined,
+      dailyEndDate: !isSale && data.dailyEndDate ? getLocalDateString(data.dailyEndDate) : undefined,
       lineTotal,
       requiresReturn: !isSale, // Adding this per MASTER rule C
     }
@@ -232,11 +397,20 @@ function POSContent() {
 
   const handleAddCustomer = async (newCustomer: Customer) => {
     try {
-      const updated = await addStorageCustomer(newCustomer)
-      setCustomersList(updated)
-      setSelectedCustomer(newCustomer)
+      // The server assigns the customer id; select the saved record, not the form copy.
+      const saved = await createCustomer(newCustomer)
+      setCustomersList(loadCustomers())
+      setSelectedCustomer(saved)
       showToast('เพิ่มลูกค้าสำเร็จ', `เพิ่มลูกค้า ${newCustomer.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
     } catch (err: any) {
+      if (isIdCardUploadError(err)) {
+        // The customer is saved (only the photo failed): select it instead of asking to re-enter.
+        setCustomersList(loadCustomers())
+        setSelectedCustomer(err.saved)
+        showToast('บันทึกข้อมูลลูกค้าแล้ว', err.message, 'INFO')
+        return
+      }
+      if (err?.tag === 'DUPLICATE_CUSTOMER') return
       showToast('ไม่สามารถเพิ่มลูกค้าได้', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
     }
   }
@@ -252,12 +426,10 @@ function POSContent() {
     }
 
     const now = new Date()
-    const qDate = quotationData?.documentDate || now.toISOString().slice(0, 10)
-    const expiry = new Date(now)
-    expiry.setDate(expiry.getDate() + 15)
-    const expiryDate = expiry.toISOString().slice(0, 10)
+    const qDate = quotationData?.documentDate || getLocalDateString(now)
 
-    const existingQuotation = quotationId ? getQuotationById(quotationId) : null
+    // Only an edit revises an existing quotation; a new one or a copy gets a fresh id.
+    const existingQuotation = editingQuotation
     const id = existingQuotation?.id || `qt-${Date.now()}`
     const quotationNo = existingQuotation?.quotationNo || generateQuotationNo()
 
@@ -269,7 +441,7 @@ function POSContent() {
       quantity: item.quantity,
       unitName: item.unitName || item.product.unit || 'ชิ้น',
       unitPrice: item.unitPrice,
-      usageCountOrDays: item.billableDays || item.usageCount || 1,
+      usageCountOrDays: quotationPeriodOf(item),
       lineTotal: item.lineTotal,
       dailyStartDate: item.dailyStartDate,
       dailyEndDate: item.dailyEndDate,
@@ -289,8 +461,7 @@ function POSContent() {
       id,
       quotationNo,
       quotationDate: qDate,
-      expiryDate,
-      customerId: selectedCustomer?.id || 'general-customer',
+      customerId: selectedCustomer?.id || '',
       customerName: selectedCustomer?.customerName || 'ลูกค้าทั่วไป',
       phone: selectedCustomer?.phone || '',
       customerAddress: selectedCustomer?.address || quotationData?.shippingAddress || '',
@@ -304,14 +475,20 @@ function POSContent() {
       shippingFee,
       depositAmount,
       taxAmount,
+      vatEnabled: Boolean(quotationData?.vatEnabled),
       grandTotal,
       status: existingQuotation?.status || 'WAITING',
+      remark: existingQuotation?.remark,
     }
 
-    addQuotation(newQuotation)
-
-    showToast('บันทึกใบเสนอราคาสำเร็จ', `สร้างใบเสนอราคา ${newQuotation.quotationNo} เรียบร้อยแล้ว`, 'SUCCESS')
-    router.push('/quotations')
+    try {
+      const savedId = await addQuotation(newQuotation)
+      const no = getQuotationById(savedId)?.quotationNo
+      showToast('บันทึกใบเสนอราคาสำเร็จ', no ? `ใบเสนอราคา ${no}` : 'บันทึกเรียบร้อยแล้ว', 'SUCCESS')
+      router.push('/quotations')
+    } catch (err) {
+      if (!isPinCancelled(err)) showToast('บันทึกใบเสนอราคาไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
+    }
   }
 
   const handleExitQuotationMode = () => {
@@ -328,7 +505,7 @@ function POSContent() {
           <div className="flex items-center gap-2 min-w-0">
             <FileText className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
             <span className="font-extrabold text-amber-900 dark:text-amber-200 truncate">
-              📋 โหมดสร้างใบเสนอราคา (ไม่ตัดสต็อก / ไม่จองสินค้า)
+              📋 {editingQuotation ? `แก้ไขใบเสนอราคา ${editingQuotation.quotationNo}` : 'โหมดสร้างใบเสนอราคา'} (ไม่ตัดสต็อก / ไม่จองสินค้า)
             </span>
           </div>
           <button
@@ -377,7 +554,7 @@ function POSContent() {
             mobileTab === 'PRODUCTS' ? 'block' : 'hidden md:block'
           }`}
         >
-          <ProductGrid products={productsList} onSelectProduct={handleSelectProduct} />
+          <ProductGrid products={productsList} onSelectProduct={handleSelectProduct} allowOutOfStock={isQuotationMode} />
         </div>
 
         {/* Right Column - Cart Panel */}
@@ -397,7 +574,7 @@ function POSContent() {
             isQuotationMode={isQuotationMode}
             onSaveQuotation={handleSaveQuotation}
             quotationId={quotationId || undefined}
-            quotationNo={loadedQuotationNo}
+            quotationNo={loadedQuotationNo ?? editingQuotation?.quotationNo}
             draftBillId={draftBillId || undefined}
             initialDiscount={quotationValues.discount}
             initialShippingFee={quotationValues.shippingFee}
@@ -406,6 +583,8 @@ function POSContent() {
             initialShippingAddress={quotationValues.shippingAddress}
             initialRentalStartDate={quotationValues.rentalStartDate}
             initialRentalEndDate={quotationValues.rentalEndDate}
+            initialVatEnabled={quotationValues.vatEnabled}
+            initialDocumentDate={quotationValues.documentDate}
           />
         </div>
       </div>
@@ -415,6 +594,7 @@ function POSContent() {
         <QuantityModal
           product={selectedProduct}
           mode={selectedProductMode}
+          allowOverStock={isQuotationMode}
           onAdd={handleAddToCart}
           onClose={() => setSelectedProduct(null)}
         />
@@ -436,4 +616,3 @@ export default function POSPage() {
     </Suspense>
   )
 }
-

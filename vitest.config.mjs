@@ -1,41 +1,19 @@
 import { defineConfig, configDefaults } from 'vitest/config'
 import path from 'path'
-import fs from 'fs'
 import { fileURLToPath } from 'url'
 import react from '@vitejs/plugin-react'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-// Load .env.local manually if it exists
-const envPath = path.resolve(__dirname, '.env.local')
-const localEnv = {}
-
-if (fs.existsSync(envPath)) {
-  const content = fs.readFileSync(envPath, 'utf8')
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-    const idx = trimmed.indexOf('=')
-    if (idx !== -1) {
-      const key = trimmed.slice(0, idx).trim()
-      const val = trimmed.slice(idx + 1).trim()
-      localEnv[key] = val
-    }
-  }
+// Tests never use the real Supabase project: .env.local is not read here, and these fixed
+// local-only values replace any NEXT_PUBLIC_SUPABASE_* / SUPABASE_SECRET_KEY in the shell.
+// tests/setup/no-network.ts blocks every connection that leaves this machine.
+const TEST_SUPABASE_ENV = {
+  NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321',
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'test-publishable-key',
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: '',
+  SUPABASE_SECRET_KEY: 'test-secret-key',
 }
-
-// Resolution order: process.env (e.g. CI) > localEnv (.env.local) > ''
-const resolveEnv = (key) => process.env[key] || localEnv[key] || ''
-
-const supabaseUrl = resolveEnv('NEXT_PUBLIC_SUPABASE_URL')
-const supabasePublishable = resolveEnv('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY')
-const hasRealSupabase = Boolean(
-  supabaseUrl &&
-  !supabaseUrl.includes('placeholder') &&
-  (supabaseUrl.startsWith('http://') || supabaseUrl.startsWith('https://')) &&
-  supabasePublishable &&
-  !supabasePublishable.includes('placeholder')
-)
 
 export default defineConfig({
   plugins: [react()],
@@ -47,18 +25,13 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    env: {
-      NEXT_PUBLIC_SUPABASE_URL: resolveEnv('NEXT_PUBLIC_SUPABASE_URL'),
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: resolveEnv('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'),
-      SUPABASE_SECRET_KEY: resolveEnv('SUPABASE_SECRET_KEY'),
-    },
+    env: TEST_SUPABASE_ENV,
+    setupFiles: ['./tests/setup/no-network.ts'],
     exclude: [
       ...configDefaults.exclude,
       '**/*.test.ts.bak',
       '**/*.bak',
-      ...(hasRealSupabase ? [] : ['tests/split-payment-receipt-audit.test.ts']),
     ],
-    testNamePattern: hasRealSupabase ? undefined : /^(?!.*(Split payment: records 1 transaction per channel)).*$/,
   },
 })
 

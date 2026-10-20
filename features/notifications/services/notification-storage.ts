@@ -1,30 +1,26 @@
 /**
- * Actionable Notification Domain Storage
- *
- * Stores actionable alerts such as Backorder Ready notifications when stock increases.
- * In-memory notification state synchronized during application session.
+ * In-app notifications (Master v4.3.1 §27). Created on the server (rental_overdue_scan:
+ * delivery due, return due soon, overdue, payment due, low stock — raised per member, switched
+ * on/off and timed by each member in ตั้งค่าส่วนตัว › การแจ้งเตือน). The app reads public.notifications (RLS: own or menu-addressed rows)
+ * and marks them read / handled through notification_mark. Notices never change business data.
  */
+import { createClient } from '@/lib/supabase/client'
+import { rpc, selectRows } from '@/lib/db/rpc'
 
-import { getPendingBackordersForProduct, updateBackorder } from '@/features/reservations/services/backorder-storage'
-import { recordAuditLog, generateCorrelationId } from '@/features/audits/services/audit-storage'
-
-export type NotificationType = 'BACKORDER_READY' | 'RESERVATION_EXPIRING' | 'DISPATCH_DUE' | 'STOCK_LOW'
-export type NotificationStatus = 'UNREAD' | 'READ' | 'ACTIONED' | 'DISMISSED'
+export type NotificationType =
+  | 'RENTAL_DUE_SOON'
+  | 'RENTAL_OVERDUE'
+  | 'DELIVERY_DUE'
+  | 'PAYMENT_DUE'
+  | 'LOW_STOCK'
+  | 'APPOINTMENT_DUE'
+  | 'OTHER'
+export type NotificationStatus = 'UNREAD' | 'READ' | 'HANDLED' | 'DISMISSED'
 
 export interface ActionableNotificationData {
-  backorderId?: string
-  backorderNo?: string
   sourceType?: string
   sourceId?: string
-  sourceNo?: string
-  customerId?: string
-  customerName?: string
-  productId?: string
-  productCode?: string
-  productName?: string
-  outstandingQty?: number
-  readyQty?: number
-  availableQty?: number
+  severity?: string
   [key: string]: unknown
 }
 
@@ -37,9 +33,9 @@ export interface ActionableNotification {
   status: NotificationStatus
   createdAt: string
   actionedAt?: string
-  actionedBy?: string
-  correlationId?: string
 }
+
+const KNOWN: ReadonlySet<string> = new Set(['RENTAL_DUE_SOON', 'RENTAL_OVERDUE', 'DELIVERY_DUE', 'PAYMENT_DUE', 'LOW_STOCK', 'APPOINTMENT_DUE'])
 
 let _cachedNotifications: ActionableNotification[] | null = null
 
@@ -51,159 +47,103 @@ export function loadNotifications(): ActionableNotification[] {
   return _cachedNotifications || []
 }
 
-export function saveNotifications(notifications: ActionableNotification[]): void {
-  _cachedNotifications = notifications
-}
-
-export interface CreateNotificationInput {
-  type: NotificationType
-  title: string
-  message: string
-  data: ActionableNotificationData
-  correlationId?: string
-}
-
-export function createNotification(input: CreateNotificationInput): ActionableNotification {
-  const nowIso = new Date().toISOString()
-  const record: ActionableNotification = {
-    id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    type: input.type,
-    title: input.title,
-    message: input.message,
-    data: input.data,
-    status: 'UNREAD',
-    createdAt: nowIso,
-    correlationId: input.correlationId,
+function notifyChanged(): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.dispatchEvent(new Event('app-storage-update'))
+  } catch {
+    // best-effort
   }
-
-  const current = loadNotifications()
-  saveNotifications([record, ...current])
-  return record
 }
 
-export function markNotificationStatus(
-  id: string,
-  status: NotificationStatus,
-  actorName?: string
-): ActionableNotification[] {
-  const current = loadNotifications()
-  const nowIso = new Date().toISOString()
-  const next = current.map((n) => {
-    if (n.id === id) {
-      return {
-        ...n,
-        status,
-        ...(status === 'ACTIONED' ? { actionedAt: nowIso, actionedBy: actorName } : {}),
-      }
-    }
-    return n
-  })
-  saveNotifications(next)
-  return next
+export async function fetchNotificationsFromSupabase(): Promise<ActionableNotification[]> {
+  const supabase = createClient()
+  // Notices are raised per member (own switches in ตั้งค่าส่วนตัว). The OWNER may read every row,
+  // so the bell asks only for this member's own rows and the menu-addressed ones.
+  const { data: sessionData } = await supabase.auth.getSession()
+  const me = sessionData.session?.user.id
+  const rows = await selectRows<{
+    id: string
+    event_type: string
+    severity: string
+    title: string
+    body: string | null
+    entity_type: string | null
+    entity_id: string | null
+    status: string
+    created_at: string
+    handled_at: string | null
+  }>(
+    supabase
+      .from('notifications')
+      .select('id, event_type, severity, title, body, entity_type, entity_id, status, created_at, handled_at')
+      .in('status', ['UNREAD', 'READ', 'HANDLED'])
+      .or(me ? `recipient_user_id.eq.${me},recipient_menu.not.is.null` : 'recipient_menu.not.is.null')
+      .order('created_at', { ascending: false })
+      .limit(200)
+  )
+  _cachedNotifications = rows.map((n) => ({
+    id: n.id,
+    type: (KNOWN.has(n.event_type) ? n.event_type : 'OTHER') as NotificationType,
+    title: n.title,
+    message: n.body || '',
+    data: { sourceType: n.entity_type || undefined, sourceId: n.entity_id || undefined, severity: n.severity },
+    status: n.status as NotificationStatus,
+    createdAt: n.created_at,
+    actionedAt: n.handled_at || undefined,
+  }))
+  notifyChanged()
+  return _cachedNotifications
 }
 
-export function markNotificationActionedByBackorder(
-  backorderId: string,
-  actorName?: string
-): ActionableNotification[] {
-  const current = loadNotifications()
-  const nowIso = new Date().toISOString()
-  const next = current.map((n) => {
-    if (n.data?.backorderId === backorderId && (n.status === 'UNREAD' || n.status === 'READ')) {
-      return {
-        ...n,
-        status: 'ACTIONED' as const,
-        actionedAt: nowIso,
-        actionedBy: actorName,
-      }
-    }
-    return n
-  })
-  saveNotifications(next)
-  return next
+/** Marks one notice on the server and in the cache. */
+export async function markNotificationStatus(id: string, status: 'READ' | 'HANDLED' | 'DISMISSED'): Promise<ActionableNotification[]> {
+  await rpc('notification_mark', { p_notification_id: id, p_status: status })
+  _cachedNotifications = loadNotifications().map((n) => (n.id === id ? { ...n, status } : n))
+  notifyChanged()
+  return _cachedNotifications
 }
 
-/**
- * When product stock increases (restock, stock count, return), check pending backorders FIFO.
- * Creates actionable notification for the user to review and confirm allocation.
- * DOES NOT silently auto-allocate stock!
- */
-export function checkBackordersOnStockIncrease(
-  productId: string,
-  newAvailableQty: number,
-  actor?: { userId: string; displayName: string },
-  correlationId?: string
-): ActionableNotification[] {
-  if (newAvailableQty <= 0) return []
-
-  const pending = getPendingBackordersForProduct(productId)
-  if (pending.length === 0) return []
-
-  const corrId = correlationId || generateCorrelationId()
-  const actorUserId = actor?.userId || 'system'
-  const actorDisplayName = actor?.displayName || 'ระบบ'
-  const created: ActionableNotification[] = []
-
-  let remainingStock = newAvailableQty
-
-  for (const bo of pending) {
-    if (remainingStock <= 0) break
-
-    const readyQty = Math.min(bo.outstandingQty, remainingStock)
-    remainingStock -= readyQty
-
-    // Update backorder status to READY and note available portion
-    updateBackorder({
-      ...bo,
-      status: 'READY',
-      allocatedReadyQty: readyQty,
-      updatedAt: new Date().toISOString(),
-    })
-
-    const notif = createNotification({
-      type: 'BACKORDER_READY',
-      title: `สินค้าพร้อมจัดสรรสำหรับ Backorder (${bo.productName})`,
-      message: `สินค้า ${bo.productName} มีสต็อกพร้อมจัดสรรจำนวน ${readyQty} ${bo.itemType === 'RENT' ? 'สำหรับเช่า' : 'สำหรับขาย'} ให้แก่ ${bo.customerName} (${bo.sourceType} #${bo.sourceNo}). กรุณากดยืนยันการจัดสรร`,
-      data: {
-        backorderId: bo.id,
-        backorderNo: bo.backorderNo,
-        sourceType: bo.sourceType,
-        sourceId: bo.sourceId,
-        sourceNo: bo.sourceNo,
-        customerId: bo.customerId,
-        customerName: bo.customerName,
-        productId: bo.productId,
-        productCode: bo.productCode,
-        productName: bo.productName,
-        outstandingQty: bo.outstandingQty,
-        readyQty,
-        availableQty: newAvailableQty,
-        itemType: bo.itemType,
-        startDate: bo.startDate,
-        endDate: bo.endDate,
-      },
-      correlationId: corrId,
-    })
-
-    created.push(notif)
-
-    recordAuditLog({
-      userId: actorUserId,
-      displayName: actorDisplayName,
-      action: 'BACKORDER_READY_NOTIFIED',
-      entityType: 'NOTIFICATION',
-      entityId: notif.id,
-      before: { backorderId: bo.id, status: bo.status },
-      after: {
-        notificationId: notif.id,
-        backorderId: bo.id,
-        readyQty,
-        outstandingQty: bo.outstandingQty,
-        newAvailableQty,
-      },
-      correlationId: corrId,
-    })
+export async function markAllNotificationsRead(): Promise<ActionableNotification[]> {
+  for (const n of loadNotifications().filter((x) => x.status === 'UNREAD')) {
+    await rpc('notification_mark', { p_notification_id: n.id, p_status: 'READ' })
   }
+  _cachedNotifications = loadNotifications().map((n) => (n.status === 'UNREAD' ? { ...n, status: 'READ' } : n))
+  notifyChanged()
+  return _cachedNotifications
+}
 
-  return created
+/** Runs the server notice scan (OWNER / scheduled job only); others simply skip it. */
+export async function runNotificationScan(): Promise<void> {
+  try {
+    await rpc('rental_overdue_scan')
+  } catch {
+    // not the OWNER: the scheduled job / OWNER session creates the notices
+  }
+}
+
+/** Bell tabs: the four kinds of notice the shop follows (system, due work, bills, stock). */
+export type NotificationGroup = 'SYSTEM' | 'WORK' | 'BILL' | 'STOCK'
+
+export const NOTIFICATION_GROUPS: { key: NotificationGroup; label: string }[] = [
+  { key: 'SYSTEM', label: 'ระบบ' },
+  { key: 'WORK', label: 'งานถึงกำหนด' },
+  { key: 'BILL', label: 'บิล' },
+  { key: 'STOCK', label: 'สต็อก' },
+]
+
+export function notificationGroup(n: Pick<ActionableNotification, 'type'>): NotificationGroup {
+  switch (n.type) {
+    case 'APPOINTMENT_DUE':
+    case 'DELIVERY_DUE':
+      return 'WORK'
+    case 'PAYMENT_DUE':
+    case 'RENTAL_DUE_SOON':
+    case 'RENTAL_OVERDUE':
+      return 'BILL'
+    case 'LOW_STOCK':
+      return 'STOCK'
+    default:
+      return 'SYSTEM'
+  }
 }

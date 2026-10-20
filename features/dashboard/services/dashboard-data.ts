@@ -1,8 +1,11 @@
 import { StatementTransaction } from '@/features/finance/services/finance-storage'
 import { FullBill } from '@/features/bills/services/bill-storage'
-import { Product } from '@/lib/types/rental-pos'
+import { Appointment, Product } from '@/lib/types/rental-pos'
+import { getBillItemAmounts, getBillRevenueAmount } from '@/features/bills/services/bill-reporting'
 import { ReservationRecord } from '@/features/reservations/services/reservation-storage'
 import { ActionableNotification } from '@/features/notifications/services/notification-storage'
+import { isLowStock } from '@/features/products/utils/low-stock'
+import { APPOINTMENT_STATUS_META } from '@/features/appointments/appointment-status'
 
 export interface DashboardTaskItem {
   id: string
@@ -39,6 +42,7 @@ export interface DashboardMetrics {
   totalIncome: number
   totalExpense: number
   netIncome: number
+  netCashReceived: number
   outstandingReceivable: number
   depositBalance: number
   debtorCount: number
@@ -61,7 +65,7 @@ export interface DashboardMetrics {
   damagedOrLostStock: number
   damagedStock: number
   lostStock: number
-  activeReservationsCount: number
+  pendingBillDeliveryItemCount: number
 
   // Urgent Notifications
   urgentTasks: ActionableNotification[]
@@ -131,7 +135,7 @@ export interface DashboardMetrics {
   }>
 
   // 7-Day Reservation Trend (Image 2 Bar)
-  reservationTrendData: Array<{
+  billFulfillmentTrendData: Array<{
     date: string
     displayDate: string
     incomingQty: number
@@ -143,18 +147,18 @@ export interface DashboardMetrics {
     damagedCount: number
     lowStockCount: number
     overdueCount: number
-    incomingReservationCount: number
+    pendingBillDeliveryItemCount: number
     outgoingDispatchCount: number
   }
 
   // Stock Urgent Tasks Table (Image 2 Bottom Table)
   stockUrgentList: StockUrgentItem[]
 
-  // Business Analytics: Monthly/Daily Trend (Recent 6 months or periods)
+  // Business Analytics: bill value excluding VAT and net receipts by month
   monthlyTrend: Array<{
     month: string
     revenue: number
-    grossProfit: number
+    receivedAmount: number
     billsCount: number
   }>
 
@@ -170,11 +174,14 @@ export interface DashboardMetrics {
 
   // Top Customers
   topCustomers: Array<{
+    id: string
     name: string
-    customerType: string
     phone?: string
     billsCount: number
-    totalSpent: number
+    billedAmount: number
+    vatAmount: number
+    receivedAmount: number
+    outstandingAmount: number
     percentage: number
   }>
 
@@ -188,7 +195,7 @@ export interface DashboardMetrics {
   }>
 
   // Growth Rate & Top Summary Metrics
-  growthRate: number
+  growthRate: number | null
   currentMonthRevenue: number
   topProductMetric: {
     name: string
@@ -197,7 +204,7 @@ export interface DashboardMetrics {
   }
   topCustomerMetric: {
     count: number
-    totalSpent: number
+    totalBilled: number
     percentage: number
   }
   topChannelMetric: {
@@ -217,29 +224,54 @@ export function computeDashboardMetrics(
   bills: FullBill[],
   products: Product[],
   reservations: ReservationRecord[],
-  notifications: ActionableNotification[]
+  notifications: ActionableNotification[],
+  appointments: Appointment[] = [],
+  appointmentAssigneeNames: ReadonlyMap<string, string> = new Map(),
+  timezone = 'Asia/Bangkok',
+  now = new Date()
 ): DashboardMetrics {
-  const now = new Date()
-  const todayStr = now.toISOString().slice(0, 10)
+  const zonedParts = (date: Date) =>
+    Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date).map((part) => [part.type, part.value]))
+  const dateString = (date: Date) => {
+    const p = zonedParts(date)
+    return `${p.year}-${p.month}-${p.day}`
+  }
+  const zonedDateString = (value: string) => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? '' : dateString(date)
+  }
+  const monthKey = (date: Date) => dateString(date).slice(0, 7)
+  const todayStr = dateString(now)
+  const currentMonthKey = todayStr.slice(0, 7)
+  const billMonthKey = (bill: FullBill) =>
+    bill.confirmedAt ? monthKey(new Date(bill.confirmedAt)) : (bill.billDate || '').slice(0, 7)
 
   // 1. Finance Metrics from finance-storage
   let totalIncome = 0
   let totalExpense = 0
-  let depositBalance = 0
+  let refundTotal = 0
 
   transactions.forEach((tx) => {
-    totalIncome += tx.incomeAmount || 0
-    totalExpense += tx.expenseAmount || 0
-    if (tx.isDeposit) {
-      depositBalance += (tx.incomeAmount || 0) - (tx.expenseAmount || 0)
+    if (tx.isDeposit) return
+    totalIncome += Number(tx.incomeAmount) || 0
+    totalExpense += Number(tx.expenseAmount) || 0
+    if (tx.type === 'EXPENSE' && tx.category === 'คืนเงินลูกค้า') {
+      refundTotal += Number(tx.expenseAmount) || 0
     }
   })
+  const netCashReceived = totalIncome - refundTotal
   const netIncome = totalIncome - totalExpense
 
   // 2. Active Bills Receivable (ห้ามนับ DRAFT / CANCELLED / VOID)
   let outstandingReceivable = 0
   const activeBills = bills.filter((b) => {
-    const s = b.rentalStatus
+    const s = b.serverStatus || b.rentalStatus
     return s !== 'DRAFT' && s !== 'CANCELLED' && s !== 'VOID'
   })
 
@@ -249,24 +281,17 @@ export function computeDashboardMetrics(
   })
   const debtorCount = debtorBills.length
 
-  // Deposit count from active bills and transactions
-  const depositCount = activeBills.filter((b) => (b.heldDepositAmount || 0) > 0 || (b.deposits && b.deposits.length > 0)).length ||
-    transactions.filter((tx) => tx.isDeposit).length
+  // deposit_amount is informational on the bill and must not be treated as received revenue.
+  const depositBalance = activeBills.reduce((sum, bill) => sum + (Number(bill.heldDepositAmount) || 0), 0)
+  const depositCount = activeBills.filter((b) => (Number(b.heldDepositAmount) || 0) > 0).length
 
   // 2.1 Operations Metrics (Items 6 - 10)
   let salesRevenue = 0
   let rentalRevenue = 0
-  let totalShippingService = 0
-
-  activeBills.forEach((b) => {
-    totalShippingService += b.shippingFee || 0
-    b.items.forEach((it) => {
-      const amount = it.lineTotal ?? ((it.quantity || 0) * (it.dailyRate || 0))
-      if (it.rentalType === 'SALE' || it.requiresReturn === false) {
-        salesRevenue += amount
-      } else {
-        rentalRevenue += amount
-      }
+  activeBills.filter((bill) => billMonthKey(bill) === currentMonthKey).forEach((bill) => {
+    getBillItemAmounts(bill).forEach(({ item, amount }) => {
+      if (item.rentalType === 'SALE' || item.requiresReturn === false) salesRevenue += amount
+      else rentalRevenue += amount
     })
   })
 
@@ -295,38 +320,35 @@ export function computeDashboardMetrics(
     })
   }
 
-  // 10. งานส่ง / รับคืนวันนี้
-  const todayDeliveriesCount = activeBills.filter((b) => {
-    const isTodayStart = b.rentalStartDate ? b.rentalStartDate.slice(0, 10) === todayStr : false
-    return isTodayStart && b.dispatchStatus !== 'DISPATCHED'
-  }).length
-
-  const todayReturnsCount = activeBills.filter((b) => {
-    const isTodayReturn = b.scheduledReturnDate ? b.scheduledReturnDate.slice(0, 10) === todayStr : false
-    return isTodayReturn && (b.rentalStatus === 'RENTING' || b.rentalStatus === 'PARTIAL_RETURNED')
-  }).length
-
-  const todayTasksCount = todayDeliveriesCount + todayReturnsCount
+  // Today's work comes only from saved appointments, never inferred from bill dates.
+  const todayAppointments = appointments.filter((appointment) => appointment.date === todayStr)
+  const countedTodayAppointments = todayAppointments.filter(
+    (appointment) => !['CANCELLED', 'NO_SHOW', 'RESCHEDULED'].includes(appointment.status)
+  )
+  const todayDeliveriesCount = countedTodayAppointments.filter((appointment) => appointment.type === 'DELIVERY').length
+  const todayReturnsCount = countedTodayAppointments.filter((appointment) => appointment.type === 'RETURN').length
+  const todayTasksCount = countedTodayAppointments.length
 
   // 3. Stock Metrics from Products
   let availableStock = 0
   let rentedStock = 0
+  let reservedStock = 0
   let damagedStock = 0
   let lostStock = 0
 
   products.forEach((p) => {
     availableStock += p.availableQuantity || 0
     rentedStock += p.rentedQuantity || 0
+    reservedStock += p.reservedQuantity || 0
     damagedStock += p.damagedQuantity || 0
     lostStock += p.lostQuantity || 0
   })
 
-  // 4. Reservations
-  const activeReservations = reservations.filter((r) => r.status === 'ACTIVE')
-  const activeReservationsCount = activeReservations.length
-  const totalReservedQuantity = activeReservations.reduce((sum, r) => sum + (r.quantity || 0), 0)
+  // Bill lines awaiting delivery are distinct from quotation reservations in stock_balances.
+  const pendingBillDeliveryItems = reservations.filter((r) => r.status === 'ACTIVE')
+  const pendingBillDeliveryItemCount = pendingBillDeliveryItems.length
 
-  const rentedOrReservedStock = rentedStock + totalReservedQuantity
+  const rentedOrReservedStock = rentedStock + reservedStock
   const damagedOrLostStock = damagedStock + lostStock
 
   // 5. Urgent Tasks from notifications
@@ -338,7 +360,7 @@ export function computeDashboardMetrics(
   const assetStatusData = [
     { label: 'พร้อมให้เช่า', count: availableStock, color: '#10b981' },
     { label: 'กำลังเช่า', count: rentedStock, color: '#3b82f6' },
-    { label: 'จองคิว', count: totalReservedQuantity, color: '#8b5cf6' },
+    { label: 'จองคิว', count: reservedStock, color: '#8b5cf6' },
     { label: 'ชำรุด', count: damagedStock, color: '#f59e0b' },
     { label: 'สูญหาย', count: lostStock, color: '#ef4444' },
   ]
@@ -346,9 +368,8 @@ export function computeDashboardMetrics(
   // 7. Recent 7 Days Income & Expense Trend
   const last7Days: string[] = []
   for (let i = 6; i >= 0; i--) {
-    const d = new Date(now)
-    d.setDate(d.getDate() - i)
-    last7Days.push(d.toISOString().slice(0, 10))
+    const [year, month, day] = todayStr.split('-').map(Number)
+    last7Days.push(new Date(Date.UTC(year, month - 1, day - i)).toISOString().slice(0, 10))
   }
 
   const trendMap: Record<string, { income: number; expense: number }> = {}
@@ -357,10 +378,12 @@ export function computeDashboardMetrics(
   })
 
   transactions.forEach((tx) => {
-    const dateStr = tx.dateTime ? tx.dateTime.slice(0, 10) : ''
+    const dateStr = tx.dateTime ? zonedDateString(tx.dateTime) : ''
     if (trendMap[dateStr]) {
-      trendMap[dateStr].income += tx.incomeAmount || 0
-      trendMap[dateStr].expense += tx.expenseAmount || 0
+      if (!tx.isDeposit) {
+        trendMap[dateStr].income += Number(tx.incomeAmount) || 0
+        trendMap[dateStr].expense += Number(tx.expenseAmount) || 0
+      }
     }
   })
 
@@ -378,42 +401,26 @@ export function computeDashboardMetrics(
   })
 
   // 8. Income Breakdown Data (Donut in View 1)
-  const penaltyIncome = transactions
-    .filter((t) => t.category?.includes('ปรับ') || t.description?.includes('ปรับ'))
-    .reduce((sum, t) => sum + (t.incomeAmount || 0), 0)
-
-  const totalBreakdownSum = rentalRevenue + salesRevenue + totalShippingService + penaltyIncome
+  const totalBreakdownSum = rentalRevenue + salesRevenue
   const safeBreakdownSum = totalBreakdownSum > 0 ? totalBreakdownSum : 1
 
   const incomeBreakdownData = [
     {
-      label: 'รายได้จากการเช่า',
+      label: 'มูลค่าสินค้าเช่า (ไม่รวม VAT)',
       value: rentalRevenue,
       color: '#10b981', // green
       percentage: Math.round((rentalRevenue / safeBreakdownSum) * 100),
     },
     {
-      label: 'ขายสินค้า',
+      label: 'มูลค่าสินค้าขาย (ไม่รวม VAT)',
       value: salesRevenue,
       color: '#3b82f6', // blue
       percentage: Math.round((salesRevenue / safeBreakdownSum) * 100),
     },
-    {
-      label: 'ค่าบริการอื่น ๆ',
-      value: totalShippingService,
-      color: '#8b5cf6', // purple
-      percentage: Math.round((totalShippingService / safeBreakdownSum) * 100),
-    },
-    {
-      label: 'ปรับ/ค่าปรับ',
-      value: penaltyIncome,
-      color: '#f59e0b', // amber
-      percentage: Math.round((penaltyIncome / safeBreakdownSum) * 100),
-    },
   ]
 
   // 9. Bill Status Breakdown (Bar in View 1)
-  const paidBillsCount = bills.filter((b) => b.paymentStatus === 'PAID').length
+  const paidBillsCount = activeBills.filter((b) => b.paymentStatus === 'PAID').length
   const overdueBillsCount = activeBills.filter((b) => {
     const isOverdue = b.scheduledReturnDate && b.scheduledReturnDate.slice(0, 10) < todayStr
     return isOverdue && (b.rentalStatus === 'RENTING' || b.rentalStatus === 'PARTIAL_RETURNED')
@@ -446,114 +453,50 @@ export function computeDashboardMetrics(
     },
   ]
 
-  // 11. Today's Key Tasks & Table (View 1)
-  const taskSlots = ['09:00', '10:30', '11:00', '14:00', '16:00', '16:30']
-  const todayKeyTasks: DashboardTaskItem[] = []
-
-  // Deliveries today
-  activeBills
-    .filter((b) => b.dispatchStatus === 'PENDING' || (b.rentalStartDate && b.rentalStartDate.slice(0, 10) === todayStr))
-    .slice(0, 2)
-    .forEach((b, idx) => {
-      const firstItem = b.items[0]
-      todayKeyTasks.push({
-        id: `delivery-${b.id}`,
-        time: taskSlots[idx % taskSlots.length],
-        type: 'DISPATCH',
-        typeLabel: 'ส่งมอบ',
-        typeBadgeColor: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
-        billNo: b.billNo,
-        customerName: b.customerName || 'ลูกค้าทั่วไป',
-        itemsSummary: firstItem ? `${firstItem.productName} (${firstItem.quantity} ${firstItem.unit || 'ชิ้น'})` : 'สินค้าเช่า',
-        quantity: firstItem?.quantity || 1,
-        status: 'รอดำเนินการ',
-        statusColor: 'text-emerald-500',
-        assignee: 'สมชาย',
-        remark: b.siteName ? `จัดส่งหน้างาน ${b.siteName}` : 'ส่งมอบหน้างาน',
-      })
+  // 11. Today's Key Tasks are actual appointment rows, including their saved status/time.
+  const todayKeyTasks: DashboardTaskItem[] = [...todayAppointments]
+    .sort((a, b) => `${a.startTime}|${a.id}`.localeCompare(`${b.startTime}|${b.id}`))
+    .map((appointment) => {
+      const isDelivery = appointment.type === 'DELIVERY'
+      const isReturn = appointment.type === 'RETURN'
+      const isInspection = appointment.type === 'INSPECTION'
+      const type = isDelivery ? 'DISPATCH' : isReturn ? 'RETURN' : isInspection ? 'INSPECT' : 'FOLLOWUP'
+      const typeLabel = isDelivery ? 'ส่งมอบ' : isReturn ? 'รับคืน' : isInspection ? 'ตรวจสอบ' : 'นัดหมาย'
+      const typeBadgeColor = isDelivery
+        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+        : isReturn
+          ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
+          : isInspection
+            ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20'
+            : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+      const statusColors: Record<string, string> = {
+        DRAFT: 'text-slate-500',
+        SCHEDULED: 'text-amber-500',
+        CONFIRMED: 'text-cyan-500',
+        IN_PROGRESS: 'text-blue-500',
+        COMPLETED: 'text-emerald-500',
+        CANCELLED: 'text-slate-500',
+        NO_SHOW: 'text-rose-500',
+        RESCHEDULED: 'text-purple-500',
+      }
+      return {
+        id: appointment.id,
+        time: appointment.startTime || '—',
+        type,
+        typeLabel,
+        typeBadgeColor,
+        billNo: appointment.billNo || '-',
+        customerName: appointment.customerName || appointment.contactPerson || '-',
+        itemsSummary: appointment.title,
+        quantity: 0,
+        status: APPOINTMENT_STATUS_META[appointment.status]?.label || appointment.status,
+        statusColor: statusColors[appointment.status] || 'text-slate-500',
+        assignee: appointment.assigneeId
+          ? appointmentAssigneeNames.get(appointment.id) || 'ไม่สามารถแสดงชื่อได้'
+          : 'ยังไม่มอบหมาย',
+        remark: appointment.details || appointment.location || '',
+      }
     })
-
-  // Returns today
-  activeBills
-    .filter((b) => b.rentalStatus === 'RENTING' || b.rentalStatus === 'PARTIAL_RETURNED')
-    .slice(0, 2)
-    .forEach((b, idx) => {
-      const firstItem = b.items[0]
-      todayKeyTasks.push({
-        id: `return-${b.id}`,
-        time: taskSlots[(todayKeyTasks.length) % taskSlots.length],
-        type: 'RETURN',
-        typeLabel: 'รับคืน',
-        typeBadgeColor: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
-        billNo: b.billNo,
-        customerName: b.customerName || 'ลูกค้าทั่วไป',
-        itemsSummary: firstItem ? `${firstItem.productName} (${firstItem.quantity} ${firstItem.unit || 'ชิ้น'})` : 'รับคืนอุปกรณ์',
-        quantity: firstItem?.quantity || 1,
-        status: 'กำลังดำเนินการ',
-        statusColor: 'text-blue-500',
-        assignee: 'วิทยา',
-        remark: 'ตรวจสภาพหลังรับคืน',
-      })
-    })
-
-  // Overdue follow-up
-  debtorBills.slice(0, 1).forEach((b) => {
-    todayKeyTasks.push({
-      id: `debt-${b.id}`,
-      time: '13:00',
-      type: 'FOLLOWUP',
-      typeLabel: 'ติดตาม',
-      typeBadgeColor: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
-      billNo: b.billNo,
-      customerName: b.customerName || 'ลูกค้าทั่วไป',
-      itemsSummary: `ค้างชำระ ฿${(b.outstandingAmount || 0).toLocaleString()}`,
-      quantity: 1,
-      status: 'เกินกำหนด',
-      statusColor: 'text-amber-500',
-      assignee: 'สุภา',
-      remark: 'โทรติดตามลูกค้า',
-    })
-  })
-
-  // Inspection or maintenance task if damaged products exist
-  if (damagedStock > 0 || products.some((p) => (p.damagedQuantity || 0) > 0)) {
-    const damagedProd = products.find((p) => (p.damagedQuantity || 0) > 0)
-    todayKeyTasks.push({
-      id: 'inspect-damaged',
-      time: '15:00',
-      type: 'INSPECT',
-      typeLabel: 'ตรวจสอบ',
-      typeBadgeColor: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20',
-      billNo: '-',
-      customerName: '-',
-      itemsSummary: damagedProd ? `${damagedProd.name} (${damagedProd.damagedQuantity} ชิ้น)` : 'สินค้าชำรุด',
-      quantity: damagedProd?.damagedQuantity || 1,
-      status: 'ตรวจสอบ',
-      statusColor: 'text-purple-500',
-      assignee: 'ช่างทีม A',
-      remark: 'เช็คสภาพก่อนส่งซ่อม',
-    })
-  }
-
-  // Active reservations preparation
-  if (activeReservations.length > 0 && todayKeyTasks.length < 5) {
-    const firstRes = activeReservations[0]
-    todayKeyTasks.push({
-      id: `res-${firstRes.id}`,
-      time: '16:30',
-      type: 'PREPARE',
-      typeLabel: 'เตรียมงาน',
-      typeBadgeColor: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
-      billNo: firstRes.id.slice(0, 8),
-      customerName: firstRes.customerName || 'ลูกค้าจองคิว',
-      itemsSummary: firstRes.productName,
-      quantity: firstRes.quantity || 1,
-      status: 'เตรียมจัดส่ง',
-      statusColor: 'text-blue-500',
-      assignee: 'อนุชา',
-      remark: 'จัดเตรียมสินค้าสำหรับงานพรุ่งนี้',
-    })
-  }
 
   // 12. Stock Categories Breakdown
   const catMap: Record<string, { total: number; available: number; rented: number; damaged: number }> = {}
@@ -574,7 +517,7 @@ export function computeDashboardMetrics(
   }))
 
   // 13. Stock Donut Proportions
-  const totalStockSum = availableStock + rentedStock + totalReservedQuantity + damagedStock + lostStock
+  const totalStockSum = availableStock + rentedStock + reservedStock + damagedStock + lostStock
   const safeTotalStock = totalStockSum > 0 ? totalStockSum : 1
   const stockDonutData = [
     {
@@ -591,9 +534,9 @@ export function computeDashboardMetrics(
     },
     {
       label: 'จองคิว',
-      value: totalReservedQuantity,
+      value: reservedStock,
       color: '#8b5cf6', // purple
-      percentage: Math.round((totalReservedQuantity / safeTotalStock) * 100),
+      percentage: Math.round((reservedStock / safeTotalStock) * 100),
     },
     {
       label: 'ชำรุด/สูญหาย',
@@ -604,21 +547,21 @@ export function computeDashboardMetrics(
   ]
 
   // 14. 7-Day Reservation Trend (View 2 Middle Bar)
-  const reservationTrendData = last7Days.map((dateStr) => {
+  const billFulfillmentTrendData = last7Days.map((dateStr) => {
     const parts = dateStr.split('-')
     const day = parseInt(parts[2], 10)
     const month = parseInt(parts[1], 10) - 1
     const displayDate = `${day} ${THAI_MONTH_ABBR[month] || ''}`
 
     // Outgoing (dispatch due on that date)
-    const outgoingQty = activeBills
-      .filter((b) => b.rentalStartDate && b.rentalStartDate.slice(0, 10) === dateStr)
-      .reduce((sum, b) => sum + b.items.reduce((s, it) => s + (it.quantity || 0), 0), 0)
+    const outgoingQty = activeBills.reduce((sum, bill) =>
+      sum + bill.items.reduce((lineSum, item) =>
+        lineSum + (item.rentalStartDate === dateStr ? Number(item.remainingQty) || 0 : 0), 0), 0)
 
-    // Incoming (reservations or returns on that date)
-    const incomingQty = activeBills
-      .filter((b) => b.scheduledReturnDate && b.scheduledReturnDate.slice(0, 10) === dateStr)
-      .reduce((sum, b) => sum + b.items.reduce((s, it) => s + (it.quantity || 0), 0), 0)
+    // Return obligations are taken from each bill line, not the whole bill quantity.
+    const incomingQty = activeBills.reduce((sum, bill) =>
+      sum + bill.items.reduce((lineSum, item) =>
+        lineSum + (item.scheduledReturnDate === dateStr ? Number(item.outstandingQty) || 0 : 0), 0), 0)
 
     return {
       date: dateStr,
@@ -629,12 +572,13 @@ export function computeDashboardMetrics(
   })
 
   // 15. Stock Alerts Summary (View 2 Right List)
+  const pendingBillDispatchCount = activeBills.filter((bill) => bill.dispatchStatus !== 'DELIVERED').length
   const stockAlertsSummary = {
-    damagedCount: damagedStock + lostStock,
-    lowStockCount: products.filter((p) => (p.availableQuantity || 0) < 10).length,
+    damagedCount: damagedStock,
+    lowStockCount: products.filter(isLowStock).length,
     overdueCount: overdueBillsCount,
-    incomingReservationCount: activeReservations.length,
-    outgoingDispatchCount: todayDeliveriesCount,
+    pendingBillDeliveryItemCount,
+    outgoingDispatchCount: pendingBillDispatchCount,
   }
 
   // 16. Stock Urgent Tasks Table (View 2 Bottom Table)
@@ -645,34 +589,34 @@ export function computeDashboardMetrics(
   damagedProducts.forEach((p) => {
     stockUrgentList.push({
       id: `damaged-${p.id}`,
-      time: '09:00',
+      time: '—',
       workType: 'ตรวจสอบสินค้าชำรุด',
       workBadgeColor: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
       productName: p.name,
       quantity: p.damagedQuantity || 0,
       unit: p.unit || 'ชิ้น',
-      status: 'รอซ่อมแซม',
+      status: 'ชำรุด',
       statusColor: 'text-rose-500',
-      assignee: 'สมชาย',
-      remark: 'พบความเสียหายจากการใช้งาน',
+      assignee: '—',
+      remark: 'จำนวนชำรุดตามข้อมูลสต็อก',
     })
   })
 
   // Low stock alerts
-  const lowStockProducts = products.filter((p) => (p.availableQuantity || 0) < 10)
+  const lowStockProducts = products.filter(isLowStock)
   lowStockProducts.forEach((p) => {
     stockUrgentList.push({
       id: `low-${p.id}`,
-      time: '10:30',
+      time: '—',
       workType: 'สต็อกใกล้หมด',
       workBadgeColor: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
       productName: p.name,
       quantity: p.availableQuantity || 0,
       unit: p.unit || 'ชิ้น',
-      status: 'เร่งจัดหา',
+      status: 'ถึงจุดสั่งซื้อ',
       statusColor: 'text-amber-500',
-      assignee: 'สุภา',
-      remark: `คงเหลือ ${p.availableQuantity} ${p.unit || 'ชิ้น'}`,
+      assignee: '—',
+      remark: `คงเหลือ ${p.availableQuantity} จากจุดสั่งซื้อ ${p.minimumStock} ${p.unit || 'ชิ้น'}`,
     })
   })
 
@@ -680,81 +624,92 @@ export function computeDashboardMetrics(
   activeBills
     .filter((b) => b.scheduledReturnDate && b.scheduledReturnDate.slice(0, 10) < todayStr && (b.rentalStatus === 'RENTING' || b.rentalStatus === 'PARTIAL_RETURNED'))
     .forEach((b) => {
-      const firstItem = b.items[0]
+      const outstandingItems = b.items.filter((item) => item.requiresReturn && (item.outstandingQty || 0) > 0)
+      const firstItem = outstandingItems[0]
       stockUrgentList.push({
         id: `overdue-${b.id}`,
-        time: '13:00',
+        time: '—',
         workType: 'ครบกำหนดคืน (เกินกำหนด)',
         workBadgeColor: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
         productName: firstItem?.productName || 'สินค้าเช่า',
-        quantity: firstItem?.quantity || 1,
+        quantity: outstandingItems.reduce((sum, item) => sum + (item.outstandingQty || 0), 0),
         unit: firstItem?.unit || 'ชิ้น',
         status: 'เกินกำหนด',
         statusColor: 'text-amber-500',
-        assignee: 'วิทยา',
-        remark: `ลูกค้า ${b.customerName || 'ทั่วไป'} ยังไม่ส่งคืน`,
+        assignee: '—',
+        remark: `มีรายการคงค้างในบิล ${b.billNo}`,
       })
     })
 
   // Active reservations
-  activeReservations.slice(0, 2).forEach((r) => {
+  pendingBillDeliveryItems.slice(0, 2).forEach((r) => {
     stockUrgentList.push({
       id: `resv-${r.id}`,
-      time: '15:00',
-      workType: 'เตรียมรับสินค้า (จองเข้า)',
+      time: '—',
+      workType: 'รอส่งมอบตามบิล',
       workBadgeColor: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
       productName: r.productName,
       quantity: r.quantity || 1,
       unit: 'ชิ้น',
-      status: 'รอดำเนินการ',
+      status: 'รอส่งมอบ',
       statusColor: 'text-blue-500',
-      assignee: 'กมล',
-      remark: `จองส่งมอบ ${r.startDate || todayStr}`,
+      assignee: '—',
+      remark: `วันที่เริ่มเช่าตามบิล ${r.startDate || '—'}`,
     })
   })
 
   // Pending deliveries
   activeBills
-    .filter((b) => b.dispatchStatus === 'PENDING')
+    .filter((b) => b.dispatchStatus !== 'DELIVERED')
     .slice(0, 2)
     .forEach((b) => {
-      const firstItem = b.items[0]
+      const openItems = b.items.filter((item) => (item.remainingQty || 0) > 0)
+      const firstItem = openItems[0]
       stockUrgentList.push({
         id: `dispatch-${b.id}`,
-        time: '16:30',
+        time: '—',
         workType: 'เตรียมส่งมอบ (จองออก)',
         workBadgeColor: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
         productName: firstItem?.productName || 'สินค้าเช่า',
-        quantity: firstItem?.quantity || 1,
+        quantity: openItems.reduce((sum, item) => sum + (item.remainingQty || 0), 0),
         unit: firstItem?.unit || 'ชิ้น',
-        status: 'รอดำเนินการ',
+        status: 'รอส่งมอบ',
         statusColor: 'text-blue-500',
-        assignee: 'ประเสริฐ',
-        remark: `ส่งมอบให้ ${b.customerName || 'ลูกค้า'}`,
+        assignee: '—',
+        remark: `บิล ${b.billNo} รอส่งมอบ`,
       })
     })
 
-  // 17. Top Products from Active Bills items
+  // 17. Top products: recent confirmed bills, prorated bill discount and VAT-excluded values.
+  const [currentYear, currentMonthNumber] = currentMonthKey.split('-').map(Number)
+  const recentSixMonths = new Set(
+    Array.from({ length: 6 }, (_, index) =>
+      new Date(Date.UTC(currentYear, currentMonthNumber - 1 - index, 1)).toISOString().slice(0, 7)
+    )
+  )
+  const recentBills = activeBills.filter((bill) => recentSixMonths.has(billMonthKey(bill)))
   const productAgg: Record<string, { id: string; code: string; name: string; type: string; rentalCount: number; revenue: number }> = {}
-  activeBills.forEach((b) => {
-    b.items.forEach((it) => {
-      const pid = it.productId || it.productName
+  recentBills.forEach((bill) => {
+    getBillItemAmounts(bill).forEach(({ item, amount }) => {
+      const pid = item.productId || item.productName
       if (!productAgg[pid]) {
         productAgg[pid] = {
-          id: it.productId,
-          code: it.productCode || '',
-          name: it.productName,
-          type: it.rentalType === 'SALE' || it.requiresReturn === false ? 'ขาย' : 'เช่า',
+          id: item.productId,
+          code: item.productCode || '',
+          name: item.productName,
+          type: item.rentalType === 'SALE' || item.requiresReturn === false ? 'ขาย' : 'เช่า',
           rentalCount: 0,
           revenue: 0,
         }
       }
-      productAgg[pid].rentalCount += it.quantity || 0
-      productAgg[pid].revenue += it.lineTotal || ((it.quantity || 0) * (it.dailyRate || 0))
+      if (item.rentalType !== 'SALE' && item.requiresReturn !== false) {
+        productAgg[pid].rentalCount += Number(item.quantity) || 0
+      }
+      productAgg[pid].revenue += amount
     })
   })
 
-  const sortedProducts = Object.values(productAgg).sort((a, b) => b.revenue - a.revenue)
+  const sortedProducts = Object.values(productAgg).filter((product) => product.revenue > 0).sort((a, b) => b.revenue - a.revenue)
   const totalProductsRevenue = sortedProducts.reduce((sum, p) => sum + p.revenue, 0)
   const safeProdRev = totalProductsRevenue > 0 ? totalProductsRevenue : 1
 
@@ -768,42 +723,58 @@ export function computeDashboardMetrics(
   }))
 
   const topRentedProducts = Object.values(productAgg)
+    .filter((product) => product.rentalCount > 0)
     .sort((a, b) => b.rentalCount - a.rentalCount)
     .slice(0, 5)
 
-  // 18. Top Customers from Active Bills
-  const custAgg: Record<string, { name: string; customerType: string; phone?: string; billsCount: number; totalSpent: number }> = {}
+  // 18. Customer totals are keyed by the actual customer foreign key, never by a display name.
+  const custAgg: Record<string, {
+    id: string
+    name: string
+    phone?: string
+    billsCount: number
+    billedAmount: number
+    vatAmount: number
+    receivedAmount: number
+    outstandingAmount: number
+  }> = {}
   activeBills.forEach((b) => {
-    const cname = b.customerName || 'ลูกค้าทั่วไป'
-    if (!custAgg[cname]) {
-      const isCorp = cname.includes('บริษัท') || cname.includes('บจก') || cname.includes('หจก') || cname.includes('ห้างหุ้นส่วน')
-      custAgg[cname] = {
-        name: cname,
-        customerType: isCorp ? 'นิติบุคคล' : 'บุคคลธรรมดา',
-        phone: b.customerPhone,
+    if (!b.customerId) return
+    if (!custAgg[b.customerId]) {
+      custAgg[b.customerId] = {
+        id: b.customerId,
+        name: b.customerName || 'ไม่พบชื่อลูกค้า',
+        phone: b.customerPhone || undefined,
         billsCount: 0,
-        totalSpent: 0,
+        billedAmount: 0,
+        vatAmount: 0,
+        receivedAmount: 0,
+        outstandingAmount: 0,
       }
     }
-    custAgg[cname].billsCount += 1
-    custAgg[cname].totalSpent += b.paidAmount || b.grandTotal || 0
+    const customer = custAgg[b.customerId]
+    customer.billsCount += 1
+    customer.billedAmount += getBillRevenueAmount(b)
+    customer.vatAmount += Number(b.taxAmount) || 0
+    customer.receivedAmount += Number(b.paidAmount) || 0
+    customer.outstandingAmount += Number(b.outstandingAmount) || 0
   })
 
-  const sortedCustomers = Object.values(custAgg).sort((a, b) => b.totalSpent - a.totalSpent)
-  const totalCustSpent = sortedCustomers.reduce((sum, c) => sum + c.totalSpent, 0)
-  const safeCustSpent = totalCustSpent > 0 ? totalCustSpent : 1
+  const sortedCustomers = Object.values(custAgg).sort((a, b) => b.billedAmount - a.billedAmount)
+  const totalCustomerBilled = sortedCustomers.reduce((sum, customer) => sum + customer.billedAmount, 0)
+  const safeCustomerBilled = totalCustomerBilled > 0 ? totalCustomerBilled : 1
 
   const topCustomers = sortedCustomers.slice(0, 5).map((c) => ({
     ...c,
-    percentage: Math.round((c.totalSpent / safeCustSpent) * 1000) / 10,
+    percentage: Math.round((c.billedAmount / safeCustomerBilled) * 1000) / 10,
   }))
 
-  // 19. Payment Channels Breakdown from finance-storage
+  // 19. Payment channel mix uses received bill payments (gross, before refunds).
   const channelMap: Record<string, number> = {}
   let totalChannelIncome = 0
 
   transactions.forEach((tx) => {
-    if (tx.type === 'INCOME' && tx.incomeAmount > 0) {
+    if (!tx.isDeposit && tx.billId && tx.category === 'รับชำระบิล' && tx.type === 'INCOME' && tx.incomeAmount > 0) {
       const ch = tx.channel || 'เงินสด'
       channelMap[ch] = (channelMap[ch] || 0) + tx.incomeAmount
       totalChannelIncome += tx.incomeAmount
@@ -819,54 +790,50 @@ export function computeDashboardMetrics(
     color: CHANNEL_COLOR_PALETTE[idx % CHANNEL_COLOR_PALETTE.length],
   }))
 
-  // 20. Monthly Revenue Trend (Last 6 Months)
-  const monthlyMap: Record<string, { revenue: number; expense: number; billsCount: number }> = {}
-  for (let m = 5; m >= 0; m--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - m, 1)
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-    monthlyMap[key] = { revenue: 0, expense: 0, billsCount: 0 }
+  // 20. Last six months: bill value excluding VAT vs net bill receipts by payment date.
+  const monthlyMap: Record<string, { revenue: number; receivedAmount: number; billsCount: number }> = {}
+  for (const key of [...recentSixMonths].sort()) {
+    monthlyMap[key] = { revenue: 0, receivedAmount: 0, billsCount: 0 }
   }
 
   activeBills.forEach((b) => {
-    const bDate = b.billDate ? b.billDate.slice(0, 7) : ''
-    if (monthlyMap[bDate]) {
-      monthlyMap[bDate].revenue += b.paidAmount || b.grandTotal || 0
-      monthlyMap[bDate].billsCount += 1
+    const key = billMonthKey(b)
+    if (monthlyMap[key]) {
+      monthlyMap[key].revenue += getBillRevenueAmount(b)
+      monthlyMap[key].billsCount += 1
     }
   })
 
   transactions.forEach((tx) => {
-    const mDate = tx.dateTime ? tx.dateTime.slice(0, 7) : ''
-    if (monthlyMap[mDate] && tx.type === 'EXPENSE') {
-      monthlyMap[mDate].expense += tx.expenseAmount || 0
-    }
+    if (tx.isDeposit || !tx.billId) return
+    const key = tx.dateTime ? zonedDateString(tx.dateTime).slice(0, 7) : ''
+    if (!monthlyMap[key]) return
+    if (tx.category === 'รับชำระบิล' && tx.type === 'INCOME') monthlyMap[key].receivedAmount += Number(tx.incomeAmount) || 0
+    if (tx.category === 'คืนเงินลูกค้า' && tx.type === 'EXPENSE') monthlyMap[key].receivedAmount -= Number(tx.expenseAmount) || 0
   })
 
   const monthlyTrend = Object.entries(monthlyMap).map(([mKey, val]) => {
     const [yearStr, monthStr] = mKey.split('-')
     const monthIdx = parseInt(monthStr, 10) - 1
     const yearBE = parseInt(yearStr, 10) + 543
-    const grossProfit = Math.max(0, val.revenue - val.expense)
     return {
       month: `${THAI_MONTH_ABBR[monthIdx]} ${String(yearBE).slice(-2)}`,
       revenue: val.revenue,
-      grossProfit: grossProfit > 0 ? grossProfit : Math.round(val.revenue * 0.45),
+      receivedAmount: val.receivedAmount,
       billsCount: val.billsCount,
     }
   })
 
   // 21. Growth Rate Calculation (Compare this month vs last month)
-  let growthRate = 0
-  let currentMonthRevenue = 0
+  let growthRate: number | null = 0
+  let currentMonthRevenue = monthlyMap[currentMonthKey]?.revenue || 0
   const monthlyKeys = Object.keys(monthlyMap)
   if (monthlyKeys.length >= 2) {
-    currentMonthRevenue = monthlyMap[monthlyKeys[monthlyKeys.length - 1]].revenue
     const prevMonthRev = monthlyMap[monthlyKeys[monthlyKeys.length - 2]].revenue
     if (prevMonthRev > 0) {
       growthRate = Math.round(((currentMonthRevenue - prevMonthRev) / prevMonthRev) * 100)
-    } else if (currentMonthRevenue > 0) {
-      growthRate = 100
-    }
+    } else if (currentMonthRevenue > 0) growthRate = null
+    else growthRate = null
   }
 
   // Summary helper metrics
@@ -874,22 +841,23 @@ export function computeDashboardMetrics(
     ? { name: topRevenueProducts[0].name, revenue: topRevenueProducts[0].revenue, type: topRevenueProducts[0].type }
     : { name: 'ไม่มีข้อมูล', revenue: 0, type: 'เช่า' }
 
-  const topCustomerSum = topCustomers.reduce((sum, c) => sum + c.totalSpent, 0)
+  const topCustomerSum = topCustomers.reduce((sum, c) => sum + c.billedAmount, 0)
   const topCustomerMetric = {
     count: topCustomers.length,
-    totalSpent: topCustomerSum,
-    percentage: safeCustSpent > 0 ? Math.round((topCustomerSum / safeCustSpent) * 100) : 0,
+    totalBilled: topCustomerSum,
+    percentage: safeCustomerBilled > 0 ? Math.round((topCustomerSum / safeCustomerBilled) * 100) : 0,
   }
 
   const topChannel = paymentChannelsData.sort((a, b) => b.amount - a.amount)[0]
   const topChannelMetric = topChannel
     ? { name: topChannel.label, amount: topChannel.amount, percentage: topChannel.percentage }
-    : { name: 'โอนธนาคาร', amount: 0, percentage: 0 }
+    : { name: 'ไม่มีข้อมูล', amount: 0, percentage: 0 }
 
   return {
     totalIncome,
     totalExpense,
     netIncome,
+    netCashReceived,
     outstandingReceivable,
     depositBalance,
     debtorCount,
@@ -904,11 +872,11 @@ export function computeDashboardMetrics(
     availableStock,
     rentedOrReservedStock,
     rentedStock,
-    reservedStock: totalReservedQuantity,
+    reservedStock,
     damagedOrLostStock,
     damagedStock,
     lostStock,
-    activeReservationsCount,
+    pendingBillDeliveryItemCount,
     urgentTasks,
     assetStatusData,
     recentTrend,
@@ -919,7 +887,7 @@ export function computeDashboardMetrics(
     categoryStockData,
     stockDonutData,
     topRentedProducts,
-    reservationTrendData,
+    billFulfillmentTrendData,
     stockAlertsSummary,
     stockUrgentList,
     monthlyTrend,
@@ -927,7 +895,7 @@ export function computeDashboardMetrics(
     topCustomers,
     paymentChannelsData,
     growthRate,
-    currentMonthRevenue: currentMonthRevenue || totalIncome,
+    currentMonthRevenue,
     topProductMetric,
     topCustomerMetric,
     topChannelMetric,

@@ -9,10 +9,19 @@ interface A4FitPreviewProps {
   className?: string
   paddingPx?: number
   align?: 'left' | 'center'
+  /**
+   * Layout mode for scaling.
+   * 'contain' – default behavior, fit both width and height.
+   * 'width' – fit width to actual A4 size, allow vertical scroll.
+   */
+  fitMode?: 'contain' | 'width'
 }
 
 const MIN_SCALE = 0.12
 const MAX_SCALE = 1
+// 210mm × 297mm at 96dpi
+const A4_WIDTH_PX = 794
+const A4_HEIGHT_PX = 1123
 
 /**
  * Central A4 preview surface.
@@ -28,16 +37,16 @@ export function A4FitPreview({
   className = '',
   paddingPx = 10,
   align = 'center',
+  fitMode = 'width',
 }: A4FitPreviewProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const sheetRef = useRef<HTMLDivElement>(null)
   const [scale, setScale] = useState(1)
-  const [sheetSize, setSheetSize] = useState({ width: 794, height: 1123 })
+  const [sheetSize, setSheetSize] = useState({ width: A4_WIDTH_PX, height: A4_HEIGHT_PX })
 
-  // Full Preview State
   const [isFullPreview, setIsFullPreview] = useState(false)
-  const [fullScale, setFullScale] = useState(1)
   const lastTapRef = useRef<number>(0)
+  const closeFullPreview = useCallback(() => setIsFullPreview(false), [])
 
   const fitSheet = useCallback(() => {
     const viewport = viewportRef.current
@@ -51,33 +60,21 @@ export function A4FitPreview({
 
     if (pageWidth <= 0 || pageHeight <= 0) return
 
-    const nextScale = Math.max(
-      MIN_SCALE,
-      Math.min(MAX_SCALE, availableWidth / pageWidth, availableHeight / pageHeight),
-    )
+    let nextScale: number
+    if (fitMode === 'width') {
+      // Fit width to viewport, limit to actual size (no upscale beyond actual A4)
+      nextScale = Math.max(MIN_SCALE, Math.min(1.0, availableWidth / pageWidth))
+    } else {
+      // Default contain behavior (fit both dimensions)
+      nextScale = Math.max(
+        MIN_SCALE,
+        Math.min(MAX_SCALE, availableWidth / pageWidth, availableHeight / pageHeight),
+      )
+    }
 
     setSheetSize({ width: pageWidth, height: pageHeight })
     setScale((current) => (Math.abs(current - nextScale) > 0.001 ? nextScale : current))
-  }, [paddingPx])
-
-  // Compute Full Preview Scale to fit full viewport perfectly
-  const fitFullScreen = useCallback(() => {
-    if (typeof window === 'undefined') return
-    const padW = window.innerWidth < 640 ? 20 : 48
-    const padH = window.innerHeight < 640 ? 32 : 64
-    const availableWidth = Math.max(1, window.innerWidth - padW)
-    const availableHeight = Math.max(1, window.innerHeight - padH)
-
-    const pageWidth = sheetSize.width || 794
-    const pageHeight = sheetSize.height || 1123
-
-    const nextFullScale = Math.max(
-      MIN_SCALE,
-      Math.min(1.6, availableWidth / pageWidth, availableHeight / pageHeight)
-    )
-
-    setFullScale(nextFullScale)
-  }, [sheetSize])
+  }, [paddingPx, fitMode])
 
   useLayoutEffect(() => {
     fitSheet()
@@ -94,27 +91,6 @@ export function A4FitPreview({
       window.removeEventListener('resize', fitSheet)
     }
   }, [fitSheet])
-
-  // Manage Full Preview Resizing & Keyboard events
-  useEffect(() => {
-    if (!isFullPreview) return
-
-    fitFullScreen()
-    const handleResize = () => fitFullScreen()
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsFullPreview(false)
-      }
-    }
-
-    window.addEventListener('resize', handleResize)
-    window.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      window.removeEventListener('resize', handleResize)
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isFullPreview, fitFullScreen])
 
   // Mouse PC Double Click in Normal Mode
   const handleNormalDoubleClick = (e: React.MouseEvent) => {
@@ -136,12 +112,6 @@ export function A4FitPreview({
     }
   }
 
-  // Single Click / Single Touch in Full Preview Mode to Close
-  const handleCloseFullPreview = (e: React.MouseEvent | React.TouchEvent) => {
-    e.stopPropagation()
-    setIsFullPreview(false)
-  }
-
   return (
     <>
       <div
@@ -150,7 +120,7 @@ export function A4FitPreview({
         aria-label="ตัวอย่างเอกสาร A4"
       >
         <div
-          className={`absolute inset-0 flex flex-col ${align === 'left' ? 'items-start justify-start' : 'items-center justify-center'} overflow-hidden`}
+          className={`absolute inset-0 flex flex-col ${fitMode === 'width' ? 'items-center justify-start overflow-y-auto no-scrollbar' : align === 'left' ? 'items-start justify-start overflow-hidden' : 'items-center justify-center overflow-hidden'}`}
           style={{
             paddingTop: `${paddingPx}px`,
             paddingBottom: `${paddingPx}px`,
@@ -180,41 +150,120 @@ export function A4FitPreview({
         </div>
       </div>
 
-      {/* Full Preview Modal Overlay */}
-      {isFullPreview && (
-        <ModalPortal>
-          <div
-            className="fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-3 sm:p-6 md:p-8 select-none animate-in fade-in duration-200 overflow-hidden cursor-pointer"
-            onClick={handleCloseFullPreview}
-            onTouchEnd={handleCloseFullPreview}
-            role="dialog"
-            aria-modal="true"
-            aria-label="ตัวอย่างเอกสาร A4 เต็มจอ"
-          >
-            {/* Centered A4 Sheet Stage */}
-            <div
-              className="relative shrink-0 shadow-2xl transition-transform duration-150"
-              style={{
-                width: `${sheetSize.width * fullScale}px`,
-                height: `${sheetSize.height * fullScale}px`,
-              }}
-              onClick={handleCloseFullPreview}
-            >
-              <div
-                className="absolute left-0 top-0 h-[297mm] w-[210mm] origin-top-left overflow-hidden bg-white shadow-2xl rounded-sm ring-1 ring-slate-400/40 pointer-events-none"
-                style={{ transform: `scale(${fullScale})` }}
-              >
-                {children}
-              </div>
-            </div>
+      <A4FullPreviewOverlay
+        open={isFullPreview}
+        onClose={closeFullPreview}
+        sheetWidth={sheetSize.width}
+        sheetHeight={sheetSize.height}
+        fitMode={fitMode}
+      >
+        {children}
+      </A4FullPreviewOverlay>
+    </>
+  )
+}
 
-            {/* Bottom Close Hint */}
-            <div className="absolute bottom-4 text-center text-white/90 text-xs font-semibold bg-black/60 px-4 py-1.5 rounded-full backdrop-blur-md pointer-events-none shadow-lg border border-white/10">
-              คลิกหรือแตะที่ใดก็ได้เพื่อปิด Full Preview (Esc)
+interface A4FullPreviewOverlayProps {
+  open: boolean
+  onClose: () => void
+  children: React.ReactNode
+  sheetWidth?: number
+  sheetHeight?: number
+  fitMode?: 'contain' | 'width'
+}
+
+/**
+ * Central full-screen A4 preview overlay (used by A4FitPreview and any page that
+ * opens a document straight into full preview). Single click / tap or Esc closes.
+ */
+export function A4FullPreviewOverlay({
+  open,
+  onClose,
+  children,
+  sheetWidth = A4_WIDTH_PX,
+  sheetHeight = A4_HEIGHT_PX,
+  fitMode = 'width',
+}: A4FullPreviewOverlayProps) {
+  const [fullScale, setFullScale] = useState(1)
+
+  const fitFullScreen = useCallback(() => {
+    if (typeof window === 'undefined') return
+    const padW = window.innerWidth < 640 ? 20 : 48
+    const padH = window.innerHeight < 640 ? 32 : 64
+    const availableWidth = Math.max(1, window.innerWidth - padW)
+    const availableHeight = Math.max(1, window.innerHeight - padH)
+    const pageWidth = sheetWidth || A4_WIDTH_PX
+    const pageHeight = sheetHeight || A4_HEIGHT_PX
+
+    setFullScale(
+      fitMode === 'width'
+        ? // Fit width to viewport for full preview, cap at actual size
+          Math.max(MIN_SCALE, Math.min(1.0, availableWidth / pageWidth))
+        : // Contain: fit both dimensions, max 1.6
+          Math.max(MIN_SCALE, Math.min(1.6, availableWidth / pageWidth, availableHeight / pageHeight)),
+    )
+  }, [sheetWidth, sheetHeight, fitMode])
+
+  useEffect(() => {
+    if (!open) return
+
+    fitFullScreen()
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault() // leave full preview only; a modal behind it stays open
+        onClose()
+      }
+    }
+
+    window.addEventListener('resize', fitFullScreen)
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => {
+      window.removeEventListener('resize', fitFullScreen)
+      window.removeEventListener('keydown', handleKeyDown, true)
+    }
+  }, [open, fitFullScreen, onClose])
+
+  if (!open) return null
+
+  const handleClose = (e: React.MouseEvent | React.TouchEvent) => {
+    e.stopPropagation()
+    onClose()
+  }
+
+  return (
+    <ModalPortal>
+      <div
+        className="fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md flex flex-col items-center overflow-y-auto no-scrollbar select-none animate-in fade-in duration-200 cursor-pointer"
+        onClick={handleClose}
+        onTouchEnd={handleClose}
+        role="dialog"
+        aria-modal="true"
+        aria-label="ตัวอย่างเอกสาร A4 เต็มจอ"
+      >
+        {/* my-auto: centers the sheet when doc is short; collapses to 0 when doc overflows → scroll starts from top (header always visible) */}
+        <div className="my-auto py-6 pointer-events-none">
+          <div
+            className="relative shrink-0 shadow-2xl transition-transform duration-150 pointer-events-auto"
+            style={{
+              width: `${sheetWidth * fullScale}px`,
+              height: `${sheetHeight * fullScale}px`,
+            }}
+            onClick={handleClose}
+          >
+            <div
+              className="absolute left-0 top-0 h-[297mm] w-[210mm] origin-top-left overflow-hidden bg-white shadow-2xl rounded-sm ring-1 ring-slate-400/40 pointer-events-none"
+              style={{ transform: `scale(${fullScale})` }}
+            >
+              {children}
             </div>
           </div>
-        </ModalPortal>
-      )}
-    </>
+        </div>
+
+        {/* Bottom Close Hint */}
+        <div className="sticky bottom-4 text-center text-white/90 text-xs font-semibold bg-black/60 px-4 py-1.5 rounded-full backdrop-blur-md pointer-events-none shadow-lg border border-white/10 self-center">
+          คลิกหรือแตะที่ใดก็ได้เพื่อปิด Full Preview (Esc)
+        </div>
+      </div>
+    </ModalPortal>
   )
 }

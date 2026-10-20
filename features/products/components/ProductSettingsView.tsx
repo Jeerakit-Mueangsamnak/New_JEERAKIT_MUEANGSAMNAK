@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react'
 import { Plus, Edit2, Trash2, Check, X } from 'lucide-react'
 import { ActionButton } from '@/components/common/ActionButton'
+import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import {
   ProductCategoryItem,
@@ -40,7 +41,6 @@ interface ProductSettingsViewProps {
   setCategoryRules?: React.Dispatch<React.SetStateAction<ProductCategoryRule[]>>
 }
 
-const PAGE_SIZE = 5
 
 export function ProductSettingsView({
   categories: propCategories,
@@ -67,14 +67,12 @@ export function ProductSettingsView({
   const [catEditId, setCatEditId] = useState<string | null>(null)
   const [catEditName, setCatEditName] = useState('')
   const [catDeleteConfirmId, setCatDeleteConfirmId] = useState<string | null>(null)
-  const [catPage, setCatPage] = useState(1)
 
   // ─── Table 2: Units State ──────────────────────────────────
   const [newUnitName, setNewUnitName] = useState('')
   const [unitEditId, setUnitEditId] = useState<string | null>(null)
   const [unitEditName, setUnitEditName] = useState('')
   const [unitDeleteConfirmId, setUnitDeleteConfirmId] = useState<string | null>(null)
-  const [unitPage, setUnitPage] = useState(1)
 
   // ─── Table 3: Composite Rules State ────────────────────────
   const [isAddingCompositeRow, setIsAddingCompositeRow] = useState(false)
@@ -86,7 +84,6 @@ export function ProductSettingsView({
   const [compEditCategoryId, setCompEditCategoryId] = useState('')
   const [compEditCalcType, setCompEditCalcType] = useState<CalculationType>('PER_ROUND')
   const [compEditUnitId, setCompEditUnitId] = useState('')
-  const [compPage, setCompPage] = useState(1)
 
   // ─── Categories Handlers (ตาราง 1) ─────────────────────────
   const handleCategoryAdd = async () => {
@@ -311,18 +308,10 @@ export function ProductSettingsView({
     return found ? found.name : '-'
   }
 
-  // ─── Pagination Calculations ───────────────────────────────
-  const catTotalPages = Math.ceil(categories.length / PAGE_SIZE) || 1
-  const paginatedCats = categories.slice((catPage - 1) * PAGE_SIZE, catPage * PAGE_SIZE)
-  const catPaddingRows = Math.max(0, PAGE_SIZE - paginatedCats.length)
-
-  const unitTotalPages = Math.ceil(masterUnits.length / PAGE_SIZE) || 1
-  const paginatedUnits = masterUnits.slice((unitPage - 1) * PAGE_SIZE, unitPage * PAGE_SIZE)
-  const unitPaddingRows = Math.max(0, PAGE_SIZE - paginatedUnits.length)
-
-  const compTotalPages = Math.ceil(compositeRules.length / PAGE_SIZE) || 1
-  const paginatedComp = compositeRules.slice((compPage - 1) * PAGE_SIZE, compPage * PAGE_SIZE)
-  const compPaddingRows = Math.max(0, PAGE_SIZE - (paginatedComp.length + (isAddingCompositeRow ? 1 : 0)))
+  // No pages: each table scrolls inside its frame (sticky header) when rows exceed the space.
+  const paginatedCats = categories
+  const paginatedUnits = masterUnits
+  const paginatedComp = compositeRules
 
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto p-2.5 sm:p-3 text-xs">
@@ -355,7 +344,7 @@ export function ProductSettingsView({
           </div>
 
           {/* Table Content */}
-          <div className="flex-1 min-h-0 overflow-auto">
+          <DataTableFrame fill className="h-[244px] shrink-0 rounded-none bg-transparent">
             <table className="w-full text-center text-xs border-collapse table-fixed">
               <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs">
                 <tr className="border-b border-slate-200 dark:border-slate-700">
@@ -379,7 +368,7 @@ export function ProductSettingsView({
                   </tr>
                 ) : (
                   paginatedCats.map((cat, idx) => {
-                    const globalIdx = (catPage - 1) * PAGE_SIZE + idx + 1
+                    const globalIdx = idx + 1
 
                     if (catEditId === cat.id) {
                       return (
@@ -485,46 +474,9 @@ export function ProductSettingsView({
                   })
                 )}
 
-                {/* Padding slots to strictly keep table height fixed (ห้ามยืดตารางตามจำนวนรายการ) */}
-                {Array.from({ length: catPaddingRows }).map((_, pIdx) => (
-                  <tr key={`cat-pad-${pIdx}`} className="h-10 select-none">
-                    <td className="py-1 px-2 text-center border-r border-slate-200 dark:border-slate-700 text-transparent">
-                      -
-                    </td>
-                    <td className="py-1 px-3 text-center border-r border-slate-200 dark:border-slate-700 text-transparent">
-                      -
-                    </td>
-                    <td className="py-1 px-2 text-center text-transparent">
-                      -
-                    </td>
-                  </tr>
-                ))}
               </tbody>
             </table>
-          </div>
-
-          {/* Pagination Footer */}
-          <div className="flex items-center justify-between px-3 py-2 border-t border-slate-200 dark:border-slate-800 text-xs bg-slate-50 dark:bg-slate-850">
-            <ActionButton
-              type="button"
-              onClick={() => setCatPage((p) => Math.max(1, p - 1))}
-              disabled={catPage <= 1}
-              variant="outline"
-            >
-              ก่อนหน้า
-            </ActionButton>
-            <span className="font-bold text-slate-600 dark:text-slate-300 text-[11px]">
-              หน้า {catPage} / {catTotalPages}
-            </span>
-            <ActionButton
-              type="button"
-              onClick={() => setCatPage((p) => Math.min(catTotalPages, p + 1))}
-              disabled={catPage >= catTotalPages}
-              variant="outline"
-            >
-              ถัดไป
-            </ActionButton>
-          </div>
+          </DataTableFrame>
         </div>
 
         {/* ==================================================== */}
@@ -554,7 +506,7 @@ export function ProductSettingsView({
           </div>
 
           {/* Table Content */}
-          <div className="flex-1 min-h-0 overflow-auto">
+          <DataTableFrame fill className="h-[244px] shrink-0 rounded-none bg-transparent">
             <table className="w-full text-center text-xs border-collapse table-fixed">
               <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs">
                 <tr className="border-b border-slate-200 dark:border-slate-700">
@@ -578,7 +530,7 @@ export function ProductSettingsView({
                   </tr>
                 ) : (
                   paginatedUnits.map((u, idx) => {
-                    const globalIdx = (unitPage - 1) * PAGE_SIZE + idx + 1
+                    const globalIdx = idx + 1
 
                     if (unitEditId === u.id) {
                       return (
@@ -684,46 +636,9 @@ export function ProductSettingsView({
                   })
                 )}
 
-                {/* Padding slots to strictly keep table height fixed */}
-                {Array.from({ length: unitPaddingRows }).map((_, pIdx) => (
-                  <tr key={`unit-pad-${pIdx}`} className="h-10 select-none">
-                    <td className="py-1 px-2 text-center border-r border-slate-200 dark:border-slate-700 text-transparent">
-                      -
-                    </td>
-                    <td className="py-1 px-3 text-center border-r border-slate-200 dark:border-slate-700 text-transparent">
-                      -
-                    </td>
-                    <td className="py-1 px-2 text-center text-transparent">
-                      -
-                    </td>
-                  </tr>
-                ))}
               </tbody>
             </table>
-          </div>
-
-          {/* Pagination Footer */}
-          <div className="flex items-center justify-between px-3 py-2 border-t border-slate-200 dark:border-slate-800 text-xs bg-slate-50 dark:bg-slate-850">
-            <ActionButton
-              type="button"
-              onClick={() => setUnitPage((p) => Math.max(1, p - 1))}
-              disabled={unitPage <= 1}
-              variant="outline"
-            >
-              ก่อนหน้า
-            </ActionButton>
-            <span className="font-bold text-slate-600 dark:text-slate-300 text-[11px]">
-              หน้า {unitPage} / {unitTotalPages}
-            </span>
-            <ActionButton
-              type="button"
-              onClick={() => setUnitPage((p) => Math.min(unitTotalPages, p + 1))}
-              disabled={unitPage >= unitTotalPages}
-              variant="outline"
-            >
-              ถัดไป
-            </ActionButton>
-          </div>
+          </DataTableFrame>
         </div>
       </div>
 
@@ -745,7 +660,7 @@ export function ProductSettingsView({
 
         {/* Table 3: | ลำดับ | หมวดหมู่ | วิธีคิดเงิน | หน่วยนับ | จัดการ | */}
         <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs bg-white dark:bg-slate-900 flex flex-col justify-between">
-          <div className="overflow-x-auto">
+          <div className="max-h-[320px] overflow-auto [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
             <table className="w-full text-center text-xs border-collapse table-fixed min-w-[580px]">
               <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs">
                 <tr className="border-b border-slate-200 dark:border-slate-700">
@@ -833,7 +748,7 @@ export function ProductSettingsView({
                   </tr>
                 ) : (
                   paginatedComp.map((rule, idx) => {
-                    const globalIdx = (compPage - 1) * PAGE_SIZE + idx + 1
+                    const globalIdx = idx + 1
 
                     if (compEditId === rule.id) {
                       return (
@@ -942,31 +857,11 @@ export function ProductSettingsView({
                   })
                 )}
 
-                {/* Padding slots to strictly keep table height fixed */}
-                {Array.from({ length: compPaddingRows }).map((_, pIdx) => (
-                  <tr key={`comp-pad-${pIdx}`} className="h-10 select-none">
-                    <td className="py-1 px-2 text-center border-r border-slate-200 dark:border-slate-700 text-transparent">
-                      -
-                    </td>
-                    <td className="py-1 px-3 text-center border-r border-slate-200 dark:border-slate-700 text-transparent">
-                      -
-                    </td>
-                    <td className="py-1 px-3 text-center border-r border-slate-200 dark:border-slate-700 text-transparent">
-                      -
-                    </td>
-                    <td className="py-1 px-3 text-center border-r border-slate-200 dark:border-slate-700 text-transparent">
-                      -
-                    </td>
-                    <td className="py-1 px-2 text-center text-transparent">
-                      -
-                    </td>
-                  </tr>
-                ))}
               </tbody>
             </table>
           </div>
 
-          {/* ท้ายตาราง: [ + เพิ่มแถว ] และ Pagination: ก่อนหน้า | หน้า X / Y | ถัดไป */}
+          {/* ท้ายตาราง: [ + เพิ่มแถว ] */}
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-t border-slate-200 dark:border-slate-800 text-xs bg-slate-50 dark:bg-slate-850">
             <div>
               <ActionButton
@@ -977,28 +872,6 @@ export function ProductSettingsView({
                 icon={<Plus />}
               >
                 + เพิ่มแถว
-              </ActionButton>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <ActionButton
-                type="button"
-                onClick={() => setCompPage((p) => Math.max(1, p - 1))}
-                disabled={compPage <= 1}
-                variant="outline"
-              >
-                ก่อนหน้า
-              </ActionButton>
-              <span className="font-bold text-slate-600 dark:text-slate-300 text-[11px]">
-                หน้า {compPage} / {compTotalPages}
-              </span>
-              <ActionButton
-                type="button"
-                onClick={() => setCompPage((p) => Math.min(compTotalPages, p + 1))}
-                disabled={compPage >= compTotalPages}
-                variant="outline"
-              >
-                ถัดไป
               </ActionButton>
             </div>
           </div>

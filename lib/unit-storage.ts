@@ -1,4 +1,4 @@
-import { saveUnitToSupabase, deleteUnitFromSupabase, generateUUID } from '@/features/products/api/product-repository'
+import { saveUnitToSupabase, deleteUnitFromSupabase } from '@/features/products/api/product-repository'
 import { Unit } from '@/lib/types/rental-pos'
 export type { Unit }
 
@@ -63,8 +63,7 @@ export async function addUnitAsync(name: string): Promise<Unit[]> {
   if (current.some((u) => u.name.toLowerCase() === trimmed.toLowerCase())) {
     throw new Error(`หน่วยนับ "${trimmed}" มีอยู่ในระบบแล้ว`)
   }
-  const newUnit: Unit = { id: generateUUID(), name: trimmed, isActive: true }
-  await saveUnitToSupabase(newUnit)
+  const newUnit: Unit = { id: await saveUnitToSupabase({ name: trimmed }), name: trimmed, isActive: true }
   const updated = [...current, newUnit]
   saveUnits(updated)
   return updated
@@ -107,7 +106,7 @@ export async function deleteUnitAsync(id: string, inUseCheck?: (unit: Unit) => b
   if (inUseCheck && inUseCheck(target)) {
     throw new Error(`ไม่สามารถลบหน่วยนับ "${target.name}" ได้เนื่องจากกำลังถูกใช้งานอยู่`)
   }
-  await deleteUnitFromSupabase(id)
+  await deleteUnitFromSupabase(id, target.name)
   const updated = current.filter((unit) => unit.id !== id)
   saveUnits(updated)
   return updated

@@ -161,6 +161,7 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
 
         {/* รายการการจองสินค้า (Topic 13) */}
         <DataTableFrame
+          rowCount={data.reservations.length}
           className="p-2 rounded-xl border border-purple-500/20 bg-white dark:bg-slate-900 shadow-xs"
           header={
             <div className="flex items-center justify-between mb-2 shrink-0">
@@ -302,6 +303,7 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
 
       {/* ─── 4. OPERATIONS HISTORY & TIMELINE TABLE ───────────────────────── */}
       <DataTableFrame
+        rowCount={data.historyRecords.length}
         className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs"
         header={
           <div className="flex items-center justify-between mb-2 shrink-0">

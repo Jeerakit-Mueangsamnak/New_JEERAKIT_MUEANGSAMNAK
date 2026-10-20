@@ -22,14 +22,16 @@ import {
   X,
   ChevronRight,
   ChevronDown,
-  Clock,
+  UserCog,
 } from 'lucide-react'
 import { NotificationBell } from '@/components/common/NotificationBell'
 import { QuickActionLauncher } from '@/components/common/QuickActionLauncher'
 import { AppLockButton } from '@/features/auth/components/AppLockButton'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
+import { menuForPath } from '@/features/auth/services/permissions'
 import { getPageMeta } from '@/lib/navigation-meta'
-import { useLiveClock } from '@/lib/hooks/useLiveClock'
+import { useMediaQuery, XL_MEDIA_QUERY } from '@/lib/hooks/useMediaQuery'
+import { LiveClockBadge } from '@/components/common/LiveClockBadge'
 
 interface MenuItem {
   name: string
@@ -60,11 +62,11 @@ function SidebarContent() {
   const [isReportsExpanded, setIsReportsExpanded] = useState(
     () => pathname === '/reports' || pathname?.startsWith('/reports/')
   )
-  const { user, signOut } = useAuth()
+  const { user, signOut, hasMenu } = useAuth()
 
   const logoUrl = ''
   const { name: pageName, icon: PageIcon, colorClass, dotClass } = getPageMeta(pathname || '', searchParams)
-  const { currentDateStr, currentTimeStr } = useLiveClock()
+  const isXl = useMediaQuery(XL_MEDIA_QUERY)
 
   // Keep dashboard expanded if user navigates to /dashboard
   useEffect(() => {
@@ -118,17 +120,16 @@ function SidebarContent() {
 
         {/* Right: Actions (Date & Time Bar + Notification Bell & Quick Action Launcher) */}
         <div className="flex items-center gap-2 z-10 shrink-0">
-          <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700/80 text-[11px] sm:text-xs text-slate-700 dark:text-slate-300 font-semibold shadow-xs">
-            <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0 hidden sm:block" />
-            <span className="hidden md:inline">{currentDateStr || 'กำลังโหลด...'}</span>
-            <span className="text-slate-300 dark:text-slate-600 hidden md:inline">|</span>
-            <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-            <span className="font-mono text-slate-900 dark:text-slate-100 font-bold shrink-0">{currentTimeStr}</span>
-          </div>
+          <LiveClockBadge variant="mobile" />
 
           <AppLockButton variant="mobile" />
-          <NotificationBell />
-          <QuickActionLauncher />
+          {/* One bell / launcher in the app: here below xl, in TopHeader from xl up */}
+          {isXl === false && (
+            <>
+              <NotificationBell />
+              <QuickActionLauncher />
+            </>
+          )}
         </div>
       </header>
 
@@ -167,7 +168,7 @@ function SidebarContent() {
           className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-1.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
-          {MENU_ITEMS.filter(item => item.href !== '/owner-permissions' || user?.role === 'OWNER').map((item) => {
+          {MENU_ITEMS.filter((item) => { const code = menuForPath(item.href); return !code || hasMenu(code) }).map((item) => {
             if (item.href === '/dashboard') {
               const isDashboardActive = pathname === '/dashboard'
               const currentView = searchParams.get('view') || 'assets'
@@ -361,6 +362,15 @@ function SidebarContent() {
 
             <div className="flex items-center gap-1 shrink-0">
               <AppLockButton variant="sidebar" />
+              <Link
+                href="/account"
+                onClick={() => setIsMobileOpen(false)}
+                className="p-1.5 text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-950/40 rounded-lg transition-colors"
+                title="ตั้งค่าส่วนตัว"
+                aria-label="ตั้งค่าส่วนตัว"
+              >
+                <UserCog className="w-4 h-4" />
+              </Link>
               <button
                 onClick={async () => {
                   setIsMobileOpen(false)

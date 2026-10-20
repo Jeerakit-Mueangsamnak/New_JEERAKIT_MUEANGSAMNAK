@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useEffect } from 'react'
+import React, { useEffect, useRef } from 'react'
+import { isLowStock } from '@/features/products/utils/low-stock'
 import {
   Search,
   RotateCcw,
@@ -12,7 +13,7 @@ import { CustomSelect } from '@/components/common/CustomSelect'
 import { ActionButton } from '@/components/common/ActionButton'
 import { Product } from '@/lib/types/rental-pos'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
-import { DATA_TABLE_CLASSES } from '@/components/common/DataTableFrame'
+import { DataTableFrame, DATA_TABLE_CLASSES } from '@/components/common/DataTableFrame'
 
 interface ProductListViewProps {
   products: Product[]
@@ -33,11 +34,14 @@ interface ProductListViewProps {
   totalProducts?: number
   productsPerPage?: number
   setCurrentPage?: React.Dispatch<React.SetStateAction<number>>
-  defaultMinStock?: number
   onRestoreDamaged: (product: Product) => void
   onTransformDamaged: (product: Product) => void
+  /** Member may adjust stock (menu + OWNER grant); UI hint, the server re-checks. */
+  canAdjustStock?: boolean
   onOpenHistory: (product: Product) => void
   onDeleteProduct: (product: Product) => void
+  focusedProductId?: string | null
+  onRowDoubleClick?: (product: Product) => void
 }
 
 export function ProductListView({
@@ -53,12 +57,40 @@ export function ProductListView({
   setActiveViewTab,
   categories,
   damagedProductsCount,
-  defaultMinStock = 2,
   onRestoreDamaged,
   onTransformDamaged,
+  canAdjustStock = true,
   onOpenHistory,
   onDeleteProduct,
+  focusedProductId = null,
+  onRowDoubleClick,
 }: ProductListViewProps) {
+  // Double-click (mouse) or double-tap (touch) a row
+  const lastTapRef = useRef<{ id: string; at: number } | null>(null)
+  const isControl = (target: EventTarget) => !!(target as HTMLElement).closest('button, a, input, select, textarea')
+  const focusRowProps = (p: Product) => ({
+    'data-product-row': p.id,
+    onDoubleClick: (e: React.MouseEvent) => {
+      if (isControl(e.target)) return
+      window.getSelection()?.removeAllRanges()
+      onRowDoubleClick?.(p)
+    },
+    onTouchEnd: (e: React.TouchEvent) => {
+      if (isControl(e.target)) return
+      const now = Date.now()
+      const last = lastTapRef.current
+      if (last && last.id === p.id && now - last.at < 320) {
+        e.preventDefault() // no synthetic dblclick / zoom
+        lastTapRef.current = null
+        onRowDoubleClick?.(p)
+      } else {
+        lastTapRef.current = { id: p.id, at: now }
+      }
+    },
+    'aria-selected': focusedProductId === p.id,
+  })
+  const focusRowCls = (p: Product) =>
+    focusedProductId === p.id ? ' bg-blue-50 dark:bg-blue-950/40 ring-1 ring-inset ring-blue-400' : ''
   const autoFit = useAutoFitPageSize({
     totalItems: products.length,
     activeKey: activeViewTab,
@@ -67,9 +99,10 @@ export function ProductListView({
   })
 
   // Reset to page 1 on filter changes
+  const setProductPage = autoFit.setCurrentPage
   useEffect(() => {
-    autoFit.setCurrentPage(1)
-  }, [searchTerm, categoryFilter, statusFilter, activeViewTab])
+    setProductPage(1)
+  }, [searchTerm, categoryFilter, statusFilter, activeViewTab, setProductPage])
 
   const effectivePaginatedProducts = products.slice(autoFit.startIndex, autoFit.endIndex)
   return (
@@ -156,15 +189,17 @@ export function ProductListView({
       </div>
 
       {/* Products Table Area */}
-      <div
-        ref={autoFit.containerRef}
-        className="flex-1 min-h-0 min-w-0 flex flex-col justify-between overflow-hidden"
+      <DataTableFrame
+        fill
+        scrollRef={autoFit.containerRef}
+        rowCount={products.length}
+        shownCount={autoFit.endIndex}
+        className="flex-1 min-h-0 min-w-0 rounded-none bg-transparent"
       >
-        <div className="flex-1 min-h-0 w-full overflow-x-auto overflow-y-hidden">
           <table className={`${DATA_TABLE_CLASSES} text-xs`}>
             {activeViewTab === 'DAMAGED' ? (
               <>
-                <thead className="sticky top-0 z-10 bg-slate-800 dark:bg-slate-950 text-slate-100 font-bold border-b border-slate-700 shadow-xs text-xs">
+                <thead className="sticky top-0 z-10 !bg-slate-800 dark:!bg-slate-950 text-slate-100 font-bold border-b border-slate-700 shadow-xs text-xs">
                   <tr>
                     <th className="py-2 px-2 text-left whitespace-nowrap">ชื่อสินค้า</th>
                     <th className="py-2 px-2 text-left whitespace-nowrap">หมวดหมู่</th>
@@ -176,7 +211,7 @@ export function ProductListView({
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {effectivePaginatedProducts.map((p) => (
-                    <tr key={p.id} className="hover:bg-amber-50/40 dark:hover:bg-amber-950/20 transition-colors">
+                    <tr key={p.id} {...focusRowProps(p)} className={`hover:bg-amber-50/40 dark:hover:bg-amber-950/20 transition-colors${focusRowCls(p)}`}>
                       <td className="py-1.5 px-2 min-w-0">
                         <div className="font-extrabold text-slate-900 dark:text-slate-100 truncate" title={p.name}>
                           {p.name}
@@ -203,8 +238,9 @@ export function ProductListView({
                           <button
                             type="button"
                             onClick={() => onRestoreDamaged(p)}
-                            className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs hover:scale-102 cursor-pointer"
-                            title="นำสินค้าชำรุดกลับมาใช้งานต่อ"
+                            disabled={!canAdjustStock}
+                            className="disabled:opacity-40 disabled:cursor-not-allowed px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs hover:scale-102 cursor-pointer"
+                            title={canAdjustStock ? 'นำสินค้าชำรุดกลับมาใช้งานต่อ' : 'ไม่มีสิทธิ์ปรับสต็อก — ให้เจ้าของร้านเปิดสิทธิ์ที่หน้า จัดการสิทธิ์'}
                           >
                             <RotateCcw className="w-3 h-3" />
                             <span>ใช้งานต่อ</span>
@@ -212,8 +248,9 @@ export function ProductListView({
                           <button
                             type="button"
                             onClick={() => onTransformDamaged(p)}
-                            className="px-2 py-0.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs hover:scale-102 cursor-pointer"
-                            title="ดัดแปลงสินค้าชำรุดเป็นสินค้าอื่น"
+                            disabled={!canAdjustStock}
+                            className="disabled:opacity-40 disabled:cursor-not-allowed px-2 py-0.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs hover:scale-102 cursor-pointer"
+                            title={canAdjustStock ? 'ดัดแปลงสินค้าชำรุดเป็นสินค้าอื่น' : 'ไม่มีสิทธิ์ปรับสต็อก — ให้เจ้าของร้านเปิดสิทธิ์ที่หน้า จัดการสิทธิ์'}
                           >
                             <Shuffle className="w-3 h-3" />
                             <span>ดัดแปลงเป็น...</span>
@@ -257,9 +294,9 @@ export function ProductListView({
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {effectivePaginatedProducts.map((p) => {
-                    const isLow = defaultMinStock > 0 && p.availableQuantity <= defaultMinStock
+                    const isLow = isLowStock(p)
                     return (
-                      <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                      <tr key={p.id} {...focusRowProps(p)} className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors${focusRowCls(p)}`}>
                         <td className="py-1.5 px-2 min-w-0">
                           <div className="font-extrabold text-slate-900 dark:text-slate-100 truncate" title={p.name}>
                             {p.name}
@@ -349,42 +386,7 @@ export function ProductListView({
               </>
             )}
           </table>
-        </div>
-
-        {/* Pagination Bar */}
-        <div className="shrink-0 p-2 bg-slate-100/70 dark:bg-slate-900/60 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
-          <span className="truncate">
-            {products.length > 0 ? (
-              <span>
-                แสดง {autoFit.startIndex + 1} ถึง {autoFit.endIndex} จากทั้งหมด {products.length} รายการ
-              </span>
-            ) : (
-              <span>0 รายการ</span>
-            )}
-          </span>
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              type="button"
-              onClick={() => autoFit.setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={autoFit.currentPage <= 1}
-              className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 disabled:opacity-40 font-bold transition-colors cursor-pointer"
-            >
-              ก่อนหน้า
-            </button>
-            <span className="px-2 font-bold text-slate-700 dark:text-slate-300">
-              {autoFit.currentPage} / {autoFit.totalPages}
-            </span>
-            <button
-              type="button"
-              onClick={() => autoFit.setCurrentPage((p) => Math.min(autoFit.totalPages, p + 1))}
-              disabled={autoFit.currentPage >= autoFit.totalPages}
-              className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 disabled:opacity-40 font-bold transition-colors cursor-pointer"
-            >
-              ถัดไป
-            </button>
-          </div>
-        </div>
-      </div>
+      </DataTableFrame>
     </div>
   )
 }

@@ -62,7 +62,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <AuthLayout formOffset={252}>
+    <AuthLayout>
       <div className="w-full max-w-sm sm:max-w-md mx-auto space-y-4">
         <div className="text-left space-y-1">
           <h2 className="text-[26px] font-bold text-slate-900 dark:text-white tracking-tight">

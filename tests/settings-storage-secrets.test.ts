@@ -1,45 +1,31 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/features/audits/services/audit-storage', () => ({
-  recordAuditLog: vi.fn(),
-  generateCorrelationId: () => 'test-correlation-id',
-}))
-
-describe('settings storage sensitive-field handling', () => {
+describe('settings storage keeps nothing in the browser', () => {
   beforeEach(() => {
     vi.resetModules()
     localStorage.clear()
   })
 
-  it('removes legacy LINE credentials from the browser cache when settings load', async () => {
-    localStorage.setItem('app_system_settings', JSON.stringify({
-      business: { businessName: 'Test Business' },
-      appointmentsNotifications: {
-        lineNotifyToken: 'legacy-token',
-        lineOaSecret: 'legacy-secret',
-      },
-    }))
-
-    const { loadSystemSettings } = await import('@/features/settings/services/settings-storage')
-    const settings = loadSystemSettings()
-    const cached = JSON.parse(localStorage.getItem('app_system_settings') || '{}')
-
-    expect(settings.business.businessName).toBe('Test Business')
-    expect(settings).not.toHaveProperty('appointmentsNotifications')
-    expect(cached).not.toHaveProperty('appointmentsNotifications')
-    expect(JSON.stringify(cached)).not.toContain('legacy-token')
-    expect(JSON.stringify(cached)).not.toContain('legacy-secret')
+  it('loading / caching / saving settings never writes browser storage', async () => {
+    const { DEFAULT_SYSTEM_CONFIG, loadSystemSettings, resetSystemSettings, setCachedSystemSettings } =
+      await import('@/features/settings/services/settings-storage')
+    loadSystemSettings()
+    setCachedSystemSettings({ ...DEFAULT_SYSTEM_CONFIG, business: { ...DEFAULT_SYSTEM_CONFIG.business, businessName: 'ร้าน' } })
+    resetSystemSettings()
+    expect(localStorage.length).toBe(0)
   })
 
-  it('never writes LINE credentials when saving or caching settings', async () => {
-    const { DEFAULT_SYSTEM_CONFIG, saveSystemSettings, setCachedSystemSettings } =
-      await import('@/features/settings/services/settings-storage')
+  it('a legacy browser cache is ignored (the server row is the only source)', async () => {
+    localStorage.setItem('app_system_settings', JSON.stringify({ business: { businessName: 'Old cache' } }))
+    const { loadSystemSettings } = await import('@/features/settings/services/settings-storage')
+    expect(loadSystemSettings().business.businessName).toBe('')
+  })
 
-    saveSystemSettings(DEFAULT_SYSTEM_CONFIG)
-    setCachedSystemSettings(DEFAULT_SYSTEM_CONFIG)
-
-    const cached = JSON.parse(localStorage.getItem('app_system_settings') || '{}')
-    expect(cached).not.toHaveProperty('appointmentsNotifications')
+  it('defaults follow the owner decisions: no VAT rate/mode, no discount limit, PREFIX-DDMMBBBB-001 numbering', async () => {
+    const { DEFAULT_SYSTEM_CONFIG } = await import('@/features/settings/services/settings-storage')
+    expect(DEFAULT_SYSTEM_CONFIG.taxDiscount).toMatchObject({ vatRate: null, vatMode: null, discountLimitEnabled: false, discountLimitPercent: null })
+    expect(DEFAULT_SYSTEM_CONFIG.documentNumbering.BILL).toEqual({ prefix: 'BL', digits: 3 })
+    expect(DEFAULT_SYSTEM_CONFIG.notifications.returnReminder).toEqual({ enabled: true, daysBefore: 1 })
   })
 })

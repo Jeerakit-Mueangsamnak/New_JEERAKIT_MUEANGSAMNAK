@@ -374,10 +374,13 @@ export function CustomDatePicker({
   useEffect(() => {
     if (!isOpen) return
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsOpen(false)
+      if (e.key !== 'Escape') return
+      // Closes only the calendar, not the modal it sits in
+      e.preventDefault()
+      setIsOpen(false)
     }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => document.removeEventListener('keydown', handleKeyDown, true)
   }, [isOpen])
 
   const formatDateDisplay = (d: Date | null): string => {

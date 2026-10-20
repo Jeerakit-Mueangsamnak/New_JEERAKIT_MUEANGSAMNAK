@@ -4,6 +4,9 @@ import React, { useEffect } from 'react'
 import Image from 'next/image'
 import { useStableOrientationHeight } from '@/lib/hooks/useDeviceOrientation'
 
+/** Branding zone background — the single source for every Auth screen (light and dark). */
+export const AUTH_BRANDING_BG = '#DFDFDF'
+
 interface AuthLayoutProps {
   children: React.ReactNode
   brandingTitle?: string
@@ -12,25 +15,33 @@ interface AuthLayoutProps {
   brandingBadge?: string
   showPinBadge?: boolean
   hideBrandingInPortrait?: boolean
+  /** Extra classes for the root container (e.g. a higher z-index for overlays). */
+  className?: string
   contentClassName?: string
-  formOffset?: number
 }
 
+/**
+ * Shared layout for every Auth screen (Login, Register, Forgot/Reset Password,
+ * Verify Email, PIN lock/setup, MFA challenge).
+ *
+ * - Landscape (iPad landscape, desktop): 50 / 50 — branding left, content right
+ * - Portrait (iPad portrait, phones):    30 / 70 — branding top, content bottom
+ *
+ * Pages only render their own content; split ratio, content width, spacing,
+ * logo sizing and alignment are owned here so the whole Auth flow stays uniform.
+ */
 export function AuthLayout({
   children,
+  className = '',
   contentClassName = '',
-  formOffset = 190,
 }: AuthLayoutProps) {
   const { orientation, stableHeight } = useStableOrientationHeight()
   const isLandscape = orientation === 'landscape'
 
-  const formPaddingTop = isLandscape
-    ? (stableHeight
-        ? `max(1.5rem, ${Math.max(24, Math.round(stableHeight * 0.50 - formOffset))}px)`
-        : `max(1.5rem, calc(50dvh - ${formOffset}px))`)
-    : (stableHeight
-        ? `max(1.5rem, ${Math.max(24, Math.round(stableHeight * 0.29 - formOffset))}px)`
-        : `max(1.5rem, calc(29dvh - ${formOffset}px))`)
+  // Split ratio — the single source of truth for every Auth screen:
+  // landscape = 50 / 50 (side by side), portrait = 30 / 70 (stacked)
+  const brandingFlex = isLandscape ? '0 0 50%' : '0 0 30%'
+  const contentFlex = isLandscape ? '0 0 50%' : '0 0 70%'
 
   // Prevent unwanted window-level scroll shift on iOS Safari when focusing inputs
   useEffect(() => {
@@ -45,67 +56,67 @@ export function AuthLayout({
 
   return (
     <div
+      data-auth-layout={isLandscape ? 'landscape' : 'portrait'}
       className={`fixed top-0 left-0 right-0 w-full overflow-hidden overscroll-none bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex z-50 ${
         isLandscape ? 'flex-row' : 'flex-col'
-      }`}
+      } ${className}`}
       style={{
+        // Height is measured once per orientation so the virtual keyboard never resizes the split
         height: stableHeight ? `${stableHeight}px` : '100lvh',
       }}
     >
       {/*
         Branding / Logo Area:
-        - iPad Landscape: Left 50% (w-1/2 h-full)
-        - iPad Portrait: Top 30% (w-full h-[30%] min-h-[160px] max-h-[30%])
-        - No floating card or modal
+        - Landscape: left 50%
+        - Portrait:  top 30%
       */}
       <div
-        className={`flex flex-col items-center justify-center bg-gradient-to-b text-center relative overflow-hidden shrink-0 transition-all ${
+        data-auth-branding
+        className={`relative flex items-center justify-center overflow-hidden min-w-0 min-h-0 text-center ${
           isLandscape
-            ? 'w-1/2 h-full bg-gradient-to-br border-r border-slate-200 dark:border-slate-800 px-4 sm:px-8 md:px-12 py-8'
-            : 'w-full h-[30%] min-h-[160px] max-h-[30%] border-b border-slate-200 dark:border-slate-800 px-4 sm:px-8 py-3 sm:py-5'
-        } from-blue-600/15 via-indigo-500/10 to-transparent`}
+            ? 'h-full border-r border-slate-200 dark:border-slate-800 px-6 sm:px-10 lg:px-16 py-8'
+            : 'w-full border-b border-slate-200 dark:border-slate-800 px-6 sm:px-10 py-4 sm:py-6'
+        }`}
+        style={{ flex: brandingFlex, backgroundColor: AUTH_BRANDING_BG }}
       >
-        <div className="absolute top-1/4 -left-16 w-72 h-72 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-1/4 -right-16 w-72 h-72 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="relative z-10 flex items-center justify-center w-full h-full">
-          <div className="w-full max-w-sm sm:max-w-md mx-auto flex items-center justify-center">
-            <Image
-              src="/logo.png"
-              alt="JJK JEERAKIT PLASTIC FORMWORK UTTARADIT"
-              width={896}
-              height={254}
-              priority
-              unoptimized
-              className="w-full h-auto object-contain select-none"
-              style={{
-                width: '100%',
-                height: 'auto',
-                objectFit: 'contain',
-              }}
-            />
-          </div>
+        {/* Logo box: fills the branding area but never overflows it; aspect ratio kept by object-contain */}
+        <div
+          className={`relative z-10 flex items-center justify-center w-full h-full ${
+            isLandscape ? 'max-w-md' : 'max-w-sm sm:max-w-md'
+          }`}
+        >
+          <Image
+            src="/logo.png"
+            alt="JJK JEERAKIT PLASTIC FORMWORK UTTARADIT"
+            width={896}
+            height={254}
+            priority
+            unoptimized
+            className="w-full h-auto max-h-full object-contain select-none"
+          />
         </div>
       </div>
 
       {/*
         Content / Form Area:
-        - iPad Landscape: Right 50% (w-1/2 h-full)
-        - iPad Portrait: Bottom 70% (w-full h-[70%] flex-1)
-        - Form positioned with calibrated padding-top
+        - Landscape: right 50%, content vertically centred
+        - Portrait:  bottom 70%, content top-aligned (keeps inputs above the virtual keyboard)
+        Inner wrapper uses min-h-full so tall content scrolls instead of being clipped.
       */}
       <div
-        className={`flex flex-col items-center overflow-y-auto bg-white dark:bg-slate-900 relative min-h-0 ${
-          isLandscape
-            ? 'w-1/2 h-full px-4 sm:px-8 md:px-12 pb-8'
-            : 'w-full h-[70%] flex-1 px-4 sm:px-8 pb-8'
+        className={`relative min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-white dark:bg-slate-900 ${
+          isLandscape ? 'h-full' : 'w-full'
         } ${contentClassName}`}
+        style={{ flex: contentFlex }}
       >
         <div
-          className="w-full flex flex-col items-center"
-          style={{ paddingTop: formPaddingTop }}
+          className={`min-h-full w-full flex flex-col items-center px-6 sm:px-10 lg:px-16 py-8 sm:py-10 ${
+            isLandscape ? 'justify-center' : 'justify-start'
+          }`}
         >
-          {children}
+          <div className="w-full max-w-sm sm:max-w-md flex flex-col items-center">
+            {children}
+          </div>
         </div>
       </div>
     </div>

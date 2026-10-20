@@ -2,107 +2,19 @@
 
 import { createClient as createServerSupabase } from '@/lib/supabase/server'
 import { createAdminClient, validateSupabaseAdminConfig } from '@/lib/supabase/admin'
+import { getSupabasePublicKey } from '@/lib/supabase/env'
 import {
   checkRateLimit,
   clearRateLimit,
   normalizeUsername,
   recordFailedAttempt,
+  resolveUsernameToEmail,
 } from '@/lib/supabase/username-auth'
 
 export interface AuthActionResult<T = unknown> {
   success: boolean
   error?: string
   data?: T
-}
-
-/**
- * Resolves username to email strictly on the server:
- * 1. Checks Supabase configuration (returns config error if invalid)
- * 2. Normalizes username
- * 3. Enforces rate limiting against brute-force guessing
- * 4. Uses server admin client to query public.profiles
- * 5. Returns 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' if username is not found in profiles (no email fallback)
- */
-async function resolveUsernameToEmail(username: string): Promise<{
-  success: boolean
-  email?: string
-  error?: string
-}> {
-  try {
-    const rawUsername = (username || '').trim()
-    if (!rawUsername) {
-      return {
-        success: false,
-        error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
-      }
-    }
-
-    // Check Supabase admin configuration
-    const configCheck = validateSupabaseAdminConfig()
-    if (!configCheck.isValid) {
-      return {
-        success: false,
-        error: configCheck.error || 'การตั้งค่า Supabase ไม่ถูกต้อง กรุณาตรวจสอบ Environment Variables',
-      }
-    }
-
-    const cleanUsername = await normalizeUsername(rawUsername)
-
-    // Rate limiting check to prevent brute-force guessing
-    const rateLimitKey = `resolve:${cleanUsername}`
-    const limitCheck = await checkRateLimit(rateLimitKey)
-    if (!limitCheck.allowed) {
-      return {
-        success: false,
-        error: 'มีการพยายามตรวจสอบชื่อผู้ใช้บ่อยเกินไป กรุณารอสักครู่',
-      }
-    }
-
-    // Registration and the profile trigger store lowercase usernames; match literally.
-    const adminClient = createAdminClient()
-    const { data: profile, error: profileError } = await adminClient
-      .from('profiles')
-      .select('id, email, username')
-      .eq('username', cleanUsername)
-      .maybeSingle()
-
-    if (profileError) {
-      console.error('Supabase profile lookup error:', profileError)
-      return {
-        success: false,
-        error: 'เกิดข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล Supabase',
-      }
-    }
-
-    if (profile?.email) {
-      await clearRateLimit(rateLimitKey)
-      return {
-        success: true,
-        email: profile.email,
-      }
-    }
-
-    // Username not found in profiles (direct email login is disallowed)
-    // Record failed attempt to prevent username enumeration brute force
-    await recordFailedAttempt(rateLimitKey)
-    return {
-      success: false,
-      error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
-    }
-  } catch (err: unknown) {
-    console.error('Error resolving username to email:', err)
-    const msg = err instanceof Error ? err.message : 'การตั้งค่า Supabase ไม่ถูกต้อง กรุณาตรวจสอบระบบ'
-    if (msg.includes('Supabase') || msg.includes('KEY') || msg.includes('URL')) {
-      return {
-        success: false,
-        error: msg,
-      }
-    }
-    return {
-      success: false,
-      error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
-    }
-  }
 }
 
 /**
@@ -128,12 +40,12 @@ export async function loginWithUsername(formData: {
       }
     }
 
-    // Check Supabase publishable key configuration for SSR client
-    const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-    if (!publishableKey || publishableKey.trim() === '' || publishableKey.includes('placeholder')) {
+    // Check Supabase public key configuration for SSR client
+    const publishableKey = getSupabasePublicKey()
+    if (!publishableKey || publishableKey.includes('placeholder')) {
       return {
         success: false,
-        error: 'การตั้งค่า Supabase Publishable Key ไม่ถูกต้อง กรุณาตรวจสอบ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
+        error: 'การตั้งค่า Supabase Publishable Key ไม่ถูกต้อง กรุณาตรวจสอบ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (หรือ NEXT_PUBLIC_SUPABASE_ANON_KEY)',
       }
     }
 
@@ -175,6 +87,23 @@ export async function loginWithUsername(formData: {
     })
 
     if (signInError) {
+      // Correct password but email not yet confirmed (Supabase "Confirm email" is enabled)
+      if (signInError.code === 'email_not_confirmed') {
+        return {
+          success: false,
+          error: 'บัญชีนี้ยังไม่ได้ยืนยันอีเมล กรุณากดลิงก์ยืนยันในอีเมลก่อนเข้าสู่ระบบ',
+        }
+      }
+
+      // Network / Supabase outage — not a credential problem, so do not count it as a failed attempt
+      if (signInError.name === 'AuthRetryableFetchError' || !signInError.status || signInError.status >= 500) {
+        console.error('Supabase Auth unavailable during login:', signInError.message)
+        return {
+          success: false,
+          error: 'ไม่สามารถเชื่อมต่อ Supabase Auth ได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง',
+        }
+      }
+
       await recordFailedAttempt(loginRateLimitKey)
       const errMsg = (signInError.message || '').toLowerCase()
       // Differentiate config / API key / infrastructure errors from credential errors
@@ -207,6 +136,23 @@ export async function loginWithUsername(formData: {
     }
 
     await clearRateLimit(loginRateLimitKey)
+
+    // Correct password, but only an OWNER-approved ACTIVE member may hold a session
+    if (resolveResult.memberStatus !== 'ACTIVE') {
+      try {
+        await serverClient.auth.signOut()
+      } catch {
+        // The session cookie is still cleared by the next middleware pass
+      }
+      return {
+        success: false,
+        error:
+          resolveResult.memberStatus === 'SUSPENDED'
+            ? 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อเจ้าของร้าน'
+            : 'บัญชีนี้ยังรอเจ้าของร้านอนุมัติ เมื่ออนุมัติแล้วจึงจะเข้าสู่ระบบได้',
+      }
+    }
+
     return {
       success: true,
       data: {
@@ -230,12 +176,31 @@ export async function loginWithUsername(formData: {
 }
 
 /**
+ * Site origin used to build Supabase email links (must be in Supabase Auth "Redirect URLs").
+ * Priority: NEXT_PUBLIC_SITE_URL -> request Origin -> VERCEL_URL -> localhost.
+ */
+async function getSiteUrl(): Promise<string> {
+  const configured = (process.env.NEXT_PUBLIC_SITE_URL || '').trim().replace(/\/+$/, '')
+  if (configured) return configured
+
+  try {
+    const { headers } = await import('next/headers')
+    const origin = (await headers()).get('origin')
+    if (origin) return origin.replace(/\/+$/, '')
+  } catch {
+    // Outside a request context (tests / scripts)
+  }
+
+  return process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'
+}
+
+/**
  * Register user:
  * 1. Normalizes fields
- * 2. Checks username uniqueness (case-insensitive)
- * 3. Signs up with Supabase Auth
- * 4. Ensures profile row is created and linked to Auth user ID
- * 5. Fails safely if registration or profile creation fails
+ * 2. Checks username uniqueness (case-insensitive, server-side via admin client)
+ * 3. Signs up with Supabase Auth (username / first / last name in user metadata)
+ * 4. The DB trigger on auth.users creates the linked public.profiles row
+ * 5. Supabase sends the confirmation email; its link returns through /auth/callback
  */
 export async function registerUser(formData: {
   firstName: string
@@ -244,9 +209,6 @@ export async function registerUser(formData: {
   username: string
   password: string
 }): Promise<AuthActionResult> {
-  const adminClient = createAdminClient()
-  let newlyCreatedUserId: string | null = null
-
   try {
     const firstName = (formData.firstName || '').trim()
     const lastName = (formData.lastName || '').trim()
@@ -261,7 +223,7 @@ export async function registerUser(formData: {
       }
     }
 
-    const cleanUsername = rawUsername.replace(/^@+/, '').toLowerCase()
+    const cleanUsername = normalizeUsername(rawUsername)
     const cleanEmail = rawEmail.toLowerCase()
 
     // Validation
@@ -279,12 +241,36 @@ export async function registerUser(formData: {
       }
     }
 
-    // Check if username already exists in profiles
-    const { data: existingProfile } = await adminClient
+    const configCheck = validateSupabaseAdminConfig()
+    if (!configCheck.isValid) {
+      return {
+        success: false,
+        error: configCheck.error || 'การตั้งค่า Supabase ไม่ถูกต้อง กรุณาตรวจสอบ Environment Variables',
+      }
+    }
+
+    // Check if username already exists in profiles (never proceed if the lookup itself failed,
+    // otherwise an Auth user could be created without a usable username mapping)
+    const adminClient = createAdminClient()
+    const { data: existingProfile, error: profileLookupError } = await adminClient
       .from('profiles')
       .select('id')
       .eq('username', cleanUsername)
       .maybeSingle()
+
+    if (profileLookupError) {
+      console.error('Register profile lookup error:', profileLookupError)
+      if (profileLookupError.code === 'PGRST205' || profileLookupError.code === '42P01') {
+        return {
+          success: false,
+          error: 'ฐานข้อมูล Supabase ยังไม่มีตาราง profiles (ยังไม่ได้ apply migration) กรุณาติดต่อผู้ดูแลระบบ',
+        }
+      }
+      return {
+        success: false,
+        error: 'เกิดข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล Supabase',
+      }
+    }
 
     if (existingProfile) {
       return {
@@ -294,11 +280,13 @@ export async function registerUser(formData: {
     }
 
     // Call Supabase Auth signUp
+    const siteUrl = await getSiteUrl()
     const serverClient = await createServerSupabase()
     const { data: signUpData, error: signUpError } = await serverClient.auth.signUp({
       email: cleanEmail,
       password: password,
       options: {
+        emailRedirectTo: `${siteUrl}/auth/callback?next=/verify-email`,
         data: {
           username: cleanUsername,
           first_name: firstName,
@@ -308,9 +296,37 @@ export async function registerUser(formData: {
     })
 
     if (signUpError || !signUpData.user) {
+      console.error('Supabase signUp error:', signUpError?.code || signUpError?.message)
+      // The profile trigger rejects duplicate usernames (unique index) -> Auth reports a DB error
+      if (signUpError?.code === 'unexpected_failure' || /database error/i.test(signUpError?.message || '')) {
+        return {
+          success: false,
+          error: 'ชื่อผู้ใช้งานนี้ถูกใช้งานแล้ว หรือระบบสร้างโปรไฟล์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
+        }
+      }
+      if (signUpError?.code === 'user_already_exists' || signUpError?.code === 'email_exists') {
+        return {
+          success: false,
+          error: 'อีเมลนี้ถูกใช้ลงทะเบียนแล้ว',
+        }
+      }
+      if (signUpError?.code === 'weak_password') {
+        return {
+          success: false,
+          error: 'รหัสผ่านไม่ปลอดภัยพอตามนโยบายของระบบ กรุณาตั้งรหัสผ่านใหม่',
+        }
+      }
       return {
         success: false,
-        error: signUpError?.message || 'ไม่สามารถลงทะเบียนได้ กรุณาลองใหม่อีกครั้ง',
+        error: 'ไม่สามารถลงทะเบียนได้ กรุณาลองใหม่อีกครั้ง',
+      }
+    }
+
+    // With "Confirm email" enabled Supabase hides existing emails by returning a user with no identities
+    if (Array.isArray(signUpData.user.identities) && signUpData.user.identities.length === 0) {
+      return {
+        success: false,
+        error: 'อีเมลนี้ถูกใช้ลงทะเบียนแล้ว',
       }
     }
 
@@ -318,18 +334,10 @@ export async function registerUser(formData: {
       success: true,
     }
   } catch (err: unknown) {
-    if (newlyCreatedUserId) {
-      try {
-        await adminClient.auth.admin.deleteUser(newlyCreatedUserId)
-      } catch (deleteError) {
-        console.error('Failed to rollback auth user on exception:', deleteError)
-      }
-    }
-
-    const message = err instanceof Error ? err.message : 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ'
+    console.error('Unexpected error in registerUser:', err)
     return {
       success: false,
-      error: message,
+      error: 'เกิดข้อผิดพลาดในการลงทะเบียน กรุณาลองใหม่อีกครั้ง',
     }
   }
 }
@@ -337,6 +345,8 @@ export async function registerUser(formData: {
 /**
  * Forgot password:
  * Sends a password reset email using Supabase Auth.
+ * The email link returns through /auth/callback, which creates the recovery session
+ * and then forwards to /reset-password.
  */
 export async function resetPasswordForEmail(email: string): Promise<AuthActionResult> {
   try {
@@ -346,13 +356,10 @@ export async function resetPasswordForEmail(email: string): Promise<AuthActionRe
     }
 
     const serverClient = await createServerSupabase()
-    
-    // Determine the base URL for the redirect
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 
-                    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+    const siteUrl = await getSiteUrl()
 
     const { error } = await serverClient.auth.resetPasswordForEmail(rawEmail.toLowerCase(), {
-      redirectTo: `${siteUrl}/reset-password`,
+      redirectTo: `${siteUrl}/auth/callback?next=/reset-password`,
     })
 
     if (error) {
@@ -380,18 +387,62 @@ export async function updatePassword(password: string): Promise<AuthActionResult
     }
 
     const serverClient = await createServerSupabase()
+
+    // Must have a real Supabase session (recovery session from /auth/callback, or a logged-in user)
+    const { data: userData } = await serverClient.auth.getUser()
+    if (!userData?.user) {
+      return {
+        success: false,
+        error: 'ลิงก์รีเซ็ตรหัสผ่านไม่ถูกต้องหรือหมดอายุ กรุณาขอลิงก์ใหม่อีกครั้ง',
+      }
+    }
+
     const { error } = await serverClient.auth.updateUser({
       password: password,
     })
 
     if (error) {
-      console.error('Update password error:', error)
-      return { success: false, error: error.message || 'ไม่สามารถเปลี่ยนรหัสผ่านได้' }
+      console.error('Update password error:', error.code || error.message)
+      if (error.code === 'same_password') {
+        return { success: false, error: 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม' }
+      }
+      if (error.code === 'weak_password') {
+        return { success: false, error: 'รหัสผ่านไม่ปลอดภัยพอตามนโยบายของระบบ กรุณาตั้งรหัสผ่านใหม่' }
+      }
+      return { success: false, error: 'ไม่สามารถเปลี่ยนรหัสผ่านได้ กรุณาลองใหม่อีกครั้ง' }
     }
 
     return { success: true }
   } catch (err: unknown) {
     console.error('Update password exception:', err)
+    return { success: false, error: 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ' }
+  }
+}
+
+/**
+ * Signed-in user changes their own password: the current password is checked first
+ * (with a throw-away client that keeps no session), then the new one is saved.
+ */
+export async function changeOwnPassword(currentPassword: string, newPassword: string): Promise<AuthActionResult> {
+  try {
+    if (!currentPassword) return { success: false, error: 'กรุณากรอกรหัสผ่านเดิม' }
+    const serverClient = await createServerSupabase()
+    const { data: userData } = await serverClient.auth.getUser()
+    const email = userData?.user?.email
+    if (!email) return { success: false, error: 'กรุณาเข้าสู่ระบบใหม่อีกครั้ง' }
+
+    const { createClient } = await import('@supabase/supabase-js')
+    const { getSupabaseUrl } = await import('@/lib/supabase/env')
+    const probe = createClient(getSupabaseUrl(), getSupabasePublicKey(), {
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
+    const { error: verifyError } = await probe.auth.signInWithPassword({ email, password: currentPassword })
+    if (verifyError) return { success: false, error: 'รหัสผ่านเดิมไม่ถูกต้อง' }
+    await probe.auth.signOut({ scope: 'local' })
+
+    return updatePassword(newPassword)
+  } catch (err: unknown) {
+    console.error('Change password exception:', err)
     return { success: false, error: 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ' }
   }
 }

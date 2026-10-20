@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react'
 import {
-  ClipboardList,
   CheckCircle2,
   Printer,
   Search,
@@ -12,10 +11,14 @@ import {
 import { NumericInput } from '@/components/common/NumericInput'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { ActionButton } from '@/components/common/ActionButton'
+import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { Product } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { applyStockCountAdjustment, loadProducts } from '@/features/products/services/product-storage'
+import { applyStockCount, StockCountPartialError } from '@/features/products/services/product-storage'
+import { useConfirm } from '@/components/common/ConfirmDialogProvider'
+import { isPinCancelled } from '@/lib/db/pin-confirm'
+import { printTable } from '@/lib/print/print-service'
 
 export interface StockCountRowState {
   productId: string
@@ -29,7 +32,6 @@ export interface StockCountRowState {
   lostQty: number | ''
   damagedQty: number | ''
   soldQty: number | ''
-  note: string
 }
 
 interface ProductStockCountViewProps {
@@ -44,11 +46,13 @@ export function ProductStockCountView({
   onNavigateToList,
 }: ProductStockCountViewProps) {
   const { showToast } = useToast()
+  const confirm = useConfirm()
   const { user } = useAuth()
   const [countItems, setCountItems] = useState<StockCountRowState[]>([])
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL')
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [roundNote, setRoundNote] = useState('')
 
   // Initialize count items whenever products change
   useEffect(() => {
@@ -57,7 +61,8 @@ export function ProductStockCountView({
       return
     }
 
-    const initial: StockCountRowState[] = products.map((p) => ({
+    // The server counts active products only; "ปกติ" is compared with the AVAILABLE quantity
+    const initial: StockCountRowState[] = products.filter((p) => p.status !== 'INACTIVE').map((p) => ({
       productId: p.id,
       productCode: p.code,
       productName: p.name,
@@ -69,7 +74,6 @@ export function ProductStockCountView({
       lostQty: '',
       damagedQty: '',
       soldQty: '',
-      note: '',
     }))
     setCountItems(initial)
   }, [products])
@@ -118,17 +122,6 @@ export function ProductStockCountView({
     )
   }
 
-  const handleNoteChange = (productId: string, text: string) => {
-    setCountItems((prev) =>
-      prev.map((item) => {
-        if (item.productId === productId) {
-          return { ...item, note: text }
-        }
-        return item
-      })
-    )
-  }
-
   // Clear all entered counts
   const handleClearAll = () => {
     setCountItems((prev) =>
@@ -138,45 +131,100 @@ export function ProductStockCountView({
         lostQty: '',
         damagedQty: '',
         soldQty: '',
-        note: '',
       }))
     )
+    setRoundNote('')
     showToast('ล้างข้อมูลแล้ว', 'ล้างค่าที่กรอกในตารางตรวจนับทั้งหมดเรียบร้อย', 'INFO')
   }
 
-  // Print Stock Count Table via browser print
+  // Print every row of the current search / category filter (not only the rows on screen)
   const handlePrintTable = () => {
-    window.print()
+    const categoryLabel = categoryOptions.find((o) => o.value === selectedCategory)?.label || selectedCategory
+    const qty = (v: number | '') => (v === '' ? '' : v)
+    const ok = printTable({
+      title: 'ใบตรวจนับสต็อกสินค้า',
+      subtitle: [categoryLabel, searchTerm.trim() && `ค้นหา "${searchTerm.trim()}"`, roundNote.trim() && `หมายเหตุ: ${roundNote.trim()}`]
+        .filter(Boolean)
+        .join(' · '),
+      columns: [
+        { label: 'ลำดับ', align: 'center' },
+        { label: 'รหัส' },
+        { label: 'ชื่อสินค้า' },
+        { label: 'ยอดเดิม', align: 'right' },
+        { label: 'ปกติ', align: 'right' },
+        { label: 'สูญหาย', align: 'right' },
+        { label: 'ชำรุด', align: 'right' },
+        { label: 'ขายออก', align: 'right' },
+      ],
+      rows: filteredItems.map((item, idx) => [
+        idx + 1,
+        item.productCode,
+        item.productName,
+        `${item.originalAvailableQuantity} ${item.unit}`,
+        qty(item.normalQty),
+        qty(item.lostQty),
+        qty(item.damagedQty),
+        qty(item.soldQty),
+      ]),
+      orientation: 'portrait',
+    })
+    if (!ok) showToast('ไม่มีข้อมูลสำหรับพิมพ์', 'ไม่มีรายการตามตัวกรองปัจจุบัน', 'INFO')
   }
 
   // Confirm Stock Count
   const handleConfirmStockCount = async () => {
     setIsSubmitting(true)
     try {
-      const actor = {
-        userId: user?.userId || 'system',
-        displayName: user?.displayName || 'ระบบ',
-      }
-
       if (modifiedItems.length === 0) {
         showToast('ไม่มีรายการแก้ไข', 'กรุณากรอกผลการตรวจนับอย่างน้อย 1 รายการก่อนบันทึก', 'INFO')
         return
       }
 
-      let updatedList = loadProducts()
-      for (const item of modifiedItems) {
-        updatedList = applyStockCountAdjustment(
-          item.productId,
-          {
+      // Review the differences first (Master §11.4: count → discrepancy → review → PIN → adjustment).
+      const fmt = (from: number, to: number) => `${from} → ${to} (${to - from >= 0 ? '+' : ''}${to - from})`
+      let pinSteps = 0
+      const reviewLines = modifiedItems.map((item) => {
+        const p = products.find((x) => x.id === item.productId)
+        const parts: string[] = []
+        if (item.normalQty !== '') parts.push(`ปกติ ${fmt(item.originalAvailableQuantity, Number(item.normalQty))}`)
+        if (item.damagedQty !== '' && Number(item.damagedQty) !== (p?.damagedQuantity || 0)) {
+          parts.push(`ชำรุด ${fmt(p?.damagedQuantity || 0, Number(item.damagedQty))}`)
+          pinSteps += 1
+        }
+        if (item.lostQty !== '' && Number(item.lostQty) !== (p?.lostQuantity || 0)) {
+          parts.push(`สูญหาย ${fmt(p?.lostQuantity || 0, Number(item.lostQty))}`)
+          pinSteps += 1
+        }
+        return `• ${item.productName}: ${parts.join(', ') || 'ไม่เปลี่ยน'}`
+      })
+      if (modifiedItems.some((item) => item.normalQty !== '')) pinSteps += 1
+      const shown = reviewLines.slice(0, 15)
+      if (reviewLines.length > shown.length) shown.push(`… และอีก ${reviewLines.length - shown.length} รายการ`)
+      const reviewed = await confirm({
+        title: 'ตรวจผลต่างก่อนปรับยอดสต็อก',
+        message:
+          `${shown.join('\n')}\n\n` +
+          (pinSteps > 1
+            ? `จะถาม PIN ${pinSteps} ครั้ง (1 ครั้งต่อ 1 การปรับยอด) — กดยกเลิกที่ PIN แรก ยอดสต็อกจะไม่เปลี่ยน`
+            : 'กดยืนยันแล้วใส่ PIN เพื่อปรับยอด — กดยกเลิก ยอดสต็อกจะไม่เปลี่ยน'),
+        confirmLabel: 'ยืนยันและใส่ PIN',
+      })
+      if (!reviewed) return
+
+      const updatedList = await applyStockCount(
+        modifiedItems.map((item) => ({
+          productId: item.productId,
+          productName: item.productName,
+          counts: {
             normalQty: item.normalQty === '' ? undefined : Number(item.normalQty),
             damagedQty: item.damagedQty === '' ? undefined : Number(item.damagedQty),
             lostQty: item.lostQty === '' ? undefined : Number(item.lostQty),
             soldQty: item.soldQty === '' ? undefined : Number(item.soldQty),
           },
-          item.note || 'ตรวจนับสต็อกจากหน้างาน',
-          actor
-        )
-      }
+        })),
+        roundNote.trim() || 'ตรวจนับสต็อกจากหน้างาน'
+      )
+      setRoundNote('')
 
       if (onSuccess) {
         onSuccess(updatedList)
@@ -188,17 +236,19 @@ export function ProductStockCountView({
         'SUCCESS'
       )
     } catch (err: any) {
-      showToast('เกิดข้อผิดพลาด', err?.message || 'ไม่สามารถบันทึกผลตรวจนับได้', 'ERROR')
+      if (err instanceof StockCountPartialError) {
+        // Some adjustments were confirmed before the stop: show the real stock now.
+        if (onSuccess) onSuccess(err.products)
+        showToast('บันทึกบางส่วน', err.message, 'INFO')
+      } else if (isPinCancelled(err)) {
+        showToast('ยกเลิกแล้ว', 'ยังไม่ได้ปรับยอด — ยอดสต็อกไม่เปลี่ยน และไม่มีรอบนับค้าง', 'INFO')
+      } else {
+        showToast('เกิดข้อผิดพลาด', err?.message || 'ไม่สามารถบันทึกผลตรวจนับได้', 'ERROR')
+      }
     } finally {
       setIsSubmitting(false)
     }
   }
-
-  const currentDateStr = new Date().toLocaleDateString('th-TH', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -226,6 +276,15 @@ export function ProductStockCountView({
               buttonClassName="h-9 px-2.5 py-0 rounded-xl"
             />
           </div>
+
+          {/* หมายเหตุของรอบนับ (ใช้กับทุกรายการในรอบนี้) */}
+          <input
+            type="text"
+            value={roundNote}
+            onChange={(e) => setRoundNote(e.target.value)}
+            placeholder="หมายเหตุรอบนับ..."
+            className="min-w-[140px] flex-1 max-w-xs h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-purple-500 transition-all placeholder:text-slate-400"
+          />
         </div>
 
         {/* Action Buttons: Clear, Print, Save */}
@@ -276,7 +335,7 @@ export function ProductStockCountView({
 
       {/* Main Stock Count Table Card Content */}
       <div className="flex-1 min-h-0 flex flex-col justify-between overflow-hidden">
-        <div className="flex-1 overflow-y-auto overflow-x-hidden">
+        <DataTableFrame fill className="flex-1 min-h-0 rounded-none bg-transparent">
           <table className="w-full text-left border-collapse table-fixed text-xs">
             <colgroup>
               <col className="w-9 sm:w-10" />
@@ -285,8 +344,6 @@ export function ProductStockCountView({
               <col className="w-14 sm:w-16" />
               <col className="w-14 sm:w-16" />
               <col className="w-14 sm:w-16" />
-              <col className="w-14 sm:w-16" />
-              <col className="w-24 sm:w-36" />
             </colgroup>
             <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-900 text-slate-500 font-bold text-xs border-b border-slate-200 dark:border-slate-700 shadow-xs">
               <tr>
@@ -297,13 +354,12 @@ export function ProductStockCountView({
                 <th className="w-14 sm:w-16 py-2 px-1 text-center text-red-600 dark:text-red-400 whitespace-nowrap">สูญหาย</th>
                 <th className="w-14 sm:w-16 py-2 px-1 text-center text-amber-600 dark:text-amber-400 whitespace-nowrap">ชำรุด</th>
                 <th className="w-14 sm:w-16 py-2 px-1 text-center text-purple-600 dark:text-purple-400 whitespace-nowrap">ขายออก</th>
-                <th className="w-24 sm:w-36 py-2 px-3 text-left whitespace-nowrap">หมายเหตุ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 bg-white dark:bg-slate-900">
               {filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-12 text-center text-slate-400">
+                  <td colSpan={7} className="p-12 text-center text-slate-400">
                     <Package className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2 opacity-60" />
                     <p className="font-bold text-sm">ไม่พบรายการสินค้าที่ค้นหา</p>
                     <p className="text-xs text-slate-400 mt-0.5">ลองเปลี่ยนคำค้นหาหรือตัวกรองหมวดหมู่</p>
@@ -333,7 +389,7 @@ export function ProductStockCountView({
                     {/* 3. ยอดเดิม (บรรทัดเดียว) */}
                     <td className="px-1 py-1.5 text-center whitespace-nowrap">
                       <span className="font-mono font-bold text-slate-700 dark:text-slate-300 text-xs">
-                        {item.originalQuantity}
+                        {item.originalAvailableQuantity}
                       </span>{' '}
                       <span className="text-[10px] text-slate-400 font-normal">{item.unit}</span>
                     </td>
@@ -385,23 +441,12 @@ export function ProductStockCountView({
                         className="w-full max-w-[50px] mx-auto px-1 py-1 rounded-lg border border-purple-300 dark:border-purple-800 text-center font-extrabold text-xs bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 focus:outline-none focus:ring-1.5 focus:ring-purple-400"
                       />
                     </td>
-
-                    {/* 8. หมายเหตุ */}
-                    <td className="px-1.5 py-1.5">
-                      <input
-                        type="text"
-                        value={item.note}
-                        onChange={(e) => handleNoteChange(item.productId, e.target.value)}
-                        placeholder="หมายเหตุ..."
-                        className="w-full px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-purple-500"
-                      />
-                    </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
-        </div>
+        </DataTableFrame>
 
         {/* Workspace Footer Bar */}
         <div className="shrink-0 px-3 py-2 bg-slate-50/50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -431,94 +476,6 @@ export function ProductStockCountView({
         </div>
       </div>
 
-      {/* Hidden Printable Stock Count Sheet for window.print() */}
-      <div className="hidden print:block print-document-target">
-        <StockCountPrintSheet
-          items={filteredItems}
-          categoryFilterLabel={
-            categoryOptions.find((o) => o.value === selectedCategory)?.label || selectedCategory
-          }
-          dateStr={currentDateStr}
-        />
-      </div>
-    </div>
-  )
-}
-
-function StockCountPrintSheet({
-  items,
-  categoryFilterLabel,
-  dateStr,
-}: {
-  items: StockCountRowState[]
-  categoryFilterLabel: string
-  dateStr: string
-}) {
-  return (
-    <div className="print-stock-count-sheet block w-full h-auto min-h-0 p-0 bg-white text-black font-sans text-xs">
-      {/* Header */}
-      <div className="text-center border-b-2 border-black pb-2 mb-3">
-        <h1 className="text-lg font-black tracking-tight">ใบรายการตรวจนับสต็อกสินค้าจริง (Stock Count Sheet)</h1>
-        <p className="text-slate-600 mt-1 text-[11px]">
-          หมวดหมู่: <strong className="text-black">{categoryFilterLabel}</strong> | ประจำวันที่: {dateStr} | จำนวนรายการ: {items.length} รายการ
-        </p>
-      </div>
-
-      {/* Table with all required columns */}
-      <table className="w-full text-left border-collapse border border-black text-[11px] mb-4">
-        <thead
-          className="bg-[#E3E3E3] font-bold border-b border-black text-center"
-          style={{ display: 'table-header-group' }}
-        >
-          <tr>
-            <th className="p-1.5 border-r border-black w-10">ลำดับ</th>
-            <th className="p-1.5 border-r border-black text-left">ชื่อสินค้า</th>
-            <th className="p-1.5 border-r border-black w-16">ยอดเดิม</th>
-            <th className="p-1.5 border-r border-black w-14">ปกติ</th>
-            <th className="p-1.5 border-r border-black w-14">สูญหาย</th>
-            <th className="p-1.5 border-r border-black w-14">ชำรุด</th>
-            <th className="p-1.5 border-r border-black w-14">ขายออก</th>
-            <th className="p-1.5 border-black w-28 text-left">หมายเหตุ</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-black">
-          {items.map((item, idx) => (
-            <tr key={item.productId || idx} style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-              <td className="p-1.5 border-r border-black text-center font-bold">{idx + 1}</td>
-              <td className="p-1.5 border-r border-black font-medium">{item.productName}</td>
-              <td className="p-1.5 border-r border-black text-center font-mono font-bold">{item.originalQuantity}</td>
-              <td className="p-1.5 border-r border-black text-center font-mono font-bold">
-                {item.normalQty !== '' ? item.normalQty : ''}
-              </td>
-              <td className="p-1.5 border-r border-black text-center font-mono font-bold">
-                {item.lostQty !== '' ? item.lostQty : ''}
-              </td>
-              <td className="p-1.5 border-r border-black text-center font-mono font-bold">
-                {item.damagedQty !== '' ? item.damagedQty : ''}
-              </td>
-              <td className="p-1.5 border-r border-black text-center font-mono font-bold">
-                {item.soldQty !== '' ? item.soldQty : ''}
-              </td>
-              <td className="p-1.5 border-black text-[10px]">{item.note || ''}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {/* Signature Section */}
-      <div
-        className="pt-4 grid grid-cols-2 gap-8 text-center text-[11px]"
-        style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
-      >
-        <div className="space-y-6">
-          <p>ผู้ตรวจนับ: ..............................................................</p>
-          <p>วันที่: .............. / .............. / ..............</p>
-        </div>
-        <div className="space-y-6">
-          <p>ผู้ตรวจสอบ / อนุมัติ: ..............................................................</p>
-          <p>วันที่: .............. / .............. / ..............</p>
-        </div>
-      </div>
     </div>
   )
 }
