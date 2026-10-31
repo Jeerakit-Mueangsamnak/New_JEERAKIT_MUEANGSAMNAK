@@ -15,13 +15,21 @@ interface A4FitPreviewProps {
    * 'width' – fit width to actual A4 size, allow vertical scroll.
    */
   fitMode?: 'contain' | 'width'
+  /** Let the sheet grow past one A4 page (imported multi-page forms); a line marks each page edge. */
+  multiPage?: boolean
 }
 
 const MIN_SCALE = 0.12
 const MAX_SCALE = 1
 // 210mm × 297mm at 96dpi
 const A4_WIDTH_PX = 794
-const A4_HEIGHT_PX = 1123
+export const A4_HEIGHT_PX = 1123
+
+const SHEET_FIXED = 'h-[297mm] overflow-hidden'
+const SHEET_GROWS = 'min-h-[297mm]'
+const PAGE_EDGE_STYLE: React.CSSProperties = {
+  backgroundImage: 'repeating-linear-gradient(to bottom, transparent 0, transparent calc(297mm - 1px), #94a3b8 calc(297mm - 1px), #94a3b8 297mm)',
+}
 
 /**
  * Central A4 preview surface.
@@ -38,6 +46,7 @@ export function A4FitPreview({
   paddingPx = 10,
   align = 'center',
   fitMode = 'width',
+  multiPage = false,
 }: A4FitPreviewProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const sheetRef = useRef<HTMLDivElement>(null)
@@ -84,6 +93,8 @@ export function A4FitPreview({
 
     const observer = new ResizeObserver(fitSheet)
     observer.observe(viewport)
+    // A growing sheet changes height when its content changes.
+    if (sheetRef.current) observer.observe(sheetRef.current)
 
     window.addEventListener('resize', fitSheet)
     return () => {
@@ -141,8 +152,8 @@ export function A4FitPreview({
             <div
               id={printId}
               ref={sheetRef}
-              className="pos-a4-fit-sheet absolute left-0 top-0 h-[297mm] w-[210mm] origin-top-left overflow-hidden bg-white shadow-xl ring-1 ring-slate-300/80 rounded-sm"
-              style={{ transform: `scale(${scale})` }}
+              className={`pos-a4-fit-sheet absolute left-0 top-0 ${multiPage ? SHEET_GROWS : SHEET_FIXED} w-[210mm] origin-top-left bg-white shadow-xl ring-1 ring-slate-300/80 rounded-sm`}
+              style={{ transform: `scale(${scale})`, ...(multiPage ? PAGE_EDGE_STYLE : {}) }}
             >
               {children}
             </div>
@@ -156,6 +167,7 @@ export function A4FitPreview({
         sheetWidth={sheetSize.width}
         sheetHeight={sheetSize.height}
         fitMode={fitMode}
+        multiPage={multiPage}
       >
         {children}
       </A4FullPreviewOverlay>
@@ -170,6 +182,7 @@ interface A4FullPreviewOverlayProps {
   sheetWidth?: number
   sheetHeight?: number
   fitMode?: 'contain' | 'width'
+  multiPage?: boolean
 }
 
 /**
@@ -183,6 +196,7 @@ export function A4FullPreviewOverlay({
   sheetWidth = A4_WIDTH_PX,
   sheetHeight = A4_HEIGHT_PX,
   fitMode = 'width',
+  multiPage = false,
 }: A4FullPreviewOverlayProps) {
   const [fullScale, setFullScale] = useState(1)
 
@@ -251,8 +265,8 @@ export function A4FullPreviewOverlay({
             onClick={handleClose}
           >
             <div
-              className="absolute left-0 top-0 h-[297mm] w-[210mm] origin-top-left overflow-hidden bg-white shadow-2xl rounded-sm ring-1 ring-slate-400/40 pointer-events-none"
-              style={{ transform: `scale(${fullScale})` }}
+              className={`absolute left-0 top-0 ${multiPage ? SHEET_GROWS : SHEET_FIXED} w-[210mm] origin-top-left bg-white shadow-2xl rounded-sm ring-1 ring-slate-400/40 pointer-events-none`}
+              style={{ transform: `scale(${fullScale})`, ...(multiPage ? PAGE_EDGE_STYLE : {}) }}
             >
               {children}
             </div>

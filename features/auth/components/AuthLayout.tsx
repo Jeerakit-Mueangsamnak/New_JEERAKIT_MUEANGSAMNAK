@@ -22,7 +22,7 @@ interface AuthLayoutProps {
 
 /**
  * Shared layout for every Auth screen (Login, Register, Forgot/Reset Password,
- * Verify Email, PIN lock/setup, MFA challenge).
+ * Verify Email, PIN lock/setup).
  *
  * - Landscape (iPad landscape, desktop): 50 / 50 — branding left, content right
  * - Portrait (iPad portrait, phones):    30 / 70 — branding top, content bottom

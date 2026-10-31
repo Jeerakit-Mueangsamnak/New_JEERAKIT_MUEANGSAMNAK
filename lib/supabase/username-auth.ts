@@ -4,54 +4,13 @@ import { createAdminClient, validateSupabaseAdminConfig } from '@/lib/supabase/a
 import { normalizeMemberStatus } from '@/features/auth/services/permissions'
 import type { MemberStatus } from '@/lib/types/rental-pos'
 
-interface RateLimitEntry {
-  count: number
-  firstAttempt: number
-  lockedUntil: number
-}
-
-const rateLimitStore = new Map<string, RateLimitEntry>()
-const MAX_ATTEMPTS = 5
-const WINDOW_MS = 60 * 1000
-const LOCKOUT_MS = 5 * 60 * 1000
+// Owner decision 2026-10-26 (Master §4.1): a wrong sign-in password is simply refused — the app
+// keeps no attempt count and never locks the account. A forgotten password is reset with the
+// Supabase e-mail link (ลืมรหัสผ่าน). The wait/lock ladder belongs to the PIN (Master §4.3).
+export const WRONG_CREDENTIALS = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'
 
 export function normalizeUsername(username: string): string {
   return username.trim().replace(/^@+/, '').toLowerCase()
-}
-
-export function checkRateLimit(key: string): { allowed: boolean; retryAfterSeconds?: number } {
-  const now = Date.now()
-  const entry = rateLimitStore.get(key)
-  if (!entry) return { allowed: true }
-
-  if (entry.lockedUntil > now) {
-    return { allowed: false, retryAfterSeconds: Math.ceil((entry.lockedUntil - now) / 1000) }
-  }
-
-  if (now - entry.firstAttempt > WINDOW_MS) {
-    rateLimitStore.delete(key)
-  }
-  return { allowed: true }
-}
-
-export function recordFailedAttempt(key: string): void {
-  const now = Date.now()
-  const entry = rateLimitStore.get(key)
-  if (!entry || now - entry.firstAttempt > WINDOW_MS) {
-    rateLimitStore.set(key, { count: 1, firstAttempt: now, lockedUntil: 0 })
-    return
-  }
-
-  entry.count += 1
-  if (entry.count >= MAX_ATTEMPTS) entry.lockedUntil = now + LOCKOUT_MS
-}
-
-export function clearRateLimit(key: string): void {
-  rateLimitStore.delete(key)
-}
-
-export function resetAllRateLimits(): void {
-  rateLimitStore.clear()
 }
 
 export async function resolveUsernameToEmail(username: string): Promise<{
@@ -64,7 +23,7 @@ export async function resolveUsernameToEmail(username: string): Promise<{
   try {
     const cleanUsername = normalizeUsername(username || '')
     if (!cleanUsername) {
-      return { success: false, error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }
+      return { success: false, error: WRONG_CREDENTIALS }
     }
 
     const configCheck = validateSupabaseAdminConfig()
@@ -73,11 +32,6 @@ export async function resolveUsernameToEmail(username: string): Promise<{
         success: false,
         error: configCheck.error || 'การตั้งค่า Supabase ไม่ถูกต้อง กรุณาตรวจสอบ Environment Variables',
       }
-    }
-
-    const rateLimitKey = `resolve:${cleanUsername}`
-    if (!checkRateLimit(rateLimitKey).allowed) {
-      return { success: false, error: 'มีการพยายามตรวจสอบชื่อผู้ใช้บ่อยเกินไป กรุณารอสักครู่' }
     }
 
     const adminClient = createAdminClient()
@@ -100,7 +54,6 @@ export async function resolveUsernameToEmail(username: string): Promise<{
     }
 
     if (profile?.email) {
-      clearRateLimit(rateLimitKey)
       return {
         success: true,
         email: profile.email,
@@ -108,14 +61,13 @@ export async function resolveUsernameToEmail(username: string): Promise<{
       }
     }
 
-    recordFailedAttempt(rateLimitKey)
-    return { success: false, error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }
+    return { success: false, error: WRONG_CREDENTIALS }
   } catch (err: unknown) {
     console.error('Error resolving username to email:', err)
     const msg = err instanceof Error ? err.message : 'การตั้งค่า Supabase ไม่ถูกต้อง กรุณาตรวจสอบระบบ'
     if (msg.includes('Supabase') || msg.includes('KEY') || msg.includes('URL')) {
       return { success: false, error: msg }
     }
-    return { success: false, error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }
+    return { success: false, error: WRONG_CREDENTIALS }
   }
 }

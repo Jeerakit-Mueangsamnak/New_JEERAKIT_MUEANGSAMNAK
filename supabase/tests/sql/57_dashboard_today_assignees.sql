@@ -33,7 +33,7 @@ SELECT t.set('dashboard_unassigned', t.dashboard_job(0, 'dashboard unassigned', 
 SELECT t.check('DASH-SEC', 'only authenticated can execute the RPC',
     has_function_privilege('authenticated', 'public.dashboard_today_appointment_assignees()', 'EXECUTE')
     AND NOT has_function_privilege('anon', 'public.dashboard_today_appointment_assignees()', 'EXECUTE'));
-SELECT t.err('DASH-SEC', 'authenticated member without dashboard menu is denied', 'finance',
+SELECT t.err('DASH-SEC', 'a member waiting for approval is denied (owner 2026-10-26: every ACTIVE member may; one waiting for approval may not)', 'pending',
     'SELECT to_jsonb(count(*)) FROM public.dashboard_today_appointment_assignees()', 'FORBIDDEN');
 
 SELECT t.set('dashboard_rows', (t.ok('DASH-DATA', 'owner reads dashboard assignee names', 'owner',

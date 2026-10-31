@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 /** Bill screen › ส่งทาง LINE (outbox + mock sender) and the customer link code (OA 1:1 chat). */
 
@@ -48,7 +48,7 @@ describe('sendBillViaLine (server action)', () => {
   it('queues the bill text for the bill (recipient chosen by the database); live mode runs the sender once', async () => {
     vi.stubEnv('LINE_DELIVERY_MODE', 'live')
     m.rpc.mockResolvedValueOnce({ data: { delivery_id: 'd1', status: 'QUEUED', duplicate: false }, error: null })
-    const text = 'สรุปบิลเช่า\nยอดค้าง: ฿1,500.00'
+    const text = 'สรุปบิลเช่า\nยอดค้าง: 1,500.00'
     m.claim.mockResolvedValueOnce([{ id: 'd1', line_user_id: LINE_USER, messages: [{ type: 'text', text }], attempts: 1, max_attempts: 5, retry_key: '11111111-1111-4111-8111-111111111111' }])
     const { sendBillViaLine } = await import('@/app/actions/line')
     const r = await sendBillViaLine({ billId: BILL, text, idempotencyKey: 'bill-00000001' })
@@ -139,8 +139,8 @@ describe('LineNotifyModal (bill screen)', () => {
     })
     const sent = m.send.mock.calls[0][0]
     expect(sent.billId).toBe(BILL)
-    expect(sent.text).toContain('ยอดสุทธิ: ฿2,500')
-    expect(sent.text).toContain('ยอดค้าง: ฿1,500')
+    expect(sent.text).toContain('ยอดสุทธิ: 2,500')
+    expect(sent.text).toContain('ยอดค้าง: 1,500')
     expect(sent.idempotencyKey).toMatch(/^bill-/)
     // test mode must not read like a real send
     expect(m.toast).toHaveBeenCalledWith('โหมดทดสอบ: ยังไม่ได้ส่งถึงลูกค้า', expect.any(String), 'INFO')
@@ -169,7 +169,7 @@ describe('LineNotifyModal (bill screen)', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /ส่งทาง LINE/ }))
     })
-    expect(m.send.mock.calls[0][0].text).toBe('สรุปบิลเช่า\nลูกค้า: สมชาย\nเลขที่บิล: B-0001\nสถานะ: กำลังเช่า\nวันครบกำหนด: 10/10/2569\nยอดรวม: ฿2,500.00\nยอดค้าง: ฿1,500.00')
+    expect(m.send.mock.calls[0][0].text).toBe('สรุปบิลเช่า\nลูกค้า: สมชาย\nเลขที่บิล: B-0001\nสถานะ: กำลังเช่า\nวันครบกำหนด: 10/10/2569\nยอดรวม: 2,500.00\nยอดค้าง: 1,500.00')
     expect(m.toast).toHaveBeenCalledWith('ยังส่งไม่ถึงลูกค้า', expect.any(String), 'INFO')
   })
 
@@ -182,17 +182,17 @@ describe('LineNotifyModal (bill screen)', () => {
     fireEvent.click(screen.getByRole('button', { name: /เกินกำหนด/ }))
     expect(box()).toContain('เลยกำหนดคืนสินค้าแล้ว')
     fireEvent.click(screen.getByRole('button', { name: /ยอดค้าง/ }))
-    expect(box()).toContain('ยอดค้าง: ฿1,500')
-    expect(box()).toContain('ยอดสุทธิ: ฿2,500')
+    expect(box()).toContain('ยอดค้าง: 1,500')
+    expect(box()).toContain('ยอดสุทธิ: 2,500')
     fireEvent.click(screen.getByRole('button', { name: /ปรับแต่งเอง/ }))
     expect(box()).toBe('เรียน คุณ สมชาย\nเรื่อง บิลเลขที่ B-0001\n')
   })
 
-  it('not linked: send is off, copy still works, and staff can make a link code with QR + link', async () => {
+  it('not linked: send is off, copy still works, no code or QR here; the customer page link is shown', async () => {
     m.recipient.mockResolvedValue({ success: true, data: { state: 'NOT_LINKED', customer_id: CUSTOMER } })
-    m.code.mockResolvedValue({ success: true, data: { code: 'LINK-ABCDEFGHJK', expires_at: '2026-10-08T10:10:00Z', oaUrl: 'https://line.me/R/oaMessage/%40myshop/?LINK-ABCDEFGHJK' } })
-    await open()
-    await screen.findByText('ลูกค้ายังไม่ได้ผูก LINE กับร้าน')
+    const onClose = await open()
+    expect(await screen.findByText(/ยังไม่ได้ผูก LINE กับร้าน/)).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toContain('ให้ลูกค้าเพิ่มเพื่อน LINE ร้านแล้วพิมพ์ชื่อและเบอร์โทรในแชต หรือส่งลิงก์ผูก LINE จากหน้าลูกค้า')
     expect((screen.getByRole('button', { name: /ส่งทาง LINE/ }) as HTMLButtonElement).disabled).toBe(true)
 
     await act(async () => {
@@ -200,29 +200,16 @@ describe('LineNotifyModal (bill screen)', () => {
     })
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('B-0001'))
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /สร้างรหัสผูก LINE/ }))
-    })
-    expect(m.code).toHaveBeenCalledWith(CUSTOMER)
-    await waitFor(() => expect(screen.getByTestId('line-link-code').textContent).toBe('LINK-ABCDEFGHJK'))
-    expect((screen.getByAltText(/QR/) as HTMLImageElement).src).toContain('data:image/png')
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /คัดลอกลิงก์/ }))
-    })
-    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith('https://line.me/R/oaMessage/%40myshop/?LINK-ABCDEFGHJK')
-    expect(m.send).not.toHaveBeenCalled()
-  })
-
-  it('no shop LINE ID: the code is still shown, with a hint where to set the LINE ID', async () => {
-    m.recipient.mockResolvedValue({ success: true, data: { state: 'NOT_LINKED', customer_id: CUSTOMER } })
-    m.code.mockResolvedValue({ success: true, data: { code: 'LINK-ABCDEFGHJK', expires_at: '2026-10-08T10:10:00Z', oaUrl: null } })
-    await open()
-    await screen.findByText('ลูกค้ายังไม่ได้ผูก LINE กับร้าน')
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /สร้างรหัสผูก LINE/ }))
-    })
-    await waitFor(() => expect(screen.getByText(/ใส่ LINE ID ของร้าน/)).toBeTruthy())
+    // the link code / QR left this screen: no button, no image, never asked for
+    expect(screen.queryByRole('button', { name: /รหัสผูก LINE/ })).toBeNull()
     expect(screen.queryByAltText(/QR/)).toBeNull()
+    expect(m.code).not.toHaveBeenCalled()
+
+    const link = screen.getByRole('link', { name: /ไปหน้าลูกค้า/ }) as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe(`/customers?customer=${CUSTOMER}`)
+    fireEvent.click(link)
+    expect(onClose).toHaveBeenCalled()
+    expect(m.send).not.toHaveBeenCalled()
   })
 
   it('no LINE system yet (database not ready): copy-only, with the reason shown', async () => {

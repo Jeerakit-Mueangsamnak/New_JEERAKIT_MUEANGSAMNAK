@@ -4,7 +4,7 @@
  * then the cache is reloaded. Quotations never move stock or money.
  */
 import { Quotation, QuotationStatus, Customer, Product } from '@/lib/types/rental-pos'
-import { CartItem, cartLineListPrice } from '@/features/pos/services/cart-storage'
+import { CartItem, cartLineListPrice, isSaleCartItem } from '@/features/pos/services/cart-storage'
 import { validateProductMode } from '@/features/products/services/product-storage'
 import {
   fetchQuotationsFromSupabase as fetchQuotationsFromRepository,
@@ -37,24 +37,62 @@ export function generateQuotationNo(): string {
   return 'ร่างใบเสนอราคา'
 }
 
+/** Statuses still waiting for the customer's answer (filter "รอยืนยัน"). */
+export const QUOTATION_WAITING_STATUSES: QuotationStatus[] = ['DRAFT', 'SENT', 'WAITING']
+
 /**
- * Saves a quotation made in POS: a new or still-DRAFT quotation is saved as a draft and sent
- * (gets its number). Returns the fresh list.
+ * List badge + what the row may do. CONVERTED / REJECTED are final on the server: no accept,
+ * no edit, no cancel (copy is always allowed). Quotations have no expiry (owner 2026-10-18);
+ * an old EXPIRED row is shown as closed.
  */
-export async function addQuotation(incoming: Quotation): Promise<Quotation[]> {
+export function quotationStatusView(status: QuotationStatus): {
+  label: string
+  tone: 'accepted' | 'converted' | 'closed' | 'waiting'
+  actionable: boolean
+  editable: boolean
+  cancellable: boolean
+} {
+  if (status === 'ACCEPTED') return { label: 'ตอบรับแล้ว', tone: 'accepted', actionable: true, editable: true, cancellable: true }
+  if (status === 'CONVERTED') return { label: 'เปิดบิลแล้ว', tone: 'converted', actionable: false, editable: false, cancellable: false }
+  if (status === 'REJECTED' || status === 'CANCELLED' || status === 'EXPIRED') {
+    return { label: 'ยกเลิกแล้ว', tone: 'closed', actionable: false, editable: false, cancellable: false }
+  }
+  return { label: 'รอยืนยัน', tone: 'waiting', actionable: true, editable: true, cancellable: true }
+}
+
+/**
+ * Rounds (NORMAL) or billable days (DAILY) of a cart line, as checkout reads them; 1 for a sale.
+ * A NORMAL line keeps billableDays = 1, so it must not win over usageCount.
+ */
+export function quotationPeriodOf(item: Pick<CartItem, 'rentalType' | 'itemType' | 'usageCount' | 'billableDays' | 'product'>): number {
+  if (isSaleCartItem(item)) return 1
+  const n = item.rentalType === 'DAILY' ? item.billableDays : item.usageCount
+  return Math.max(1, Number(n) || 1)
+}
+
+/**
+ * Saves a quotation made in POS and sends it (number assigned once, kept on later edits).
+ * `incoming.id` of an existing, still editable quotation revises it in place; any other id
+ * (a new or copied quotation) creates a new one. Returns the saved quotation's id.
+ */
+export async function addQuotation(incoming: Quotation): Promise<string> {
   const existing = loadQuotations().find((q) => q.id === incoming.id)
-  const id = await saveQuotationDraft(incoming, existing?.status === 'DRAFT')
+  const id = await saveQuotationDraft(incoming, Boolean(existing && quotationStatusView(existing.status).editable))
   await sendQuotation(id)
-  return fetchQuotationsFromSupabase()
+  await fetchQuotationsFromSupabase()
+  return id
 }
 
 /** Status change from the quotations screen. CANCELLED in the app = REJECTED on the server. */
 export async function updateQuotationStatus(id: string, status: QuotationStatus, remark?: string): Promise<Quotation[]> {
   const q = getQuotationById(id)
   if (!q) throw new Error('ไม่พบใบเสนอราคา')
-  if (q.status === 'DRAFT' && status !== 'DRAFT') await sendQuotation(q.id)
-  if (status === 'ACCEPTED' || status === 'EXPIRED') await setQuotationStatus(q.id, status, remark)
-  else if (status === 'REJECTED' || status === 'CANCELLED') await setQuotationStatus(q.id, 'REJECTED', remark)
+  if (status === 'ACCEPTED') {
+    if (q.status === 'DRAFT') await sendQuotation(q.id)
+    await setQuotationStatus(q.id, 'ACCEPTED', remark)
+  } else if (status === 'REJECTED' || status === 'CANCELLED') {
+    await setQuotationStatus(q.id, 'REJECTED', remark)
+  }
   return fetchQuotationsFromSupabase()
 }
 
@@ -66,6 +104,7 @@ export interface QuotationToPosValues {
   shippingAddress: string
   rentalStartDate: string
   rentalEndDate: string
+  documentDate: string
 }
 
 export interface QuotationToPosResult {
@@ -133,7 +172,9 @@ export function mapQuotationToPos(
       billableDays: qItem.usageCountOrDays || 1,
       dailyStartDate: qItem.dailyStartDate,
       dailyEndDate: qItem.dailyEndDate,
-      lineTotal: qItem.lineTotal,
+      // The saved line total is already net of its share of the quotation discount, and the same
+      // discount comes back as the bill discount below — so the cart line carries the gross amount.
+      lineTotal: Math.round(qItem.unitPrice * qItem.quantity * (isSale ? 1 : Math.max(1, qItem.usageCountOrDays || 1)) * 100) / 100,
     }
   })
 
@@ -142,10 +183,11 @@ export function mapQuotationToPos(
     discount: quote.discountAmount,
     shippingFee: quote.shippingFee,
     depositAmount: quote.depositAmount,
-    vatEnabled: quote.taxAmount > 0,
+    vatEnabled: quote.vatEnabled ?? quote.taxAmount > 0,
     shippingAddress: quote.siteName || quote.customerAddress || '',
     rentalStartDate: quote.rentalStartDate,
     rentalEndDate: quote.rentalEndDate,
+    documentDate: quote.quotationDate,
   }
 
   return { quotationId: quote.id, quotationNo: quote.quotationNo, customer, cartItems, values }

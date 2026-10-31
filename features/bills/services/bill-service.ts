@@ -500,6 +500,18 @@ export async function createContinuation(opts: {
 }
 
 async function refreshAfterChange(billId: string): Promise<FullBill | null> {
-  const bills = await refreshBillsCache()
+  // Money moves with bill commands (payment, refund, void ...): the finance statement,
+  // reports and dashboard read the finance cache, so it is reloaded together with the bills.
+  const [bills] = await Promise.all([refreshBillsCache(), refreshFinanceCache()])
   return bills.find((b) => b.id === billId) ?? null
+}
+
+async function refreshFinanceCache(): Promise<void> {
+  try {
+    const { fetchTransactionsFromSupabase } = await import('@/features/finance/services/finance-storage')
+    await fetchTransactionsFromSupabase()
+  } catch (err) {
+    // The bill command already succeeded; a stale statement must not turn it into an error.
+    console.error('Finance refresh after bill change failed:', err)
+  }
 }

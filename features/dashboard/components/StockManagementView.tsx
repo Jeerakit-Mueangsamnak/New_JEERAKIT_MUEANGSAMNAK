@@ -36,25 +36,25 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
         {/* 1. สต็อกพร้อมใช้ */}
         <div className="p-2 bg-emerald-50/60 dark:bg-emerald-950/30 rounded-2xl border border-emerald-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">สต็อกพร้อมใช้</span>
-            <div className="w-6 h-6 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">สต็อกพร้อมใช้</span>
+            <div className="w-6 h-6 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0">
               <Boxes className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
-              <span className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">
+              <span className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 font-mono">
                 {metrics.availableStock.toLocaleString()}
               </span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">จำนวนคงเหลือปัจจุบันจาก Supabase</span>
+            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">จำนวนคงเหลือปัจจุบันจาก Supabase</span>
           </div>
         </div>
 
         {/* 2. สินค้าที่กำลังเช่า / จอง */}
         <div className="p-2 bg-blue-50/60 dark:bg-blue-950/30 rounded-2xl border border-blue-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">สินค้าที่กำลังเช่า / จอง</span>
+            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">สินค้าที่กำลังเช่า / จอง</span>
             <div className="w-6 h-6 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
               <Truck className="w-3.5 h-3.5" />
             </div>
@@ -65,32 +65,32 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
                 {metrics.rentedOrReservedStock.toLocaleString()}
               </span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">อยู่ระหว่างการใช้งาน</span>
+            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">อยู่ระหว่างการใช้งาน</span>
           </div>
         </div>
 
         {/* 3. สินค้าชำรุด / สูญหาย */}
         <div className="p-2 bg-rose-50/60 dark:bg-rose-950/30 rounded-2xl border border-rose-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">สินค้าชำรุด / สูญหาย</span>
-            <div className="w-6 h-6 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">สินค้าชำรุด / สูญหาย</span>
+            <div className="w-6 h-6 rounded-lg bg-rose-500/10 text-rose-700 dark:text-rose-400 flex items-center justify-center shrink-0">
               <AlertTriangle className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
-              <span className="text-base sm:text-lg font-black text-rose-600 dark:text-rose-400 font-mono">
+              <span className="text-base sm:text-lg font-black text-rose-700 dark:text-rose-400 font-mono">
                 {metrics.damagedOrLostStock.toLocaleString()}
               </span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">ต้องตรวจสอบ / ซ่อมแซม</span>
+            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ต้องตรวจสอบ / ซ่อมแซม</span>
           </div>
         </div>
 
         {/* 4. การจองสินค้า */}
         <div className="p-2 bg-purple-50/60 dark:bg-purple-950/30 rounded-2xl border border-purple-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">รายการรอส่งมอบตามบิล</span>
+            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">รายการรอส่งมอบตามบิล</span>
             <div className="w-6 h-6 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
               <Calendar className="w-3.5 h-3.5" />
             </div>
@@ -101,38 +101,38 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
                 {metrics.pendingBillDeliveryItemCount.toLocaleString()}
               </span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">สินค้าที่บิลยืนยันแล้วแต่ยังส่งไม่ครบ</span>
+            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">สินค้าที่บิลยืนยันแล้วแต่ยังส่งไม่ครบ</span>
           </div>
         </div>
 
         {/* 5. งานที่ต้องจัดการเร่งด่วน */}
         <div className="p-2 bg-amber-50/60 dark:bg-amber-950/30 rounded-2xl border border-amber-500/20 shadow-xs flex flex-col justify-between col-span-2 sm:col-span-1">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">งานที่ต้องจัดการเร่งด่วน</span>
+            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">งานที่ต้องจัดการเร่งด่วน</span>
             <div className="flex items-center gap-1">
               {onRefresh && (
                 <button
                   type="button"
                   onClick={onRefresh}
-                  className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                  className="p-1 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
                   title="รีเฟรชข้อมูล"
                   aria-label="รีเฟรชข้อมูล"
                 >
                   <RefreshCw className="w-3 h-3" />
                 </button>
               )}
-              <div className="w-6 h-6 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+              <div className="w-6 h-6 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 flex items-center justify-center shrink-0">
                 <AlertOctagon className="w-3.5 h-3.5" />
               </div>
             </div>
           </div>
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
-              <span className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400 font-mono">
+              <span className="text-base sm:text-lg font-black text-amber-700 dark:text-amber-400 font-mono">
                 {urgentCount.toLocaleString()}
               </span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">ต้องดำเนินการทันที</span>
+            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ต้องดำเนินการทันที</span>
           </div>
         </div>
       </div>
@@ -148,7 +148,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
                 สัดส่วนสถานะสต็อกทั้งหมด
               </h3>
             </div>
-            <p className="text-[9.5px] text-slate-400 mt-0.5">
+            <p className="text-[9.5px] text-slate-600 dark:text-slate-400 mt-0.5">
               ภาพรวมสถานะของสินค้าคงเหลือทั้งหมดในระบบ
             </p>
           </div>
@@ -170,7 +170,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
                   ปริมาณสินค้าตามหมวดหมู่
                 </h3>
               </div>
-              <p className="text-[9.5px] text-slate-400 mt-0.5">
+              <p className="text-[9.5px] text-slate-600 dark:text-slate-400 mt-0.5">
                 จำนวนสินค้าทั้งหมด แยกตามประเภทหมวดหมู่
               </p>
             </div>
@@ -179,7 +179,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
             </span>
           </div>
           {metrics.categoryStockData.length === 0 ? (
-            <div className="py-8 text-center text-xs text-slate-400">ยังไม่มีข้อมูลหมวดหมู่</div>
+            <div className="py-8 text-center text-xs text-slate-600 dark:text-slate-400">ยังไม่มีข้อมูลหมวดหมู่</div>
           ) : (
             <CategoryHorizontalBarChart data={metrics.categoryStockData} />
           )}
@@ -206,7 +206,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
           </div>
 
           {metrics.topRentedProducts.length === 0 ? (
-            <div className="py-6 text-center text-xs text-slate-400">ยังไม่มีข้อมูลการเช่า</div>
+            <div className="py-6 text-center text-xs text-slate-600 dark:text-slate-400">ยังไม่มีข้อมูลการเช่า</div>
           ) : (
             <div className="space-y-1.5">
               {metrics.topRentedProducts.map((p, idx) => (
@@ -237,7 +237,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
                 กำหนดส่ง/คืนตามบิล
               </h3>
             </div>
-            <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 font-bold">
+            <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 font-bold">
               7 วันล่าสุด
             </span>
           </div>
@@ -276,10 +276,10 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
             {/* 1. สินค้าชำรุด (รอซ่อม) */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 min-w-0">
-                <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400 shrink-0" />
                 <span className="text-slate-700 dark:text-slate-200 truncate">สินค้าชำรุด (รอซ่อม)</span>
               </div>
-              <span className="font-mono font-black text-rose-600 dark:text-rose-400 shrink-0">
+              <span className="font-mono font-black text-rose-700 dark:text-rose-400 shrink-0">
                 {metrics.stockAlertsSummary.damagedCount}
               </span>
             </div>
@@ -287,10 +287,10 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
             {/* 2. สต็อกใกล้หมด */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 min-w-0">
-                <AlertOctagon className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <AlertOctagon className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" />
                 <span className="text-slate-700 dark:text-slate-200 truncate">ถึงจุดสั่งซื้อของสินค้า</span>
               </div>
-              <span className="font-mono font-black text-amber-600 dark:text-amber-400 shrink-0">
+              <span className="font-mono font-black text-amber-700 dark:text-amber-400 shrink-0">
                 {metrics.stockAlertsSummary.lowStockCount}
               </span>
             </div>
@@ -298,10 +298,10 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
             {/* 3. ครบกำหนดคืน (เกินกำหนด) */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 min-w-0">
-                <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <Clock className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" />
                 <span className="text-slate-700 dark:text-slate-200 truncate">ครบกำหนดคืน (เกินกำหนด)</span>
               </div>
-              <span className="font-mono font-black text-amber-600 dark:text-amber-400 shrink-0">
+              <span className="font-mono font-black text-amber-700 dark:text-amber-400 shrink-0">
                 {metrics.stockAlertsSummary.overdueCount}
               </span>
             </div>
@@ -309,7 +309,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
             {/* 4. รายการจองรอรับเข้า */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 min-w-0">
-                <Calendar className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                <Calendar className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
                 <span className="text-slate-700 dark:text-slate-200 truncate">รายการรอส่งมอบตามบิล</span>
               </div>
               <span className="font-mono font-black text-purple-600 dark:text-purple-400 shrink-0">
@@ -320,7 +320,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
             {/* 5. รายการรอส่งมอบ */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 min-w-0">
-                <Info className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                <Info className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
                 <span className="text-slate-700 dark:text-slate-200 truncate">รายการรอส่งมอบ</span>
               </div>
               <span className="font-mono font-black text-blue-600 dark:text-blue-400 shrink-0">
@@ -338,7 +338,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
         header={
           <div className="flex items-center justify-between mb-2 shrink-0">
             <div className="flex items-center gap-2">
-              <AlertOctagon className="w-3.5 h-3.5 text-amber-500" />
+              <AlertOctagon className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
               <h3 className="text-xs font-black text-slate-800 dark:text-slate-100">
                 รายการงานสต็อกเร่งด่วน
               </h3>
@@ -367,14 +367,14 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
             {metrics.stockUrgentList.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-xs text-slate-400">
+                <td colSpan={7} className="py-8 text-center text-xs text-slate-600 dark:text-slate-400">
                   ไม่มีรายการงานสต็อกเร่งด่วน สต็อกพร้อมใช้งาน
                 </td>
               </tr>
             ) : (
               metrics.stockUrgentList.map((item) => (
                 <tr key={item.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-700/30 transition-colors">
-                  <td className="px-2 font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                  <td className="px-2 font-mono text-[11px] text-slate-600 dark:text-slate-400 whitespace-nowrap">
                     {item.time}
                   </td>
                   <td className="px-2 whitespace-nowrap">
@@ -397,7 +397,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
                   <td className="px-2 text-slate-600 dark:text-slate-400 whitespace-nowrap">
                     {item.assignee}
                   </td>
-                  <td className="px-2 text-slate-400 text-[10.5px] truncate max-w-xs">
+                  <td className="px-2 text-slate-600 dark:text-slate-400 text-[10.5px] truncate max-w-xs">
                     {item.remark}
                   </td>
                 </tr>

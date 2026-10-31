@@ -36,30 +36,30 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
               <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
               รายรับรวม
             </span>
-            <div className="p-1 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+            <div className="p-1 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
               <ArrowUpRight className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-emerald-700 dark:text-emerald-400">
-              ฿{formatCurrency(data.totalIncome)}
+              {formatCurrency(data.totalIncome)}
             </div>
-            <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+            <div className="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               <span>{formatNumber(data.incomeCount)} รายการ</span>
               <span className="text-slate-300 dark:text-slate-700">•</span>
               <span
                 className={`font-bold font-mono flex items-center ${
                   data.incomeGrowth === null || data.incomeGrowth >= 0
-                    ? data.incomeGrowth === null ? 'text-slate-500 dark:text-slate-400' : 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-rose-600 dark:text-rose-400'
+                    ? data.incomeGrowth === null ? 'text-slate-600 dark:text-slate-400' : 'text-emerald-700 dark:text-emerald-400'
+                    : 'text-rose-700 dark:text-rose-400'
                 }`}
               >
                 {data.incomeGrowth === null ? '—' : `${data.incomeGrowth >= 0 ? '+' : ''}${data.incomeGrowth}%`}
               </span>
             </div>
           </div>
-          <div className="text-[9.5px] text-slate-400 font-mono">
-            ช่วงก่อน: ฿{formatCurrency(data.prevTotalIncome)}
+          <div className="text-[9.5px] text-slate-600 dark:text-slate-400 font-mono">
+            ช่วงก่อน: {formatCurrency(data.prevTotalIncome)}
           </div>
         </div>
 
@@ -68,32 +68,32 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-rose-800 dark:text-rose-300 flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
-              รายจ่าย / คืนเงิน
+              เงินออก (รายจ่าย + คืนเงิน)
             </span>
-            <div className="p-1 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400">
+            <div className="p-1 rounded-md bg-rose-500/10 text-rose-700 dark:text-rose-400">
               <ArrowDownRight className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-rose-700 dark:text-rose-400">
-              ฿{formatCurrency(data.totalExpense)}
+              {formatCurrency(data.totalExpense)}
             </div>
-            <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+            <div className="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               <span>{formatNumber(data.expenseCount)} รายการ</span>
               <span className="text-slate-300 dark:text-slate-700">•</span>
               <span
                 className={`font-bold font-mono flex items-center ${
                   data.expenseGrowth === null || data.expenseGrowth <= 0
-                    ? data.expenseGrowth === null ? 'text-slate-500 dark:text-slate-400' : 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-rose-600 dark:text-rose-400'
+                    ? data.expenseGrowth === null ? 'text-slate-600 dark:text-slate-400' : 'text-emerald-700 dark:text-emerald-400'
+                    : 'text-rose-700 dark:text-rose-400'
                 }`}
               >
                 {data.expenseGrowth === null ? '—' : `${data.expenseGrowth >= 0 ? '+' : ''}${data.expenseGrowth}%`}
               </span>
             </div>
           </div>
-          <div className="text-[9.5px] text-slate-400 font-mono">
-            ช่วงก่อน: ฿{formatCurrency(data.prevTotalExpense)}
+          <div className="text-[9.5px] text-slate-600 dark:text-slate-400 font-mono">
+            ช่วงก่อน: {formatCurrency(data.prevTotalExpense)}
           </div>
         </div>
 
@@ -117,9 +117,9 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
               รายรับสุทธิ
             </span>
             {isNetPositive ? (
-              <TrendingUp className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <TrendingUp className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
             ) : (
-              <TrendingDown className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+              <TrendingDown className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400" />
             )}
           </div>
           <div className="my-1">
@@ -130,23 +130,23 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
                   : 'text-rose-700 dark:text-rose-400'
               }`}
             >
-              ฿{formatCurrency(data.netIncome)}
+              {formatCurrency(data.netIncome)}
             </div>
-            <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+            <div className="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               <span>เติบโต:</span>
               <span
                 className={`font-bold font-mono ${
                   data.netIncomeGrowth === null || data.netIncomeGrowth >= 0
-                    ? data.netIncomeGrowth === null ? 'text-slate-500 dark:text-slate-400' : 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-rose-600 dark:text-rose-400'
+                    ? data.netIncomeGrowth === null ? 'text-slate-600 dark:text-slate-400' : 'text-emerald-700 dark:text-emerald-400'
+                    : 'text-rose-700 dark:text-rose-400'
                 }`}
               >
                 {data.netIncomeGrowth === null ? '—' : `${data.netIncomeGrowth >= 0 ? '+' : ''}${data.netIncomeGrowth}%`}
               </span>
             </div>
           </div>
-          <div className="text-[9.5px] text-slate-400 font-mono">
-            ช่วงก่อน: ฿{formatCurrency(data.prevNetIncome)}
+          <div className="text-[9.5px] text-slate-600 dark:text-slate-400 font-mono">
+            ช่วงก่อน: {formatCurrency(data.prevNetIncome)}
           </div>
         </div>
 
@@ -154,22 +154,22 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
         <div className="p-2 rounded-xl border border-amber-500/20 bg-amber-50/50 dark:bg-amber-950/20 flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1">
-              <AlertCircle className="w-3 h-3 text-amber-500" />
+              <AlertCircle className="w-3 h-3 text-amber-700 dark:text-amber-400" />
               ลูกหนี้ค้าง
             </span>
-            <div className="p-1 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
+            <div className="p-1 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400">
               <Receipt className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-amber-700 dark:text-amber-400">
-              ฿{formatCurrency(data.totalOutstanding)}
+              {formatCurrency(data.totalOutstanding)}
             </div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+            <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               ค้างชำระ {formatNumber(data.debtorCount)} บิล
             </div>
           </div>
-          <div className="text-[9.5px] text-amber-600/80 dark:text-amber-400/80 font-bold">
+          <div className="text-[9.5px] text-amber-800 dark:text-amber-400 font-bold">
             {data.debtorCount > 0 ? 'รอติดตามเรียกเก็บ' : 'ไม่มีหนี้ค้าง'}
           </div>
         </div>
@@ -178,7 +178,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
         <div className="col-span-2 md:col-span-1 p-2 rounded-xl border border-purple-500/20 bg-purple-50/50 dark:bg-purple-950/20 flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-purple-800 dark:text-purple-300 flex items-center gap-1">
-              <ShieldCheck className="w-3 h-3 text-purple-500" />
+              <ShieldCheck className="w-3 h-3 text-purple-600 dark:text-purple-400" />
               ยอดมัดจำตามบิล
             </span>
             <div className="p-1 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400">
@@ -187,16 +187,13 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-purple-700 dark:text-purple-400">
-              ฿{formatCurrency(data.billDepositAmount)}
+              {formatCurrency(data.billDepositAmount)}
             </div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate">
+            <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium truncate">
               ระบุใน {formatNumber(data.billsWithDepositCount)} บิล
             </div>
           </div>
-          <div className="text-[9.5px] text-slate-400 font-mono flex items-center justify-between">
-            <span>รับ: ฿{formatNumber(data.depositReceived)}</span>
-            <span>คืน: ฿{formatNumber(data.depositRefunded)}</span>
-          </div>
+          <div className="text-[9.5px] text-slate-600 dark:text-slate-400 truncate">ข้อมูลประกอบ ไม่ใช่รายรับ</div>
         </div>
       </div>
 
@@ -211,7 +208,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
                 กราฟรายรับ / รายจ่าย / สุทธิย้อนหลัง
               </h3>
             </div>
-            <span className="text-[10px] text-slate-400">เปรียบเทียบตามช่วงเวลา</span>
+            <span className="text-[10px] text-slate-600 dark:text-slate-400">เปรียบเทียบตามช่วงเวลา</span>
           </div>
           <div className="flex-1 min-h-40">
             <ReportAreaTrendChart
@@ -243,7 +240,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
                 ช่องทางรับเงิน
               </h3>
             </div>
-            <span className="text-[10px] text-slate-400">สัดส่วนรายรับ</span>
+            <span className="text-[10px] text-slate-600 dark:text-slate-400">สัดส่วนรายรับ</span>
           </div>
 
           <div className="flex-1 flex items-center justify-center py-1">
@@ -257,16 +254,16 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
                 }))}
                 size={120}
                 centerTitle="รายรับรวม"
-                valuePrefix="฿"
+                valuePrefix=""
               />
             ) : (
-              <div className="text-xs text-slate-400 py-8 text-center">
+              <div className="text-xs text-slate-600 dark:text-slate-400 py-8 text-center">
                 ยังไม่มีข้อมูลช่องทางรับเงิน
               </div>
             )}
           </div>
 
-          <div className="text-[10px] text-slate-400 border-t border-slate-100 dark:border-slate-800/80 pt-1.5 flex justify-between">
+          <div className="text-[10px] text-slate-600 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800/80 pt-1.5 flex justify-between">
             <span>จำนวนช่องทางทั้งหมด</span>
             <span className="font-bold text-slate-700 dark:text-slate-300">
               {data.paymentChannels.length} ช่องทาง
@@ -275,8 +272,8 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
         </div>
       </div>
 
-      {/* ─── 3. DETAILS: ลูกหนี้ค้าง & การจัดการเงินมัดจำ (Topics 7 & 8) ────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+      {/* ─── 3. DETAILS: ลูกหนี้ค้าง, รายได้ตามประเภท & เงินมัดจำ (Topics 7, 8, §31) ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
         {/* ลูกหนี้ค้างชำระ (Topic 7) */}
         <DataTableFrame
           rowCount={data.debtorBills.length}
@@ -284,31 +281,31 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
           header={
             <div className="flex items-center justify-between mb-2 shrink-0">
               <div className="flex items-center gap-1.5">
-                <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+                <AlertCircle className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
                 <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">
                   รายการลูกหนี้ค้างชำระ ({data.debtorCount} รายการ)
                 </h3>
               </div>
-              <span className="text-[11px] font-bold font-mono text-amber-600 dark:text-amber-400">
-                รวม ฿{formatCurrency(data.totalOutstanding)}
+              <span className="text-[11px] font-bold font-mono text-amber-700 dark:text-amber-400">
+                รวม {formatCurrency(data.totalOutstanding)}
               </span>
             </div>
           }
         >
           <table className="w-full text-left border-collapse text-[11px]">
             <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
+              <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400">
                 <th className="px-1.5">เลขที่บิล</th>
                 <th className="px-1.5">ลูกค้า</th>
                 <th className="px-1.5 text-right">ยอดรวม</th>
-                <th className="px-1.5 text-right text-amber-600">ยอดค้าง</th>
+                <th className="px-1.5 text-right text-amber-800 dark:text-amber-400">ยอดค้าง</th>
                 <th className="px-1.5 text-center">สถานะ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
               {data.debtorBills.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-xs text-slate-400">
+                  <td colSpan={5} className="py-8 text-center text-xs text-slate-600 dark:text-slate-400">
                     ไม่มีลูกหนี้ค้างชำระ ยอดเงินสมบูรณ์ครบถ้วน
                   </td>
                 </tr>
@@ -321,24 +318,24 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
                     <td className="px-1.5 max-w-[120px] truncate text-slate-700 dark:text-slate-300">
                       <div>{b.customerName}</div>
                       {b.customerPhone && (
-                        <div className="text-[9.5px] text-slate-400 font-mono">
+                        <div className="text-[9.5px] text-slate-600 dark:text-slate-400 font-mono">
                           {b.customerPhone}
                         </div>
                       )}
                     </td>
                     <td className="px-1.5 font-mono text-right text-slate-600 dark:text-slate-400">
-                      ฿{formatNumber(b.grandTotal)}
+                      {formatNumber(b.grandTotal)}
                     </td>
-                    <td className="px-1.5 font-mono font-bold text-right text-amber-600 dark:text-amber-400">
-                      ฿{formatCurrency(b.outstandingAmount)}
+                    <td className="px-1.5 font-mono font-bold text-right text-amber-700 dark:text-amber-400">
+                      {formatCurrency(b.outstandingAmount)}
                     </td>
                     <td className="px-1.5 text-center">
                       {b.daysOverdue > 0 ? (
-                        <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400">
+                        <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-rose-500/10 text-rose-700 dark:text-rose-400">
                           เกิน {b.daysOverdue} วัน
                         </span>
                       ) : (
-                        <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                        <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400">
                           รอชำระ
                         </span>
                       )}
@@ -350,47 +347,48 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
           </table>
         </DataTableFrame>
 
+        {/* รายได้ตามประเภท (Master §31 Revenue per Mode) — from the finance ledger */}
+        <div className="p-2 rounded-xl border border-emerald-500/20 bg-white dark:bg-slate-900 shadow-xs flex flex-col">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1.5">
+              <Receipt className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
+              <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">รายได้ตามประเภท</h3>
+            </div>
+            <span className="text-[11px] font-bold font-mono text-emerald-700 dark:text-emerald-400">
+              {formatCurrency(data.revenueTotal)}
+            </span>
+          </div>
+          {data.revenueByClass.length === 0 ? (
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 py-4 text-center">ยังไม่มีรายได้ในช่วงเวลานี้</p>
+          ) : (
+            <div className="space-y-1 text-[11px]">
+              {data.revenueByClass.map((r) => (
+                <div key={r.revenueClass} className="flex justify-between gap-2">
+                  <span className="text-slate-600 dark:text-slate-300 truncate">{r.label}</span>
+                  <span className={`font-bold font-mono tabular-nums ${r.amount < 0 ? 'text-rose-700 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                    {r.amount < 0 ? '-' : ''}{formatCurrency(Math.abs(r.amount))}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="mt-auto pt-2 text-[9.5px] text-slate-600 dark:text-slate-400">
+            นับตามวันที่ยืนยันบิล / ยืนยันค่าใช้จ่ายเพิ่ม / บันทึกรายรับอื่น ไม่รวม VAT และไม่รวมมัดจำ — ต่างจากรายรับด้านบนที่นับตามเงินที่รับจริง
+          </p>
+        </div>
+
         {/* รายงานเงินมัดจำ (Topic 8) */}
         <div className="p-2 rounded-xl border border-purple-500/20 bg-white dark:bg-slate-900 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-purple-500" />
+              <ShieldCheck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
               <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                สรุปความเคลื่อนไหวเงินมัดจำ
+                เงินมัดจำตามบิล
               </h3>
             </div>
             <span className="text-[11px] font-bold font-mono text-purple-600 dark:text-purple-400">
-              ยอดตามบิล ฿{formatCurrency(data.billDepositAmount)}
+              ยอดตามบิล {formatCurrency(data.billDepositAmount)}
             </span>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 my-1">
-            <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-center">
-              <div className="text-[10px] text-emerald-700 dark:text-emerald-300 font-bold">
-                รับมัดจำในงวด
-              </div>
-              <div className="text-sm font-black font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
-                ฿{formatCurrency(data.depositReceived)}
-              </div>
-            </div>
-
-            <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-center">
-              <div className="text-[10px] text-rose-700 dark:text-rose-300 font-bold">
-                คืนมัดจำในงวด
-              </div>
-              <div className="text-sm font-black font-mono text-rose-600 dark:text-rose-400 mt-0.5">
-                ฿{formatCurrency(data.depositRefunded)}
-              </div>
-            </div>
-
-            <div className="p-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-center">
-              <div className="text-[10px] text-purple-700 dark:text-purple-300 font-bold">
-                มัดจำสุทธิในงวด
-              </div>
-              <div className="text-sm font-black font-mono text-purple-600 dark:text-purple-400 mt-0.5">
-                ฿{formatCurrency(data.netDepositChange)}
-              </div>
-            </div>
           </div>
 
           <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 text-[10.5px] text-slate-600 dark:text-slate-300 space-y-1 mt-1">
@@ -402,7 +400,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
             </div>
             <div className="flex justify-between">
               <span>สถานะการคืนเงินมัดจำ:</span>
-              <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+              <span className="text-emerald-700 dark:text-emerald-400 font-bold">
                 การคืนหรือหักเงินจริงจัดการที่หน้าร้าน
               </span>
             </div>
@@ -417,12 +415,12 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
         header={
           <div className="flex items-center justify-between mb-2 shrink-0">
             <div className="flex items-center gap-1.5">
-              <Receipt className="w-3.5 h-3.5 text-slate-500" />
+              <Receipt className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
               <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">
                 ตารางรายละเอียดธุรกรรมการเงิน ({data.transactions.length} รายการ)
               </h3>
             </div>
-            <span className="text-[10px] text-slate-400">เรียงตามวันที่ล่าสุด</span>
+            <span className="text-[10px] text-slate-600 dark:text-slate-400">เรียงตามวันที่ล่าสุด</span>
           </div>
         }
       >
@@ -434,10 +432,10 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
               <th className="px-2">หมวดหมู่</th>
               <th className="px-2">รายละเอียด / ลูกค้า</th>
               <th className="px-2">ช่องทาง</th>
-              <th className="px-2 text-right text-emerald-600">
+              <th className="px-2 text-right text-emerald-800 dark:text-emerald-400">
                 รายรับ
               </th>
-              <th className="px-2 text-right text-rose-600">
+              <th className="px-2 text-right text-rose-700 dark:text-rose-400">
                 รายจ่าย
               </th>
               <th className="px-2 text-right">ยอดสะสม</th>
@@ -446,7 +444,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
             {data.transactions.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-xs text-slate-400">
+                <td colSpan={8} className="py-8 text-center text-xs text-slate-600 dark:text-slate-400">
                   ยังไม่มีข้อมูลธุรกรรมในช่วงเวลานี้
                 </td>
               </tr>
@@ -467,7 +465,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
                   <td className="px-2 max-w-[200px] truncate text-slate-700 dark:text-slate-300">
                     <div>{t.description}</div>
                     {t.customerName && (
-                      <div className="text-[9.5px] text-slate-400">{t.customerName}</div>
+                      <div className="text-[9.5px] text-slate-600 dark:text-slate-400">{t.customerName}</div>
                     )}
                   </td>
                   <td className="px-2 whitespace-nowrap">
@@ -475,14 +473,14 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
                       {t.channel || 'โอนเงิน'}
                     </span>
                   </td>
-                  <td className="px-2 font-mono font-bold text-right text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                    {t.incomeAmount > 0 ? `+฿${formatCurrency(t.incomeAmount)}` : '-'}
+                  <td className="px-2 font-mono font-bold text-right text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                    {t.incomeAmount > 0 ? `+${formatCurrency(t.incomeAmount)}` : '-'}
                   </td>
-                  <td className="px-2 font-mono font-bold text-right text-rose-600 dark:text-rose-400 whitespace-nowrap">
-                    {t.expenseAmount > 0 ? `-฿${formatCurrency(t.expenseAmount)}` : '-'}
+                  <td className="px-2 font-mono font-bold text-right text-rose-700 dark:text-rose-400 whitespace-nowrap">
+                    {t.expenseAmount > 0 ? `-${formatCurrency(t.expenseAmount)}` : '-'}
                   </td>
                   <td className="px-2 font-mono text-right text-slate-600 dark:text-slate-300 whitespace-nowrap">
-                    ฿{formatCurrency(t.runningBalance)}
+                    {formatCurrency(t.runningBalance)}
                   </td>
                 </tr>
               ))

@@ -36,6 +36,12 @@ const MESSAGES: Array<[RegExp, string]> = [
   [/^PRODUCT_CANNOT_SELL/, 'สินค้านี้ตั้งค่าให้เช่าอย่างเดียว ยังไม่เปิดขาย'],
   [/^PRODUCT_CANNOT_RENT/, 'สินค้านี้ตั้งค่าให้ขายอย่างเดียว ไม่เปิดให้เช่า'],
   [/^QUOTATION_NOT_CONVERTIBLE/, 'ใบเสนอราคานี้แปลงเป็นบิลไม่ได้ (ถูกใช้ไปแล้วหรือหมดอายุ)'],
+  [/^QUOTATION_STATUS_TRANSITION/, 'สถานะใบเสนอราคานี้เปลี่ยนแบบนี้ไม่ได้ (อาจถูกยกเลิกหรือเปิดบิลไปแล้ว)'],
+  [/^QUOTATION_NOT_DRAFT|^QUOTATION_ITEMS_LOCKED|^QUOTATION_NOT_EDITABLE/, 'ใบเสนอราคานี้เปิดบิลหรือยกเลิกไปแล้ว แก้ไขไม่ได้ — ใช้คัดลอกเป็นใบใหม่แทน'],
+  [/^DOCUMENT_DATE_IN_FUTURE/, 'วันที่เอกสารต้องไม่อยู่ในอนาคต'],
+  [/^QUOTATION_EMPTY/, 'ใบเสนอราคายังไม่มีรายการสินค้า'],
+  [/^QUOTATION_NOT_FOUND/, 'ไม่พบใบเสนอราคา'],
+  [/^EXPENSE_NOT_VOIDABLE|^OTHER_INCOME_NOT_VOIDABLE/, 'รายการนี้ถูกยกเลิกไปแล้ว หรือไม่พบรายการ'],
   [/^CUSTOMER_REQUIRED/, 'บิลเช่าต้องเลือกลูกค้า'],
   [/^CUSTOMER_INACTIVE/, 'ลูกค้ารายนี้ถูกปิดใช้งาน'],
   [/^PRODUCT_INACTIVE/, 'มีสินค้าที่ปิดใช้งานอยู่ในบิล'],
@@ -52,6 +58,8 @@ const MESSAGES: Array<[RegExp, string]> = [
   [/^TENDERS_REQUIRED/, 'กรุณาระบุช่องทางและจำนวนเงิน'],
   [/^INVALID_METHOD/, 'ช่องทางชำระเงินไม่ถูกต้อง'],
   [/^INVALID_AMOUNT/, 'จำนวนเงินไม่ถูกต้อง'],
+  [/^FEE_TOO_HIGH/, 'ค่าจัดส่งหรือค่าบริการสูงเกินกำหนด (สูงสุด 4,000 บาท)'],
+  [/^PRICE_OUT_OF_RANGE/, 'ราคาสินค้าต่ำหรือสูงเกินไปจากราคาปกติในระบบ'],
   [/^RETURN_EXCEEDS_HELD/, 'จำนวนคืนเกินจำนวนที่ลูกค้ายังถืออยู่'],
   [/^RETURN_BEFORE_DELIVERY/, 'วันรับคืนต้องไม่ก่อนวันส่งของ'],
   [/^DELIVERY_EXCEEDS/, 'จำนวนส่งเกินจำนวนที่จัดสรรไว้'],
@@ -80,12 +88,35 @@ export async function rpc<T = unknown>(fn: string, args: Record<string, unknown>
   // Drop undefined so Postgres defaults apply.
   const clean = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined))
   // The generated Database type is not wired into the client; RPC names are checked by tests instead.
-  const { data, error } = await (supabase.rpc as unknown as (
+  const screen = currentScreen()
+  const call = (supabase.rpc as unknown as (
     name: string,
     params: Record<string, unknown>
-  ) => Promise<{ data: unknown; error: { message: string; code?: string } | null }>)(fn, clean)
-  if (error) throw new DbError(error.message, error.code)
+  ) => PromiseLike<{ data: unknown; error: { message: string; code?: string } | null }> & {
+    setHeader?: (name: string, value: string) => unknown
+  })(fn, clean)
+  // The audit log stores which screen the change came from (public._request_screen).
+  if (screen) call.setHeader?.('x-app-screen', screen)
+  const { data, error } = await call
+  if (error) {
+    // The failed transaction rolled back its own audit row; record the refusal separately.
+    if (!NO_FAILURE_AUDIT.has(fn)) {
+      void supabase.rpc('audit_log_failure', { p_rpc: fn, p_error: error.message, p_screen: screen }).then(
+        () => undefined,
+        () => undefined
+      )
+    }
+    throw new DbError(error.message, error.code)
+  }
   return data as T
+}
+
+/** PIN checks and the failure logger itself are not logged as failed actions. */
+const NO_FAILURE_AUDIT = new Set(['audit_log_failure', 'verify_pin', 'set_pin', 'owner_recover_pin'])
+
+function currentScreen(): string | null {
+  if (typeof window === 'undefined') return null
+  return encodeURI(window.location.pathname).slice(0, 200)
 }
 
 /** Fresh idempotency key per user action (Master §2.5); a retry of the same click reuses it. */

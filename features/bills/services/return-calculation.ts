@@ -36,6 +36,14 @@ function getInclusiveDays(startDate?: string, endDate?: string): number {
 
 const returnedQtyOf = (item: ReturnInspectionItem) => (item.normalQty || 0) + (item.damagedQty || 0)
 
+/** Whole days the actual return date is past the scheduled one (0 when not overdue / not parseable). */
+function computeOverdueDays(scheduledDate?: string, actualDate?: string): number {
+  const scheduledDay = getCalendarDay(scheduledDate)
+  const actualDay = getCalendarDay(actualDate)
+  if (scheduledDay === null || actualDay === null || actualDay <= scheduledDay) return 0
+  return Math.floor((actualDay - scheduledDay) / DAY_IN_MILLISECONDS)
+}
+
 /** Rent for one item as it will stand after this return (preview). */
 export function computeItemRentalCalculation(
   item: ReturnInspectionItem,
@@ -46,19 +54,14 @@ export function computeItemRentalCalculation(
   const scheduledReturnDate = item.scheduledReturnDate || dates?.scheduledReturnDate
   const actualReturnDate = dates?.actualReturnDate ?? item.actualReturnDate
   const actualRentalDays = Math.max(1, getInclusiveDays(rentalStartDate, actualReturnDate))
-  const scheduledDay = getCalendarDay(scheduledReturnDate)
-  const actualDay = getCalendarDay(actualReturnDate)
-  const overdueDays =
-    scheduledDay !== null && actualDay !== null && actualDay > scheduledDay
-      ? Math.floor((actualDay - scheduledDay) / DAY_IN_MILLISECONDS)
-      : 0
+  const overdueDays = computeOverdueDays(scheduledReturnDate, actualReturnDate)
   const periods = Math.max(1, item.usageCount || 1)
   const qty = returnedQtyOf(item) || item.outstandingQty || 0
   const isDaily = item.rentalType === 'DAILY'
   const billedDays = isDaily ? Math.min(periods, actualRentalDays) : periods
   const itemRentalFee = toBaht(multiplySatang(toSatang(item.dailyRate || 0), qty * billedDays))
   const unusedDays = isDaily ? Math.max(0, periods - actualRentalDays) : 0
-  const earlyReturnCredit = toBaht(multiplySatang(toSatang(item.dailyRate || 0), returnedQtyOf(item) * unusedDays))
+  const earlyReturnCredit = toBaht(multiplySatang(toSatang(item.dailyRate || 0), qty * unusedDays))
 
   return {
     actualRentalDays,
@@ -101,12 +104,9 @@ export function computeReturnCalculation(
   const grandTotalCharge = toBaht(addSatang(addSatang(toSatang(persistedGrand), damageTotalSatang), -creditSatang))
   const actualRentalDays = getInclusiveDays(start, actual)
   const scheduledRentalDays = getInclusiveDays(start, scheduled)
+  const lateDays = computeOverdueDays(scheduled, actual)
   const scheduledDay = getCalendarDay(scheduled)
   const actualDay = getCalendarDay(actual)
-  const lateDays =
-    scheduledDay !== null && actualDay !== null && actualDay > scheduledDay
-      ? Math.floor((actualDay - scheduledDay) / DAY_IN_MILLISECONDS)
-      : 0
   const isEarlyReturn = scheduledDay !== null && actualDay !== null && actualDay < scheduledDay
   // > 0: customer still owes; < 0: customer overpaid → refund suggested (a separate PIN act)
   const netAmount = toBaht(addSatang(toSatang(grandTotalCharge), -toSatang(persistedPaid)))

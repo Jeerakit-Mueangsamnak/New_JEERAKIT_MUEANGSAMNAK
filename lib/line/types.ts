@@ -18,7 +18,14 @@ export interface LineButtonsMessage {
   template: { type: 'buttons'; text: string; actions: LineAction[] }
 }
 
-export type LineMessage = LineTextMessage | LineButtonsMessage
+/** Flex message (bubble / carousel). Actions inside are postbacks, https links or tel: only. */
+export interface LineFlexMessage {
+  type: 'flex'
+  altText: string
+  contents: { type: 'bubble' | 'carousel'; [key: string]: unknown }
+}
+
+export type LineMessage = LineTextMessage | LineButtonsMessage | LineFlexMessage
 
 /** Result of one call to LINE (or the mock). Never carries the token or the request body. */
 export interface ProviderResult {
@@ -34,6 +41,8 @@ export interface LineProvider {
   readonly kind: 'mock' | 'http'
   push(input: { to: string; messages: LineMessage[]; retryKey: string }): Promise<ProviderResult>
   reply(input: { replyToken: string; messages: LineMessage[] }): Promise<ProviderResult>
+  /** The LINE display name of a friend of the OA (null when LINE does not answer). */
+  profile?(userId: string): Promise<{ displayName: string } | null>
 }
 
 export const LINE_USER_ID_PATTERN = /^U[0-9a-f]{32}$/

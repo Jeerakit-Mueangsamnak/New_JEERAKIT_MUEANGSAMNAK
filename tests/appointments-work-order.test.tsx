@@ -144,7 +144,12 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
     await screen.findByText('เลยเวลาไม่สั่งงาน')
     const cards = screen.getAllByTestId('kpi-card')
     expect(cards.map((c) => c.firstElementChild!.textContent)).toEqual(['งานวันนี้', expect.stringMatching(/^ใกล้ถึงกำหนด \(\d+ วัน\)$/), 'เลยกำหนด', 'งานเสร็จสิ้น'])
-    expect(cards.map((c) => (c.lastElementChild as HTMLElement).className.match(/text-(\w+)-600/)![1])).toEqual(['blue', 'purple', 'orange', 'emerald'])
+    expect(cards.map((c) => (c.lastElementChild as HTMLElement).className)).toEqual([
+      expect.stringContaining('text-blue-600'),
+      expect.stringContaining('text-purple-600'),
+      expect.stringContaining('text-orange-700'),
+      expect.stringContaining('text-emerald-700'),
+    ])
     // Products card style: light background, border and label in the card's own colour
     for (const [i, tone] of ['blue', 'purple', 'orange', 'emerald'].entries()) {
       expect(cards[i].className).toContain(`bg-${tone}-50`)

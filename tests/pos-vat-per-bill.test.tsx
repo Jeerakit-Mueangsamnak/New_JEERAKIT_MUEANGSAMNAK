@@ -98,7 +98,7 @@ describe('VAT ON/OFF is the state of the current bill, not a shop setting', () =
     mountCheckout(on)
     expect(screen.getByTestId('preview-tax').textContent).toBe(on ? '7' : '0')
     fireEvent.click(screen.getByRole('button', { name: 'เงินสด' }))
-    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิล' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledOnce())
     expect(mocks.saveDraft.mock.calls[0][0]).toMatchObject({ vatEnabled: on })
     expect(mocks.confirm).toHaveBeenCalledWith('bill-1', [expect.objectContaining({ method: 'CASH', amount: 107 })])
@@ -108,15 +108,20 @@ describe('VAT ON/OFF is the state of the current bill, not a shop setting', () =
   it('an old cart without a VAT choice is a bill with VAT off', async () => {
     mountCheckout(undefined)
     expect(screen.getByTestId('preview-tax').textContent).toBe('0')
-    fireEvent.click(screen.getByRole('button', { name: 'บันทึกแบบร่าง (Save Draft)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'แบบร่าง' }))
     await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledOnce())
     expect(mocks.saveDraft.mock.calls[0][0]).toMatchObject({ vatEnabled: false })
   })
 
-  it('quotation mode shows the shop VAT read-only (quotations keep the old server rule)', () => {
-    setCachedSystemSettings({ ...vatShop, taxDiscount: { ...vatShop.taxDiscount, quotationVatEnabled: true } })
-    render(<SystemSettingsProvider><CartPanel onCheckout={vi.fn()} items={[saleItem]} isQuotationMode /></SystemSettingsProvider>)
-    expect(screen.queryByRole('switch', { name: 'เปิด VAT สำหรับบิลนี้' })).toBeNull()
-    expect(screen.getByText('เปิด (ตามค่าของร้าน)')).toBeTruthy()
+  it('quotation mode has its own VAT switch (off at start) and sends the choice when saving', () => {
+    setCachedSystemSettings(vatShop)
+    const onSave = vi.fn()
+    render(<SystemSettingsProvider><CartPanel onCheckout={vi.fn()} items={[saleItem]} isQuotationMode onSaveQuotation={onSave} /></SystemSettingsProvider>)
+    const vatSwitch = screen.getByRole('switch', { name: 'เปิด VAT สำหรับใบเสนอราคานี้' }) as HTMLInputElement
+    expect(vatSwitch.checked).toBe(false)
+    fireEvent.click(vatSwitch)
+    fireEvent.click(screen.getByRole('button', { name: /บันทึกใบเสนอราคา/ }))
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ vatEnabled: true }))
+    expect(onSave.mock.calls[0][0].tax).toBeGreaterThan(0)
   })
 })

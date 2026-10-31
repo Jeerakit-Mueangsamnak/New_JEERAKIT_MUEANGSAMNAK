@@ -10,7 +10,10 @@ vi.mock('@/lib/supabase/client', () => ({
 vi.mock('@/app/actions/line', () => ({ createCustomerLineLinkCode: mocks.code, unlinkLineContact: mocks.unlink }))
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/png;base64,AAA') } }))
 vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: mocks.toast }) }))
-vi.mock('@/components/common/ConfirmDialogProvider', () => ({ useAskText: () => mocks.ask }))
+vi.mock('@/components/common/ConfirmDialogProvider', () => ({
+  useAskText: () => mocks.ask,
+  useConfirm: () => async () => true,
+}))
 
 import { CustomerLineLink } from '@/features/customers/components/CustomerLineLink'
 

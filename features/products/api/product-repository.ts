@@ -240,14 +240,21 @@ export async function saveProductToSupabase(product: Product, previous?: Product
   const changed = Object.fromEntries(
     Object.entries(payload).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(before[k]))
   )
-  if (Object.keys(changed).length > 0) {
-    await rpc('product_update', { p_product_id: product.id, p_data: changed, p_reason: 'แก้ไขข้อมูลสินค้า' })
+  // A product that can be sold/rented must have that price (products_capability_price_check):
+  // a capability being turned on waits until its price is set; one turned off goes first.
+  const turningOn = changed.can_sell === true || changed.can_rent === true
+  const fields = turningOn
+    ? Object.fromEntries(Object.entries(changed).filter(([k]) => k !== 'can_sell' && k !== 'can_rent'))
+    : changed
+  if (Object.keys(fields).length > 0) {
+    await rpc('product_update', { p_product_id: product.id, p_data: fields, p_reason: 'แก้ไขข้อมูลสินค้า' })
   }
 
   const oldPrices = priceOf(previous)
   if (prices.sale !== oldPrices.sale || prices.rent !== oldPrices.rent) {
     await withPin(
-      { action: 'PRODUCT_PRICE_CHANGE', title: 'ยืนยันแก้ราคาสินค้า', detail: product.name, askReason: true },
+      // PIN only, no reason box (owner decision 2026-10-22); the audit gets a fixed reason.
+      { action: 'PRODUCT_PRICE_CHANGE', title: 'ยืนยันแก้ราคาสินค้า', detail: product.name },
       (token, reason) =>
         rpc('product_set_price', {
           p_product_id: product.id,
@@ -257,6 +264,12 @@ export async function saveProductToSupabase(product: Product, previous?: Product
           p_pin_token: token,
         })
     )
+  }
+  if (turningOn) {
+    const capability = Object.fromEntries(
+      Object.entries(changed).filter(([k]) => k === 'can_sell' || k === 'can_rent')
+    )
+    await rpc('product_update', { p_product_id: product.id, p_data: capability, p_reason: 'แก้ไขข้อมูลสินค้า' })
   }
 
   if (product.costPrice !== undefined && product.costPrice !== previous.costPrice) {
@@ -285,8 +298,13 @@ export async function saveProductToSupabase(product: Product, previous?: Product
 }
 
 /** Products are never hard-deleted (Master §3.3): "delete" = deactivate. */
-export async function deleteProductFromSupabase(id: string): Promise<void> {
-  await rpc('product_set_active', { p_product_id: id, p_active: false, p_reason: 'ลบสินค้าออกจากรายการขาย/เช่า' })
+export async function deleteProductFromSupabase(id: string, reason?: string): Promise<void> {
+  await rpc('product_set_active', { p_product_id: id, p_active: false, p_reason: reason?.trim() || 'ปิดใช้งานสินค้า' })
+}
+
+/** Turns a deactivated product back on (it shows in POS / quotations again). */
+export async function reactivateProductInSupabase(id: string): Promise<void> {
+  await rpc('product_set_active', { p_product_id: id, p_active: true, p_reason: 'เปิดใช้งานสินค้า' })
 }
 
 export async function saveCategoryToSupabase(category: { id?: string; name: string; isActive?: boolean }): Promise<string> {

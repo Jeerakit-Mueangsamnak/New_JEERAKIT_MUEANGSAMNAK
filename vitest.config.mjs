@@ -25,10 +25,20 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    // The 5 s default times out on this 8 GB PC when Docker (Supabase Local) is also running.
+    testTimeout: 20000,
     env: TEST_SUPABASE_ENV,
     setupFiles: ['./tests/setup/no-network.ts'],
+    // pnpm test:coverage → coverage/index.html shows which lines no test reaches.
+    coverage: {
+      provider: 'v8',
+      include: ['app/**', 'components/**', 'features/**', 'lib/**'],
+      reporter: ['text-summary', 'json-summary', 'html'],
+    },
     exclude: [
       ...configDefaults.exclude,
+      // Playwright specs run through playwright.config.ts, not vitest
+      'e2e/**',
       '**/*.test.ts.bak',
       '**/*.bak',
     ],

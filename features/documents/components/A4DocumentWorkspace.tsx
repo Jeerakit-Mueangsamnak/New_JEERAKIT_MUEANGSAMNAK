@@ -29,7 +29,7 @@ export function A4DocumentWorkspace({
       title="ดับเบิลคลิกเพื่อแสดงพรีวิวเอกสารเต็มจอ"
     >
       <div className="flex-1 min-h-0 w-full h-full overflow-hidden">
-        <A4FitPreview paddingPx={1} className="h-full w-full">
+        <A4FitPreview paddingPx={1} className="h-full w-full" multiPage>
           {safeHtml ? (
             <div
               className="p-8 text-slate-900 font-sans text-xs select-text"

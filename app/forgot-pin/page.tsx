@@ -2,7 +2,7 @@
 
 import React, { Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Mail, KeyRound, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Mail, KeyRound, CheckCircle2, AlertCircle, ArrowLeft } from 'lucide-react'
 import { AuthLayout } from '@/features/auth/components/AuthLayout'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { useAppLock } from '@/features/auth/contexts/AppLockContext'
@@ -36,14 +36,31 @@ function ForgotPin() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  // Returning from recovery must never bypass the existing app lock.
+  const handleBack = () => {
+    if (window.history.length > 1) router.back()
+    else router.replace('/dashboard')
+  }
+  const backButton = (
+    <button
+      type="button"
+      onClick={handleBack}
+      aria-label="ย้อนกลับ"
+      className="fixed bottom-3 right-3 sm:bottom-5 sm:right-5 z-[60] px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+    >
+      <ArrowLeft className="w-4 h-4" aria-hidden="true" />
+      <span>ย้อนกลับ</span>
+    </button>
+  )
+
   if (user && user.role !== 'OWNER') {
     return (
       <AuthLayout>
         <div className="max-w-sm mx-auto space-y-3 text-center">
           <h2 className="text-xl font-bold">ลืม PIN</h2>
           <p className="text-sm text-slate-600 dark:text-slate-300">ให้เจ้าของร้านล้าง PIN ให้ที่เมนูจัดการสิทธิ์ แล้วตั้ง PIN ใหม่</p>
-          <button type="button" onClick={() => router.back()} className="text-sm font-bold text-blue-600">กลับ</button>
         </div>
+        {backButton}
       </AuthLayout>
     )
   }
@@ -104,16 +121,16 @@ function ForgotPin() {
       <div className="w-full max-w-sm mx-auto space-y-4">
         <div>
           <h2 className="text-[26px] font-bold text-slate-900 dark:text-white">ลืม PIN</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">ยืนยันตัวตนก่อน แล้วตั้ง PIN ใหม่ — ระบบเปลี่ยนเฉพาะ PIN ไม่แตะข้อมูลอื่น</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400">ยืนยันตัวตนก่อน แล้วตั้ง PIN ใหม่ — ระบบเปลี่ยนเฉพาะ PIN ไม่แตะข้อมูลอื่น</p>
         </div>
 
         {error && (
-          <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center gap-2 text-rose-600 text-xs font-semibold">
+          <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center gap-2 text-rose-700 dark:text-rose-400 text-xs font-semibold">
             <AlertCircle className="w-4 h-4 shrink-0" /><span>{error}</span>
           </div>
         )}
         {info && (
-          <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center gap-2 text-emerald-700 text-xs font-semibold">
+          <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center gap-2 text-emerald-700 dark:text-emerald-400 text-xs font-semibold">
             <CheckCircle2 className="w-4 h-4 shrink-0" /><span>{info}</span>
           </div>
         )}
@@ -124,7 +141,7 @@ function ForgotPin() {
               className="w-full flex items-center justify-center gap-2 rounded-2xl bg-blue-600 text-white py-3 text-sm font-bold disabled:opacity-50">
               <Mail className="w-4 h-4" /> ส่งลิงก์ยืนยันทางอีเมล
             </button>
-            <div className="text-center text-[11px] text-slate-400">หรือ</div>
+            <div className="text-center text-[11px] text-slate-600 dark:text-slate-400">หรือ</div>
             <div className="space-y-2">
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="รหัสผ่านของบัญชี"
                 className="w-full rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2.5 text-sm" />
@@ -147,6 +164,7 @@ function ForgotPin() {
           </div>
         )}
       </div>
+      {backButton}
     </AuthLayout>
   )
 }

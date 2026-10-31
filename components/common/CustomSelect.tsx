@@ -25,6 +25,8 @@ interface CustomSelectProps {
   searchable?: boolean
   emptyText?: string
   hideChevron?: boolean
+  /** Accessible name when no visible <label> names the field. */
+  ariaLabel?: string
 }
 
 export function CustomSelect({
@@ -39,6 +41,7 @@ export function CustomSelect({
   searchable = false,
   emptyText = 'ยังไม่มีรายการ',
   hideChevron = false,
+  ariaLabel,
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -90,6 +93,9 @@ export function CustomSelect({
         ref={triggerRef}
         type="button"
         disabled={disabled}
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
         onClick={() => !disabled && setIsOpen((prev) => {
           if (!prev) setSearchTerm('')
           return !prev
@@ -103,21 +109,21 @@ export function CustomSelect({
             <span>
               {selectedOption.label}
               {selectedOption.sublabel && (
-                <span className="text-slate-400 font-normal ml-1.5 text-[11px]">
+                <span className="text-slate-600 dark:text-slate-400 font-normal ml-1.5 text-[11px]">
                   ({selectedOption.sublabel})
                 </span>
               )}
             </span>
           ) : (
-            <span className="text-slate-400 font-normal">
+            <span className="text-slate-600 dark:text-slate-400 font-normal">
               {options.length === 0 && placeholder === '-- เลือกรายการ --' ? emptyText : placeholder || '\u00A0'}
             </span>
           )}
         </span>
         {!hideChevron && (
           <ChevronDown
-            className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform duration-200 ${
-              isOpen ? (placement === 'top' ? '-rotate-180 text-emerald-500' : 'rotate-180 text-emerald-500') : ''
+            className={`w-3.5 h-3.5 text-slate-600 dark:text-slate-400 shrink-0 transition-transform duration-200 ${
+              isOpen ? (placement === 'top' ? '-rotate-180 text-emerald-700 dark:text-emerald-400' : 'rotate-180 text-emerald-700 dark:text-emerald-400') : ''
             }`}
           />
         )}
@@ -142,7 +148,7 @@ export function CustomSelect({
             {searchable && (
               <div className="sticky top-0 z-10 bg-white dark:bg-slate-800 px-1 pb-1.5 border-b border-slate-100 dark:border-slate-700">
                 <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
                   <input
                     autoFocus
                     type="search"
@@ -155,7 +161,7 @@ export function CustomSelect({
               </div>
             )}
             {filteredOptions.length === 0 ? (
-              <div className="px-3 py-2 text-slate-400 text-center text-[11px]">
+              <div className="px-3 py-2 text-slate-600 dark:text-slate-400 text-center text-[11px]">
                 {searchTerm ? 'ไม่พบรายการที่ตรงกับคำค้นหา' : emptyText}
               </div>
             ) : (
@@ -176,7 +182,7 @@ export function CustomSelect({
                     {opt.sublabel && (
                       <span
                         className={`text-[10px] shrink-0 font-mono ${
-                          isSelected ? 'text-emerald-600 dark:text-emerald-300' : 'text-slate-400'
+                          isSelected ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-600 dark:text-slate-400'
                         }`}
                       >
                         {opt.sublabel}

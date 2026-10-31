@@ -81,10 +81,10 @@ export default function RegisterPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                ชื่อ <span className="text-red-500">*</span>
+                ชื่อ <span className="text-red-700 dark:text-red-400">*</span>
               </label>
               <div className="relative">
-                <User className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <User className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   required
@@ -98,10 +98,10 @@ export default function RegisterPage() {
 
             <div>
               <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                นามสกุล <span className="text-red-500">*</span>
+                นามสกุล <span className="text-red-700 dark:text-red-400">*</span>
               </label>
               <div className="relative">
-                <User className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <User className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   required
@@ -117,10 +117,10 @@ export default function RegisterPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                Email จริง (สำหรับกู้คืน) <span className="text-red-500">*</span>
+                Email จริง (สำหรับกู้คืน) <span className="text-red-700 dark:text-red-400">*</span>
               </label>
               <div className="relative">
-                <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Mail className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="email"
                   required
@@ -134,10 +134,10 @@ export default function RegisterPage() {
 
             <div>
               <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                Username เข้าสู่ระบบ <span className="text-red-500">*</span>
+                Username เข้าสู่ระบบ <span className="text-red-700 dark:text-red-400">*</span>
               </label>
               <div className="relative">
-                <span className="text-slate-400 font-bold absolute left-3 top-1/2 -translate-y-1/2">@</span>
+                <span className="text-slate-600 dark:text-slate-400 font-bold absolute left-3 top-1/2 -translate-y-1/2">@</span>
                 <input
                   type="text"
                   required
@@ -153,10 +153,10 @@ export default function RegisterPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                รหัสผ่าน Rental POS <span className="text-red-500">*</span>
+                รหัสผ่าน Rental POS <span className="text-red-700 dark:text-red-400">*</span>
               </label>
               <div className="relative">
-                <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Lock className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type={showPassword ? "text" : "password"}
                   required
@@ -168,7 +168,7 @@ export default function RegisterPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 focus:outline-none transition-colors cursor-pointer"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 focus:outline-none transition-colors cursor-pointer"
                   aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
                 >
                   {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -178,10 +178,10 @@ export default function RegisterPage() {
 
             <div>
               <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                ยืนยันรหัสผ่าน <span className="text-red-500">*</span>
+                ยืนยันรหัสผ่าน <span className="text-red-700 dark:text-red-400">*</span>
               </label>
               <div className="relative">
-                <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Lock className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type={showConfirmPassword ? "text" : "password"}
                   required
@@ -193,7 +193,7 @@ export default function RegisterPage() {
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 focus:outline-none transition-colors cursor-pointer"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 focus:outline-none transition-colors cursor-pointer"
                   aria-label={showConfirmPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
                 >
                   {showConfirmPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -205,7 +205,7 @@ export default function RegisterPage() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-extrabold text-xs rounded-xl border border-blue-500 flex items-center justify-center gap-2 transition-all disabled:opacity-50 mt-2 shadow-lg shadow-blue-500/20 cursor-pointer"
+            className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-700 text-white font-extrabold text-xs rounded-xl border border-blue-500 flex items-center justify-center gap-2 transition-all disabled:opacity-50 mt-2 shadow-lg shadow-blue-500/20 cursor-pointer"
           >
             {isLoading ? (
               <span>กำลังสร้างบัญชี...</span>
@@ -218,14 +218,14 @@ export default function RegisterPage() {
           </button>
         </form>
 
-          <div className="text-center pt-3 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
+          <div className="text-center pt-3 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400">
             มีบัญชีผู้ใช้งานอยู่แล้ว?{' '}
             <Link href="/login" className="text-blue-600 dark:text-blue-400 hover:underline font-bold">
               เข้าสู่ระบบที่นี่
             </Link>
           </div>
 
-          <p className="text-center text-[10px] text-slate-400 dark:text-slate-600">
+          <p className="text-center text-[10px] text-slate-600 dark:text-slate-400">
             Rental POS &copy; {new Date().getFullYear()} - All rights reserved
           </p>
         </div>

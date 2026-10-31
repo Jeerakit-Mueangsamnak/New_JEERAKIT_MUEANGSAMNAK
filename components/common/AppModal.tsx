@@ -98,7 +98,7 @@ export function AppModal({
         >
           {isLoading && (
             <div className="absolute inset-0 bg-white/70 dark:bg-slate-900/70 z-50 flex flex-col items-center justify-center gap-2">
-              <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+              <Loader2 className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin" />
               <span className="text-xs font-bold text-slate-700 dark:text-slate-200">กำลังประมวลผล...</span>
             </div>
           )}
@@ -135,7 +135,7 @@ export function AppModal({
         >
           {isLoading && (
             <div className="absolute inset-0 bg-white/70 dark:bg-slate-900/70 z-50 flex flex-col items-center justify-center backdrop-blur-xs gap-2 rounded-2xl sm:rounded-3xl">
-              <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+              <Loader2 className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin" />
               <span className="text-xs font-bold text-slate-700 dark:text-slate-200">กำลังประมวลผล...</span>
             </div>
           )}
@@ -207,7 +207,7 @@ export function AppModalHeader({
             aria-label="ปิดหน้าต่าง"
             className="
               shrink-0 p-1.5 rounded-full
-              text-slate-400
+              text-slate-600 dark:text-slate-400
               hover:text-slate-700 dark:hover:text-slate-200
               hover:bg-slate-200 dark:hover:bg-slate-800
               transition-colors cursor-pointer
@@ -259,10 +259,10 @@ export interface AppModalFooterProps {
 }
 
 const confirmColorClasses = {
-  blue: 'bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white',
-  emerald: 'bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white',
-  red: 'bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600 text-white',
-  amber: 'bg-amber-600 hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600 text-white',
+  blue: 'bg-blue-600 hover:bg-blue-700 text-white',
+  emerald: 'bg-emerald-700 hover:bg-emerald-800 text-white',
+  red: 'bg-red-600 hover:bg-red-700 text-white',
+  amber: 'bg-amber-500 hover:bg-amber-600 text-slate-900',
 }
 
 export function AppModalFooter({

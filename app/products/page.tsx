@@ -9,7 +9,7 @@ import {
   MapPin,
   Edit,
   History,
-  Trash2,
+  Ban,
   PackagePlus,
   Settings,
   Layers,
@@ -58,6 +58,7 @@ import {
   addProductsAsync,
   updateProductAsync,
   deleteProductAsync,
+  reactivateProductAsync,
   syncProductsFromSupabase,
 } from '@/features/products/services/product-storage'
 import {
@@ -93,11 +94,11 @@ const RENTAL_STATUS_LABEL: Record<string, string> = {
 }
 // KPI card tones: same classes as the Products page summary cards.
 const KPI_TONE = {
-  slate: { box: 'bg-slate-100/70 dark:bg-slate-800/70 border-slate-200 dark:border-slate-800', label: 'text-slate-500', value: 'text-slate-800 dark:text-slate-100' },
-  emerald: { box: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200/60 dark:border-emerald-900/40', label: 'text-emerald-700 dark:text-emerald-300', value: 'text-emerald-600 dark:text-emerald-400' },
+  slate: { box: 'bg-slate-100/70 dark:bg-slate-800/70 border-slate-200 dark:border-slate-800', label: 'text-slate-600 dark:text-slate-400', value: 'text-slate-800 dark:text-slate-100' },
+  emerald: { box: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200/60 dark:border-emerald-900/40', label: 'text-emerald-700 dark:text-emerald-300', value: 'text-emerald-700 dark:text-emerald-400' },
   blue: { box: 'bg-blue-50 dark:bg-blue-950/30 border-blue-200/60 dark:border-blue-900/40', label: 'text-blue-700 dark:text-blue-300', value: 'text-blue-600 dark:text-blue-400' },
-  amber: { box: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200/60 dark:border-amber-900/40', label: 'text-amber-700 dark:text-amber-300', value: 'text-amber-600 dark:text-amber-400' },
-  red: { box: 'bg-red-50 dark:bg-red-950/30 border-red-200/60 dark:border-red-900/40', label: 'text-red-700 dark:text-red-300', value: 'text-red-600 dark:text-red-400' },
+  amber: { box: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200/60 dark:border-amber-900/40', label: 'text-amber-700 dark:text-amber-300', value: 'text-amber-700 dark:text-amber-400' },
+  red: { box: 'bg-red-50 dark:bg-red-950/30 border-red-200/60 dark:border-red-900/40', label: 'text-red-700 dark:text-red-300', value: 'text-red-700 dark:text-red-400' },
   purple: { box: 'bg-purple-50 dark:bg-purple-950/30 border-purple-200/60 dark:border-purple-900/40', label: 'text-purple-700 dark:text-purple-300', value: 'text-purple-600 dark:text-purple-400' },
 } as const
 const KPI_CARD = 'p-2.5 sm:p-3 rounded-2xl border shadow-xs'
@@ -497,29 +498,33 @@ function ProductsContent() {
   const [transformTargetProduct, setTransformTargetProduct] = useState<Product | null>(null)
 
 
-  // Delete product confirmation handler
+  // Deactivate product (never a hard delete — history stays; it can be switched on again)
   const handleConfirmDeleteProduct = async () => {
     if (!productToDelete) return
-    const trimmedReason = deleteReason.trim()
-    if (!trimmedReason) {
-      showToast('กรุณาระบุเหตุผล', 'จำเป็นต้องระบุเหตุผลในการลบหรือระงับสินค้า', 'ERROR')
-      return
-    }
-
     setIsDeleting(true)
     try {
-      const updated = await deleteProductAsync(productToDelete.id)
+      const updated = await deleteProductAsync(productToDelete.id, deleteReason)
       setProducts(updated)
 
 
-      showToast('ลบสินค้าสำเร็จ', `ลบรายการ "${productToDelete.name}" เรียบร้อยแล้ว`, 'SUCCESS')
+      showToast('ปิดใช้งานสินค้าแล้ว', `"${productToDelete.name}" ไม่แสดงในหน้าขาย/เช่าแล้ว เปิดใช้งานอีกครั้งได้จากรายการสินค้า`, 'SUCCESS')
       setDeleteReason('')
       setProductToDelete(null)
     } catch (err: any) {
-      logger.error('Failed to delete product:', err)
-      showToast('ไม่สามารถลบสินค้าได้', err?.message || 'เกิดข้อผิดพลาดในการลบสินค้า', 'ERROR')
+      logger.error('Failed to deactivate product:', err)
+      showToast('ปิดใช้งานสินค้าไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาดในการปิดใช้งานสินค้า', 'ERROR')
     } finally {
       setIsDeleting(false)
+    }
+  }
+
+  const handleReactivateProduct = async (product: Product) => {
+    try {
+      setProducts(await reactivateProductAsync(product.id))
+      showToast('เปิดใช้งานสินค้าแล้ว', `"${product.name}" กลับมาแสดงในหน้าขาย/เช่าแล้ว`, 'SUCCESS')
+    } catch (err: any) {
+      logger.error('Failed to reactivate product:', err)
+      showToast('เปิดใช้งานสินค้าไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
     }
   }
 
@@ -534,7 +539,8 @@ function ProductsContent() {
       statusFilter === 'ALL' ||
       (statusFilter === 'LOW_STOCK' && isLowStock(p)) ||
       (statusFilter === 'OUT_OF_STOCK' && p.availableQuantity === 0) ||
-      (statusFilter === 'ACTIVE' && p.status === 'ACTIVE')
+      (statusFilter === 'ACTIVE' && p.status === 'ACTIVE') ||
+      (statusFilter === 'INACTIVE' && p.status === 'INACTIVE')
     return matchesSearch && matchesCat && matchesStatus
   })
 
@@ -631,8 +637,10 @@ function ProductsContent() {
     setIsEditingInline(true)
   }
 
+  const [inlineSaving, setInlineSaving] = useState(false)
   const handleSaveInlineEdit = async () => {
-    if (!selectedProduct) return
+    // A second click while saving would apply the stock change twice.
+    if (!selectedProduct || inlineSaving) return
     if (!editForm.name.trim()) {
       showToast('กรุณาระบุชื่อสินค้า', 'ชื่อสินค้าต้องไม่เว้นว่าง', 'ERROR')
       return
@@ -659,6 +667,13 @@ function ProductsContent() {
       unitId: chosenUnit?.id || selectedProduct.unitId,
       rentPrice: rentVal,
       salePrice: saleVal,
+      // The two price boxes say what the product is for ("เว้นว่างได้ถ้าไม่ขาย / ไม่ให้เช่า"):
+      // a typed sale price must make it sellable, not be dropped because it was rent-only.
+      productType:
+        rentVal !== null && saleVal !== null ? 'BOTH'
+          : saleVal !== null ? 'SALE'
+            : rentVal !== null ? 'RENT'
+              : selectedProduct.productType,
       rentalType: calcType === 'SALE' ? 'SALE' : calcType === 'PER_DAY' ? 'DAILY' : 'NORMAL',
       isChargeable: calcType !== 'NO_CHARGE',
       requiresReturn: calcType !== 'SALE',
@@ -671,6 +686,7 @@ function ProductsContent() {
       createdAt: editForm.createdAt,
     }
 
+    setInlineSaving(true)
     try {
       const next = await updateProductAsync(updated)
       setProducts(next)
@@ -681,6 +697,8 @@ function ProductsContent() {
     } catch (err: any) {
       logger.error('Failed to update product inline', err)
       showToast('เกิดข้อผิดพลาด', 'ไม่สามารถบันทึกข้อมูลได้ โปรดลองอีกครั้ง', 'ERROR')
+    } finally {
+      setInlineSaving(false)
     }
   }
 
@@ -698,12 +716,12 @@ function ProductsContent() {
                 : 'border-slate-200 dark:border-slate-800 hover:border-slate-400'
             }`}
           >
-            <span className="text-[11px] text-slate-500 font-semibold block">สต็อกรวม</span>
+            <span className="text-[11px] text-slate-600 dark:text-slate-400 font-semibold block">สต็อกรวม</span>
             <span className="text-lg font-black text-slate-800 dark:text-slate-100 mt-0.5 block">{cardTotal.toLocaleString()}</span>
           </div>
           <div className="p-2.5 sm:p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-2xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-xs">
             <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold block">พร้อมให้เช่า</span>
-            <span className="text-lg font-black text-emerald-600 dark:text-emerald-400 mt-0.5 block">{cardAvailable.toLocaleString()}</span>
+            <span className="text-lg font-black text-emerald-700 dark:text-emerald-400 mt-0.5 block">{cardAvailable.toLocaleString()}</span>
           </div>
           <div className="p-2.5 sm:p-3 bg-indigo-50 dark:bg-indigo-950/30 rounded-2xl border border-indigo-200/60 dark:border-indigo-900/40 shadow-xs">
             <span className="text-[11px] text-indigo-700 dark:text-indigo-300 font-semibold block">จอง (รอส่ง)</span>
@@ -722,11 +740,11 @@ function ProductsContent() {
             }`}
           >
             <span className="text-[11px] text-amber-700 dark:text-amber-300 font-semibold block">ชำรุด</span>
-            <span className="text-lg font-black text-amber-600 dark:text-amber-400 mt-0.5 block">{cardDamaged.toLocaleString()}</span>
+            <span className="text-lg font-black text-amber-700 dark:text-amber-400 mt-0.5 block">{cardDamaged.toLocaleString()}</span>
           </div>
           <div className="p-2.5 sm:p-3 bg-red-50 dark:bg-red-950/30 rounded-2xl border border-red-200/60 dark:border-red-900/40 shadow-xs">
             <span className="text-[11px] text-red-700 dark:text-red-300 font-semibold block">สูญหาย</span>
-            <span className="text-lg font-black text-red-600 dark:text-red-400 mt-0.5 block">{cardLost.toLocaleString()}</span>
+            <span className="text-lg font-black text-red-700 dark:text-red-400 mt-0.5 block">{cardLost.toLocaleString()}</span>
           </div>
           <div className="p-2.5 sm:p-3 bg-purple-50 dark:bg-purple-950/30 rounded-2xl border border-purple-200/60 dark:border-purple-900/40 shadow-xs">
             <span className="text-[11px] text-purple-700 dark:text-purple-300 font-semibold block">สินค้าใกล้หมด</span>
@@ -762,7 +780,7 @@ function ProductsContent() {
               onClick={() => setActiveMainTab('ADD')}
               size="sm"
               variant={activeMainTab === 'ADD' ? 'active' : 'ghost'}
-              icon={<PackagePlus className={`w-3.5 h-3.5 shrink-0 ${activeMainTab === 'ADD' ? 'text-emerald-600 dark:text-emerald-400' : 'text-emerald-600/80 dark:text-emerald-400/80'}`} />}
+              icon={<PackagePlus className={`w-3.5 h-3.5 shrink-0 ${activeMainTab === 'ADD' ? 'text-emerald-700 dark:text-emerald-400' : 'text-emerald-700/80 dark:text-emerald-400/80'}`} />}
               badge={
                 createDraftRows.some((r) => r.name.trim() !== '') ? (
                   <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" title="มีแบบร่างค้างอยู่" />
@@ -812,6 +830,7 @@ function ProductsContent() {
             canAdjustStock={canAction('STOCK_ADJUST')}
             onOpenHistory={(p) => openProductHistory(p, 'CURRENT')}
             onDeleteProduct={(p) => setProductToDelete(p)}
+            onReactivateProduct={(p) => void handleReactivateProduct(p)}
             focusedProductId={focusedProductId}
             onRowDoubleClick={(p) => setFocusedProductId((cur) => (cur === p.id ? null : p.id))}
           />
@@ -907,18 +926,18 @@ function ProductsContent() {
                           <span className="px-2 py-0.5 rounded-md font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800">
                             {selectedProduct.category || '-'}
                           </span>
-                          <span className="text-slate-500 dark:text-slate-400">
+                          <span className="text-slate-600 dark:text-slate-400">
                             หน่วยนับ: <strong className="text-slate-800 dark:text-slate-200">{selectedProduct.unit || '-'}</strong>
                           </span>
                         </div>
                         <h3 className="text-lg font-black text-slate-900 dark:text-slate-100 leading-tight">{selectedProduct.name}</h3>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-600 dark:text-slate-400">
                           <span>วันที่เพิ่ม: <strong className="text-slate-700 dark:text-slate-300">{formatThaiDate(selectedProduct.createdAt || (selectedProduct as any).created_at)}</strong></span>
                           {selectedProduct.rentPrice !== undefined && selectedProduct.rentPrice !== null && selectedProduct.rentPrice > 0 && (
-                            <span>ราคาเช่า: <strong className="text-blue-600 dark:text-blue-400 font-mono">฿{selectedProduct.rentPrice.toLocaleString('th-TH')}</strong></span>
+                            <span>ราคาเช่า: <strong className="text-blue-600 dark:text-blue-400 font-mono">{selectedProduct.rentPrice.toLocaleString('th-TH')}</strong></span>
                           )}
                           {selectedProduct.salePrice !== undefined && selectedProduct.salePrice !== null && selectedProduct.salePrice > 0 && (
-                            <span>ราคาขาย: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">฿{selectedProduct.salePrice.toLocaleString('th-TH')}</strong></span>
+                            <span>ราคาขาย: <strong className="text-emerald-700 dark:text-emerald-400 font-mono">{selectedProduct.salePrice.toLocaleString('th-TH')}</strong></span>
                           )}
                         </div>
                       </div>
@@ -926,7 +945,7 @@ function ProductsContent() {
                         {[
                           { label: 'พร้อมใช้', value: selectedProduct.availableQuantity, tone: KPI_TONE.emerald, icon: <Package className="w-5 h-5" /> },
                           { label: 'กำลังเช่า', value: selectedProduct.rentedQuantity, tone: KPI_TONE.blue, icon: <Handshake className="w-5 h-5" /> },
-                          { label: 'ชำรุด', value: selectedProduct.damagedQuantity, tone: KPI_TONE.amber, icon: <Wrench className="w-5 h-5" /> },
+                          { label: 'ชำรุด / ซ่อม', value: selectedProduct.damagedQuantity, tone: KPI_TONE.amber, icon: <Wrench className="w-5 h-5" /> },
                           { label: 'สูญหาย', value: selectedProduct.lostQuantity, tone: KPI_TONE.red, icon: <AlertTriangle className="w-5 h-5" /> },
                           { label: 'รวมทั้งหมด', value: selectedProduct.totalQuantity, tone: KPI_TONE.slate, icon: <Sigma className="w-5 h-5" /> },
                         ].map((s) => (
@@ -935,7 +954,7 @@ function ProductsContent() {
                             <div className="min-w-0">
                               <span className={`${KPI_LABEL} ${s.tone.label}`}>{s.label}</span>
                               <span className={`${KPI_VALUE} ${s.tone.value}`}>
-                                {(s.value || 0).toLocaleString('th-TH')} <span className="text-[10px] font-bold text-slate-400">{selectedProduct.unit}</span>
+                                {(s.value || 0).toLocaleString('th-TH')} <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">{selectedProduct.unit}</span>
                               </span>
                             </div>
                           </div>
@@ -953,7 +972,7 @@ function ProductsContent() {
                           }}
                           aria-label="ปิดหน้าต่าง"
                           title="ปิดหน้าต่าง"
-                          className="shrink-0 p-1.5 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                          className="shrink-0 p-1.5 rounded-full text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                         >
                           <X className="w-4 h-4" />
                         </button>
@@ -966,7 +985,7 @@ function ProductsContent() {
                     <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
                       <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
                         <span>ข้อมูลสินค้า</span>
-                        <span className="text-xs font-black text-amber-600 dark:text-amber-400">· แก้ไข</span>
+                        <span className="text-xs font-black text-amber-700 dark:text-amber-400">· แก้ไข</span>
                       </span>
                       <button
                         type="button"
@@ -976,7 +995,7 @@ function ProductsContent() {
                         }}
                         aria-label="ปิดหน้าต่าง"
                         title="ปิดหน้าต่าง"
-                        className="shrink-0 p-1.5 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        className="shrink-0 p-1.5 rounded-full text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -987,7 +1006,7 @@ function ProductsContent() {
                       {/* ชื่อสินค้า */}
                       <div>
                         <label className="text-slate-700 dark:text-slate-300 font-bold block mb-1">
-                          ชื่อสินค้า <span className="text-red-500">*</span>
+                          ชื่อสินค้า <span className="text-red-700 dark:text-red-400">*</span>
                         </label>
                         <input
                           type="text"
@@ -1001,7 +1020,7 @@ function ProductsContent() {
                       {/* หมวดหมู่ (Dropdown from Category Rules) */}
                       <div>
                         <label className="text-slate-700 dark:text-slate-300 font-bold block mb-1">
-                          หมวดหมู่ <span className="text-red-500">*</span>
+                          หมวดหมู่ <span className="text-red-700 dark:text-red-400">*</span>
                         </label>
                         <CustomSelect
                           value={editForm.category}
@@ -1056,7 +1075,7 @@ function ProductsContent() {
                       {/* ราคาเช่า */}
                       <div>
                         <label className="text-slate-700 dark:text-slate-300 font-bold block mb-1">
-                          ราคาเช่า (฿) <span className="text-slate-400 font-normal">(เว้นว่างได้)</span>
+                          ราคาเช่า () <span className="text-slate-600 dark:text-slate-400 font-normal">(เว้นว่างได้)</span>
                         </label>
                         <NumericInput
                           value={editForm.rentPrice}
@@ -1071,7 +1090,7 @@ function ProductsContent() {
                       {/* ราคาขาย */}
                       <div>
                         <label className="text-slate-700 dark:text-slate-300 font-bold block mb-1">
-                          ราคาขาย (฿) <span className="text-slate-400 font-normal">(เว้นว่างได้)</span>
+                          ราคาขาย () <span className="text-slate-600 dark:text-slate-400 font-normal">(เว้นว่างได้)</span>
                         </label>
                         <NumericInput
                           value={editForm.salePrice}
@@ -1084,7 +1103,7 @@ function ProductsContent() {
                       </div>
 
                       <div>
-                        <label className="text-slate-700 dark:text-slate-300 font-bold block mb-1">ต้นทุน (฿)</label>
+                        <label className="text-slate-700 dark:text-slate-300 font-bold block mb-1">ต้นทุน ()</label>
                         <NumericInput
                           value={editForm.costPrice}
                           onChange={(val) => setEditForm((prev) => ({ ...prev, costPrice: val === '' ? '' : String(val) }))}
@@ -1093,7 +1112,7 @@ function ProductsContent() {
                       </div>
 
                       <div>
-                        <label className="text-slate-700 dark:text-slate-300 font-bold block mb-1">ค่าชำรุด (฿)</label>
+                        <label className="text-slate-700 dark:text-slate-300 font-bold block mb-1">ค่าชำรุด ()</label>
                         <NumericInput
                           value={editForm.defaultDamageFee}
                           onChange={(val) => setEditForm((prev) => ({ ...prev, defaultDamageFee: val === '' ? '' : String(val) }))}
@@ -1102,7 +1121,7 @@ function ProductsContent() {
                       </div>
 
                       <div>
-                        <label className="text-slate-700 dark:text-slate-300 font-bold block mb-1">ค่าสูญหาย (฿)</label>
+                        <label className="text-slate-700 dark:text-slate-300 font-bold block mb-1">ค่าสูญหาย ()</label>
                         <NumericInput
                           value={editForm.defaultLossFee}
                           onChange={(val) => setEditForm((prev) => ({ ...prev, defaultLossFee: val === '' ? '' : String(val) }))}
@@ -1111,7 +1130,7 @@ function ProductsContent() {
                       </div>
 
                       <div>
-                        <label className="text-slate-700 dark:text-slate-300 font-bold block mb-1">จำนวนทั้งหมด <span className="text-slate-400 font-normal">(เพิ่ม/ลด = รับเข้า/นำออก, ยืนยัน PIN)</span></label>
+                        <label className="text-slate-700 dark:text-slate-300 font-bold block mb-1">จำนวนทั้งหมด <span className="text-slate-600 dark:text-slate-400 font-normal">(เพิ่ม/ลด = รับเข้า/นำออก)</span></label>
                         <NumericInput
                           value={editForm.totalQuantity}
                           onChange={(val) => setEditForm((prev) => ({ ...prev, totalQuantity: val === '' ? '' : String(val) }))}
@@ -1142,9 +1161,10 @@ function ProductsContent() {
                       <button
                         type="button"
                         onClick={handleSaveInlineEdit}
-                        className="h-9 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-sm transition-colors cursor-pointer"
+                        disabled={inlineSaving}
+                        className="h-9 px-5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs shadow-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait"
                       >
-                        บันทึก
+                        {inlineSaving ? 'กำลังบันทึก...' : 'บันทึก'}
                       </button>
                     </div>
                   </div>
@@ -1191,10 +1211,10 @@ function ProductsContent() {
                         <div className="space-y-2 pb-2">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="min-w-0 flex items-start gap-2 px-1">
-                              <MapPin className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+                              <MapPin className="w-5 h-5 text-rose-700 dark:text-rose-400 shrink-0 mt-0.5" />
                               <div className="min-w-0">
                                 <h4 className="font-black text-sm sm:text-base text-slate-900 dark:text-slate-100">รายการลูกค้าที่เช่าสินค้าอยู่ในขณะนี้</h4>
-                                <p className="text-[11px] text-slate-500">ลูกค้าที่มีสินค้า &quot;{selectedProduct.name}&quot; อยู่ในการเช่า ยังไม่คืนครบ</p>
+                                <p className="text-[11px] text-slate-600 dark:text-slate-400">ลูกค้าที่มีสินค้า &quot;{selectedProduct.name}&quot; อยู่ในการเช่า ยังไม่คืนครบ</p>
                               </div>
                             </div>
                             <div className="flex items-center gap-3 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
@@ -1206,18 +1226,18 @@ function ProductsContent() {
                                 <span className="absolute inset-0 flex items-center justify-center text-[10px] font-black text-slate-800 dark:text-slate-100">{pct.toFixed(1)}%</span>
                               </div>
                               <div className="leading-tight">
-                                <span className="block text-[11px] text-slate-500">กำลังเช่าในขณะนี้</span>
+                                <span className="block text-[11px] text-slate-600 dark:text-slate-400">กำลังเช่าในขณะนี้</span>
                                 <span className="text-sm text-slate-600 dark:text-slate-300"><strong className="text-lg font-black text-blue-600 dark:text-blue-400">{rented}</strong> จาก <strong className="text-slate-900 dark:text-slate-100">{total}</strong> {selectedProduct.unit}</span>
                               </div>
                               <div className="pl-3 border-l border-slate-200 dark:border-slate-700 text-[11px] space-y-0.5">
-                                <p className="flex items-center gap-1.5 text-slate-500"><Package className="w-3.5 h-3.5 text-emerald-500" />พร้อมให้เช่า <strong className="text-emerald-600 dark:text-emerald-400 text-sm">{selectedProduct.availableQuantity}</strong> {selectedProduct.unit}</p>
-                                <p className="flex items-center gap-1.5 text-slate-500"><CalendarDays className="w-3.5 h-3.5 text-amber-500" />จองล่วงหน้า <strong className="text-amber-600 dark:text-amber-400 text-sm">{selectedProduct.reservedQuantity || 0}</strong> {selectedProduct.unit}</p>
+                                <p className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400"><Package className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />พร้อมให้เช่า <strong className="text-emerald-700 dark:text-emerald-400 text-sm">{selectedProduct.availableQuantity}</strong> {selectedProduct.unit}</p>
+                                <p className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400"><CalendarDays className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />จองล่วงหน้า <strong className="text-amber-700 dark:text-amber-400 text-sm">{selectedProduct.reservedQuantity || 0}</strong> {selectedProduct.unit}</p>
                               </div>
                             </div>
                           </div>
                           <div className="flex flex-wrap items-center gap-1.5">
                             <div className="relative flex-1 min-w-[160px]">
-                              <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                              <Search className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                               <input
                                 value={holderSearch}
                                 onChange={(e) => setHolderSearch(e.target.value)}
@@ -1249,7 +1269,7 @@ function ProductsContent() {
                             </ActionButton>
                             <ActionButton
                               onClick={() => exportBillRows(productHolders, 'holders')}
-                              className="ml-auto !bg-emerald-600 hover:!bg-emerald-700 !text-white !border-transparent"
+                              className="ml-auto !bg-emerald-700 hover:!bg-emerald-700 !text-white !border-transparent"
                               icon={<Download />}
                             >
                               ส่งออก
@@ -1274,11 +1294,11 @@ function ProductsContent() {
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                           {productHolders.map(({ bill, outstanding, overdue }, idx) => (
                             <tr key={bill.id} className="hover:bg-amber-50/40 dark:hover:bg-amber-950/20">
-                              <td className="px-2 text-center text-slate-500">{idx + 1}</td>
+                              <td className="px-2 text-center text-slate-600 dark:text-slate-400">{idx + 1}</td>
                               <td className="px-2">
                                 <span className="block font-bold text-slate-900 dark:text-slate-100">{bill.customerName || '-'}</span>
                                 {bill.customerPhone && (
-                                  <span className="flex items-center gap-1 text-[11px] text-slate-500"><Phone className="w-3 h-3" />{bill.customerPhone}</span>
+                                  <span className="flex items-center gap-1 text-[11px] text-slate-600 dark:text-slate-400"><Phone className="w-3 h-3" />{bill.customerPhone}</span>
                                 )}
                               </td>
                               <td className="px-2 text-blue-600 dark:text-blue-400 whitespace-nowrap">{bill.billNo}</td>
@@ -1297,7 +1317,7 @@ function ProductsContent() {
                           ))}
                           {productHolders.length === 0 && (
                             <tr data-empty-row="true">
-                              <td colSpan={8} className="text-center py-10 text-slate-400 text-xs italic">ไม่มีลูกค้าที่ถือสินค้านี้ตามเงื่อนไข</td>
+                              <td colSpan={8} className="text-center py-10 text-slate-600 dark:text-slate-400 text-xs italic">ไม่มีลูกค้าที่ถือสินค้านี้ตามเงื่อนไข</td>
                             </tr>
                           )}
                         </tbody>
@@ -1316,24 +1336,24 @@ function ProductsContent() {
                       <div className="space-y-2 pb-2">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="min-w-0 flex items-start gap-2 px-1">
-                            <Clock className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+                            <Clock className="w-5 h-5 text-rose-700 dark:text-rose-400 shrink-0 mt-0.5" />
                             <div className="min-w-0">
                               <h4 className="font-black text-sm sm:text-base text-slate-900 dark:text-slate-100">ประวัติการเช่าทั้งหมด</h4>
-                              <p className="text-[11px] text-slate-500">รายการประวัติการเช่า &quot;{selectedProduct.name}&quot; ทุกครั้งที่ผ่านมา</p>
+                              <p className="text-[11px] text-slate-600 dark:text-slate-400">รายการประวัติการเช่า &quot;{selectedProduct.name}&quot; ทุกครั้งที่ผ่านมา</p>
                             </div>
                           </div>
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                             {[
-                              { label: 'จำนวนการเช่าทั้งหมด', value: historyStats.total, icon: <FileText className="w-5 h-5 text-blue-600" />, cls: 'text-slate-500', box: 'bg-slate-100/70 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700' },
-                              { label: 'กำลังเช่าอยู่', value: historyStats.renting, icon: <PlayCircle className="w-5 h-5 text-emerald-600" />, cls: 'text-emerald-700 dark:text-emerald-300', box: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200/60 dark:border-emerald-900/40' },
-                              { label: 'คืนแล้ว', value: historyStats.returned, icon: <CheckCircle2 className="w-5 h-5 text-blue-600" />, cls: 'text-blue-700 dark:text-blue-300', box: 'bg-blue-50 dark:bg-blue-950/30 border-blue-200/60 dark:border-blue-900/40' },
-                              { label: 'เกินกำหนดคืน', value: historyStats.overdue, icon: <AlertTriangle className="w-5 h-5 text-red-600" />, cls: 'text-red-700 dark:text-red-300', box: 'bg-red-50 dark:bg-red-950/30 border-red-200/60 dark:border-red-900/40' },
+                              { label: 'จำนวนการเช่าทั้งหมด', value: historyStats.total, icon: <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400" />, cls: 'text-slate-600 dark:text-slate-400', box: 'bg-slate-100/70 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700' },
+                              { label: 'กำลังเช่าอยู่', value: historyStats.renting, icon: <PlayCircle className="w-5 h-5 text-emerald-700 dark:text-emerald-400" />, cls: 'text-emerald-700 dark:text-emerald-300', box: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200/60 dark:border-emerald-900/40' },
+                              { label: 'คืนแล้ว', value: historyStats.returned, icon: <CheckCircle2 className="w-5 h-5 text-blue-600 dark:text-blue-400" />, cls: 'text-blue-700 dark:text-blue-300', box: 'bg-blue-50 dark:bg-blue-950/30 border-blue-200/60 dark:border-blue-900/40' },
+                              { label: 'เกินกำหนดคืน', value: historyStats.overdue, icon: <AlertTriangle className="w-5 h-5 text-red-700 dark:text-red-400" />, cls: 'text-red-700 dark:text-red-300', box: 'bg-red-50 dark:bg-red-950/30 border-red-200/60 dark:border-red-900/40' },
                             ].map((s) => (
                               <div key={s.label} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border min-w-[120px] ${s.box}`}>
                                 {s.icon}
                                 <div className="leading-tight">
                                   <span className={`block text-[11px] font-semibold ${s.cls}`}>{s.label}</span>
-                                  <span className="text-lg font-black text-slate-900 dark:text-slate-100">{s.value} <span className="text-[11px] font-semibold text-slate-500">ครั้ง</span></span>
+                                  <span className="text-lg font-black text-slate-900 dark:text-slate-100">{s.value} <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">ครั้ง</span></span>
                                 </div>
                               </div>
                             ))}
@@ -1341,7 +1361,7 @@ function ProductsContent() {
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5">
                           <div className="relative flex-1 min-w-[160px]">
-                            <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                            <Search className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                             <input
                               value={historySearch}
                               onChange={(e) => setHistorySearch(e.target.value)}
@@ -1374,7 +1394,7 @@ function ProductsContent() {
                           </ActionButton>
                           <ActionButton
                             onClick={() => exportBillRows(productHistory, 'history')}
-                            className="ml-auto !bg-emerald-600 hover:!bg-emerald-700 !text-white !border-transparent"
+                            className="ml-auto !bg-emerald-700 hover:!bg-emerald-700 !text-white !border-transparent"
                             icon={<Download />}
                           >
                             ส่งออก
@@ -1401,7 +1421,7 @@ function ProductsContent() {
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                         {productHistory.map(({ bill, quantity, revenue, overdue, holding }, idx) => (
                           <tr key={bill.id} className="hover:bg-amber-50/40 dark:hover:bg-amber-950/20">
-                            <td className="px-2 text-center text-slate-500">{idx + 1}</td>
+                            <td className="px-2 text-center text-slate-600 dark:text-slate-400">{idx + 1}</td>
                             <td className="px-2 whitespace-nowrap">{formatThaiDate(bill.billDate)}</td>
                             <td className="px-2 text-blue-600 dark:text-blue-400 whitespace-nowrap">{bill.billNo}</td>
                             <td className="px-2 font-bold text-slate-900 dark:text-slate-100">{bill.customerName || '-'}</td>
@@ -1419,7 +1439,7 @@ function ProductsContent() {
                                 <StatusPill tone="slate" label={RENTAL_STATUS_LABEL[bill.rentalStatus] || bill.rentalStatus} />
                               )}
                             </td>
-                            <td className="px-2 text-right font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                            <td className="px-2 text-right font-bold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
                               {revenue.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </td>
                             <td className="px-2 text-slate-600 dark:text-slate-300 max-w-[140px] truncate" title={bill.remark || ''}>{bill.remark || '-'}</td>
@@ -1427,7 +1447,7 @@ function ProductsContent() {
                         ))}
                         {productHistory.length === 0 && (
                           <tr data-empty-row="true">
-                            <td colSpan={10} className="text-center py-10 text-slate-400 text-xs italic">ไม่มีประวัติการเช่าตามเงื่อนไข</td>
+                            <td colSpan={10} className="text-center py-10 text-slate-600 dark:text-slate-400 text-xs italic">ไม่มีประวัติการเช่าตามเงื่อนไข</td>
                           </tr>
                         )}
                       </tbody>
@@ -1448,23 +1468,7 @@ function ProductsContent() {
                   ]
                   return (
                     <>
-                      <div className="shrink-0 grid grid-cols-3 lg:grid-cols-6 gap-1.5">
-                        {[...states, { label: 'รวม', value: total, color: '#64748b', tone: KPI_TONE.slate }].map((s) => (
-                          <div key={s.label} className={`${KPI_CARD} ${s.tone.box}`}>
-                            <div className="flex items-baseline justify-between gap-1">
-                              <span className={`${KPI_LABEL} ${s.tone.label}`}>{s.label}</span>
-                              <span className="text-[10px] font-mono text-slate-400">{s.label === 'รวม' ? '100%' : `${pctOf(s.value)}%`}</span>
-                            </div>
-                            <span className={`${KPI_VALUE} ${s.tone.value}`}>
-                              {s.value.toLocaleString('th-TH')} <span className="text-[10px] font-bold text-slate-400">{selectedProduct.unit}</span>
-                            </span>
-                            <div className="mt-1 h-1 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                              <div className="h-full rounded-full" style={{ width: `${s.label === 'รวม' ? 100 : pctOf(s.value)}%`, backgroundColor: s.color }} />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
+                      {/* The 5 stock cards are already in the product header above; this tab adds the breakdown only. */}
                       <div className="flex-1 min-h-[260px] grid grid-cols-1 lg:grid-cols-5 gap-2">
                         <div className="lg:col-span-2 p-2 flex flex-col">
                           <h4 className="font-bold text-slate-800 dark:text-slate-200 text-xs pb-2">สัดส่วนสถานะสต็อก</h4>
@@ -1500,7 +1504,7 @@ function ProductsContent() {
                                     {s.label}
                                   </td>
                                   <td className={`px-2 text-right font-mono font-bold ${s.tone.value}`}>{s.value} {selectedProduct.unit}</td>
-                                  <td className="px-2 text-right font-mono text-slate-500">{total > 0 ? `${pctOf(s.value)}%` : '-'}</td>
+                                  <td className="px-2 text-right font-mono text-slate-600 dark:text-slate-400">{total > 0 ? `${pctOf(s.value)}%` : '-'}</td>
                                 </tr>
                               ))}
                               <tr className="bg-slate-50 dark:bg-slate-800/60">
@@ -1516,15 +1520,15 @@ function ProductsContent() {
                       <div className="shrink-0 px-3 py-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
                         <span className="font-bold text-slate-800 dark:text-slate-200">ราคาและค่าธรรมเนียม</span>
                         {selectedProduct.rentPrice !== undefined && selectedProduct.rentPrice !== null ? (
-                          <span className="text-slate-500">ราคาเช่า: <span className="font-bold text-blue-600">฿{selectedProduct.rentPrice.toLocaleString()}</span></span>
+                          <span className="text-slate-600 dark:text-slate-400">ราคาเช่า: <span className="font-bold text-blue-600 dark:text-blue-400">{selectedProduct.rentPrice.toLocaleString()}</span></span>
                         ) : (
-                          <span className="text-slate-500">ราคาเช่าปกติ: <span className="font-bold text-blue-600">฿{selectedProduct.normalPrice.toLocaleString()}</span></span>
+                          <span className="text-slate-600 dark:text-slate-400">ราคาเช่าปกติ: <span className="font-bold text-blue-600 dark:text-blue-400">{selectedProduct.normalPrice.toLocaleString()}</span></span>
                         )}
                         {selectedProduct.salePrice !== undefined && selectedProduct.salePrice !== null && (
-                          <span className="text-slate-500">ราคาขาย: <span className="font-bold text-emerald-600">฿{selectedProduct.salePrice.toLocaleString()}</span></span>
+                          <span className="text-slate-600 dark:text-slate-400">ราคาขาย: <span className="font-bold text-emerald-700 dark:text-emerald-400">{selectedProduct.salePrice.toLocaleString()}</span></span>
                         )}
-                        <span className="text-slate-500">ค่าชำรุดตั้งต้น: <span className="font-bold text-amber-600">฿{selectedProduct.defaultDamageFee.toLocaleString()}</span></span>
-                        <span className="text-slate-500">ค่าสูญหายตั้งต้น: <span className="font-bold text-red-600">฿{selectedProduct.defaultLossFee.toLocaleString()}</span></span>
+                        <span className="text-slate-600 dark:text-slate-400">ค่าชำรุดตั้งต้น: <span className="font-bold text-amber-700 dark:text-amber-400">{selectedProduct.defaultDamageFee.toLocaleString()}</span></span>
+                        <span className="text-slate-600 dark:text-slate-400">ค่าสูญหายตั้งต้น: <span className="font-bold text-red-700 dark:text-red-400">{selectedProduct.defaultLossFee.toLocaleString()}</span></span>
                       </div>
                     </>
                   )
@@ -1547,20 +1551,19 @@ function ProductsContent() {
         size="sm"
       >
         <AppModalHeader
-          title="ยืนยันการลบสินค้า"
-          icon={<Trash2 className="w-5 h-5 text-red-600" />}
+          title="ปิดใช้งานสินค้า"
+          icon={<Ban className="w-5 h-5 text-red-700 dark:text-red-400" />}
           onClose={() => {
             if (!isDeleting) setProductToDelete(null)
           }}
         />
         <AppModalBody className="space-y-3 text-xs py-3">
           <p className="text-slate-700 dark:text-slate-300">
-            คุณต้องการลบสินค้า <strong className="text-slate-900 dark:text-slate-100 font-bold">&quot;{productToDelete?.name}&quot;</strong> ออกจากระบบหรือไม่?
+            ปิดใช้งานสินค้า <strong className="text-slate-900 dark:text-slate-100 font-bold">&quot;{productToDelete?.name}&quot;</strong> หรือไม่?
           </p>
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-              <span>เหตุผลในการลบ/ระงับสินค้า (จำเป็น)</span>
-              <span className="text-red-500">*</span>
+              <span>เหตุผลในการปิดใช้งาน (ไม่บังคับ)</span>
             </label>
             <input
               type="text"
@@ -1570,8 +1573,8 @@ function ProductsContent() {
               className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-bold text-xs focus:outline-none focus:ring-2 focus:ring-red-500"
             />
           </div>
-          <div className="p-2.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl text-red-600 dark:text-red-400 text-[11px] leading-relaxed">
-            * ข้อมูลสินค้าจะถูกลบออกจากฐานข้อมูล และไม่สามารถเรียกคืนได้
+          <div className="p-2.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl text-red-700 dark:text-red-400 text-[11px] leading-relaxed">
+            * สินค้าจะไม่แสดงในหน้าขาย/เช่าและใบเสนอราคา แต่ข้อมูลและประวัติเดิมยังอยู่ครบ เปิดใช้งานอีกครั้งได้จากรายการสินค้า (ตัวกรอง &quot;สินค้าปิดใช้งาน&quot;)
           </div>
         </AppModalBody>
         <AppModalFooter
@@ -1581,9 +1584,9 @@ function ProductsContent() {
           }}
           cancelText="ยกเลิก"
           onConfirm={handleConfirmDeleteProduct}
-          confirmText={isDeleting ? 'กำลังลบ...' : 'ยืนยันการลบ'}
+          confirmText={isDeleting ? 'กำลังปิดใช้งาน...' : 'ยืนยันปิดใช้งาน'}
           confirmButtonColor="red"
-          isConfirmDisabled={isDeleting || !deleteReason.trim()}
+          isConfirmDisabled={isDeleting}
           isConfirmLoading={isDeleting}
         />
       </AppModal>

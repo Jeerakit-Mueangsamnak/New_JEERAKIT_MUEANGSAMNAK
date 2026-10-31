@@ -75,13 +75,13 @@ export default function ResetPasswordPage() {
           <h2 className="text-[26px] font-bold text-slate-900 dark:text-white tracking-tight">
             ตั้งรหัสผ่านใหม่
           </h2>
-          <p className="text-slate-500 dark:text-slate-400 text-xs">
+          <p className="text-slate-600 dark:text-slate-400 text-xs">
             กรุณากำหนดรหัสผ่านใหม่สำหรับบัญชีผู้ใช้งานของคุณ
           </p>
         </div>
 
         {error && (
-          <div className="p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center gap-2.5 text-rose-600 dark:text-rose-400 text-xs font-semibold animate-in fade-in">
+          <div className="p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center gap-2.5 text-rose-700 dark:text-rose-400 text-xs font-semibold animate-in fade-in">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{error}</span>
           </div>
@@ -89,7 +89,7 @@ export default function ResetPasswordPage() {
 
         {isSuccess ? (
           <div className="text-center py-4 space-y-4">
-            <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-500 dark:text-emerald-400 mx-auto">
+            <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 mx-auto">
               <CheckCircle2 className="w-7 h-7" />
             </div>
             <div className="space-y-1">
@@ -100,19 +100,19 @@ export default function ResetPasswordPage() {
             </div>
             <Link
               href="/login"
-              className="inline-flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-500/25 transition-colors"
+              className="inline-flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-lg shadow-blue-500/25 transition-colors"
             >
               <span>ไปที่หน้าเข้าสู่ระบบ</span>
               <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
         ) : authLoading && !linkInvalid ? (
-          <div className="text-center py-6 text-xs text-slate-500 dark:text-slate-400">
+          <div className="text-center py-6 text-xs text-slate-600 dark:text-slate-400">
             กำลังตรวจสอบลิงก์รีเซ็ตรหัสผ่าน...
           </div>
         ) : noRecoverySession ? (
           <div className="text-center py-4 space-y-4">
-            <div className="w-14 h-14 rounded-full bg-amber-500/20 border border-amber-400/30 flex items-center justify-center text-amber-500 dark:text-amber-400 mx-auto">
+            <div className="w-14 h-14 rounded-full bg-amber-500/20 border border-amber-400/30 flex items-center justify-center text-amber-700 dark:text-amber-400 mx-auto">
               <AlertCircle className="w-7 h-7" />
             </div>
             <div className="space-y-1">
@@ -123,7 +123,7 @@ export default function ResetPasswordPage() {
             </div>
             <Link
               href="/forgot-password"
-              className="inline-flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-500/25 transition-colors"
+              className="inline-flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-lg shadow-blue-500/25 transition-colors"
             >
               <span>ขอลิงก์รีเซ็ตรหัสผ่านใหม่</span>
               <ArrowRight className="w-4 h-4" />
@@ -134,7 +134,7 @@ export default function ResetPasswordPage() {
             <div>
               <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">รหัสผ่านใหม่</label>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Lock className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type={showPassword ? "text" : "password"}
                   required
@@ -147,7 +147,7 @@ export default function ResetPasswordPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 focus:outline-none transition-colors cursor-pointer"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 focus:outline-none transition-colors cursor-pointer"
                   aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -158,7 +158,7 @@ export default function ResetPasswordPage() {
             <div>
               <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">ยืนยันรหัสผ่านใหม่</label>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Lock className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type={showConfirmPassword ? "text" : "password"}
                   required
@@ -170,7 +170,7 @@ export default function ResetPasswordPage() {
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 focus:outline-none transition-colors cursor-pointer"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 focus:outline-none transition-colors cursor-pointer"
                   aria-label={showConfirmPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
                 >
                   {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -181,7 +181,7 @@ export default function ResetPasswordPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-700 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
             >
               {isSubmitting ? (
                 <span>กำลังบันทึก...</span>
@@ -195,7 +195,7 @@ export default function ResetPasswordPage() {
           </form>
         )}
 
-        <p className="text-center text-[10px] text-slate-400 dark:text-slate-600 pt-3 border-t border-slate-200 dark:border-slate-800">
+        <p className="text-center text-[10px] text-slate-600 dark:text-slate-400 pt-3 border-t border-slate-200 dark:border-slate-800">
           Rental POS &copy; {new Date().getFullYear()} - All rights reserved
         </p>
       </div>

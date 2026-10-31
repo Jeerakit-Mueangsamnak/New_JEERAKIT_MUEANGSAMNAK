@@ -12,6 +12,8 @@ interface ProductGridProps {
   onSelectProduct: (product: Product, mode?: 'RENT' | 'SALE') => void
   currentMode?: 'RENT' | 'SALE'
   onModeChange?: (mode: 'RENT' | 'SALE') => void
+  /** Quotation mode: out-of-stock products stay selectable. */
+  allowOutOfStock?: boolean
 }
 
 export function ProductGrid({
@@ -19,6 +21,7 @@ export function ProductGrid({
   onSelectProduct,
   currentMode,
   onModeChange,
+  allowOutOfStock = false,
 }: ProductGridProps) {
   const [internalMode, setInternalMode] = useState<'RENT' | 'SALE'>('RENT')
   const posMode = currentMode ?? internalMode
@@ -116,7 +119,7 @@ export function ProductGrid({
 
         {/* Search */}
         <div className="relative flex-1 min-w-0 max-w-full">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 shrink-0" />
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400 shrink-0" />
           <input
             type="text"
             placeholder={posMode === 'RENT' ? 'ค้นหาสินค้าสำหรับเช่า...' : 'ค้นหาสินค้าสำหรับขาย...'}
@@ -141,11 +144,11 @@ export function ProductGrid({
       {/* Grid view */}
       {filteredProducts.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
-          <PackageX className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-3" />
+          <PackageX className="w-12 h-12 text-slate-300 dark:text-slate-400 mb-3" />
           <h4 className="font-bold text-slate-700 dark:text-slate-300">
             {posMode === 'RENT' ? 'ไม่พบสินค้าสำหรับเช่า' : 'ไม่พบสินค้าสำหรับขาย'}
           </h4>
-          <p className="text-xs text-slate-400 mt-1">ลองเปลี่ยนคำค้นหาหรือตัวกรองหมวดหมู่สินค้า</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">ลองเปลี่ยนคำค้นหาหรือตัวกรองหมวดหมู่สินค้า</p>
         </div>
       ) : (
         <div className="flex-1 min-h-0 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 overflow-y-auto overflow-x-hidden no-scrollbar pr-0.5 pb-2 content-start">
@@ -154,6 +157,7 @@ export function ProductGrid({
               key={product.id}
               product={product}
               mode={posMode}
+              allowOutOfStock={allowOutOfStock}
               onClick={() => onSelectProduct(product, posMode)}
             />
           ))}

@@ -4,16 +4,19 @@
  * Settings › LINE: the driver list (ทะเบียนคนขับ). Drivers are not app users; each gets a code
  * (D001, …) used when an appointment is dispatched. Changes save at once (OWNER).
  * LINE for drivers is optional: a driver without LINE is still dispatched and the office
- * contacts them by phone. To link, the OWNER makes a single-use code for one driver code and the
- * driver sends it from their own LINE in the shop chat (one driver code = one LINE).
+ * contacts them by phone. To link, the shop makes a single-use link for one driver code (QR at the
+ * shop, or the link sent to the driver); it opens the shop chat with the code typed in and one send
+ * links that LINE (one driver code = one LINE). Shown on คนใน LINE (/line).
  */
 import { useCallback, useEffect, useState } from 'react'
 import QRCode from 'qrcode'
-import { Link2Off, Pencil, Plus, Truck } from 'lucide-react'
+import Image from 'next/image'
+import { Copy, Link2Off, Pencil, Plus, RefreshCw, Truck } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { useAskText } from '@/components/common/ConfirmDialogProvider'
 import { createClient } from '@/lib/supabase/client'
 import { createDriverLineLinkCode, unlinkLineContact } from '@/app/actions/line'
+import { LineContactInfo, type LineReviewContact } from '@/features/settings/components/LineInviteButton'
 import {
   loadDrivers,
   nextDriverId,
@@ -28,20 +31,27 @@ import {
   SETTINGS_SECTION_TITLE,
 } from '@/features/settings/components/settings-ui'
 
-interface DriverContact {
-  id: string
-  display_name: string | null
+interface DriverContact extends LineReviewContact {
   driver_code: string
 }
 interface IssuedCode {
   code: string
   expiresAt: string
+  oaUrl: string | null
   qr: string | null
 }
+
+function leftText(ms: number) {
+  const s = Math.max(0, Math.round(ms / 1000))
+  return s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} นาที` : 'หมดอายุแล้ว'
+}
+
+const PILL = 'inline-flex items-center h-5 px-2 rounded-full text-[10px] font-bold'
 
 export function DeliveryDriversPanel() {
   const { showToast } = useToast()
   const askText = useAskText()
+  const [now, setNow] = useState(() => Date.now())
   const [contacts, setContacts] = useState<Record<string, DriverContact>>({})
   const [lineReady, setLineReady] = useState(true)
   const [codes, setCodes] = useState<Record<string, IssuedCode>>({})
@@ -62,7 +72,7 @@ export function DeliveryDriversPanel() {
   const loadContacts = useCallback(async () => {
     const { data, error } = await createClient()
       .from('line_contacts')
-      .select('id, display_name, driver_code')
+      .select('id, display_name, driver_code, typed_name, typed_phone, line_handle, needs_review')
       .eq('status', 'LINKED')
       .not('driver_code', 'is', null)
     setLineReady(!error)
@@ -71,29 +81,50 @@ export function DeliveryDriversPanel() {
 
   useEffect(() => {
     void loadContacts()
+    // a driver who presses the link elsewhere shows up when the shop comes back to this screen
+    const onFocus = () => void loadContacts()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   }, [loadContacts])
 
-  const issueCode = async (d: DeliveryDriver) => {
-    setLineBusy(d.id)
+  const hasCodes = Object.keys(codes).length > 0
+  useEffect(() => {
+    if (!hasCodes) return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [hasCodes])
+
+  const issueCode = async (driverId: string) => {
+    setLineBusy(driverId)
     try {
-      const r = await createDriverLineLinkCode(d.id)
+      const r = await createDriverLineLinkCode(driverId)
       if (!r.success || !r.data) {
-        showToast('สร้างรหัสไม่สำเร็จ', r.error || 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
+        showToast('สร้างลิงก์ไม่สำเร็จ', r.error || 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
         return
       }
       const qr = r.data.oaUrl ? await QRCode.toDataURL(r.data.oaUrl, { margin: 1, width: 160 }).catch(() => null) : null
-      setCodes((prev) => ({ ...prev, [d.id]: { code: r.data!.code, expiresAt: r.data!.expires_at, qr } }))
+      setNow(Date.now())
+      setCodes((prev) => ({ ...prev, [driverId]: { code: r.data!.code, expiresAt: r.data!.expires_at, oaUrl: r.data!.oaUrl, qr } }))
     } finally {
       setLineBusy(null)
     }
   }
 
+  const copyLink = async (link: string) => {
+    try {
+      await navigator.clipboard.writeText(link)
+      showToast('คัดลอกลิงก์แล้ว', 'ส่งลิงก์นี้ให้พนักงานส่งของกดจากมือถือ', 'SUCCESS')
+    } catch {
+      showToast('คัดลอกไม่สำเร็จ', 'กรุณาคัดลอกเอง', 'ERROR')
+    }
+  }
+
   const unlink = async (d: DeliveryDriver, contact: DriverContact) => {
     const reason = await askText({
-      title: `ยกเลิกการเชื่อม LINE: ${d.name}`,
-      message: 'งานที่ยังไม่ส่งถึงคนขับคนนี้จะถูกยกเลิก และต้องออกรหัสใหม่เพื่อเชื่อมอีกครั้ง',
-      placeholder: 'เหตุผล เช่น เปลี่ยนเครื่อง / ผูกผิดคน',
-      confirmLabel: 'ยกเลิกการเชื่อม',
+      title: `ยกเลิกการผูก LINE: ${d.name}`,
+      message: 'งานที่ยังไม่ส่งถึงพนักงานคนนี้จะถูกยกเลิก และต้องสร้างลิงก์ใหม่เพื่อผูกอีกครั้ง',
+      placeholder: 'เหตุผล เช่น เปลี่ยน LINE',
+      confirmLabel: 'ยกเลิกการผูก',
       danger: true,
     })
     if (!reason?.trim()) return
@@ -111,55 +142,99 @@ export function DeliveryDriversPanel() {
     }
   }
 
+  const statusPill = (d: DeliveryDriver) =>
+    contacts[d.id] ? (
+      <span className={`${PILL} bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300`}>ผูก LINE แล้ว</span>
+    ) : codes[d.id] ? (
+      <span className={`${PILL} bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300`}>รอกดลิงก์</span>
+    ) : (
+      <span className={`${PILL} bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300`}>ยังไม่ผูก</span>
+    )
+
   const lineCell = (d: DeliveryDriver) => {
     const contact = contacts[d.id]
     const code = codes[d.id]
     if (contact) {
       return (
-        <span className="inline-flex items-center gap-1.5">
-          <span className="text-emerald-700 dark:text-emerald-300 font-semibold">เชื่อมแล้ว{contact.display_name ? ` · ${contact.display_name}` : ''}</span>
+        <span className="inline-flex flex-wrap items-center gap-1.5">
+          {contact.display_name && <span className="text-slate-700 dark:text-slate-300">LINE &quot;{contact.display_name}&quot;</span>}
+          <LineContactInfo contact={contact} onChanged={() => void loadContacts()} />
           <button
             type="button"
             disabled={lineBusy === d.id}
             onClick={() => void unlink(d, contact)}
-            aria-label={`ยกเลิกการเชื่อม LINE ${d.id}`}
-            className="p-1 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer"
           >
-            <Link2Off className="w-3.5 h-3.5" />
+            <Link2Off className="w-3.5 h-3.5" /> ยกเลิกการผูก
           </button>
         </span>
       )
     }
     if (code) {
+      const left = new Date(code.expiresAt).getTime() - now
       return (
-        <span className="inline-flex items-center gap-2">
-          {code.qr && <img src={code.qr} alt={`QR เชื่อม LINE ${d.id}`} className="w-16 h-16 rounded bg-white p-0.5" />}
-          <span>
-            <span className="block font-mono font-extrabold tracking-wider text-slate-900 dark:text-slate-100" data-testid="driver-line-code">
-              {code.code}
+        <span className="flex flex-wrap items-start gap-2" data-testid="driver-line-link">
+          {code.qr && (
+            <Image unoptimized width={88} height={88} src={code.qr} alt={`QR ลิงก์ผูก LINE ของ${d.name}`} className="w-[88px] h-[88px] rounded bg-white p-0.5" />
+          )}
+          <span className="min-w-0 space-y-1">
+            <span className="block text-[11px] text-slate-600 dark:text-slate-400">
+              ลิงก์ผูก LINE ของ{d.name} (รหัส{' '}
+              <span className="font-mono font-bold text-slate-900 dark:text-slate-100" data-testid="driver-line-code">
+                {code.code}
+              </span>
+              )
             </span>
-            <span className="block text-[10px] text-slate-500">
-              ให้คนขับส่งรหัสนี้ในแชต LINE ร้าน · หมดอายุ{' '}
-              {new Date(code.expiresAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+            {code.oaUrl ? (
+              <span className="block font-mono text-[10px] text-slate-500 dark:text-slate-400 break-all">{code.oaUrl}</span>
+            ) : (
+              <span className="block text-[10px] text-amber-700 dark:text-amber-300">
+                ใส่ LINE ID ร้านที่ ตั้งค่า › กิจการ เพื่อให้มี QR และลิงก์ · ระหว่างนี้ให้พิมพ์รหัสในแชต LINE ร้าน
+              </span>
+            )}
+            <span className={`block text-[11px] ${left > 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-400'}`}>
+              {left > 0 ? (
+                <>
+                  รอกดลิงก์ ใช้ได้ครั้งเดียว หมดอายุใน <b className="tabular-nums">{leftText(left)}</b>
+                </>
+              ) : (
+                'ลิงก์หมดอายุแล้ว'
+              )}
+            </span>
+            <span className="flex flex-wrap gap-1">
+              {code.oaUrl && (
+                <button
+                  type="button"
+                  onClick={() => void copyLink(code.oaUrl as string)}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-300 cursor-pointer"
+                >
+                  <Copy className="w-3 h-3" /> คัดลอกลิงก์
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={lineBusy === d.id}
+                onClick={() => void issueCode(d.id)}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className="w-3 h-3" /> สร้างลิงก์ใหม่
+              </button>
             </span>
           </span>
         </span>
       )
     }
-    return (
-      <span className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
-        ยังไม่ผูก
-        {d.active && lineReady && (
-          <button
-            type="button"
-            disabled={lineBusy === d.id}
-            onClick={() => void issueCode(d)}
-            className="px-2 py-1 rounded-lg text-[11px] font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer disabled:opacity-50"
-          >
-            ออกรหัสเชื่อม LINE
-          </button>
-        )}
-      </span>
+    return d.active && lineReady ? (
+      <button
+        type="button"
+        disabled={lineBusy === d.id}
+        onClick={() => void issueCode(d.id)}
+        className="px-2 py-1 rounded-lg text-[11px] font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer disabled:opacity-50"
+      >
+        สร้างลิงก์
+      </button>
+    ) : (
+      <span className="text-slate-600 dark:text-slate-400">-</span>
     )
   }
 
@@ -169,14 +244,16 @@ export function DeliveryDriversPanel() {
     setPhone('')
   }
 
-  const persist = async (next: DeliveryDriver[], reason: string, done: string) => {
+  const persist = async (next: DeliveryDriver[], reason: string, done: string): Promise<boolean> => {
     setSaving(true)
     try {
       setDrivers(await saveDrivers(next, reason))
       showToast(done, undefined, 'SUCCESS')
       resetForm()
+      return true
     } catch (err) {
       showToast('บันทึกทะเบียนคนขับไม่สำเร็จ', err instanceof Error ? err.message : 'ต้องเป็นเจ้าของร้าน', 'ERROR')
+      return false
     } finally {
       setSaving(false)
     }
@@ -196,8 +273,11 @@ export function DeliveryDriversPanel() {
         'แก้ข้อมูลคนขับแล้ว'
       )
     } else {
+      // บันทึกและสร้างลิงก์: the new driver gets their link at once
       const id = nextDriverId(drivers)
-      void persist([...drivers, { id, name: n, phone: phone.trim() || undefined, active: true }], `เพิ่มคนขับ ${id}`, `เพิ่มคนขับ ${id} แล้ว`)
+      void persist([...drivers, { id, name: n, phone: phone.trim() || undefined, active: true }], `เพิ่มคนขับ ${id}`, `เพิ่มคนขับ ${id} แล้ว`).then(
+        (ok) => (ok && lineReady ? issueCode(id) : undefined)
+      )
     }
   }
 
@@ -211,7 +291,7 @@ export function DeliveryDriversPanel() {
   return (
     <div className={SETTINGS_SECTION}>
       <h4 className={SETTINGS_SECTION_TITLE}>
-        <Truck className="w-3.5 h-3.5 text-blue-600" />
+        <Truck className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
         <span>พนักงานส่งของ (คนขับ)</span>
       </h4>
       <p className={SETTINGS_HELPER}>
@@ -221,7 +301,7 @@ export function DeliveryDriversPanel() {
       <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-end max-w-2xl">
         <div>
           <label className={SETTINGS_LABEL} htmlFor="driver-name">
-            ชื่อ-นามสกุลพนักงานส่งของ {editingId && <span className="text-blue-600">(กำลังแก้ {editingId})</span>}
+            ชื่อ-นามสกุลพนักงานส่งของ {editingId && <span className="text-blue-600 dark:text-blue-400">(กำลังแก้ {editingId})</span>}
           </label>
           <input id="driver-name" className={SETTINGS_INPUT} value={name} maxLength={100} onChange={(e) => setName(e.target.value)} placeholder="เช่น สมชาย" />
         </div>
@@ -238,7 +318,7 @@ export function DeliveryDriversPanel() {
             className="h-9 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
           >
             {editingId ? <Pencil className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-            {editingId ? 'บันทึกการแก้ไข' : 'เพิ่มพนักงานส่งของ'}
+            {editingId ? 'บันทึกการแก้ไข' : lineReady ? 'บันทึกและสร้างลิงก์' : 'เพิ่มพนักงานส่งของ'}
           </button>
           {editingId && (
             <button type="button" onClick={resetForm} className="h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
@@ -255,7 +335,7 @@ export function DeliveryDriversPanel() {
         <div className="overflow-x-auto max-w-3xl">
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-left text-[11px] text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+              <tr className="text-left text-[11px] text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
                 <th className="py-1.5 pr-2 font-semibold">รหัส</th>
                 <th className="py-1.5 pr-2 font-semibold">ชื่อ</th>
                 <th className="py-1.5 pr-2 font-semibold">เบอร์โทร</th>
@@ -268,7 +348,12 @@ export function DeliveryDriversPanel() {
               {drivers.map((d) => (
                 <tr key={d.id} className={`border-b border-slate-100 dark:border-slate-800 ${d.active ? '' : 'opacity-60'}`}>
                   <td className="py-1.5 pr-2 font-mono font-bold">{d.id}</td>
-                  <td className="py-1.5 pr-2 font-semibold text-slate-800 dark:text-slate-200">{d.name}</td>
+                  <td className="py-1.5 pr-2 font-semibold text-slate-800 dark:text-slate-200">
+                    <span className="inline-flex flex-wrap items-center gap-1.5">
+                      {d.name}
+                      {d.active && statusPill(d)}
+                    </span>
+                  </td>
                   <td className="py-1.5 pr-2 font-mono">{d.phone || '-'}</td>
                   <td className="py-1.5 pr-2">{lineCell(d)}</td>
                   <td className="py-1.5 pr-2">{d.active ? 'ใช้งาน' : 'ปิดใช้งาน'}</td>

@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react'
 import { Plus, Edit2, Trash2, Check, X } from 'lucide-react'
 import { ActionButton } from '@/components/common/ActionButton'
+import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import {
   ProductCategoryItem,
@@ -215,12 +216,15 @@ export function ProductSettingsView({
     setCompEditId(null)
   }
 
+  const [compositeSaving, setCompositeSaving] = useState(false)
   const handleSaveAddCompositeRow = async () => {
+    if (compositeSaving) return
     if (!newCompCategoryId) {
       onShowToast('กรุณาเลือกหมวดหมู่', 'ต้องเลือกหมวดหมู่สินค้าสำหรับแถวนี้', 'ERROR')
       return
     }
 
+    setCompositeSaving(true)
     try {
       const updated = await addCompositeRule({
         categoryId: newCompCategoryId,
@@ -232,6 +236,8 @@ export function ProductSettingsView({
       onShowToast('เพิ่มข้อมูลประกอบสำเร็จ', 'เพิ่มรายการในตารางประกอบข้อมูลเรียบร้อยแล้ว', 'SUCCESS')
     } catch (err: any) {
       onShowToast('ไม่สามารถเพิ่มข้อมูลประกอบได้', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
+    } finally {
+      setCompositeSaving(false)
     }
   }
 
@@ -343,7 +349,7 @@ export function ProductSettingsView({
           </div>
 
           {/* Table Content */}
-          <div className="h-[244px] shrink-0 overflow-auto [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
+          <DataTableFrame fill className="h-[244px] shrink-0 rounded-none bg-transparent">
             <table className="w-full text-center text-xs border-collapse table-fixed">
               <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs">
                 <tr className="border-b border-slate-200 dark:border-slate-700">
@@ -361,7 +367,7 @@ export function ProductSettingsView({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {categories.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="py-8 text-center text-slate-400 italic">
+                    <td colSpan={3} className="py-8 text-center text-slate-600 dark:text-slate-400 italic">
                       ยังไม่มีรายการ
                     </td>
                   </tr>
@@ -372,7 +378,7 @@ export function ProductSettingsView({
                     if (catEditId === cat.id) {
                       return (
                         <tr key={cat.id} className="h-10 bg-amber-50/50 dark:bg-amber-950/20">
-                          <td className="py-1 px-2 text-center font-bold text-slate-400 border-r border-slate-200 dark:border-slate-700">
+                          <td className="py-1 px-2 text-center font-bold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
                             {globalIdx}
                           </td>
                           <td className="py-1 px-2 text-center border-r border-slate-200 dark:border-slate-700">
@@ -390,7 +396,7 @@ export function ProductSettingsView({
                               <button
                                 type="button"
                                 onClick={() => handleCategorySaveEdit(cat.id)}
-                                className="w-7 h-7 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center justify-center transition-colors cursor-pointer"
+                                className="w-7 h-7 rounded-lg text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center justify-center transition-colors cursor-pointer"
                                 title="บันทึก"
                               >
                                 <Check className="w-4 h-4" />
@@ -398,7 +404,7 @@ export function ProductSettingsView({
                               <button
                                 type="button"
                                 onClick={() => setCatEditId(null)}
-                                className="w-7 h-7 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
+                                className="w-7 h-7 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
                                 title="ยกเลิก"
                               >
                                 <X className="w-4 h-4" />
@@ -412,7 +418,7 @@ export function ProductSettingsView({
                     if (catDeleteConfirmId === cat.id) {
                       return (
                         <tr key={cat.id} className="h-10 bg-red-50/60 dark:bg-red-950/30">
-                          <td colSpan={2} className="py-1 px-3 text-center text-red-600 font-bold text-xs">
+                          <td colSpan={2} className="py-1 px-3 text-center text-red-700 dark:text-red-400 font-bold text-xs">
                             ยืนยันลบหมวดหมู่ &quot;{cat.name}&quot;?
                           </td>
                           <td className="py-1 px-2 text-center">
@@ -439,7 +445,7 @@ export function ProductSettingsView({
 
                     return (
                       <tr key={cat.id} className="h-10 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                        <td className="py-1 px-2 text-center font-bold text-slate-400 border-r border-slate-200 dark:border-slate-700">
+                        <td className="py-1 px-2 text-center font-bold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
                           {globalIdx}
                         </td>
                         <td className="py-1 px-3 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 truncate">
@@ -450,7 +456,7 @@ export function ProductSettingsView({
                             <button
                               type="button"
                               onClick={() => handleCategoryStartEdit(cat)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
                               title="แก้ไข"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
@@ -461,7 +467,7 @@ export function ProductSettingsView({
                                 setCatDeleteConfirmId(cat.id)
                                 setCatEditId(null)
                               }}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
                               title="ลบ"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -475,7 +481,7 @@ export function ProductSettingsView({
 
               </tbody>
             </table>
-          </div>
+          </DataTableFrame>
         </div>
 
         {/* ==================================================== */}
@@ -505,7 +511,7 @@ export function ProductSettingsView({
           </div>
 
           {/* Table Content */}
-          <div className="h-[244px] shrink-0 overflow-auto [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
+          <DataTableFrame fill className="h-[244px] shrink-0 rounded-none bg-transparent">
             <table className="w-full text-center text-xs border-collapse table-fixed">
               <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs">
                 <tr className="border-b border-slate-200 dark:border-slate-700">
@@ -523,7 +529,7 @@ export function ProductSettingsView({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {masterUnits.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="py-8 text-center text-slate-400 italic">
+                    <td colSpan={3} className="py-8 text-center text-slate-600 dark:text-slate-400 italic">
                       ยังไม่มีรายการ
                     </td>
                   </tr>
@@ -534,7 +540,7 @@ export function ProductSettingsView({
                     if (unitEditId === u.id) {
                       return (
                         <tr key={u.id} className="h-10 bg-amber-50/50 dark:bg-amber-950/20">
-                          <td className="py-1 px-2 text-center font-bold text-slate-400 border-r border-slate-200 dark:border-slate-700">
+                          <td className="py-1 px-2 text-center font-bold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
                             {globalIdx}
                           </td>
                           <td className="py-1 px-2 text-center border-r border-slate-200 dark:border-slate-700">
@@ -552,7 +558,7 @@ export function ProductSettingsView({
                               <button
                                 type="button"
                                 onClick={() => handleUnitSaveEdit(u.id)}
-                                className="w-7 h-7 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center justify-center transition-colors cursor-pointer"
+                                className="w-7 h-7 rounded-lg text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center justify-center transition-colors cursor-pointer"
                                 title="บันทึก"
                               >
                                 <Check className="w-4 h-4" />
@@ -560,7 +566,7 @@ export function ProductSettingsView({
                               <button
                                 type="button"
                                 onClick={() => setUnitEditId(null)}
-                                className="w-7 h-7 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
+                                className="w-7 h-7 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
                                 title="ยกเลิก"
                               >
                                 <X className="w-4 h-4" />
@@ -574,7 +580,7 @@ export function ProductSettingsView({
                     if (unitDeleteConfirmId === u.id) {
                       return (
                         <tr key={u.id} className="h-10 bg-red-50/60 dark:bg-red-950/30">
-                          <td colSpan={2} className="py-1 px-3 text-center text-red-600 font-bold text-xs">
+                          <td colSpan={2} className="py-1 px-3 text-center text-red-700 dark:text-red-400 font-bold text-xs">
                             ยืนยันลบหน่วยนับ &quot;{u.name}&quot;?
                           </td>
                           <td className="py-1 px-2 text-center">
@@ -601,7 +607,7 @@ export function ProductSettingsView({
 
                     return (
                       <tr key={u.id} className="h-10 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                        <td className="py-1 px-2 text-center font-bold text-slate-400 border-r border-slate-200 dark:border-slate-700">
+                        <td className="py-1 px-2 text-center font-bold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
                           {globalIdx}
                         </td>
                         <td className="py-1 px-3 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 truncate">
@@ -612,7 +618,7 @@ export function ProductSettingsView({
                             <button
                               type="button"
                               onClick={() => handleUnitStartEdit(u)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
                               title="แก้ไข"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
@@ -623,7 +629,7 @@ export function ProductSettingsView({
                                 setUnitDeleteConfirmId(u.id)
                                 setUnitEditId(null)
                               }}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
                               title="ลบ"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -637,7 +643,7 @@ export function ProductSettingsView({
 
               </tbody>
             </table>
-          </div>
+          </DataTableFrame>
         </div>
       </div>
 
@@ -651,7 +657,7 @@ export function ProductSettingsView({
             <h3 className="text-sm font-black text-slate-900 dark:text-slate-100">
               ตารางประกอบข้อมูล
             </h3>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-slate-600 dark:text-slate-400">
               ข้อมูลช่วย Lookup กำหนดวิธีคิดเงิน รูปแบบการคิดเงิน และหน่วยนับอัตโนมัติตอนเพิ่มสินค้าใหม่
             </p>
           </div>
@@ -684,7 +690,7 @@ export function ProductSettingsView({
                 {/* แถวสำหรับเพิ่มใหม่ (+ เพิ่มแถว) */}
                 {isAddingCompositeRow && (
                   <tr className="h-11 bg-emerald-50/60 dark:bg-emerald-950/20">
-                    <td className="py-1 px-2 text-center font-bold text-emerald-600 border-r border-slate-200 dark:border-slate-700">
+                    <td className="py-1 px-2 text-center font-bold text-emerald-700 dark:text-emerald-400 border-r border-slate-200 dark:border-slate-700">
                       +
                     </td>
                     <td className="py-1 px-2 border-r border-slate-200 dark:border-slate-700">
@@ -721,7 +727,8 @@ export function ProductSettingsView({
                         <button
                           type="button"
                           onClick={handleSaveAddCompositeRow}
-                          className="w-7 h-7 rounded-lg text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 flex items-center justify-center transition-colors cursor-pointer"
+                          disabled={compositeSaving}
+                          className="w-7 h-7 rounded-lg text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 flex items-center justify-center transition-colors cursor-pointer"
                           title="บันทึก"
                         >
                           <Check className="w-4 h-4" />
@@ -729,7 +736,7 @@ export function ProductSettingsView({
                         <button
                           type="button"
                           onClick={() => setIsAddingCompositeRow(false)}
-                          className="w-7 h-7 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
+                          className="w-7 h-7 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
                           title="ยกเลิก"
                         >
                           <X className="w-4 h-4" />
@@ -741,7 +748,7 @@ export function ProductSettingsView({
 
                 {compositeRules.length === 0 && !isAddingCompositeRow ? (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-400 italic">
+                    <td colSpan={5} className="py-8 text-center text-slate-600 dark:text-slate-400 italic">
                       ยังไม่มีรายการ
                     </td>
                   </tr>
@@ -752,7 +759,7 @@ export function ProductSettingsView({
                     if (compEditId === rule.id) {
                       return (
                         <tr key={rule.id} className="h-11 bg-amber-50/50 dark:bg-amber-950/20">
-                          <td className="py-1 px-2 text-center font-bold text-slate-400 border-r border-slate-200 dark:border-slate-700">
+                          <td className="py-1 px-2 text-center font-bold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
                             {globalIdx}
                           </td>
                           <td className="py-1 px-2 border-r border-slate-200 dark:border-slate-700">
@@ -789,7 +796,7 @@ export function ProductSettingsView({
                               <button
                                 type="button"
                                 onClick={() => handleSaveEditCompositeRow(rule.id)}
-                                className="w-7 h-7 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center justify-center transition-colors cursor-pointer"
+                                className="w-7 h-7 rounded-lg text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center justify-center transition-colors cursor-pointer"
                                 title="บันทึก"
                               >
                                 <Check className="w-4 h-4" />
@@ -797,7 +804,7 @@ export function ProductSettingsView({
                               <button
                                 type="button"
                                 onClick={() => setCompEditId(null)}
-                                className="w-7 h-7 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
+                                className="w-7 h-7 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
                                 title="ยกเลิก"
                               >
                                 <X className="w-4 h-4" />
@@ -810,7 +817,7 @@ export function ProductSettingsView({
 
                     return (
                       <tr key={rule.id} className="h-10 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                        <td className="py-1 px-2 text-center font-bold text-slate-400 border-r border-slate-200 dark:border-slate-700">
+                        <td className="py-1 px-2 text-center font-bold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
                           {globalIdx}
                         </td>
                         <td className="py-1 px-3 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 truncate">
@@ -833,7 +840,7 @@ export function ProductSettingsView({
                               {getUnitName(rule.unitId)}
                             </span>
                           ) : (
-                            <span className="text-slate-400 text-[11px] font-normal">
+                            <span className="text-slate-600 dark:text-slate-400 text-[11px] font-normal">
                               - (เลือกเอง)
                             </span>
                           )}
@@ -844,7 +851,7 @@ export function ProductSettingsView({
                             <button
                               type="button"
                               onClick={() => handleStartEditCompositeRow(rule)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
                               title="แก้ไข"
                             >
                               <Edit2 className="w-3.5 h-3.5" />

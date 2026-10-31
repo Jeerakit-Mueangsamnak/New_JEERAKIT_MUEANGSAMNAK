@@ -14,6 +14,8 @@ export interface BillRenderSnapshot {
   taxAmount?: number
   depositAmount?: number
   grandTotal?: number
+  /** VAT rate (%) of the document; null / undefined = no VAT. */
+  vatRate?: number | null
   paidAmount?: number
   outstandingAmount?: number
   refundAmount?: number
@@ -40,6 +42,74 @@ export interface BillRenderSnapshot {
     lostQty?: number
     damageFee?: number
   }>
+}
+
+const THAI_DIGITS = ['', 'หนึ่ง', 'สอง', 'สาม', 'สี่', 'ห้า', 'หก', 'เจ็ด', 'แปด', 'เก้า']
+const THAI_PLACES = ['', 'สิบ', 'ร้อย', 'พัน', 'หมื่น', 'แสน']
+
+function thaiIntegerText(n: number): string {
+  if (n === 0) return ''
+  if (n >= 1_000_000) {
+    const millions = Math.floor(n / 1_000_000)
+    return `${thaiIntegerText(millions)}ล้าน${thaiIntegerText(n % 1_000_000)}`
+  }
+  const digits = String(n).split('').map(Number)
+  return digits
+    .map((d, i) => {
+      const place = digits.length - 1 - i
+      if (d === 0) return ''
+      if (place === 0 && d === 1 && digits.length > 1) return 'เอ็ด'
+      if (place === 1 && d === 1) return 'สิบ'
+      if (place === 1 && d === 2) return 'ยี่สิบ'
+      return THAI_DIGITS[d] + THAI_PLACES[place]
+    })
+    .join('')
+}
+
+/** Amount in Thai words for documents, e.g. 1,250.50 → "หนึ่งพันสองร้อยห้าสิบบาทห้าสิบสตางค์". */
+export function thaiBahtText(amount?: number | null): string {
+  const satang = Math.round(Math.abs(Number(amount) || 0) * 100)
+  const baht = Math.floor(satang / 100)
+  const rest = satang % 100
+  const bahtText = baht === 0 ? 'ศูนย์' : thaiIntegerText(baht)
+  return rest === 0 ? `${bahtText}บาทถ้วน` : `${bahtText}บาท${thaiIntegerText(rest)}สตางค์`
+}
+
+/** "3 รอบ" / "2 วัน" / "ขาย" for the rental column of an item row. */
+export function rentalTermLabel(rentalType?: string, periods?: number): string {
+  if (rentalType === 'SALE') return 'ขาย'
+  const n = Math.max(1, Number(periods) || 1)
+  return rentalType === 'DAILY' ? `${n} วัน` : `${n} รอบ`
+}
+
+/** One A4 quotation page: 16 rows max, consecutive numbers across pages. */
+export function generateQuotationRowsHtml(
+  items: Array<{ name: string; quantity?: number; unit?: string; price?: number; rentalType?: string; billableDays?: number; lineTotal?: number }> = [],
+  rowOffset = 0
+): string {
+  const widths = ['6%', '38%', '8%', '8%', '11%', '13%', '16%']
+  return Array.from({ length: 16 }, (_, index) => {
+    const item = items[index]
+    const values = item
+      ? [
+          String(rowOffset + index + 1),
+          escapeDocumentHtml(item.name),
+          String(item.quantity ?? ''),
+          escapeDocumentHtml(item.unit || ''),
+          formatBahtCurrency(item.price),
+          rentalTermLabel(item.rentalType, item.billableDays),
+          formatBahtCurrency(item.lineTotal),
+        ]
+      : [String(rowOffset + index + 1), '', '', '', '', '', '']
+    const align = ['center', 'left', 'center', 'center', 'right', 'center', 'right']
+    const cells = widths
+      .map((width, cellIndex) => {
+        const borders = `${cellIndex < widths.length - 1 ? 'border-right:1px solid #64748b;' : ''}${index === 15 ? '' : 'border-bottom:1px solid #64748b;'}`
+        return `<td style="width:${width};height:25px;${borders}text-align:${align[cellIndex]};padding:0 4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">${values[cellIndex]}</td>`
+      })
+      .join('')
+    return `<tr style="height:25px;">${cells}</tr>`
+  }).join('')
 }
 
 export function formatBahtCurrency(val?: number | null): string {
@@ -123,7 +193,7 @@ export function generate20ItemRowsHtml(
             <td class="border-r border-slate-300 px-1.5 py-0.5 text-center text-emerald-700 font-bold">${item.quantity ?? 1}</td>
             <td class="border-r border-slate-300 px-1.5 py-0.5 text-center text-amber-700 font-mono">0</td>
             <td class="border-r border-slate-300 px-1.5 py-0.5 text-center text-red-700 font-mono">0</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono font-bold">฿0.00</td>
+            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono font-bold">0.00</td>
           </tr>
         `)
       } else if (tableType === 'STATEMENT') {
@@ -132,9 +202,9 @@ export function generate20ItemRowsHtml(
             <td class="border-x border-slate-300 px-1 py-0.5 text-center font-mono">${rowNum}</td>
             <td class="border-r border-slate-300 px-1.5 py-0.5 font-mono text-center">${escapeDocumentHtml(item.code || '-')}</td>
             <td class="border-r border-slate-300 px-1.5 py-0.5 font-bold truncate max-w-[160px]">${escapeDocumentHtml(item.name)}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono font-bold">฿${formatBahtCurrency(item.lineTotal || 0)}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono text-emerald-700">฿${formatBahtCurrency(item.lineTotal || 0)}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono font-bold text-slate-800">฿0.00</td>
+            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono font-bold">${formatBahtCurrency(item.lineTotal || 0)}</td>
+            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono text-emerald-700">${formatBahtCurrency(item.lineTotal || 0)}</td>
+            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono font-bold text-slate-800">0.00</td>
           </tr>
         `)
       } else {
@@ -145,9 +215,9 @@ export function generate20ItemRowsHtml(
             <td class="border-r border-slate-300 px-1.5 py-0.5 font-bold truncate max-w-[190px]">${escapeDocumentHtml(item.name)}</td>
             <td class="border-r border-slate-300 px-1.5 py-0.5 text-center font-mono font-bold">${item.quantity ?? 1}</td>
             <td class="border-r border-slate-300 px-1.5 py-0.5 text-center">${escapeDocumentHtml(item.unit || 'ชิ้น')}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono">฿${formatBahtCurrency(item.price ?? 0)}</td>
+            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono">${formatBahtCurrency(item.price ?? 0)} บาท</td>
             <td class="border-r border-slate-300 px-1.5 py-0.5 text-center font-mono text-slate-600">${escapeDocumentHtml(item.rentalType === 'DAILY' ? `${item.billableDays || 1} วัน` : '1 รอบ')}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono font-bold">฿${formatBahtCurrency(item.lineTotal ?? ((item.price ?? 0) * (item.quantity ?? 1)))}</td>
+            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono font-bold">${formatBahtCurrency(item.lineTotal ?? ((item.price ?? 0) * (item.quantity ?? 1)))} บาท</td>
           </tr>
         `)
       }
@@ -226,7 +296,8 @@ export function renderDocumentTemplate(
   customTerms: string = '',
   businessSettings?: Partial<BusinessSettings> | null,
   billSnapshot?: Partial<BillRenderSnapshot> | null,
-  rawItems?: CustomerDocumentItem[]
+  rawItems?: CustomerDocumentItem[],
+  quotationRowOffset = 0
 ): string {
   if (!templateSchema) return ''
 
@@ -266,7 +337,7 @@ export function renderDocumentTemplate(
   replace(/\{\{\s*business\.bank_account_name\s*\}\}/g, fallbackAccountName)
   replace(/\{\{\s*business\.bank_account_number\s*\}\}/g, fallbackAccountNumber)
   replace(/\{\{\s*business\.promptpay\s*\}\}/g, fallbackPromptPay)
-  replace(/\{\{\s*business\.logo_url\s*\}\}/g, biz.logoDataUrl || biz.logoUrl || '')
+  replace(/\{\{\s*business\.logo_url\s*\}\}/g, biz.logoDataUrl || biz.logoUrl || '/logo.png')
   replace(/\{\{\s*business\.qr_url\s*\}\}/g, biz.bankQrDataUrl || '')
 
   // Mapping customer fields
@@ -307,6 +378,8 @@ export function renderDocumentTemplate(
   replace(/\{\{\s*bill\.tax_amount\s*\}\}/g, formatBahtCurrency(bill.taxAmount ?? 0))
   replace(/\{\{\s*bill\.deposit_amount\s*\}\}/g, formatBahtCurrency(bill.depositAmount ?? 0))
   replace(/\{\{\s*bill\.grand_total\s*\}\}/g, formatBahtCurrency(bill.grandTotal ?? 0))
+  replace(/\{\{\s*bill\.grand_total_text\s*\}\}/g, thaiBahtText(bill.grandTotal ?? 0))
+  replace(/\{\{\s*document\.vat_label\s*\}\}/g, bill.vatRate ? `${bill.vatRate}%` : 'ไม่คิด')
   replace(/\{\{\s*bill\.paid_amount\s*\}\}/g, formatBahtCurrency(bill.paidAmount ?? bill.grandTotal ?? 0))
   replace(/\{\{\s*bill\.outstanding_amount\s*\}\}/g, formatBahtCurrency(bill.outstandingAmount ?? 0))
   replace(/\{\{\s*bill\.refund_amount\s*\}\}/g, formatBahtCurrency(bill.refundAmount ?? 0))
@@ -323,6 +396,9 @@ export function renderDocumentTemplate(
     lineTotal: (i.normalPrice || 0) * (i.quantity || 1)
   })) : [])
 
+  if (html.includes('{{items.rows_quotation_16}}')) {
+    html = html.replace(/\{\{\s*items\.rows_quotation_16\s*\}\}/g, generateQuotationRowsHtml(itemsForTable, quotationRowOffset))
+  }
   if (html.includes('{{items.rows_standard_20}}')) {
     html = html.replace(/\{\{\s*items\.rows_standard_20\s*\}\}/g, generate20ItemRowsHtml(itemsForTable, 'STANDARD_BILL'))
   }

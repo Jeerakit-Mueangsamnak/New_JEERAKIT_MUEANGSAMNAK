@@ -1,11 +1,10 @@
 import type { CurrentUser, MemberStatus } from '@/lib/types/rental-pos'
 
 /**
- * Menu access (Master v4.3.1 §4.2): OWNER opens everything; a USER opens only the menus the
- * OWNER granted, one by one. Free-style inside a menu — no approval steps; risky actions ask
- * for the user's own PIN instead (§4.4). Must match public.menu_catalog in
- * supabase/baseline/00_baseline.sql. The database (RLS + RPC _require_menu) is the real gate;
- * this copy only drives the sidebar, page guard and the OWNER member screen.
+ * Menu access (owner 2026-10-26, Master §4.2): every ACTIVE member opens every menu, settings
+ * included; only member management (approve / suspend / role / PIN reset / audit) stays OWNER-only.
+ * Must match public.menu_catalog + public.has_menu() (migration 20261026200000). The database is
+ * the real gate; this copy only drives the sidebar and the page guard.
  */
 export const MENU_CATALOG = [
   { code: 'dashboard', label: 'แดชบอร์ด', href: '/dashboard', ownerOnly: false },
@@ -18,8 +17,7 @@ export const MENU_CATALOG = [
   { code: 'products', label: 'สินค้า/สต็อก', href: '/products', ownerOnly: false },
   { code: 'quotations', label: 'ใบเสนอราคา', href: '/quotations', ownerOnly: false },
   { code: 'finance', label: 'การเงิน', href: '/finance', ownerOnly: false },
-  // Shop settings are OWNER only (route, menu and settings_update on the server).
-  { code: 'settings', label: 'ตั้งค่าระบบ', href: '/settings', ownerOnly: true },
+  { code: 'settings', label: 'ตั้งค่าระบบ', href: '/settings', ownerOnly: false },
   { code: 'members', label: 'จัดการสิทธิ์ & รายงาน', href: '/owner-permissions', ownerOnly: true },
 ] as const
 
@@ -31,11 +29,9 @@ export function isMenuCode(value: unknown): value is MenuCode {
   return typeof value === 'string' && MENU_CODES.has(value)
 }
 
-/** Menus an OWNER may hand to a USER (owner-only menus are never granted). */
+/** Menus every ACTIVE member holds (all but the OWNER-only member management). */
 export const GRANTABLE_MENUS = MENU_CATALOG.filter((m) => !m.ownerOnly)
 
-/** Starting set for front-counter staff; the OWNER adjusts it per person. */
-export const POS_STAFF_PRESET: MenuCode[] = ['pos', 'bills', 'customers']
 
 export const MEMBER_STATUSES: readonly MemberStatus[] = ['PENDING', 'ACTIVE', 'SUSPENDED']
 
@@ -51,13 +47,12 @@ export function isActiveMember(user: MenuSubject): boolean {
   return user?.status === 'ACTIVE'
 }
 
-/** Mirrors public.has_menu(): OWNER holds every menu; a USER only what was granted. */
+/** Mirrors public.has_menu(): an ACTIVE member holds every menu except the OWNER-only one. */
 export function hasMenu(user: MenuSubject, code: MenuCode): boolean {
   if (!user || !isActiveMember(user)) return false
   if (user.role === 'OWNER') return true
   const entry = MENU_CATALOG.find((m) => m.code === code)
-  if (!entry || entry.ownerOnly) return false
-  return user.menus.includes(code)
+  return Boolean(entry && !entry.ownerOnly)
 }
 
 /** Which menu a page belongs to (longest href prefix), or null for pages open to every member. */

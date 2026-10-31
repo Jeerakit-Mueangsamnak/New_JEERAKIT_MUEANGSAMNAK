@@ -35,9 +35,11 @@ interface QuantityModalProps {
     billableDays?: number
   }) => void
   onClose: () => void
+  /** Quotation mode: more than the free stock may be quoted (warning only). */
+  allowOverStock?: boolean
 }
 
-export function QuantityModal({ product, mode = 'RENT', onAdd, onClose }: QuantityModalProps) {
+export function QuantityModal({ product, mode = 'RENT', onAdd, onClose, allowOverStock = false }: QuantityModalProps) {
   const defaultDays = 1
   const calculationMode = 'START_DATE_IS_DAY_ONE'
 
@@ -143,15 +145,15 @@ export function QuantityModal({ product, mode = 'RENT', onAdd, onClose }: Quanti
       <AppModalHeader
         onClose={onClose}
         icon={rentalType === 'SALE'
-          ? <ShoppingCart className="w-5 h-5 text-violet-600" />
-          : <Layers className="w-5 h-5 text-blue-600" />}
+          ? <ShoppingCart className="w-5 h-5 text-violet-600 dark:text-violet-400" />
+          : <Layers className="w-5 h-5 text-blue-600 dark:text-blue-400" />}
       >
         <div className="min-w-0">
           <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 truncate">
             {productName}
           </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            รหัส: {productCode} | สต็อกพร้อมใช้: <span className="font-semibold text-emerald-600 dark:text-emerald-400">{available} {unitName}</span>
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            รหัส: {productCode} | สต็อกพร้อมใช้: <span className="font-semibold text-emerald-700 dark:text-emerald-400">{available} {unitName}</span>
           </p>
         </div>
       </AppModalHeader>
@@ -171,7 +173,7 @@ export function QuantityModal({ product, mode = 'RENT', onAdd, onClose }: Quanti
               placeholder="0.00"
               className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold text-base focus:ring-2 focus:ring-emerald-500 focus:outline-none"
             />
-            <p className="mt-1 text-[10px] text-slate-500">เปลี่ยนราคาตรงนี้มีผลเฉพาะรายการ/บิลนี้ ไม่แก้ราคา Master</p>
+            <p className="mt-1 text-[10px] text-slate-600 dark:text-slate-400">เปลี่ยนราคาตรงนี้มีผลเฉพาะรายการ/บิลนี้ ไม่แก้ราคา Master</p>
           </div>
 
           <div>
@@ -196,8 +198,12 @@ export function QuantityModal({ product, mode = 'RENT', onAdd, onClose }: Quanti
 
         {isOverAvailable && (
           <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900 text-xs">
-            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
-            <span>จำนวนที่เลือก ({inputQty || 0}) มากกว่าสต็อกพร้อมใช้งาน ({available}) ระบบฐานข้อมูลจะไม่อนุญาตให้สต็อกติดลบ</span>
+            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-700 dark:text-amber-400" />
+            <span>
+              {allowOverStock
+                ? `จำนวนที่เลือก (${inputQty || 0}) มากกว่าสต็อกพร้อมใช้งาน (${available}) — เสนอราคาได้ แต่ต้องมีของพอตอนเปิดบิล`
+                : `จำนวนที่เลือก (${inputQty || 0}) มากกว่าสต็อกพร้อมใช้งาน (${available}) ระบบฐานข้อมูลจะไม่อนุญาตให้สต็อกติดลบ`}
+            </span>
           </div>
         )}
 
@@ -221,12 +227,12 @@ export function QuantityModal({ product, mode = 'RENT', onAdd, onClose }: Quanti
         {rentalType === 'DAILY' && (
           <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2.5">
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
-              <Calendar className="w-4 h-4 text-blue-500" />
+              <Calendar className="w-4 h-4 text-blue-600 dark:text-blue-400" />
               <span>กำหนดช่วงวันที่เช่า</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <span className="text-xs text-slate-500 block mb-1">วันเริ่มเช่า</span>
+                <span className="text-xs text-slate-600 dark:text-slate-400 block mb-1">วันเริ่มเช่า</span>
                 <CustomDatePicker
                   value={startDate ? new Date(startDate) : null}
                   onChange={(d) => setStartDate(d ? getLocalDateString(d) : '')}
@@ -235,7 +241,7 @@ export function QuantityModal({ product, mode = 'RENT', onAdd, onClose }: Quanti
                 />
               </div>
               <div>
-                <span className="text-xs text-slate-500 block mb-1">วันสิ้นสุดเช่า</span>
+                <span className="text-xs text-slate-600 dark:text-slate-400 block mb-1">วันสิ้นสุดเช่า</span>
                 <CustomDatePicker
                   value={endDate ? new Date(endDate) : null}
                   onChange={(d) => setEndDate(d ? getLocalDateString(d) : '')}
@@ -268,7 +274,7 @@ export function QuantityModal({ product, mode = 'RENT', onAdd, onClose }: Quanti
 
         <div>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+            <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
               เลือกจำนวนแบบเร็ว (1-50) — <span className="text-blue-600 dark:text-blue-400">กดครั้งที่ 2 เพื่อยืนยันทันที</span>
             </span>
           </div>
@@ -297,7 +303,7 @@ export function QuantityModal({ product, mode = 'RENT', onAdd, onClose }: Quanti
       <AppModalFooter>
         <div className="flex-1 flex items-center justify-between w-full">
           <div className="text-xs">
-            <span className="text-slate-500 dark:text-slate-400">ราคารวม: </span>
+            <span className="text-slate-600 dark:text-slate-400">ราคารวม: </span>
             <span className="text-base font-extrabold text-blue-600 dark:text-blue-400">
               {previewAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
             </span>
@@ -314,8 +320,8 @@ export function QuantityModal({ product, mode = 'RENT', onAdd, onClose }: Quanti
             <button
               type="button"
               onClick={() => submitItem(inputQty)}
-              disabled={Boolean(dailyDateError) || isOverAvailable}
-              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-lg shadow-emerald-500/30 transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              disabled={Boolean(dailyDateError) || (isOverAvailable && !allowOverStock)}
+              className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-lg shadow-emerald-500/30 transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               เพิ่มลงตะกร้า
             </button>

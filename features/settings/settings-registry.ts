@@ -11,7 +11,7 @@ export interface SettingDefinition {
   key: string
   scope: SettingScope
   /** /settings section (SYSTEM) or /account tab (PROFILE / DEVICE). */
-  section: SettingsSection | 'account.profile' | 'account.security' | 'account.device'
+  section: SettingsSection | 'account.profile' | 'account.security' | 'account.notifications' | 'account.device'
   type: 'string' | 'number' | 'boolean' | 'enum' | 'image' | 'object'
   default?: unknown
   /** Who may change it. */
@@ -45,10 +45,15 @@ export const SETTINGS_REGISTRY: readonly SettingDefinition[] = [
   { key: 'reservation.autoRelease', scope: 'SYSTEM', section: 'salesRental', type: 'boolean', default: false, permission: 'OWNER', storage: 'policies.reservation_auto_release', serverValidated: true, consumer: 'reservations_expire job' },
   { key: 'product.defaultReorderPoint', scope: 'SYSTEM', section: 'product', type: 'number', default: 2, permission: 'OWNER', storage: 'policies.default_reorder_point', serverValidated: true, consumer: 'new product forms (products.reorder_point)' },
   { key: 'documentNumbering', scope: 'SYSTEM', section: 'documentNumbering', type: 'object', permission: 'OWNER', storage: 'store_settings.doc_number_formats {TYPE: {prefix, digits}}', serverValidated: true, consumer: '_next_document_no' },
-  { key: 'notifications', scope: 'SYSTEM', section: 'notifications', type: 'object', permission: 'OWNER', storage: 'policies.notifications', serverValidated: true, consumer: 'rental_overdue_scan, appointment calendar' },
+  { key: 'profile.notifications', scope: 'PROFILE', section: 'account.notifications', type: 'object', permission: 'SELF', storage: 'profiles.notification_prefs (my_notification_prefs_set)', serverValidated: true, consumer: 'rental_overdue_scan (per member, own menus), appointment calendar' },
   { key: 'delivery.drivers', scope: 'SYSTEM', section: 'line', type: 'object', default: [], permission: 'OWNER', storage: 'policies.delivery_drivers [{id: D001, name, phone, active}]', serverValidated: false, consumer: 'appointments dispatch (สั่งงานคนขับ), work order timeline' },
   { key: 'line.notify', scope: 'SYSTEM', section: 'line', type: 'object', default: {}, permission: 'OWNER', storage: 'policies.line.notify {EVENT_TYPE: true}', serverValidated: true, consumer: 'line_notification_recipients (staff LINE fan-out)' },
   { key: 'line.templates', scope: 'SYSTEM', section: 'line', type: 'object', default: {}, permission: 'OWNER', storage: 'policies.line.templates {KEY: text}', serverValidated: true, consumer: 'lib/line/templates renderTemplate (webhook replies, staff notices, tasks)' },
+  { key: 'line.reminders', scope: 'SYSTEM', section: 'line', type: 'object', default: {}, permission: 'OWNER', storage: 'policies.line.reminders {RULE: {enabled, daysBefore, repeatDays}} (rules in lib/line/config.ts)', serverValidated: true, consumer: 'line_customer_reminders_due (/api/line/cron), Settings › LINE › ส่งเตือนเอง' },
+  { key: 'line.customerStages', scope: 'SYSTEM', section: 'line', type: 'object', default: {}, permission: 'OWNER', storage: 'policies.line.customerStages {STAGE: true}', serverValidated: true, consumer: 'line_task_progress (webhook: driver step → customer LINE)' },
+  { key: 'line.reminderHour', scope: 'SYSTEM', section: 'line', type: 'number', default: 9, permission: 'OWNER', storage: 'policies.line.reminderHour (0–23, Asia/Bangkok)', serverValidated: true, consumer: 'line_customer_reminders_due' },
+  { key: 'line.acceptTimeoutMinutes', scope: 'SYSTEM', section: 'line', type: 'number', default: 0, permission: 'OWNER', storage: 'policies.line.acceptTimeoutMinutes (0 = off)', serverValidated: true, consumer: 'line_driver_accept_overdue (/api/line/cron)' },
+  { key: 'line.linkInviteTtlHours', scope: 'SYSTEM', section: 'line', type: 'number', default: 72, permission: 'OWNER', storage: 'policies.line.linkInviteTtlHours (1–720)', serverValidated: true, consumer: 'line_invite_create (invite link expiry)' },
   { key: 'line.credentials', scope: 'SYSTEM', section: 'line', type: 'object', permission: 'OWNER', storage: 'Supabase Vault (line_channel_set / line_channel_clear), never in store_settings', serverValidated: true, consumer: 'webhook signature check, outbox sender (server only)' },
   { key: 'security.autoLockOptions', scope: 'SYSTEM', section: 'shopSecurity', type: 'object', default: { options: [30, 60, 120, 180, 240, 300, 600, 0], default: 300 }, permission: 'OWNER', storage: 'policies.auto_lock_options_seconds / auto_lock_default_seconds', serverValidated: true, consumer: 'set_auto_lock, my_pin_status' },
 ]

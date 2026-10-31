@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/client'
 import { rpc, selectRows } from '@/lib/db/rpc'
 import { withPin } from '@/lib/db/pin-confirm'
 import { toServerMethod } from '@/features/bills/services/bill-service'
-import type { StatementTransaction } from '@/features/finance/services/finance-storage'
+import type { RevenueLedgerEntry, StatementTransaction } from '@/features/finance/services/finance-storage'
 
 /**
  * Finance (Master v4.3.1 §22): the statement is read from the server's own records — bill
@@ -47,7 +47,7 @@ export function channelCode(channel: string): 'CASH' | 'TRANSFER' | 'CARD' | 'QR
 
 export async function fetchTransactionsFromSupabase(): Promise<StatementTransaction[]> {
   const supabase = createClient()
-  const [payments, refunds, expenses, incomes, bills, customers] = await Promise.all([
+  const [payments, refunds, expenses, incomes, bills, customers, receipts] = await Promise.all([
     selectRows<{ id: string; bill_id: string; method: string; amount: number; reference: string | null; status: string; received_at: string; receipt_id: string }>(
       supabase.from('payments').select('id, bill_id, method, amount, reference, status, received_at, receipt_id')
     ),
@@ -62,7 +62,9 @@ export async function fetchTransactionsFromSupabase(): Promise<StatementTransact
     ),
     selectRows<{ id: string; bill_no: string | null; customer_id: string | null }>(supabase.from('bills').select('id, bill_no, customer_id')),
     selectRows<{ id: string; name: string }>(supabase.from('customers').select('id, name')),
+    selectRows<{ id: string; receipt_no: string }>(supabase.from('payment_receipts').select('id, receipt_no')),
   ])
+  const receiptNoOf = new Map(receipts.map((r) => [r.id, r.receipt_no]))
   const billMap = new Map(bills.map((b) => [b.id, b]))
   const customerMap = new Map(customers.map((c) => [c.id, c.name]))
   const customerOf = (billId: string) => {
@@ -88,6 +90,9 @@ export async function fetchTransactionsFromSupabase(): Promise<StatementTransact
         channel: METHOD_TH[p.method] || p.method,
         billId: p.bill_id,
         billNo: billMap.get(p.bill_id)?.bill_no || undefined,
+        source: 'PAYMENT' as const,
+        receiptNo: receiptNoOf.get(p.receipt_id),
+        reference: p.reference || undefined,
       })),
     ...refunds
       .filter((r) => r.status === 'PAID')
@@ -106,6 +111,7 @@ export async function fetchTransactionsFromSupabase(): Promise<StatementTransact
         billId: r.bill_id,
         billNo: billMap.get(r.bill_id)?.bill_no || undefined,
         originalTxId: r.payment_id,
+        source: 'REFUND' as const,
       })),
     ...expenses
       .filter((e) => e.status !== 'VOIDED')
@@ -120,6 +126,7 @@ export async function fetchTransactionsFromSupabase(): Promise<StatementTransact
         expenseAmount: Number(e.amount),
         runningBalance: 0,
         channel: METHOD_TH[e.paid_method] || e.paid_method,
+        source: 'EXPENSE' as const,
       })),
     ...incomes
       .filter((i) => i.status !== 'VOIDED')
@@ -134,6 +141,7 @@ export async function fetchTransactionsFromSupabase(): Promise<StatementTransact
         expenseAmount: 0,
         runningBalance: 0,
         channel: METHOD_TH[i.channel] || i.channel,
+        source: 'OTHER_INCOME' as const,
       })),
   ]
 
@@ -144,6 +152,27 @@ export async function fetchTransactionsFromSupabase(): Promise<StatementTransact
     r.runningBalance = Math.round(balance * 100) / 100
   }
   return rows.reverse()
+}
+
+/**
+ * Revenue lines from the server's finance ledger (Master §22, §31 Revenue per Mode): recorded
+ * when a bill is confirmed / a charge is confirmed / other income is saved. Reversals carry the
+ * same revenue class with the opposite direction. Readable with the finance menu (RLS).
+ */
+export async function fetchRevenueLedgerFromSupabase(): Promise<RevenueLedgerEntry[]> {
+  const supabase = createClient()
+  const rows = await selectRows<{ revenue_class: string; amount: number; direction: number; occurred_at: string }>(
+    supabase
+      .from('finance_ledger_entries')
+      .select('revenue_class, amount, direction, occurred_at')
+      .in('entry_type', ['REVENUE', 'REVERSAL'])
+      .not('revenue_class', 'is', null)
+  )
+  return rows.map((r) => ({
+    revenueClass: r.revenue_class,
+    amount: Number(r.amount) * (Number(r.direction) < 0 ? -1 : 1),
+    occurredAt: r.occurred_at,
+  }))
 }
 
 /** รายรับอื่น (ไม่ใช่การขายสินค้า — สินค้าต้องออกบิลขาย). */

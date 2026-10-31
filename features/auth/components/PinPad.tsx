@@ -61,7 +61,7 @@ export function PinPad({ value, onChange, disabled = false, length = 6 }: PinPad
   const keyClass =
     'w-16 h-16 rounded-full bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 active:bg-blue-600 active:text-white border border-slate-300 dark:border-slate-700/80 text-slate-900 dark:text-white font-black text-2xl flex items-center justify-center mx-auto transition-all active:scale-95 disabled:opacity-40 select-none'
   const sideKeyClass =
-    'w-16 h-16 rounded-full text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-bold flex items-center justify-center mx-auto transition-colors disabled:opacity-40 select-none'
+    'w-16 h-16 rounded-full text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-bold flex items-center justify-center mx-auto transition-colors disabled:opacity-40 select-none'
 
   return (
     <div className="flex flex-col items-center w-full">

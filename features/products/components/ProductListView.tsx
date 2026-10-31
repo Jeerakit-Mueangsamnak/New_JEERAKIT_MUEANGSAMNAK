@@ -7,13 +7,13 @@ import {
   RotateCcw,
   Shuffle,
   History,
-  Trash2,
+  Ban,
 } from 'lucide-react'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { ActionButton } from '@/components/common/ActionButton'
 import { Product } from '@/lib/types/rental-pos'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
-import { DATA_TABLE_CLASSES } from '@/components/common/DataTableFrame'
+import { DataTableFrame, DATA_TABLE_CLASSES } from '@/components/common/DataTableFrame'
 
 interface ProductListViewProps {
   products: Product[]
@@ -39,7 +39,9 @@ interface ProductListViewProps {
   /** Member may adjust stock (menu + OWNER grant); UI hint, the server re-checks. */
   canAdjustStock?: boolean
   onOpenHistory: (product: Product) => void
+  /** Deactivate: products with history are never deleted (Master §2), they are switched off. */
   onDeleteProduct: (product: Product) => void
+  onReactivateProduct: (product: Product) => void
   focusedProductId?: string | null
   onRowDoubleClick?: (product: Product) => void
 }
@@ -62,6 +64,7 @@ export function ProductListView({
   canAdjustStock = true,
   onOpenHistory,
   onDeleteProduct,
+  onReactivateProduct,
   focusedProductId = null,
   onRowDoubleClick,
 }: ProductListViewProps) {
@@ -138,7 +141,7 @@ export function ProductListView({
                   className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-extrabold ${
                     activeViewTab === 'DAMAGED'
                       ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60'
-                      : 'bg-amber-100/80 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+                      : 'bg-amber-100/80 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
                   }`}
                 >
                   {damagedProductsCount}
@@ -148,7 +151,7 @@ export function ProductListView({
           </div>
 
           <div className="relative min-w-[180px] flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               value={searchTerm}
@@ -181,6 +184,7 @@ export function ProductListView({
                   { value: 'ACTIVE', label: 'สินค้าเปิดใช้งาน' },
                   { value: 'LOW_STOCK', label: 'สต็อกใกล้หมด (เตือน)' },
                   { value: 'OUT_OF_STOCK', label: 'สินค้าหมดคลัง' },
+                  { value: 'INACTIVE', label: 'สินค้าปิดใช้งาน' },
                 ]}
               />
             </div>
@@ -189,14 +193,17 @@ export function ProductListView({
       </div>
 
       {/* Products Table Area */}
-      <div
-        ref={autoFit.containerRef}
-        className="flex-1 min-h-0 min-w-0 overflow-auto"
+      <DataTableFrame
+        fill
+        scrollRef={autoFit.containerRef}
+        rowCount={products.length}
+        shownCount={autoFit.endIndex}
+        className="flex-1 min-h-0 min-w-0 rounded-none bg-transparent"
       >
           <table className={`${DATA_TABLE_CLASSES} text-xs`}>
             {activeViewTab === 'DAMAGED' ? (
               <>
-                <thead className="sticky top-0 z-10 bg-slate-800 dark:bg-slate-950 text-slate-100 font-bold border-b border-slate-700 shadow-xs text-xs">
+                <thead className="sticky top-0 z-10 !bg-slate-800 dark:!bg-slate-950 text-slate-100 font-bold border-b border-slate-700 shadow-xs text-xs">
                   <tr>
                     <th className="py-2 px-2 text-left whitespace-nowrap">ชื่อสินค้า</th>
                     <th className="py-2 px-2 text-left whitespace-nowrap">หมวดหมู่</th>
@@ -224,7 +231,7 @@ export function ProductListView({
                           {p.damagedQuantity} {p.unit}
                         </span>
                       </td>
-                      <td className="py-1.5 px-2 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                      <td className="py-1.5 px-2 text-center font-mono font-bold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
                         {p.availableQuantity} {p.unit}
                       </td>
                       <td className="py-1.5 px-2 text-center font-mono font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
@@ -258,7 +265,7 @@ export function ProductListView({
                   ))}
                   {isLoading ? (
                     <tr data-empty-row="true">
-                      <td colSpan={6} className="text-center py-12 text-slate-400 text-xs">
+                      <td colSpan={6} className="text-center py-12 text-slate-600 dark:text-slate-400 text-xs">
                         <div className="flex items-center justify-center gap-2">
                           <div className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
                           <span>กำลังโหลดข้อมูลสินค้าจากฐานข้อมูล...</span>
@@ -267,7 +274,7 @@ export function ProductListView({
                     </tr>
                   ) : effectivePaginatedProducts.length === 0 ? (
                     <tr data-empty-row="true">
-                      <td colSpan={6} className="text-center py-10 text-slate-400 text-xs italic">
+                      <td colSpan={6} className="text-center py-10 text-slate-600 dark:text-slate-400 text-xs italic">
                         ไม่พบรายการสินค้าชำรุดในระบบ
                       </td>
                     </tr>
@@ -292,6 +299,7 @@ export function ProductListView({
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {effectivePaginatedProducts.map((p) => {
                     const isLow = isLowStock(p)
+                    const isInactive = p.status === 'INACTIVE'
                     return (
                       <tr key={p.id} {...focusRowProps(p)} className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors${focusRowCls(p)}`}>
                         <td className="py-1.5 px-2 min-w-0">
@@ -306,38 +314,40 @@ export function ProductListView({
                         </td>
                         <td className="py-1.5 px-2 text-right font-mono font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
                           {p.rentPrice !== undefined && p.rentPrice !== null ? (
-                            <span>฿{p.rentPrice.toLocaleString()}{p.calculationType === 'PER_DAY' || p.rentalType === 'DAILY' ? '/วัน' : '/รอบ'}</span>
+                            <span>{p.rentPrice.toLocaleString()}{p.calculationType === 'PER_DAY' || p.rentalType === 'DAILY' ? '/วัน' : '/รอบ'}</span>
                           ) : p.salePrice !== undefined && p.salePrice !== null ? (
-                            <span className="text-violet-600 dark:text-violet-400">฿{p.salePrice.toLocaleString()} (ขาย)</span>
+                            <span className="text-violet-600 dark:text-violet-400">{p.salePrice.toLocaleString()} (ขาย)</span>
                           ) : (
-                            <span>฿{p.rentalType === 'DAILY' ? `${p.dailyPrice.toLocaleString()}/วัน` : `${p.normalPrice.toLocaleString()}/รอบ`}</span>
+                            <span>{p.rentalType === 'DAILY' ? `${p.dailyPrice.toLocaleString()}/วัน` : `${p.normalPrice.toLocaleString()}/รอบ`}</span>
                           )}
                         </td>
-                        <td className="py-1.5 px-2 text-right font-mono text-[11px] text-amber-600 dark:text-amber-400 font-bold whitespace-nowrap">
-                          ฿{p.defaultDamageFee.toLocaleString()}
+                        <td className="py-1.5 px-2 text-right font-mono text-[11px] text-amber-700 dark:text-amber-400 font-bold whitespace-nowrap">
+                          {p.defaultDamageFee.toLocaleString()}
                         </td>
-                        <td className="py-1.5 px-2 text-right font-mono text-[11px] text-red-600 dark:text-red-400 font-bold whitespace-nowrap">
-                          ฿{p.defaultLossFee.toLocaleString()}
+                        <td className="py-1.5 px-2 text-right font-mono text-[11px] text-red-700 dark:text-red-400 font-bold whitespace-nowrap">
+                          {p.defaultLossFee.toLocaleString()}
                         </td>
                         <td className="py-1.5 px-2 text-center font-mono whitespace-nowrap">
-                          <span className={`font-extrabold ${p.availableQuantity === 0 ? 'text-red-500' : isLow ? 'text-amber-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                          <span className={`font-extrabold ${p.availableQuantity === 0 ? 'text-red-700 dark:text-red-400' : isLow ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
                             {p.availableQuantity} {p.unit}
                           </span>
                         </td>
-                        <td className="py-1.5 px-2 text-center font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                        <td className="py-1.5 px-2 text-center font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
                           <span>{p.totalQuantity} {p.unit}</span>
                         </td>
                         <td className="py-1.5 px-2 text-center whitespace-nowrap">
                           <span
                             className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                              p.availableQuantity === 0
+                              isInactive
+                                ? 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                                : p.availableQuantity === 0
                                 ? 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'
                                 : isLow
                                 ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
                                 : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
                             }`}
                           >
-                            {p.availableQuantity === 0 ? 'สินค้าหมด' : isLow ? 'สต็อกใกล้หมด' : 'พร้อมใช้'}
+                            {isInactive ? 'ปิดใช้งาน' : p.availableQuantity === 0 ? 'สินค้าหมด' : isLow ? 'สต็อกใกล้หมด' : 'พร้อมใช้'}
                           </span>
                         </td>
                         <td className="py-1.5 px-2 text-center whitespace-nowrap">
@@ -345,19 +355,32 @@ export function ProductListView({
                             <button
                               type="button"
                               onClick={() => onOpenHistory(p)}
-                              className="p-1 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                              className="p-1 rounded-lg text-slate-600 dark:text-slate-400 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                               title="ดูข้อมูลและประวัติการเช่า"
                             >
                               <History className="w-3.5 h-3.5" />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => onDeleteProduct(p)}
-                              className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
-                              title="ลบสินค้า"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {isInactive ? (
+                              <button
+                                type="button"
+                                onClick={() => onReactivateProduct(p)}
+                                className="p-1 rounded-lg text-slate-600 dark:text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer"
+                                title="เปิดใช้งานสินค้าอีกครั้ง"
+                                aria-label="เปิดใช้งานสินค้าอีกครั้ง"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => onDeleteProduct(p)}
+                                className="p-1 rounded-lg text-slate-600 dark:text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                                title="ปิดใช้งานสินค้า"
+                                aria-label="ปิดใช้งานสินค้า"
+                              >
+                                <Ban className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -365,7 +388,7 @@ export function ProductListView({
                   })}
                   {isLoading ? (
                     <tr data-empty-row="true">
-                      <td colSpan={9} className="text-center py-12 text-slate-400 text-xs">
+                      <td colSpan={9} className="text-center py-12 text-slate-600 dark:text-slate-400 text-xs">
                         <div className="flex items-center justify-center gap-2">
                           <div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
                           <span>กำลังโหลดข้อมูลสินค้าจากฐานข้อมูล...</span>
@@ -374,7 +397,7 @@ export function ProductListView({
                     </tr>
                   ) : effectivePaginatedProducts.length === 0 ? (
                     <tr data-empty-row="true">
-                      <td colSpan={9} className="text-center py-10 text-slate-400 text-xs italic">
+                      <td colSpan={9} className="text-center py-10 text-slate-600 dark:text-slate-400 text-xs italic">
                         ไม่พบรายการสินค้าที่ตรงกับเงื่อนไขการค้นหา
                       </td>
                     </tr>
@@ -383,20 +406,7 @@ export function ProductListView({
               </>
             )}
           </table>
-      </div>
-
-        {/* Row count (outside the scroll area so it never covers rows) */}
-        <div className="shrink-0 p-2 bg-slate-100/70 dark:bg-slate-900/60 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
-          <span className="truncate">
-            {products.length > 0 ? (
-              <span>
-                แสดง {autoFit.endIndex} จากทั้งหมด {products.length} รายการ
-              </span>
-            ) : (
-              <span>0 รายการ</span>
-            )}
-          </span>
-        </div>
+      </DataTableFrame>
     </div>
   )
 }

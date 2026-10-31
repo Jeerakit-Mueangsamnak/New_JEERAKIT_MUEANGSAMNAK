@@ -13,3 +13,12 @@ enabled = true
 
 [storage]
 enabled = true
+
+[studio]
+enabled = false
+
+[analytics]
+enabled = false
+
+[edge_runtime]
+enabled = false

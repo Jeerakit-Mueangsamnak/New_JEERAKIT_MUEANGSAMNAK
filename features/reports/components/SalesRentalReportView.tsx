@@ -30,22 +30,22 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
         <div className="p-2 rounded-xl border border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-950/20 flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
-              <ShoppingBag className="w-3.5 h-3.5 text-emerald-500" />
+              <ShoppingBag className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
               ยอดขายสินค้า
             </span>
-            <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+            <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
               {formatNumber(data.salesUnits)} ชิ้น
             </span>
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-emerald-700 dark:text-emerald-400">
-              ฿{formatCurrency(data.salesRevenue)}
+              {formatCurrency(data.salesRevenue)}
             </div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+            <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               จากบิลขาย {formatNumber(data.salesCount)} รายการ
             </div>
           </div>
-          <div className="text-[9.5px] text-emerald-600/80 dark:text-emerald-400/80 font-bold">
+          <div className="text-[9.5px] text-emerald-700/80 dark:text-emerald-400/80 font-bold">
             ขายขาด & อุปกรณ์สิ้นเปลือง
           </div>
         </div>
@@ -54,7 +54,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
         <div className="p-2 rounded-xl border border-blue-500/20 bg-blue-50/50 dark:bg-blue-950/20 flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-blue-800 dark:text-blue-300 flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5 text-blue-500" />
+              <Clock className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
               รายได้จากการเช่า
             </span>
             <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400">
@@ -63,9 +63,9 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-blue-700 dark:text-blue-400">
-              ฿{formatCurrency(data.rentalRevenue)}
+              {formatCurrency(data.rentalRevenue)}
             </div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+            <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               ค่าเช่าอุปกรณ์ในงวด
             </div>
           </div>
@@ -78,7 +78,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
         <div className="p-2 rounded-xl border border-slate-300/70 bg-slate-100/70 dark:bg-slate-800/70 flex flex-col justify-between shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-              <Receipt className="w-3.5 h-3.5 text-slate-500" />
+              <Receipt className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
               บิลทั้งหมด
             </span>
             <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
@@ -87,14 +87,14 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-slate-800 dark:text-slate-100">
-              ฿{formatCurrency(data.totalBillsValue)}
+              {formatCurrency(data.totalBillsValue)}
             </div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium flex items-center justify-between">
-              <span>ชำระแล้ว: ฿{formatNumber(data.totalBillsPaid)}</span>
+            <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium flex items-center justify-between">
+              <span>ชำระแล้ว: {formatNumber(data.totalBillsPaid)}</span>
             </div>
           </div>
-          <div className="text-[9.5px] text-amber-600 dark:text-amber-400 font-mono">
-            ค้างชำระ: ฿{formatNumber(data.totalBillsOutstanding)}
+          <div className="text-[9.5px] text-amber-700 dark:text-amber-400 font-mono">
+            ค้างชำระ: {formatNumber(data.totalBillsOutstanding)}
           </div>
         </div>
 
@@ -102,7 +102,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
         <div className="p-2 rounded-xl border border-purple-500/20 bg-purple-50/50 dark:bg-purple-950/20 flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-purple-800 dark:text-purple-300 flex items-center gap-1">
-              <FileText className="w-3.5 h-3.5 text-purple-500" />
+              <FileText className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
               ใบเสนอราคา
             </span>
             <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400">
@@ -111,9 +111,9 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-purple-700 dark:text-purple-400">
-              ฿{formatCurrency(data.totalQuotationsValue)}
+              {formatCurrency(data.totalQuotationsValue)}
             </div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+            <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               ออกทั้งหมด {formatNumber(data.totalQuotationsCount)} ใบ
             </div>
           </div>
@@ -126,15 +126,15 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
         <div className="col-span-2 md:col-span-1 p-2 rounded-xl border border-blue-500/20 bg-blue-50/50 dark:bg-blue-950/20 flex flex-col justify-between shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-              <Truck className="w-3.5 h-3.5 text-blue-500" />
+              <Truck className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
               งานเช่าปัจจุบัน
             </span>
             {data.overdueRentalsCount > 0 ? (
-              <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center gap-0.5">
+              <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-rose-500/10 text-rose-700 dark:text-rose-400 flex items-center gap-0.5">
                 <AlertTriangle className="w-2.5 h-2.5" /> เกิน {data.overdueRentalsCount}
               </span>
             ) : (
-              <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
                 ปกติ
               </span>
             )}
@@ -142,13 +142,13 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-blue-600 dark:text-blue-400">
               {formatNumber(data.activeRentalsCount)}{' '}
-              <span className="text-xs font-normal text-slate-400">สัญญา</span>
+              <span className="text-xs font-normal text-slate-600 dark:text-slate-400">สัญญา</span>
             </div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+            <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               อยู่ระหว่างเช่าจริงนอกร้าน
             </div>
           </div>
-          <div className="text-[9.5px] text-slate-400 font-bold">
+          <div className="text-[9.5px] text-slate-600 dark:text-slate-400 font-bold">
             ติดตามสถานะและรับคืน
           </div>
         </div>
@@ -165,7 +165,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
                 Bar เปรียบเทียบ ยอดขายสินค้า vs รายได้จากการเช่า
               </h3>
             </div>
-            <span className="text-[10px] text-slate-400">ตามช่วงเวลา</span>
+            <span className="text-[10px] text-slate-600 dark:text-slate-400">ตามช่วงเวลา</span>
           </div>
 
           <div className="flex-1 min-h-40">
@@ -183,12 +183,12 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
         <div className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-1.5">
-              <Receipt className="w-3.5 h-3.5 text-slate-500" />
+              <Receipt className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
               <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">
                 สถานะบิลในงวด
               </h3>
             </div>
-            <span className="text-[10px] text-slate-400">รวม {data.totalBillsCount} บิล</span>
+            <span className="text-[10px] text-slate-600 dark:text-slate-400">รวม {data.totalBillsCount} บิล</span>
           </div>
 
           <div className="space-y-1.5 my-1">
@@ -206,16 +206,16 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
                     <div className="text-xs font-bold text-slate-700 dark:text-slate-300">
                       {st.label}
                     </div>
-                    <div className="text-[10px] text-slate-400 font-mono">
+                    <div className="text-[10px] text-slate-600 dark:text-slate-400 font-mono">
                       {st.count} รายการ
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
                   <div className="text-xs font-black font-mono text-slate-800 dark:text-slate-100">
-                    ฿{formatCurrency(st.amount)}
+                    {formatCurrency(st.amount)}
                   </div>
-                  <div className="text-[9px] text-slate-400">
+                  <div className="text-[9px] text-slate-600 dark:text-slate-400">
                     {data.totalBillsValue > 0
                       ? Math.round((st.amount / data.totalBillsValue) * 100)
                       : 0}
@@ -228,7 +228,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
 
           <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[10.5px] text-emerald-800 dark:text-emerald-300 flex items-center justify-between">
             <span className="font-medium">รับชำระแล้วทั้งหมด:</span>
-            <span className="font-bold font-mono">฿{formatCurrency(data.totalBillsPaid)}</span>
+            <span className="font-bold font-mono">{formatCurrency(data.totalBillsPaid)}</span>
           </div>
         </div>
       </div>
@@ -237,7 +237,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
       <div className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-1.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <FileText className="w-3.5 h-3.5 text-purple-500" />
+            <FileText className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
             <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">
               ท่อส่งเอกสารใบเสนอราคา (ร่าง → ส่งแล้ว → ยืนยัน → เป็นบิล)
             </h3>
@@ -257,14 +257,14 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
         header={
           <div className="flex items-center justify-between mb-2 shrink-0">
             <div className="flex items-center gap-1.5">
-              <Truck className="w-3.5 h-3.5 text-blue-500" />
+              <Truck className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
               <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">
                 งานเช่าปัจจุบันที่กำลังดำเนินการ ({data.activeRentals.length} งาน)
               </h3>
             </div>
-            <span className="text-[10px] text-slate-400">
+            <span className="text-[10px] text-slate-600 dark:text-slate-400">
               {data.overdueRentalsCount > 0 ? (
-                <span className="text-rose-500 font-bold">
+                <span className="text-rose-700 dark:text-rose-400 font-bold">
                   ⚠️ มีงานเกินกำหนด {data.overdueRentalsCount} งาน
                 </span>
               ) : (
@@ -276,7 +276,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
       >
         <table className="w-full text-left border-collapse text-[11px]">
           <thead>
-            <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
+            <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400">
               <th className="px-1.5">เลขที่บิล</th>
               <th className="px-1.5">ลูกค้า</th>
               <th className="px-1.5">วันที่เริ่ม</th>
@@ -290,7 +290,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
             {data.activeRentals.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-xs text-slate-400">
+                <td colSpan={8} className="py-8 text-center text-xs text-slate-600 dark:text-slate-400">
                   ขณะนี้ไม่มีสินค้าที่อยู่ระหว่างเช่านอกร้าน
                 </td>
               </tr>
@@ -303,12 +303,12 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
                   <td className="px-1.5 max-w-[130px] truncate text-slate-700 dark:text-slate-300">
                     <div>{r.customerName}</div>
                     {r.customerPhone && (
-                      <div className="text-[9.5px] text-slate-400 font-mono">
+                      <div className="text-[9.5px] text-slate-600 dark:text-slate-400 font-mono">
                         {r.customerPhone}
                       </div>
                     )}
                   </td>
-                  <td className="px-1.5 font-mono text-slate-500 whitespace-nowrap">
+                  <td className="px-1.5 font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
                     {formatThaiDate(r.rentalStartDate)}
                   </td>
                   <td className="px-1.5 font-mono font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
@@ -318,14 +318,14 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
                     {r.itemsCount} ชิ้น
                   </td>
                   <td className="px-1.5 font-mono text-right text-purple-600 dark:text-purple-400 whitespace-nowrap">
-                    ฿{formatNumber(r.depositAmount)}
+                    {formatNumber(r.depositAmount)}
                   </td>
                   <td className="px-1.5 font-mono font-bold text-right text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                    ฿{formatCurrency(r.grandTotal)}
+                    {formatCurrency(r.grandTotal)}
                   </td>
                   <td className="px-1.5 text-center whitespace-nowrap">
                     {r.isOverdue ? (
-                      <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400">
+                      <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-rose-500/10 text-rose-700 dark:text-rose-400">
                         เกินกำหนด {r.daysOverdue} วัน
                       </span>
                     ) : (
@@ -348,12 +348,12 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
         header={
           <div className="flex items-center justify-between mb-2 shrink-0">
             <div className="flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-slate-500" />
+              <Layers className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
               <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">
                 ตารางรายละเอียดบิลและใบเสนอราคา ({data.detailedRecords.length} ฉบับ)
               </h3>
             </div>
-            <span className="text-[10px] text-slate-400">เรียงตามวันที่ล่าสุด</span>
+            <span className="text-[10px] text-slate-600 dark:text-slate-400">เรียงตามวันที่ล่าสุด</span>
           </div>
         }
       >
@@ -372,14 +372,14 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
             {data.detailedRecords.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-xs text-slate-400">
+                <td colSpan={7} className="py-8 text-center text-xs text-slate-600 dark:text-slate-400">
                   ยังไม่มีข้อมูลเอกสารในช่วงเวลานี้
                 </td>
               </tr>
             ) : (
               data.detailedRecords.map((doc) => (
                 <tr key={doc.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                  <td className="px-2 font-mono text-slate-500 whitespace-nowrap">
+                  <td className="px-2 font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
                     {formatThaiDate(doc.date)}
                   </td>
                   <td className="px-2 font-mono font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
@@ -390,9 +390,9 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
                       className={`px-1.5 py-0.5 rounded-md text-[9.5px] font-bold ${
                         doc.type === 'BILL'
                           ? doc.subType === 'SALE'
-                            ? 'bg-emerald-500/10 text-emerald-600'
-                            : 'bg-blue-500/10 text-blue-600'
-                          : 'bg-purple-500/10 text-purple-600'
+                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                            : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                          : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
                       }`}
                     >
                       {doc.type === 'BILL'
@@ -405,7 +405,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
                   <td className="px-2 whitespace-nowrap text-slate-700 dark:text-slate-300">
                     <div>{doc.customerName}</div>
                     {doc.customerPhone && (
-                      <div className="text-[9px] text-slate-400 font-mono">
+                      <div className="text-[9px] text-slate-600 dark:text-slate-400 font-mono">
                         {doc.customerPhone}
                       </div>
                     )}
@@ -414,7 +414,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
                     {doc.itemsSummary}
                   </td>
                   <td className="px-2 font-mono font-bold text-right text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                    ฿{formatCurrency(doc.amount)}
+                    {formatCurrency(doc.amount)}
                   </td>
                   <td className="px-2 text-center whitespace-nowrap">
                     <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">

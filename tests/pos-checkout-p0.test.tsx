@@ -83,7 +83,7 @@ describe('P0-2 cash taken at checkout must cover the payment', () => {
     mountCheckout([saleItem])
     selectCashPayment()
     fireEvent.change(screen.getByLabelText('cash'), { target: { value: '500' } })
-    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิล' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith('เงินสดไม่ถูกต้อง', expect.any(String), 'ERROR'))
     expect(mocks.saveDraft).not.toHaveBeenCalled()
     expect(mocks.confirm).not.toHaveBeenCalled()
@@ -94,7 +94,7 @@ describe('P0-2 cash taken at checkout must cover the payment', () => {
     mountCheckout([saleItem])
     selectCashPayment()
     fireEvent.change(screen.getByLabelText('cash'), { target: { value: '1000' } })
-    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิล' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith('เงินสดไม่ถูกต้อง', expect.any(String), 'ERROR'))
     expect(mocks.confirm).not.toHaveBeenCalled()
   })
@@ -103,19 +103,19 @@ describe('P0-2 cash taken at checkout must cover the payment', () => {
     mountCheckout([saleItem])
     selectCashPayment()
     fireEvent.change(screen.getByLabelText('cash'), { target: { value: '1500' } })
-    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิล' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledWith('bill-1', [expect.objectContaining({ method: 'CASH', amount: 1000 })]))
     cleanup()
     vi.clearAllMocks()
     mountCheckout([saleItem])
     selectCashPayment()
-    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิล' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledWith('bill-1', [expect.objectContaining({ method: 'CASH', amount: 1000 })]))
   })
 
   it('requires an explicit payment choice and hides PromptPay until its QR flow is available', () => {
     mountCheckout([saleItem])
-    const confirmButton = screen.getByRole('button', { name: 'ยืนยันออกบิล' }) as HTMLButtonElement
+    const confirmButton = screen.getByRole('button', { name: 'ออกบิล' }) as HTMLButtonElement
     expect(confirmButton.disabled).toBe(true)
     expect(screen.queryByRole('button', { name: 'PromptPay QR' })).toBeNull()
     selectCashPayment()
@@ -125,7 +125,7 @@ describe('P0-2 cash taken at checkout must cover the payment', () => {
   it('records unpaid bills without credit classification or an immediate tender', async () => {
     mountCheckout([saleItem])
     fireEvent.click(screen.getByRole('button', { name: 'ค้างชำระ' }))
-    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันออกบิล' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
 
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledWith('bill-1', []))
     expect(mocks.saveDraft.mock.calls[0][0]).toMatchObject({ isCreditBill: false, dueDate: null })
@@ -162,7 +162,7 @@ describe('P0-4 quoted price survives quotation → bill', () => {
   it('checkout sends the quoted unit price in the draft', async () => {
     const { cartItems } = mapQuotationToPos(quote, [product], [customer])
     mountCheckout([cartItems[0]])
-    fireEvent.click(screen.getByRole('button', { name: 'บันทึกแบบร่าง (Save Draft)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'แบบร่าง' }))
     await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledOnce())
     expect(mocks.saveDraft.mock.calls[0][0].lines).toEqual([
       expect.objectContaining({ productId: 'p1', mode: 'RENTAL', quantity: 2, unitPrice: 80 }),
@@ -171,7 +171,7 @@ describe('P0-4 quoted price survives quotation → bill', () => {
 })
 
 describe('P1-B2 retry after a failed confirm reuses the saved draft', () => {
-  const confirmButton = () => screen.getByRole('button', { name: /ยืนยันออกบิล/ })
+  const confirmButton = () => screen.getByRole('button', { name: 'ออกบิล' })
 
   it('confirm fails → retry updates the same draft (no second draft) and then confirms it', async () => {
     mocks.confirm.mockRejectedValueOnce(new Error('network down'))

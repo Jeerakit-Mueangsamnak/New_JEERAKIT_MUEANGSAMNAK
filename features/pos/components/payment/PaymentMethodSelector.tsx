@@ -12,6 +12,12 @@ interface PaymentMethodSelectorProps {
   showPromptPay?: boolean
   autoSelectFirst?: boolean
   className?: string
+  /** Hide the "เลือกช่องทางการชำระเงิน" caption. */
+  showLabel?: boolean
+  /** Buttons per row; omit for 2 columns. All buttons share the same size. */
+  itemsPerRow?: number
+  /** Override the button captions, e.g. { TRANSFER: 'เงินโอน' }. */
+  labels?: Partial<Record<PaymentMethodType, string>>
 }
 
 export function PaymentMethodSelector({
@@ -21,6 +27,9 @@ export function PaymentMethodSelector({
   showPromptPay = true,
   autoSelectFirst = true,
   className = '',
+  showLabel = true,
+  itemsPerRow,
+  labels,
 }: PaymentMethodSelectorProps) {
   const methods = {
     cash: true,
@@ -35,7 +44,7 @@ export function PaymentMethodSelector({
       list.push({
         key: 'CASH',
         label: 'เงินสด',
-        icon: <Banknote className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-emerald-600 shrink-0" />,
+        icon: <Banknote className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-emerald-700 dark:text-emerald-400 shrink-0" />,
         activeClass: 'border-blue-600 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 shadow-sm',
       })
     }
@@ -43,7 +52,7 @@ export function PaymentMethodSelector({
       list.push({
         key: 'TRANSFER',
         label: 'โอนเงินธนาคาร',
-        icon: <CreditCard className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-blue-600 shrink-0" />,
+        icon: <CreditCard className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-blue-600 dark:text-blue-400 shrink-0" />,
         activeClass: 'border-blue-600 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 shadow-sm',
       })
     }
@@ -51,7 +60,7 @@ export function PaymentMethodSelector({
       list.push({
         key: 'QR',
         label: 'PromptPay QR',
-        icon: <QrCode className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-purple-600 shrink-0" />,
+        icon: <QrCode className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-purple-600 dark:text-purple-400 shrink-0" />,
         activeClass: 'border-blue-600 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 shadow-sm',
       })
     }
@@ -59,12 +68,17 @@ export function PaymentMethodSelector({
       list.push({
         key: 'UNPAID',
         label: 'ค้างชำระ',
-        icon: <ShieldAlert className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-500 shrink-0" />,
+        icon: <ShieldAlert className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-700 dark:text-amber-400 shrink-0" />,
         activeClass: 'border-amber-500 bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 shadow-sm',
       })
     }
     return list
   }, [methods.cash, methods.bankTransfer, methods.promptPay, methods.credit])
+
+  const shownList = useMemo(
+    () => enabledList.map((item) => ({ ...item, label: labels?.[item.key] ?? item.label })),
+    [enabledList, labels]
+  )
 
   useEffect(() => {
     if (autoSelectFirst && enabledList.length > 0 && !enabledList.some((item) => item.key === selectedMethod)) {
@@ -74,25 +88,30 @@ export function PaymentMethodSelector({
 
   return (
     <div className={`space-y-1.5 ${className}`}>
-      <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-        เลือกช่องทางการชำระเงิน
-      </label>
+      {showLabel && (
+        <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
+          เลือกช่องทางการชำระเงิน
+        </label>
+      )}
 
-      <div className="grid min-w-0 grid-cols-2 gap-1.5 sm:gap-2">
-        {enabledList.map((item) => (
+      <div
+        className={`grid min-w-0 gap-1.5 sm:gap-2 ${itemsPerRow ? '' : 'grid-cols-2'}`}
+        style={itemsPerRow ? { gridTemplateColumns: `repeat(${itemsPerRow}, minmax(0, 1fr))` } : undefined}
+      >
+        {shownList.map((item) => (
           <button
             key={item.key}
             type="button"
             disabled={disabled}
             onClick={() => onSelectMethod(item.key)}
-            className={`p-2 sm:p-2.5 rounded-xl border-2 font-bold text-xs flex items-center gap-2 transition-all min-h-[38px] ${
+            className={`p-2 sm:p-2.5 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-1.5 sm:gap-2 transition-all min-h-[44px] ${
               selectedMethod === item.key
                 ? item.activeClass
                 : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
             } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
           >
             {item.icon}
-            <span className="whitespace-nowrap truncate">{item.label}</span>
+            <span className="min-w-0 truncate">{item.label}</span>
           </button>
         ))}
       </div>

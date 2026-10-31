@@ -96,12 +96,33 @@ describe('ข้อมูลลูกค้า › ฟอร์มเพิ่�
     await act(async () => {
       render(<NewCustomerModal isOpen onClose={onClose} onSave={onSave} />)
     })
-    fireEvent.change(screen.getByPlaceholderText('เช่น คุณสมชาย ใจดี / บจก. เจียรกิจ เมืองสำนัก'), { target: { value: 'ลูกค้า ข' } })
+    fireEvent.change(screen.getByLabelText('ชื่อลูกค้า / ชื่อบริษัท'), { target: { value: 'ลูกค้า ข' } })
+    fireEvent.change(screen.getByLabelText('บ้านเลขที่'), { target: { value: '12' } })
     await act(async () => {
       fireEvent.submit(document.querySelector('form')!)
     })
     return { onSave, onClose }
   }
+
+  it('ไม่กรอกที่อยู่: ไม่บันทึก และขอให้กรอก (ไม่เติมที่อยู่สมมติ)', async () => {
+    const onSave = vi.fn(async () => true)
+    await act(async () => {
+      render(<NewCustomerModal isOpen onClose={vi.fn()} onSave={onSave} />)
+    })
+    fireEvent.change(screen.getByLabelText('ชื่อลูกค้า / ชื่อบริษัท'), { target: { value: 'ลูกค้า ค' } })
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form')!)
+    })
+    expect(onSave).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert').textContent).toContain('กรุณากรอกที่อยู่')
+  })
+
+  it('กรอกแค่บ้านเลขที่: ที่อยู่ที่บันทึกมีแค่ที่กรอก', async () => {
+    const { onSave } = await submit(true)
+    const saved = (onSave.mock.calls[0] as unknown as [{ address: string; province: string }])[0]
+    expect(saved.address).toBe('เลขที่ 12')
+    expect(saved.province).toBe('')
+  })
 
   it('บันทึกไม่สำเร็จ (onSave = false): ฟอร์มยังเปิดอยู่', async () => {
     const { onSave, onClose } = await submit(false)

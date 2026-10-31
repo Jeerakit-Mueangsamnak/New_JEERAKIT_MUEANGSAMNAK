@@ -1,8 +1,12 @@
 'use client'
 
-import { useAskText } from '@/components/common/ConfirmDialogProvider'
-import { printBillA4 } from '@/features/documents/utils/transaction-print'
+import { useConfirm } from '@/components/common/ConfirmDialogProvider'
+import { loadQuotationPrintTemplate, printQuotationA4 } from '@/features/documents/utils/transaction-print'
+import { printRentalBillA4 } from '@/features/documents/utils/rental-bill-print'
+import { fetchQuotationsFromSupabase, quotationStatusView } from '@/features/quotations/services/quotation-storage'
+import type { Quotation } from '@/lib/types/rental-pos'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
+import { CustomerLineLinkButton } from '@/features/customers/components/CustomerLineLinkButton'
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
@@ -30,6 +34,7 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { CustomSelect } from '@/components/common/CustomSelect'
+import { DataTableFrame } from '@/components/common/DataTableFrame'
 import {
   ActionButton,
   TAB_BUTTON_BASE_CLASSES,
@@ -45,11 +50,18 @@ import {
 } from '@/lib/types/rental-pos'
 import { NewCustomerModal } from '@/features/customers/components/NewCustomerModal'
 import { useToast } from '@/components/common/Toast'
+import { useCreateCustomer } from '@/features/customers/hooks/useCreateCustomer'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
-import { loadCustomers, createCustomerAsync, updateCustomerAsync, deleteCustomerAsync, isIdCardUploadError } from '@/features/customers/services/customer-storage'
+import { loadCustomers, updateCustomerAsync, deleteCustomerAsync, isIdCardUploadError } from '@/features/customers/services/customer-storage'
 import { getLatestIdCardUrl } from '@/features/customers/api/customer-repository'
-import { loadRentalBills } from '@/features/bills/services/bill-storage'
-import { loadTransactions } from '@/features/finance/services/finance-storage'
+import { loadRentalBills, loadBillById } from '@/features/bills/services/bill-storage'
+import {
+  getBillOverdueDays,
+  getBillPaymentPresentation,
+  getRentalStatusPresentation,
+  isOwingBill,
+} from '@/features/bills/utils/bill-list-presentation'
+import { loadTransactions, formatLocalDateTime } from '@/features/finance/services/finance-storage'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
 
 // Bills whose items are still out with the customer (same set as the products menu).
@@ -58,8 +70,20 @@ const HOLDING_RENTAL_STATUSES: string[] = ['RENTING', 'PARTIAL_RETURNED']
 
 export default function CustomersPage() {
   const { showToast } = useToast()
-  const askText = useAskText()
+  const createCustomer = useCreateCustomer()
+  const confirm = useConfirm()
   const { settings: systemSettings } = useSystemSettings()
+
+  // Prints with the shop's quotation form (จัดการเอกสาร), the same one the quotations menu uses.
+  const handlePrintQuotation = async (q: Quotation) => {
+    try {
+      const template = await loadQuotationPrintTemplate()
+      if (template && printQuotationA4(q, systemSettings.business, template)) return
+      showToast('พิมพ์ใบเสนอราคาไม่ได้', 'ยังไม่มีแบบฟอร์มใบเสนอราคาที่ใช้พิมพ์ได้ กรุณาเพิ่มที่เมนูจัดการเอกสาร', 'ERROR')
+    } catch (err) {
+      showToast('พิมพ์ใบเสนอราคาไม่ได้', err instanceof Error ? err.message : 'โหลดแบบฟอร์มไม่สำเร็จ', 'ERROR')
+    }
+  }
   const [customers, setCustomers] = useState<Customer[]>([])
   const [bills, setBills] = useState<RentalBill[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -81,6 +105,7 @@ export default function CustomersPage() {
 
   // Zoom ID Card Modal State
   const [zoomIDCardUrl, setZoomIDCardUrl] = useState<string | null>(null)
+  const lastIdCardTapRef = React.useRef(0)
 
   // Add / Edit Modal State
   const [showAddEditModal, setShowAddEditModal] = useState(false)
@@ -95,6 +120,7 @@ export default function CustomersPage() {
     | 'GENERAL'
     | 'RENTAL_HISTORY'
     | 'PAYMENT_HISTORY'
+    | 'QUOTATIONS'
     | 'OUTSTANDING_ITEMS'
     | 'DOCUMENTS'
     | 'ANALYTICS'
@@ -117,6 +143,31 @@ export default function CustomersPage() {
     loadData()
   }, [loadData])
 
+  // Opened from another screen for one customer (e.g. ส่งบิลทาง LINE › ไปหน้าลูกค้า): /customers?customer=<id>
+  const deepLinked = React.useRef(false)
+  useEffect(() => {
+    if (deepLinked.current) return
+    const wanted = new URLSearchParams(window.location.search).get('customer')
+    if (wanted && customers.some((c) => c.id === wanted)) {
+      deepLinked.current = true
+      setSelectedCustomerId(wanted)
+    }
+  }, [customers])
+
+  // Customer history includes the customer's quotations (Master §193), read from the database.
+  const [customerQuotations, setCustomerQuotations] = useState<Quotation[]>([])
+  useEffect(() => {
+    setCustomerQuotations([])
+    if (!selectedCustomerId) return
+    let alive = true
+    fetchQuotationsFromSupabase()
+      .then((list) => alive && setCustomerQuotations(list.filter((q) => q.customerId === selectedCustomerId)))
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [selectedCustomerId])
+
   // Fetch Customer 360 detailed records whenever selectedCustomerId changes
   useEffect(() => {
     if (!selectedCustomerId) {
@@ -134,18 +185,41 @@ export default function CustomersPage() {
     const currentBills = bills.filter((b) => currentCustomer && b.customerId === currentCustomer.id)
     const currentBillIds = new Set(currentBills.map((b) => b.id))
 
-    // Payments: the bill payments of this customer's bills (finance lists only completed / refunded payments).
-    const allTx = loadTransactions()
-    const matchingTx = allTx.filter((tx) => tx.type === 'INCOME' && tx.billId && currentBillIds.has(tx.billId))
-    const payments: CustomerPaymentRecord[] = matchingTx.map((tx) => ({
-      id: tx.id,
-      paymentNo: tx.refNo,
-      paymentDate: tx.dateTime,
-      paymentMethod: tx.channel,
-      amount: tx.incomeAmount,
-      status: 'COMPLETED',
-      billNo: tx.billNo || tx.refNo,
-    }))
+    // Payments and refunds of this customer's bills: the receipt number of each payment, how much
+    // of it was refunded, and each refund as its own row (amount shown as money out).
+    const allTx = loadTransactions().filter((tx) => tx.billId && currentBillIds.has(tx.billId))
+    const refunds = allTx.filter((tx) => tx.source === 'REFUND')
+    const refundedOf = (paymentId: string) =>
+      refunds.filter((r) => r.originalTxId === paymentId).reduce((sum, r) => sum + r.expenseAmount, 0)
+    const payments: CustomerPaymentRecord[] = allTx
+      .filter((tx) => tx.source === 'PAYMENT' || tx.source === 'REFUND')
+      .map((tx) => {
+        if (tx.source === 'REFUND') {
+          return {
+            id: tx.id,
+            paymentNo: tx.refNo,
+            receiptNo: tx.refNo,
+            paymentDate: tx.dateTime,
+            paymentMethod: tx.channel,
+            amount: -tx.expenseAmount,
+            status: 'REFUND',
+            note: tx.description.split(' — ').slice(1).join(' — ') || null,
+            billNo: tx.billNo,
+          }
+        }
+        const refunded = refundedOf(tx.id)
+        return {
+          id: tx.id,
+          paymentNo: tx.refNo,
+          receiptNo: tx.receiptNo || null,
+          paymentDate: tx.dateTime,
+          paymentMethod: tx.channel,
+          amount: tx.incomeAmount,
+          status: refunded <= 0 ? 'COMPLETED' : refunded >= tx.incomeAmount ? 'REFUNDED' : 'PARTIAL_REFUND',
+          referenceNo: tx.reference || null,
+          billNo: tx.billNo || tx.refNo,
+        }
+      })
     setCustomerPayments(payments)
 
     // Outstanding items from customerBills
@@ -211,13 +285,13 @@ export default function CustomersPage() {
       )
     : []
 
-  // Metrics calculation for RENTAL_HISTORY tab
+  // Metrics for the rental-history and analytics tabs. Cancelled / voided bills are not real
+  // rentals and owe nothing (same rule as the bills list: isOwingBill).
+  const activeCustomerBills = customerBills.filter((b) => isOwingBill(loadBillById(b.id) ?? b))
   const totalBills = customerBills.length
-  // Cancelled / voided bills are not real rentals (the analytics tab counts bills the same way).
-  const totalSpent = customerBills
-    .filter((b) => b.rentalStatus !== 'CANCELLED' && b.rentalStatus !== 'VOID')
-    .reduce((sum, b) => sum + b.grandTotal, 0)
-  const totalOutstanding = customerBills.reduce((sum, b) => sum + b.outstandingAmount, 0)
+  const activeBillCount = activeCustomerBills.length
+  const totalSpent = activeCustomerBills.reduce((sum, b) => sum + b.grandTotal, 0)
+  const totalOutstanding = activeCustomerBills.reduce((sum, b) => sum + b.outstandingAmount, 0)
   const activeRentingBills = customerBills.filter((b) => b.rentalStatus === 'RENTING').length
 
   // Auto-fit pagination for customer tabs
@@ -265,19 +339,18 @@ export default function CustomersPage() {
     if (suspendingCustomerId) return
 
     const targetSuspend = !c.isSuspended
-    const trimmedReason = await askText({
+    const ok = await confirm({
       title: targetSuspend ? `ระงับสิทธิ์ลูกค้า "${c.customerName}"` : `ปลดระงับสิทธิ์ลูกค้า "${c.customerName}"`,
-      message: 'ระบุเหตุผล (บันทึกในประวัติ)',
       danger: targetSuspend,
     })
-    if (!trimmedReason) return
+    if (!ok) return
 
     setSuspendingCustomerId(c.id)
 
     try {
       // Active state is one flag in the DB (status and isSuspended both mirror it): flip both.
       const updatedCustomer: Customer = { ...c, isSuspended: targetSuspend, status: targetSuspend ? 'INACTIVE' : 'ACTIVE' }
-      await updateCustomerAsync(updatedCustomer, trimmedReason)
+      await updateCustomerAsync(updatedCustomer)
       setCustomers((prev) =>
         prev.map((item) => (item.id === updatedCustomer.id ? updatedCustomer : item))
       )
@@ -295,11 +368,7 @@ export default function CustomersPage() {
 
   const handleConfirmDelete = async () => {
     if (!customerToDelete) return
-    const trimmedReason = customerDeleteReason.trim()
-    if (!trimmedReason) {
-      showToast('กรุณาระบุเหตุผล', 'จำเป็นต้องระบุเหตุผลในการลบลูกค้า', 'ERROR')
-      return
-    }
+    const trimmedReason = customerDeleteReason.trim() || undefined
 
     try {
       await deleteCustomerAsync(customerToDelete.id, trimmedReason)
@@ -323,11 +392,7 @@ export default function CustomersPage() {
   const handleSaveCustomer = async (updatedCustomer: Customer, reason?: string): Promise<boolean> => {
     const exists = customers.find((c) => c.id === updatedCustomer.id)
     if (exists) {
-      const trimmedReason = reason?.trim()
-      if (!trimmedReason) {
-        showToast('กรุณาระบุเหตุผล', 'จำเป็นต้องระบุเหตุผลในการแก้ไขข้อมูลลูกค้า', 'ERROR')
-        return false
-      }
+      const trimmedReason = reason?.trim() || undefined
       try {
         setCustomers(await updateCustomerAsync(updatedCustomer, trimmedReason))
         showToast('แก้ไขข้อมูลลูกค้าสำเร็จ', `ปรับปรุงข้อมูลของ ${updatedCustomer.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
@@ -344,7 +409,7 @@ export default function CustomersPage() {
     } else {
       try {
         // The server assigns the id (and asks before saving a possible duplicate).
-        const newCustomer = await createCustomerAsync(updatedCustomer)
+        const newCustomer = await createCustomer(updatedCustomer)
         setCustomers(loadCustomers())
         setSelectedCustomerId(newCustomer.id)
         showToast('เพิ่มลูกค้าใหม่สำเร็จ', `บันทึกข้อมูลลูกค้า ${newCustomer.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
@@ -365,18 +430,13 @@ export default function CustomersPage() {
 
   const handleSaveNote = async () => {
     if (!selectedCustomer) return
-    const trimmedReason = await askText({
-      title: `แก้ไขหมายเหตุลูกค้า "${selectedCustomer.customerName}"`,
-      message: 'ระบุเหตุผล (บันทึกในประวัติ)',
-    })
-    if (!trimmedReason) return
     setIsSavingNote(true)
     try {
       const updated = {
         ...selectedCustomer,
         note: customerNoteInput.trim() || undefined,
       }
-      await updateCustomerAsync(updated, trimmedReason)
+      await updateCustomerAsync(updated)
       setCustomers((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
       showToast('บันทึกหมายเหตุสำเร็จ', `อัปเดตหมายเหตุของ ${updated.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
     } catch (err: any) {
@@ -411,7 +471,7 @@ export default function CustomersPage() {
             variant="primary"
             icon={<Plus className="w-4 h-4" />}
           >
-            + เพิ่มลูกค้าใหม่
+            เพิ่มลูกค้าใหม่
           </ActionButton>
         </div>
       </div>
@@ -420,7 +480,7 @@ export default function CustomersPage() {
       <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col">
         {/* Sub-tabs Navigation Bar (ปุ่มแถบติดอยู่บนหัวการ์ดเนื้อหา) */}
         <div className="p-2 bg-slate-50/50 dark:bg-slate-900/30 border-b border-slate-200 dark:border-slate-700 shrink-0">
-          <div className="bg-slate-100 dark:bg-slate-900/80 h-9 p-1 gap-1 rounded-xl border border-slate-200 dark:border-slate-700 grid grid-cols-7 items-center w-full min-w-0">
+          <div className="bg-slate-100 dark:bg-slate-900/80 h-9 p-1 gap-1 rounded-xl border border-slate-200 dark:border-slate-700 grid grid-cols-8 items-center w-full min-w-0">
             <button
               type="button"
               onClick={() => setActive360Tab('GENERAL')}
@@ -458,6 +518,19 @@ export default function CustomersPage() {
             >
               <CreditCard className="w-3.5 h-3.5 shrink-0" />
               <span className="truncate min-w-0">ประวัติการชำระเงิน</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActive360Tab('QUOTATIONS')}
+              className={`w-full min-w-0 ${TAB_BUTTON_BASE_CLASSES} ${
+                active360Tab === 'QUOTATIONS'
+                  ? TAB_BUTTON_ACTIVE_CLASSES
+                  : TAB_BUTTON_INACTIVE_CLASSES
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate min-w-0">ใบเสนอราคา</span>
             </button>
 
             <button
@@ -516,7 +589,7 @@ export default function CustomersPage() {
 
         {/* Tab Content Workspace Area */}
         {isLoading ? (
-          <div className="flex-1 min-h-0 flex flex-col items-center justify-center py-16 text-slate-400">
+          <div className="flex-1 min-h-0 flex flex-col items-center justify-center py-16 text-slate-600 dark:text-slate-400">
             <RefreshCw className="w-8 h-8 animate-spin mb-3" />
             <span className="text-sm font-semibold">กำลังโหลดข้อมูลลูกค้า...</span>
           </div>
@@ -528,12 +601,12 @@ export default function CustomersPage() {
             {/* ข้อมูลพื้นฐานผู้เช่า - ส่วนหัวและปุ่มจัดการ */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1.5 border-b border-slate-200 dark:border-slate-700 shrink-0">
                   <div className="flex items-center gap-2">
-                    <Users className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <Users className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
                     <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100">
                       ข้อมูลลูกค้า {selectedCustomer?.customerCode ? `(${selectedCustomer.customerCode})` : '(-)'}
                     </h4>
                     {selectedCustomer?.isSuspended && (
-                      <span className="px-2 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full ml-1">
+                      <span className="px-2 py-0.5 bg-red-600 text-white text-[10px] font-bold rounded-full ml-1">
                         🔒 ถูกระงับสิทธิ์
                       </span>
                     )}
@@ -541,6 +614,7 @@ export default function CustomersPage() {
 
                   {/* Action buttons */}
                   <div className="flex items-center gap-1.5 flex-wrap">
+                    <CustomerLineLinkButton customerId={selectedCustomer?.id} customerName={selectedCustomer?.customerName || ''} />
                     <button
                       type="button"
                       disabled={!selectedCustomer}
@@ -563,8 +637,8 @@ export default function CustomersPage() {
                         !selectedCustomer || suspendingCustomerId === selectedCustomer?.id
                           ? 'opacity-40 cursor-not-allowed bg-slate-400 text-white'
                           : selectedCustomer.isSuspended
-                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
-                          : 'bg-amber-500 hover:bg-amber-600 text-white cursor-pointer'
+                          ? 'bg-emerald-700 hover:bg-emerald-800 text-white cursor-pointer'
+                          : 'bg-amber-500 hover:bg-amber-600 text-slate-900 cursor-pointer'
                       }`}
                     >
                       {selectedCustomer && suspendingCustomerId === selectedCustomer.id ? (
@@ -596,197 +670,196 @@ export default function CustomersPage() {
                   </div>
                 </div>
 
-                {/* 1. ส่วนข้อมูลติดต่อ */}
-                <div className="space-y-1 shrink-0">
-                  <div className="border-b border-slate-200 dark:border-slate-700 pb-0.5">
-                    <span className="font-extrabold text-slate-800 dark:text-slate-200 text-[11px]">
-                      ข้อมูลติดต่อ
-                    </span>
-                  </div>
-
-                  {/* แถวที่ 1: ชื่อลูกค้า / ชื่อบริษัท, รหัสลูกค้า, เลขประจำตัวผู้เสียภาษี */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <div className="col-span-2">
-                      <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                        ชื่อลูกค้า / ชื่อบริษัท
-                      </label>
-                      <div className="w-full px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-bold text-xs text-slate-900 dark:text-slate-100 truncate">
-                        {selectedCustomer?.customerName || '-'}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                        รหัสลูกค้า
-                      </label>
-                      <div className="w-full px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/80 font-mono font-bold text-slate-600 dark:text-slate-300 text-xs truncate">
-                        {selectedCustomer?.customerCode || '-'}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                        เลขประจำตัวผู้เสียภาษี
-                      </label>
-                      <div className="w-full px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-mono font-bold text-slate-800 dark:text-slate-200 text-xs truncate">
-                        {selectedCustomer?.taxId || '-'}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* แถวที่ 2: เบอร์โทรศัพท์ 1, เบอร์โทรศัพท์ 2, อีเมล (Email), LINE ID */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                        เบอร์โทรศัพท์หลัก
-                      </label>
-                      <div className="w-full px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-mono font-bold text-blue-600 dark:text-blue-400 text-xs truncate">
-                        {selectedCustomer?.phone || '-'}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                        เบอร์โทรศัพท์ 2
-                      </label>
-                      <div className="w-full px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-mono text-slate-700 dark:text-slate-300 text-xs truncate">
-                        {selectedCustomer?.phone2 || '-'}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                        อีเมล (Email)
-                      </label>
-                      <div className="w-full px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 text-xs truncate">
-                        {selectedCustomer?.email || '-'}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                        LINE ID
-                      </label>
-                      <div className="w-full px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 text-xs truncate">
-                        {selectedCustomer?.lineId || '-'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. ส่วนที่อยู่ตามเอกสาร */}
-                <div className="space-y-1 shrink-0">
-                  <div className="border-b border-slate-200 dark:border-slate-700 pb-0.5">
-                    <span className="font-extrabold text-slate-800 dark:text-slate-200 text-[11px]">
-                      ที่อยู่ตามเอกสาร
-                    </span>
-                  </div>
-
-                  {/* แถวที่ 1: บ้านเลขที่, หมู่, ซอย, ถนน */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                        บ้านเลขที่
-                      </label>
-                      <div className="w-full px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-bold text-xs text-slate-800 dark:text-slate-200 truncate">
-                        {selectedCustomer?.houseNo || '-'}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                        หมู่
-                      </label>
-                      <div className="w-full px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 text-xs text-slate-800 dark:text-slate-200 truncate">
-                        {selectedCustomer?.moo || '-'}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                        ซอย
-                      </label>
-                      <div className="w-full px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 text-xs text-slate-800 dark:text-slate-200 truncate">
-                        {selectedCustomer?.soi || '-'}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                        ถนน
-                      </label>
-                      <div className="w-full px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 text-xs text-slate-800 dark:text-slate-200 truncate">
-                        {selectedCustomer?.road || '-'}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* แถวที่ 2: จังหวัด, อำเภอ / เขต, ตำบล / แขวง, รหัสไปรษณีย์ */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                        จังหวัด
-                      </label>
-                      <div className="w-full px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-medium text-blue-600 dark:text-blue-400 text-xs truncate">
-                        {selectedCustomer?.province || '-'}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                        อำเภอ / เขต
-                      </label>
-                      <div className="w-full px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-medium text-slate-800 dark:text-slate-200 text-xs truncate">
-                        {selectedCustomer?.district || '-'}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                        ตำบล / แขวง
-                      </label>
-                      <div className="w-full px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-medium text-slate-800 dark:text-slate-200 text-xs truncate">
-                        {selectedCustomer?.subDistrict || '-'}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                        รหัสไปรษณีย์
-                      </label>
-                      <div className="w-full px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-mono font-bold text-center text-blue-600 dark:text-blue-400 text-xs truncate">
-                        {selectedCustomer?.postalCode || '-'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3. ส่วนสำเนาบัตรประชาชน (ยืดเต็มความสูงที่เหลือ) */}
-                <div className="flex-1 min-h-0 flex flex-col pt-1">
-                  <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-700 pb-1 shrink-0">
-                    <span className="font-extrabold text-slate-800 dark:text-slate-200 text-[11px] flex items-center gap-1.5">
-                      <CreditCard className="w-3.5 h-3.5 text-sky-600" />
-                      <span>สำเนาบัตรประชาชน</span>
-                    </span>
-                    {selectedCustomer?.idCardImageUrl ? (
-                      <span className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-full font-bold text-[10px] flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                        <span>ยืนยันตัวตนแล้ว</span>
+                {/* ข้อมูลลูกค้า + รูปบัตร (owner 2026-10-31), same field order in both orientations:
+                    landscape = details left (2 per row, name width unchanged) | card right;
+                    portrait = the same fields 4 per row, card below. */}
+                <div className="flex-1 min-h-0 flex flex-col gap-2 landscape:sm:grid landscape:sm:grid-cols-2 landscape:sm:items-stretch">
+                  {/* ข้อมูลติดต่อและที่อยู่ */}
+                  <div className="space-y-1 min-w-0 min-h-0 overflow-y-auto portrait:shrink-0">
+                    <div className="border-b border-slate-200 dark:border-slate-700 pb-0.5">
+                      <span className="font-extrabold text-slate-800 dark:text-slate-200 text-[11px]">
+                        ข้อมูลติดต่อ
                       </span>
-                    ) : (
-                      <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-full font-bold text-[10px] flex items-center gap-1">
-                        <span>{selectedCustomer ? 'ยังไม่มีรูปบัตร' : 'รอเลือกลูกค้า'}</span>
-                      </span>
-                    )}
+                    </div>
+
+                    <div className="grid grid-cols-2 portrait:sm:grid-cols-4 gap-2">
+                      <div className="col-span-2">
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
+                          ชื่อลูกค้า / ชื่อบริษัท
+                        </label>
+                        <div className="w-full px-2.5 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-bold text-xs text-slate-900 dark:text-slate-100 truncate">
+                          {selectedCustomer?.customerName || '-'}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
+                          รหัสลูกค้า
+                        </label>
+                        <div className="w-full px-2.5 h-[30px] py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/80 font-mono font-bold text-slate-600 dark:text-slate-300 text-xs truncate">
+                          {selectedCustomer?.customerCode || '-'}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
+                          เลขประจำตัวผู้เสียภาษี
+                        </label>
+                        <div className="w-full px-2.5 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-mono font-bold text-slate-800 dark:text-slate-200 text-xs truncate">
+                          {selectedCustomer?.taxId || '-'}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
+                          บ้านเลขที่
+                        </label>
+                        <div className="w-full px-2 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-bold text-xs text-slate-800 dark:text-slate-200 truncate">
+                          {selectedCustomer?.houseNo || '-'}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
+                          หมู่
+                        </label>
+                        <div className="w-full px-2 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 text-xs text-slate-800 dark:text-slate-200 truncate">
+                          {selectedCustomer?.moo || '-'}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
+                          ซอย
+                        </label>
+                        <div className="w-full px-2 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 text-xs text-slate-800 dark:text-slate-200 truncate">
+                          {selectedCustomer?.soi || '-'}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
+                          ถนน
+                        </label>
+                        <div className="w-full px-2 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 text-xs text-slate-800 dark:text-slate-200 truncate">
+                          {selectedCustomer?.road || '-'}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
+                          ตำบล / แขวง
+                        </label>
+                        <div className="w-full px-2 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-medium text-slate-800 dark:text-slate-200 text-xs truncate">
+                          {selectedCustomer?.subDistrict || '-'}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
+                          อำเภอ / เขต
+                        </label>
+                        <div className="w-full px-2 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-medium text-slate-800 dark:text-slate-200 text-xs truncate">
+                          {selectedCustomer?.district || '-'}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
+                          จังหวัด
+                        </label>
+                        <div className="w-full px-2 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-medium text-blue-600 dark:text-blue-400 text-xs truncate">
+                          {selectedCustomer?.province || '-'}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
+                          รหัสไปรษณีย์
+                        </label>
+                        <div className="w-full px-2 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-mono font-bold text-center text-blue-600 dark:text-blue-400 text-xs truncate">
+                          {selectedCustomer?.postalCode || '-'}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
+                          เบอร์โทรศัพท์หลัก
+                        </label>
+                        <div className="w-full px-2.5 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-mono font-bold text-blue-600 dark:text-blue-400 text-xs truncate">
+                          {selectedCustomer?.phone || '-'}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
+                          เบอร์โทรศัพท์ 2
+                        </label>
+                        <div className="w-full px-2.5 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-mono text-slate-700 dark:text-slate-300 text-xs truncate">
+                          {selectedCustomer?.phone2 || '-'}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
+                          อีเมล (Email)
+                        </label>
+                        <div className="w-full px-2.5 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 text-xs truncate">
+                          {selectedCustomer?.email || '-'}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
+                          LINE ID
+                        </label>
+                        <div className="w-full px-2.5 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 text-xs truncate">
+                          {selectedCustomer?.lineId || '-'}
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Layout แบ่ง 2 ฝั่ง ซ้าย: รูปบัตรขยายเต็มพื้นที่ | ขวา: ข้อมูลเลขบัตร + ปุ่มจัดการ */}
-                  <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3 items-stretch pt-2">
-                    {/* ฝั่งซ้าย: กล่องรูปบัตร ยืดเต็มพื้นที่และจัดรูปอยู่กึ่งกลางสมบูรณ์ทั้งแนวตั้งและแนวนอน */}
-                    <div className="flex-1 min-h-0 flex items-center justify-center p-2 rounded-2xl bg-slate-900/5 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 overflow-hidden">
+                  {/* สำเนาบัตรประชาชน (แนวนอน: ขวา, แนวตั้ง: ล่าง) ยืดเต็มพื้นที่; ดับเบิ้ลคลิกดูรูปเต็ม */}
+                  <div className="flex-1 min-h-0 min-w-0 flex flex-col">
+                    <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-700 pb-0.5 shrink-0">
+                      <span className="font-extrabold text-slate-800 dark:text-slate-200 text-[11px] flex items-center gap-1.5">
+                        <CreditCard className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" />
+                        <span>สำเนาบัตรประชาชน</span>
+                      </span>
                       {selectedCustomer?.idCardImageUrl ? (
-                        <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
+                        <span className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-full font-bold text-[10px] flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-700 dark:text-emerald-400" />
+                          <span>ยืนยันตัวตนแล้ว</span>
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="flex-1 min-h-[160px] mt-1.5 flex items-center justify-center p-2 [container-type:size] rounded-2xl bg-slate-900/5 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 overflow-hidden">
+                      {selectedCustomer?.idCardImageUrl ? (
+                        <div
+                          className="relative w-full h-full flex items-center justify-center overflow-hidden cursor-zoom-in select-none"
+                          title="ดับเบิ้ลคลิกเพื่อดูรูปบัตรขนาดเต็ม"
+                          onDoubleClick={() => {
+                            window.getSelection()?.removeAllRanges()
+                            setZoomIDCardUrl(selectedCustomer.idCardImageUrl || null)
+                          }}
+                          onTouchEnd={(e) => {
+                            const now = Date.now()
+                            if (now - lastIdCardTapRef.current < 320) {
+                              e.preventDefault() // no synthetic dblclick / zoom
+                              lastIdCardTapRef.current = 0
+                              setZoomIDCardUrl(selectedCustomer.idCardImageUrl || null)
+                            } else {
+                              lastIdCardTapRef.current = now
+                            }
+                          }}
+                        >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={selectedCustomer.idCardImageUrl}
                             alt="ID Card"
-                            className="max-w-full max-h-full w-auto h-auto object-contain rounded-xl shadow-md border border-slate-300 dark:border-slate-700 transition-transform duration-200 hover:scale-[1.02]"
+                            className="w-[min(100cqw,calc(100cqh*85.6/53.98))] aspect-[85.6/53.98] object-contain rounded-xl shadow-md border border-slate-300 dark:border-slate-700 transition-transform duration-200 hover:scale-[1.02]"
                           />
                           <div className="absolute top-2 right-2 px-2 py-0.5 rounded-md bg-black/75 backdrop-blur-xs text-[10px] font-bold text-emerald-300 shadow-sm pointer-events-none">
                             ✓ สำเนาบัตร
                           </div>
                         </div>
                       ) : selectedCustomer ? (
-                        <div className="aspect-[85.6/54] w-full max-w-[280px] sm:max-w-[320px] max-h-full p-3 bg-gradient-to-br from-sky-600 via-blue-700 to-indigo-800 text-white flex flex-col justify-between rounded-xl shadow-lg border border-blue-400/30">
+                        <div className="w-[min(100cqw,calc(100cqh*85.6/53.98))] aspect-[85.6/53.98] p-3 bg-gradient-to-br from-sky-600 via-blue-700 to-indigo-800 text-white flex flex-col justify-between rounded-xl shadow-lg border border-blue-400/30">
                           <div className="flex justify-between items-start">
                             <div className="space-y-0.5">
                               <p className="text-[7px] tracking-wider font-black uppercase text-sky-200">
@@ -813,79 +886,12 @@ export default function CustomersPage() {
                           </div>
                         </div>
                       ) : (
-                        <div className="aspect-[85.6/54] w-full max-w-[280px] sm:max-w-[320px] max-h-full p-3 bg-slate-50 dark:bg-slate-900/60 text-slate-400 dark:text-slate-500 flex flex-col items-center justify-center text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800 space-y-1">
-                          <CreditCard className="w-8 h-8 opacity-40 text-slate-400" />
+                        <div className="w-[min(100cqw,calc(100cqh*85.6/53.98))] aspect-[85.6/53.98] p-3 bg-slate-50 dark:bg-slate-900/60 text-slate-600 dark:text-slate-400 flex flex-col items-center justify-center text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800 space-y-1">
+                          <CreditCard className="w-8 h-8 opacity-40 text-slate-600 dark:text-slate-400" />
                           <p className="text-xs font-bold text-slate-600 dark:text-slate-400">กรุณาเลือกลูกค้าเพื่อแสดงข้อมูล</p>
-                          <span className="text-[10px] text-slate-400">เลือกรายชื่อลูกค้าจากเมนูด้านบน</span>
+                          <span className="text-[10px] text-slate-600 dark:text-slate-400">เลือกรายชื่อลูกค้าจากเมนูด้านบน</span>
                         </div>
                       )}
-                    </div>
-
-                    {/* ฝั่งขวา: ด้านบน ข้อมูลเลขบัตรประชาชน | ด้านล่าง การจัดการและปุ่ม */}
-                    <div className="flex flex-col justify-center gap-2 sm:gap-2.5 p-2.5 sm:p-3 rounded-2xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800">
-                      {/* ด้านบน: เลขบัตรประชาชน และ วันหมดอายุ */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                            เลขบัตรประจำตัวประชาชน (13 หลัก)
-                          </label>
-                          <div className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold text-xs text-slate-900 dark:text-slate-100 truncate shadow-2xs">
-                            {selectedCustomer?.idCardNumber || '-'}
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                            วันหมดอายุบัตรประชาชน
-                          </label>
-                          <div className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold text-xs text-slate-700 dark:text-slate-300 truncate shadow-2xs">
-                            {selectedCustomer?.idCardExpiry || '-'}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* ด้านล่าง: การจัดการสำเนาบัตรประชาชน และ ปุ่ม */}
-                      <div className="space-y-1.5 pt-1.5 border-t border-slate-200 dark:border-slate-700/60">
-                        <div className="flex items-center justify-between">
-                          <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">
-                            การจัดการสำเนาบัตรประชาชน
-                          </p>
-                          <p className="text-[10px] text-slate-400 dark:text-slate-500">
-                            ดูภาพขยาย หรืออัปโหลด/สแกนเปลี่ยนรูป
-                          </p>
-                        </div>
-
-                        <div className="flex flex-col sm:flex-row gap-2">
-                          <button
-                            type="button"
-                            disabled={!selectedCustomer?.idCardImageUrl}
-                            onClick={() => {
-                              if (selectedCustomer?.idCardImageUrl) {
-                                setZoomIDCardUrl(selectedCustomer.idCardImageUrl)
-                              }
-                            }}
-                            className={`flex-1 px-3 py-2 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl border border-slate-300 dark:border-slate-700 flex items-center justify-center gap-1.5 text-xs shadow-xs transition-all ${
-                              !selectedCustomer?.idCardImageUrl ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
-                            }`}
-                          >
-                            <Eye className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                            <span>ดูรูปภาพขนาดเต็ม</span>
-                          </button>
-                          <button
-                            type="button"
-                            disabled={!selectedCustomer}
-                            onClick={() => selectedCustomer && handleOpenEdit(selectedCustomer)}
-                            className={`flex-1 px-3 py-2 font-bold rounded-xl flex items-center justify-center gap-1.5 text-xs shadow-sm transition-all ${
-                              !selectedCustomer
-                                ? 'opacity-40 cursor-not-allowed bg-indigo-600/60 text-white'
-                                : 'bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer'
-                            }`}
-                          >
-                            <Upload className="w-3.5 h-3.5 shrink-0" />
-                            <span>อัปโหลด / สแกนเปลี่ยนรูป</span>
-                          </button>
-                        </div>
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -904,11 +910,11 @@ export default function CustomersPage() {
                     </div>
                     <div className="bg-emerald-50/60 dark:bg-emerald-950/40 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-emerald-200 dark:border-emerald-800 flex flex-col justify-center h-full">
                       <span className="text-emerald-700 dark:text-emerald-300 block text-[10px] font-bold truncate">ยอดเช่ารวม</span>
-                      <span className="text-xs sm:text-sm font-extrabold text-emerald-600 dark:text-emerald-400 truncate mt-0.5">฿{totalSpent.toLocaleString('th-TH')}</span>
+                      <span className="text-xs sm:text-sm font-extrabold text-emerald-700 dark:text-emerald-400 truncate mt-0.5">{totalSpent.toLocaleString('th-TH')}</span>
                     </div>
                     <div className="bg-red-50/60 dark:bg-red-950/40 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-red-200 dark:border-red-800 flex flex-col justify-center h-full">
                       <span className="text-red-700 dark:text-red-300 block text-[10px] font-bold truncate">หนี้ค้างชำระ</span>
-                      <span className="text-xs sm:text-sm font-extrabold text-red-600 dark:text-red-400 truncate mt-0.5">฿{totalOutstanding.toLocaleString('th-TH')}</span>
+                      <span className="text-xs sm:text-sm font-extrabold text-red-700 dark:text-red-400 truncate mt-0.5">{totalOutstanding.toLocaleString('th-TH')}</span>
                     </div>
                     <div className="bg-blue-50/60 dark:bg-blue-950/40 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-blue-200 dark:border-blue-800 flex flex-col justify-center h-full">
                       <span className="text-blue-700 dark:text-blue-300 block text-[10px] font-bold truncate">กำลังเช่าอยู่</span>
@@ -923,7 +929,7 @@ export default function CustomersPage() {
                     ประวัติบิลการเช่าย้อนหลังทั้งหมด ({customerBills.length} รายการ)
                   </h4>
                   <div className="relative w-full sm:w-64">
-                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400" />
                     <input
                       type="text"
                       placeholder="ค้นหาเลขที่บิล..."
@@ -935,13 +941,15 @@ export default function CustomersPage() {
                 </div>
 
                   {/* Table Area: Fills 100% of remaining vertical height */}
-                  <div
-                    ref={rentalAutoFit.containerRef}
-                    className="flex-1 min-h-0 overflow-y-auto flex flex-col"
+                  <DataTableFrame
+                    fill
+                    scrollRef={rentalAutoFit.containerRef}
+                    rowCount={customerBills.length}
+                    shownCount={rentalAutoFit.endIndex}
+                    className="flex-1 min-h-0 rounded-none bg-transparent"
                   >
-                  <div className="flex-1 min-h-0 overflow-hidden">
                     <table className="w-full text-left border-collapse text-[10px] leading-tight table-fixed">
-                      <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 uppercase tracking-wider shadow-xs text-xs">
+                      <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700 uppercase tracking-wider shadow-xs text-xs">
                         <tr>
                           <th className="w-[145px] min-w-[145px] max-w-[145px] px-2 py-2.5 whitespace-nowrap">เลขที่บิล</th>
                           <th className="px-1.5 sm:px-2 py-2.5 whitespace-nowrap">วันที่ออกบิล</th>
@@ -957,7 +965,7 @@ export default function CustomersPage() {
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                         {paginatedCustomerBills.length === 0 ? (
                           <tr data-empty-row="true">
-                            <td colSpan={9} className="px-4 py-12 text-center text-slate-400 italic">
+                            <td colSpan={9} className="px-4 py-12 text-center text-slate-600 dark:text-slate-400 italic">
                               {!selectedCustomer
                                 ? 'กรุณาเลือกลูกค้าเพื่อแสดงข้อมูล'
                                 : 'ไม่พบประวัติการเช่าสำหรับลูกค้ารายนี้'}
@@ -965,40 +973,12 @@ export default function CustomersPage() {
                           </tr>
                         ) : (
                           paginatedCustomerBills.map((b) => {
-                            let rentalBadgeClass = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                            let rentalBadgeText = 'ฉบับร่าง'
-                            if (b.rentalStatus === 'RENTING') {
-                              rentalBadgeClass = 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-                              rentalBadgeText = 'กำลังเช่า'
-                            } else if (b.rentalStatus === 'PARTIAL_RETURNED') {
-                              rentalBadgeClass = 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
-                              rentalBadgeText = 'คืนบางส่วน'
-                            } else if (b.rentalStatus === 'RETURNED') {
-                              rentalBadgeClass = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                              rentalBadgeText = 'คืนครบแล้ว'
-                            } else if (b.rentalStatus === 'CLOSED') {
-                              rentalBadgeClass = 'bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-200 font-bold'
-                              rentalBadgeText = 'ปิดบิล'
-                            } else if (b.rentalStatus === 'CANCELLED') {
-                              rentalBadgeClass = 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
-                              rentalBadgeText = 'ยกเลิก'
-                            }
-
-                            let paymentBadgeClass = 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
-                            let paymentBadgeText = 'ค้างชำระ'
-                            if (b.paymentStatus === 'PAID') {
-                              paymentBadgeClass = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                              paymentBadgeText = 'ชำระแล้ว'
-                            } else if (b.paymentStatus === 'PARTIAL') {
-                              paymentBadgeClass = 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                              paymentBadgeText = 'ชำระบางส่วน'
-                            } else if (b.paymentStatus === 'REFUNDED') {
-                              paymentBadgeClass = 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
-                              paymentBadgeText = 'คืนเงินแล้ว'
-                            } else if (b.paymentStatus === 'REFUND_PARTIAL') {
-                              paymentBadgeClass = 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
-                              paymentBadgeText = 'คืนเงินบางส่วน'
-                            }
+                            // Same badges as the bills list (cancelled / void bills owe nothing).
+                            const fullBill = loadBillById(b.id)
+                            const rentalPresentation = fullBill
+                              ? getRentalStatusPresentation(fullBill.rentalStatus, getBillOverdueDays(fullBill))
+                              : getRentalStatusPresentation(b.rentalStatus)
+                            const paymentPresentation = getBillPaymentPresentation(fullBill ?? b)
 
                             return (
                               <tr key={b.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
@@ -1010,29 +990,30 @@ export default function CustomersPage() {
                                 <td className="px-1.5 sm:px-2 py-2.5 text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap">{b.billDate}</td>
                                 <td className="px-1.5 sm:px-2 py-2.5 text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap">{b.rentalEndDate}</td>
                                 <td className="px-1.5 sm:px-2 py-2.5 text-right font-extrabold text-slate-900 dark:text-slate-100 whitespace-nowrap tabular-nums">
-                                  ฿{b.grandTotal.toLocaleString('th-TH')}
+                                  {b.grandTotal.toLocaleString('th-TH')}
                                 </td>
-                                <td className="px-1.5 sm:px-2 py-2.5 text-right text-emerald-600 font-semibold whitespace-nowrap tabular-nums">
-                                  ฿{b.paidAmount.toLocaleString('th-TH')}
+                                <td className="px-1.5 sm:px-2 py-2.5 text-right text-emerald-700 dark:text-emerald-400 font-semibold whitespace-nowrap tabular-nums">
+                                  {b.paidAmount.toLocaleString('th-TH')}
                                 </td>
-                                <td className="px-1.5 sm:px-2 py-2.5 text-right font-bold text-red-600 whitespace-nowrap tabular-nums">
-                                  ฿{b.outstandingAmount.toLocaleString('th-TH')}
+                                <td className="px-1.5 sm:px-2 py-2.5 text-right font-bold text-red-700 dark:text-red-400 whitespace-nowrap tabular-nums">
+                                  {b.outstandingAmount.toLocaleString('th-TH')}
                                 </td>
                                 <td className="px-1.5 sm:px-2 py-2.5 text-center whitespace-nowrap">
-                                  <span className={`inline-flex shrink-0 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold ${rentalBadgeClass}`}>
-                                    {rentalBadgeText}
+                                  <span className={`inline-flex shrink-0 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold ${rentalPresentation.className}`}>
+                                    {rentalPresentation.label}
                                   </span>
                                 </td>
                                 <td className="px-1.5 sm:px-2 py-2.5 text-center whitespace-nowrap">
-                                  <span className={`inline-flex shrink-0 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold ${paymentBadgeClass}`}>
-                                    {paymentBadgeText}
+                                  <span className={`inline-flex shrink-0 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold ${paymentPresentation.className}`}>
+                                    {paymentPresentation.label}
                                   </span>
                                 </td>
                                 <td className="w-[72px] min-w-[72px] px-1 py-2.5 text-center whitespace-nowrap">
                                   <div className="flex items-center justify-center gap-1 flex-nowrap shrink-0">
                                     <button
                                       type="button"
-                                      onClick={() => printBillA4(b, systemSettings.business)}
+                                      onClick={() => fullBill && printRentalBillA4(fullBill, systemSettings.business)}
+                                      disabled={!fullBill}
                                       title="พิมพ์เอกสาร A4"
                                       className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 transition-colors shadow-xs cursor-pointer shrink-0"
                                     >
@@ -1055,21 +1036,7 @@ export default function CustomersPage() {
                         )}
                       </tbody>
                     </table>
-                  </div>
-
-                  {/* Pagination footer */}
-                  <div className="px-3 py-1.5 border-t border-slate-200 dark:border-slate-700/60 flex items-center justify-between text-xs text-slate-500 shrink-0 bg-slate-50/50 dark:bg-slate-900/50">
-                    <div>
-                      {customerBills.length > 0 ? (
-                        <span>
-                          แสดง {rentalAutoFit.endIndex} จาก {customerBills.length} รายการ
-                        </span>
-                      ) : (
-                        <span>0 รายการ</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                  </DataTableFrame>
               </div>
             )}
 
@@ -1080,15 +1047,16 @@ export default function CustomersPage() {
                 <div className="px-3 pt-2.5 pb-1.5 shrink-0">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2 text-xs">
                     <div className="bg-emerald-50/60 dark:bg-emerald-950/40 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-emerald-200 dark:border-emerald-800 flex flex-col justify-center h-full">
-                      <span className="text-emerald-700 dark:text-emerald-300 block text-[10px] font-bold truncate">ยอดรับชำระเงินสะสมรวม</span>
-                      <span className="text-xs sm:text-sm font-extrabold text-emerald-600 dark:text-emerald-400 truncate mt-0.5">
-                        ฿{customerPayments.filter((p) => p.status === 'COMPLETED').reduce((sum, p) => sum + p.amount, 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                      <span className="text-emerald-700 dark:text-emerald-300 block text-[10px] font-bold truncate">ยอดรับชำระสุทธิ (หักคืนเงินแล้ว)</span>
+                      <span className="text-xs sm:text-sm font-extrabold text-emerald-700 dark:text-emerald-400 truncate mt-0.5">
+                        {customerPayments.reduce((sum, p) => sum + p.amount, 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                       </span>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-900/60 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col justify-center h-full">
                       <span className="text-slate-600 dark:text-slate-400 block text-[10px] font-bold truncate">จำนวนรายการชำระเงิน</span>
                       <span className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100 truncate mt-0.5">
-                        {customerPayments.length} รายการ
+                        {customerPayments.filter((p) => p.status !== 'REFUND').length} รายการ
+                        {customerPayments.some((p) => p.status === 'REFUND') && ` · คืนเงิน ${customerPayments.filter((p) => p.status === 'REFUND').length}`}
                       </span>
                     </div>
                   </div>
@@ -1100,20 +1068,22 @@ export default function CustomersPage() {
                     ประวัติการชำระเงินจากฐานข้อมูลจริง ({customerPayments.length} รายการ)
                   </h4>
                   {isLoadingCustomerDetails && (
-                    <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                    <span className="text-[10px] text-slate-600 dark:text-slate-400 flex items-center gap-1">
                       <RefreshCw className="w-3 h-3 animate-spin" /> กำลังโหลด...
                     </span>
                   )}
                 </div>
 
                   {/* Table Area */}
-                  <div
-                    ref={paymentAutoFit.containerRef}
-                    className="flex-1 min-h-0 overflow-y-auto flex flex-col"
+                  <DataTableFrame
+                    fill
+                    scrollRef={paymentAutoFit.containerRef}
+                    rowCount={customerPayments.length}
+                    shownCount={paymentAutoFit.endIndex}
+                    className="flex-1 min-h-0 rounded-none bg-transparent"
                   >
-                    <div className="flex-1 min-h-0 overflow-hidden">
                       <table className="w-full text-left border-collapse text-[10px] leading-tight table-fixed">
-                        <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800/80 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 uppercase tracking-wider shadow-xs text-xs">
+                        <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700 uppercase tracking-wider shadow-xs text-xs">
                           <tr>
                           <th className="px-2 py-2.5 whitespace-nowrap">วันที่ชำระ</th>
                           <th className="px-2 py-2.5 whitespace-nowrap">เลขที่ใบเสร็จ / การชำระ</th>
@@ -1127,10 +1097,10 @@ export default function CustomersPage() {
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                         {paginatedCustomerPayments.length === 0 ? (
                           <tr data-empty-row="true">
-                            <td colSpan={7} className="px-4 py-8 text-center text-slate-400 italic">
-                              <Receipt className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-1.5 opacity-50" />
+                            <td colSpan={7} className="px-4 py-8 text-center text-slate-600 dark:text-slate-400 italic">
+                              <Receipt className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-400 mb-1.5 opacity-50" />
                               <p>{!selectedCustomer ? 'กรุณาเลือกลูกค้าเพื่อแสดงข้อมูล' : 'ยังไม่มีประวัติการชำระเงินสำหรับลูกค้ารายนี้'}</p>
-                              <span className="text-[10px] text-slate-400">
+                              <span className="text-[10px] text-slate-600 dark:text-slate-400">
                                 {!selectedCustomer
                                   ? 'เลือกรายชื่อลูกค้าจากเมนูด้านบน เพื่อดูข้อมูลการชำระเงิน'
                                   : 'เมื่อมีการรับชำระเงินหรือตัดยอดค้าง ข้อมูลจะแสดงที่นี่อัตโนมัติ'}
@@ -1143,12 +1113,11 @@ export default function CustomersPage() {
                             if (p.paymentMethod === 'CASH') methodLabel = '💵 เงินสด'
                             else if (p.paymentMethod === 'TRANSFER') methodLabel = '🏦 โอนเงินธนาคาร'
                             else if (p.paymentMethod === 'QR') methodLabel = '📱 PromptPay QR'
-                            else if (p.paymentMethod === 'CHEQUE') methodLabel = '📑 เช็ค'
 
                             return (
                               <tr key={p.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors">
-                                <td className="px-2 py-2.5 text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap">{p.paymentDate}</td>
-                                <td className="px-2 py-2.5 font-bold text-emerald-600 dark:text-emerald-400 font-mono whitespace-nowrap">
+                                <td className="px-2 py-2.5 text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap">{formatLocalDateTime(p.paymentDate)}</td>
+                                <td className="px-2 py-2.5 font-bold text-emerald-700 dark:text-emerald-400 font-mono whitespace-nowrap">
                                   {p.receiptNo || p.paymentNo}
                                 </td>
                                 <td className="px-2 py-2.5 font-bold text-blue-600 dark:text-blue-400 font-mono whitespace-nowrap">
@@ -1157,10 +1126,10 @@ export default function CustomersPage() {
                                 <td className="px-2 py-2.5 text-slate-700 dark:text-slate-300 whitespace-nowrap">
                                   {methodLabel}
                                 </td>
-                                <td className="px-2 py-2.5 text-right font-extrabold text-emerald-600 dark:text-emerald-400 whitespace-nowrap tabular-nums">
-                                  ฿{p.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                <td className={`px-2 py-2.5 text-right font-extrabold whitespace-nowrap tabular-nums ${p.amount < 0 ? 'text-red-700 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
+                                  {p.amount < 0 ? '-' : ''}{Math.abs(p.amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                                 </td>
-                                <td className="px-2 py-2.5 text-slate-500 whitespace-nowrap truncate max-w-[160px]" title={p.referenceNo || p.note || '-'}>
+                                <td className="px-2 py-2.5 text-slate-600 dark:text-slate-400 whitespace-nowrap truncate max-w-[160px]" title={p.referenceNo || p.note || '-'}>
                                   {p.referenceNo || p.note || '-'}
                                 </td>
                                 <td className="px-2 py-2.5 text-center whitespace-nowrap">
@@ -1168,10 +1137,18 @@ export default function CustomersPage() {
                                     className={`inline-flex shrink-0 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                       p.status === 'COMPLETED'
                                         ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                                        : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+                                        : p.status === 'PARTIAL_REFUND'
+                                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                                          : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
                                     }`}
                                   >
-                                    {p.status === 'COMPLETED' ? 'ชำระสำเร็จ' : 'ยกเลิก'}
+                                    {p.status === 'COMPLETED'
+                                      ? 'ชำระสำเร็จ'
+                                      : p.status === 'REFUNDED'
+                                        ? 'คืนเงินแล้ว'
+                                        : p.status === 'PARTIAL_REFUND'
+                                          ? 'คืนเงินบางส่วน'
+                                          : 'คืนเงิน'}
                                   </span>
                                 </td>
                               </tr>
@@ -1180,21 +1157,69 @@ export default function CustomersPage() {
                         )}
                       </tbody>
                     </table>
-                  </div>
+                  </DataTableFrame>
+              </div>
+            )}
 
-                  {/* Pagination footer */}
-                  <div className="px-3 py-1.5 border-t border-slate-200 dark:border-slate-700/60 flex items-center justify-between text-xs text-slate-500 shrink-0 bg-slate-50/50 dark:bg-slate-900/50">
-                    <div>
-                      {customerPayments.length > 0 ? (
-                        <span>
-                          แสดง {paymentAutoFit.endIndex} จาก {customerPayments.length} รายการ
-                        </span>
-                      ) : (
-                        <span>0 รายการ</span>
-                      )}
-                    </div>
-                  </div>
+            {/* TAB: ใบเสนอราคาของลูกค้า (Master §193) */}
+            {active360Tab === 'QUOTATIONS' && (
+              <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                <div className="px-3 sm:px-3.5 py-2 flex items-center justify-between shrink-0 border-b border-slate-200 dark:border-slate-700">
+                  <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100">
+                    ใบเสนอราคาของลูกค้า ({customerQuotations.length} รายการ)
+                  </h4>
                 </div>
+                <DataTableFrame fill rowCount={customerQuotations.length} className="flex-1 min-h-0 rounded-none bg-transparent">
+                  <table className="w-full text-left border-collapse text-[10px] leading-tight table-fixed">
+                    <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700 text-xs">
+                      <tr>
+                        <th className="px-2 py-2.5 whitespace-nowrap">เลขที่ใบเสนอราคา</th>
+                        <th className="px-2 py-2.5 whitespace-nowrap">วันที่เอกสาร</th>
+                        <th className="px-2 py-2.5 whitespace-nowrap">ช่วงเช่า</th>
+                        <th className="px-2 py-2.5 text-right whitespace-nowrap">ยอดรวมสุทธิ</th>
+                        <th className="px-2 py-2.5 text-center whitespace-nowrap">สถานะ</th>
+                        <th className="px-2 py-2.5 text-center whitespace-nowrap">พิมพ์</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                      {customerQuotations.length === 0 ? (
+                        <tr data-empty-row="true">
+                          <td colSpan={6} className="px-4 py-8 text-center text-slate-600 dark:text-slate-400 italic">
+                            <FileText className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-400 mb-1.5 opacity-50" />
+                            <p>{!selectedCustomer ? 'กรุณาเลือกลูกค้าเพื่อแสดงข้อมูล' : 'ยังไม่มีใบเสนอราคาสำหรับลูกค้ารายนี้'}</p>
+                          </td>
+                        </tr>
+                      ) : (
+                        customerQuotations.map((q) => (
+                          <tr key={q.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors">
+                            <td className="px-2 py-2.5 font-bold text-blue-600 dark:text-blue-400 font-mono whitespace-nowrap truncate">{q.quotationNo}</td>
+                            <td className="px-2 py-2.5 text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap">{q.quotationDate}</td>
+                            <td className="px-2 py-2.5 text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap truncate">{q.rentalStartDate} ถึง {q.rentalEndDate}</td>
+                            <td className="px-2 py-2.5 text-right font-extrabold text-slate-900 dark:text-slate-100 whitespace-nowrap tabular-nums">
+                              {q.grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-2 py-2.5 text-center whitespace-nowrap">
+                              <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                {quotationStatusView(q.status).label}
+                              </span>
+                            </td>
+                            <td className="px-2 py-2.5 text-center whitespace-nowrap">
+                              <button
+                                type="button"
+                                onClick={() => handlePrintQuotation(q)}
+                                className="px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer"
+                                title="พิมพ์ใบเสนอราคา"
+                              >
+                                <Printer className="w-3 h-3" />
+                                <span>พิมพ์</span>
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </DataTableFrame>
               </div>
             )}
 
@@ -1206,7 +1231,7 @@ export default function CustomersPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 sm:gap-2 text-xs">
                     <div className="bg-amber-50/60 dark:bg-amber-950/40 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-amber-200 dark:border-amber-800 flex flex-col justify-center h-full">
                       <span className="text-amber-800 dark:text-amber-300 block text-[10px] font-bold truncate">จำนวนสินค้าค้างคืนรวม</span>
-                      <span className="text-xs sm:text-sm font-extrabold text-amber-600 dark:text-amber-400 truncate mt-0.5">
+                      <span className="text-xs sm:text-sm font-extrabold text-amber-700 dark:text-amber-400 truncate mt-0.5">
                         {customerOutstandingItems.reduce((sum, i) => sum + i.outstandingQuantity, 0)} ชิ้น
                       </span>
                     </div>
@@ -1218,7 +1243,7 @@ export default function CustomersPage() {
                     </div>
                     <div className="bg-red-50/60 dark:bg-red-950/40 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-red-200 dark:border-red-800 flex flex-col justify-center h-full">
                       <span className="text-red-800 dark:text-red-300 block text-[10px] font-bold truncate">สินค้าที่เลยกำหนดคืน</span>
-                      <span className="text-xs sm:text-sm font-extrabold text-red-600 dark:text-red-400 truncate mt-0.5">
+                      <span className="text-xs sm:text-sm font-extrabold text-red-700 dark:text-red-400 truncate mt-0.5">
                         {customerOutstandingItems.filter((i) => i.isOverdue).reduce((sum, i) => sum + i.outstandingQuantity, 0)} ชิ้น
                       </span>
                     </div>
@@ -1231,20 +1256,22 @@ export default function CustomersPage() {
                     รายการสินค้าที่ถืออยู่นอกคลัง (คัดกรองจากบิลที่ยังมียอดคงค้าง)
                   </h4>
                   {isLoadingCustomerDetails && (
-                    <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                    <span className="text-[10px] text-slate-600 dark:text-slate-400 flex items-center gap-1">
                       <RefreshCw className="w-3 h-3 animate-spin" /> กำลังโหลด...
                     </span>
                   )}
                 </div>
 
                   {/* Table Area */}
-                  <div
-                    ref={outstandingAutoFit.containerRef}
-                    className="flex-1 min-h-0 overflow-y-auto flex flex-col"
+                  <DataTableFrame
+                    fill
+                    scrollRef={outstandingAutoFit.containerRef}
+                    rowCount={customerOutstandingItems.length}
+                    shownCount={outstandingAutoFit.endIndex}
+                    className="flex-1 min-h-0 rounded-none bg-transparent"
                   >
-                    <div className="flex-1 min-h-0 overflow-hidden">
                       <table className="w-full text-left border-collapse text-[10px] leading-tight table-fixed">
-                        <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800/80 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 uppercase tracking-wider shadow-xs text-xs">
+                        <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700 uppercase tracking-wider shadow-xs text-xs">
                           <tr>
                           <th className="px-2 py-2.5 whitespace-nowrap">สินค้า</th>
                           <th className="px-2 py-2.5 whitespace-nowrap">เลขที่บิล</th>
@@ -1260,12 +1287,12 @@ export default function CustomersPage() {
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                         {paginatedCustomerOutstandingItems.length === 0 ? (
                           <tr data-empty-row="true">
-                            <td colSpan={9} className="px-4 py-8 text-center text-slate-400 italic">
-                              <Package className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-1.5 opacity-50" />
+                            <td colSpan={9} className="px-4 py-8 text-center text-slate-600 dark:text-slate-400 italic">
+                              <Package className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-400 mb-1.5 opacity-50" />
                               <p className="font-bold text-xs text-slate-600 dark:text-slate-400">
                                 {!selectedCustomer ? 'กรุณาเลือกลูกค้าเพื่อแสดงข้อมูล' : 'ไม่มีสินค้าค้างคืน'}
                               </p>
-                              <span className="text-[10px] text-slate-400">
+                              <span className="text-[10px] text-slate-600 dark:text-slate-400">
                                 {!selectedCustomer
                                   ? 'เลือกรายชื่อลูกค้าจากเมนูด้านบน เพื่อดูรายการสินค้าค้างคืน'
                                   : 'ลูกค้ารายนี้ไม่มีอุปกรณ์ค้างคืนในระบบ'}
@@ -1284,13 +1311,13 @@ export default function CustomersPage() {
                               <td className="px-2 py-2.5 text-right text-slate-700 dark:text-slate-300 whitespace-nowrap tabular-nums">
                                 {item.totalQuantity} {item.unitName}
                               </td>
-                              <td className="px-2 py-2.5 text-right text-emerald-600 font-semibold whitespace-nowrap tabular-nums">
+                              <td className="px-2 py-2.5 text-right text-emerald-700 dark:text-emerald-400 font-semibold whitespace-nowrap tabular-nums">
                                 {item.returnedQuantity}
                               </td>
-                              <td className="px-2 py-2.5 text-right text-slate-500 whitespace-nowrap tabular-nums">
+                              <td className="px-2 py-2.5 text-right text-slate-600 dark:text-slate-400 whitespace-nowrap tabular-nums">
                                 {item.damagedQuantity + item.lostQuantity > 0 ? `${item.damagedQuantity + item.lostQuantity}` : '-'}
                               </td>
-                              <td className="px-2 py-2.5 text-right font-black text-amber-600 dark:text-amber-400 whitespace-nowrap tabular-nums">
+                              <td className="px-2 py-2.5 text-right font-black text-amber-700 dark:text-amber-400 whitespace-nowrap tabular-nums">
                                 {item.outstandingQuantity} {item.unitName}
                               </td>
                               <td className="px-2 py-2.5 text-center whitespace-nowrap">
@@ -1309,21 +1336,7 @@ export default function CustomersPage() {
                         )}
                       </tbody>
                     </table>
-                  </div>
-
-                  {/* Pagination footer */}
-                  <div className="px-3 py-1.5 border-t border-slate-200 dark:border-slate-700/60 flex items-center justify-between text-xs text-slate-500 shrink-0 bg-slate-50/50 dark:bg-slate-900/50">
-                    <div>
-                      {customerOutstandingItems.length > 0 ? (
-                        <span>
-                          แสดง {outstandingAutoFit.endIndex} จาก {customerOutstandingItems.length} รายการ
-                        </span>
-                      ) : (
-                        <span>0 รายการ</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                  </DataTableFrame>
               </div>
             )}
 
@@ -1333,15 +1346,15 @@ export default function CustomersPage() {
                 <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
                   <div>
                     <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100">เอกสารส่วนตัวลูกค้า</h4>
-                    <p className="text-[10px] text-slate-500">แสดงเฉพาะไฟล์เอกสารที่บันทึกไว้จริงในระบบ และข้อมูลประกอบของลูกค้า</p>
+                    <p className="text-[10px] text-slate-600 dark:text-slate-400">แสดงเฉพาะไฟล์เอกสารที่บันทึกไว้จริงในระบบ และข้อมูลประกอบของลูกค้า</p>
                   </div>
                 </div>
 
                 {!selectedCustomer ? (
-                  <div className="p-8 text-center text-slate-400 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center space-y-2">
+                  <div className="p-8 text-center text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center space-y-2">
                     <FileText className="w-8 h-8 opacity-40 mx-auto" />
                     <p className="font-bold text-xs text-slate-600 dark:text-slate-400">กรุณาเลือกลูกค้าเพื่อแสดงข้อมูล</p>
-                    <span className="text-[10px] text-slate-400">เลือกรายชื่อลูกค้าจากเมนูด้านบน เพื่อดูเอกสารส่วนตัว</span>
+                    <span className="text-[10px] text-slate-600 dark:text-slate-400">เลือกรายชื่อลูกค้าจากเมนูด้านบน เพื่อดูเอกสารส่วนตัว</span>
                   </div>
                 ) : (
 
@@ -1355,7 +1368,7 @@ export default function CustomersPage() {
                     {selectedCustomer.idCardImageUrl ? (
                       <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-900 flex items-center justify-center text-indigo-600 shrink-0">
+                          <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-900 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
                             <CreditCard className="w-5 h-5" />
                           </div>
                           <div>
@@ -1367,7 +1380,7 @@ export default function CustomersPage() {
                                 มีไฟล์เอกสารจริง
                               </span>
                             </div>
-                            <p className="text-slate-500 text-[10px] font-mono mt-0.5">
+                            <p className="text-slate-600 dark:text-slate-400 text-[10px] font-mono mt-0.5">
                               เลขประจำตัว: {selectedCustomer.idCardNumber || 'ไม่ได้ระบุ'}
                               {selectedCustomer.idCardExpiry && ` | วันหมดอายุ: ${selectedCustomer.idCardExpiry}`}
                             </p>
@@ -1399,8 +1412,8 @@ export default function CustomersPage() {
                       </div>
                     ) : (
                       <div className="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                        <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-                          <CreditCard className="w-4 h-4 text-slate-400 shrink-0" />
+                        <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                          <CreditCard className="w-4 h-4 text-slate-600 dark:text-slate-400 shrink-0" />
                           <span>ยังไม่มีการอัปโหลดไฟล์สำเนาบัตรประจำตัวประชาชน</span>
                         </div>
                         <button
@@ -1421,7 +1434,7 @@ export default function CustomersPage() {
                         ข้อมูลนิติบุคคล / ข้อมูลผู้เสียภาษี
                       </span>
                       <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-100 dark:border-blue-900 flex items-center justify-center text-blue-600 shrink-0">
+                        <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-100 dark:border-blue-900 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
                           <FileText className="w-5 h-5" />
                         </div>
                         <div>
@@ -1433,7 +1446,7 @@ export default function CustomersPage() {
                               ข้อมูลประกอบ (Metadata)
                             </span>
                           </div>
-                          <p className="text-slate-500 text-[10px] font-mono mt-0.5">
+                          <p className="text-slate-600 dark:text-slate-400 text-[10px] font-mono mt-0.5">
                             เลขประจำตัวผู้เสียภาษี: {selectedCustomer.taxId || 'ไม่ได้ระบุ'}
                           </p>
                         </div>
@@ -1446,10 +1459,10 @@ export default function CustomersPage() {
                     <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block">
                       เอกสารแนบเพิ่มเติม
                     </span>
-                    <div className="p-5 text-center text-slate-400 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700">
-                      <FileText className="w-7 h-7 mx-auto text-slate-300 dark:text-slate-600 mb-1 opacity-60" />
+                    <div className="p-5 text-center text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700">
+                      <FileText className="w-7 h-7 mx-auto text-slate-300 dark:text-slate-400 mb-1 opacity-60" />
                       <p className="font-bold text-xs text-slate-600 dark:text-slate-400">ยังไม่มีเอกสารเพิ่มเติมของลูกค้า</p>
-                      <span className="text-[10px] text-slate-400">
+                      <span className="text-[10px] text-slate-600 dark:text-slate-400">
                         (เช่น หนังสือรับรองบริษัท, ทะเบียนบ้าน หรือเอกสารแนบอื่นๆ)
                       </span>
                     </div>
@@ -1467,19 +1480,19 @@ export default function CustomersPage() {
                 {/* 3 Main Stat Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
                   <div className="p-3 bg-blue-50 dark:bg-blue-950/50 border border-blue-100 dark:border-blue-900 rounded-xl">
-                    <span className="text-slate-500 block text-xs">เช่ารวมสะสม</span>
+                    <span className="text-slate-600 dark:text-slate-400 block text-xs">เช่ารวมสะสม</span>
                     <strong className="text-xl font-black text-blue-600 dark:text-blue-400 block mt-0.5">
-                      {customerBills.filter((b) => b.rentalStatus !== 'CANCELLED').length} บิล
+                      {activeBillCount} บิล
                     </strong>
-                    <span className="text-[10px] text-slate-400">บิลที่ใช้งานจริงทั้งหมด</span>
+                    <span className="text-[10px] text-slate-600 dark:text-slate-400">บิลที่ใช้งานจริงทั้งหมด</span>
                   </div>
 
                   <div className="p-3 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-100 dark:border-emerald-900 rounded-xl">
-                    <span className="text-slate-500 block text-xs">ตรงเวลาคืน</span>
-                    <strong className="text-xl font-black text-emerald-600 dark:text-emerald-400 block mt-0.5">
+                    <span className="text-slate-600 dark:text-slate-400 block text-xs">ตรงเวลาคืน</span>
+                    <strong className="text-xl font-black text-emerald-700 dark:text-emerald-400 block mt-0.5">
                       {customerReturnStats.onTimeRatePercent !== null ? `${customerReturnStats.onTimeRatePercent}%` : '-'}
                     </strong>
-                    <span className="text-[10px] text-slate-400">
+                    <span className="text-[10px] text-slate-600 dark:text-slate-400">
                       {customerReturnStats.onTimeRatePercent !== null
                         ? `ตรงเวลา ${customerReturnStats.onTimeReturnedItems}/${customerReturnStats.totalReturnedItemsWithDates} รายการ`
                         : 'ยังไม่มีข้อมูลการคืนที่มีวันที่ครบ'}
@@ -1487,29 +1500,29 @@ export default function CustomersPage() {
                   </div>
 
                   <div className="p-3 bg-purple-50 dark:bg-purple-950/50 border border-purple-100 dark:border-purple-900 rounded-xl">
-                    <span className="text-slate-500 block text-xs">มูลค่าเฉลี่ยต่อบิล</span>
+                    <span className="text-slate-600 dark:text-slate-400 block text-xs">มูลค่าเฉลี่ยต่อบิล</span>
                     <strong className="text-xl font-black text-purple-600 dark:text-purple-400 block mt-0.5">
-                      {customerBills.filter((b) => b.rentalStatus !== 'CANCELLED').length > 0
-                        ? `฿${Math.round(totalSpent / customerBills.filter((b) => b.rentalStatus !== 'CANCELLED').length).toLocaleString('th-TH')}`
+                      {activeBillCount > 0
+                        ? `${Math.round(totalSpent / activeBillCount).toLocaleString('th-TH')}`
                         : '-'}
                     </strong>
-                    <span className="text-[10px] text-slate-400">คำนวณจากยอดบิลจริง</span>
+                    <span className="text-[10px] text-slate-600 dark:text-slate-400">คำนวณจากยอดบิลจริง</span>
                   </div>
                 </div>
 
                 {/* Financial Summary Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2">
                   <div className="p-2.5 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-700">
-                    <span className="text-[10px] text-slate-400 block">ยอดเช่ารวมสุทธิ</span>
-                    <span className="font-extrabold text-sm text-slate-800 dark:text-slate-200">฿{totalSpent.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+                    <span className="text-[10px] text-slate-600 dark:text-slate-400 block">ยอดเช่ารวมสุทธิ</span>
+                    <span className="font-extrabold text-sm text-slate-800 dark:text-slate-200">{totalSpent.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="p-2.5 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-700">
-                    <span className="text-[10px] text-slate-400 block">ยอดชำระแล้ว</span>
-                    <span className="font-extrabold text-sm text-emerald-600">฿{customerBills.reduce((sum, b) => sum + b.paidAmount, 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+                    <span className="text-[10px] text-slate-600 dark:text-slate-400 block">ยอดชำระแล้ว</span>
+                    <span className="font-extrabold text-sm text-emerald-700 dark:text-emerald-400">{customerBills.reduce((sum, b) => sum + b.paidAmount, 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="p-2.5 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-700">
-                    <span className="text-[10px] text-slate-400 block">หนี้ค้างชำระปัจจุบัน</span>
-                    <span className="font-extrabold text-sm text-red-600">฿{totalOutstanding.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+                    <span className="text-[10px] text-slate-600 dark:text-slate-400 block">หนี้ค้างชำระปัจจุบัน</span>
+                    <span className="font-extrabold text-sm text-red-700 dark:text-red-400">{totalOutstanding.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
                   </div>
                 </div>
               </div>
@@ -1521,13 +1534,13 @@ export default function CustomersPage() {
                 <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
                   <div>
                     <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100">หมายเหตุภายในเกี่ยวกับลูกค้า</h4>
-                    <p className="text-[10px] text-slate-500">บันทึกข้อความประสานงาน ข้อมูลติดต่อพิเศษ หรือข้อควรระวัง (บันทึกลงฐานข้อมูล)</p>
+                    <p className="text-[10px] text-slate-600 dark:text-slate-400">บันทึกข้อความประสานงาน ข้อมูลติดต่อพิเศษ หรือข้อควรระวัง (บันทึกลงฐานข้อมูล)</p>
                   </div>
                   <button
                     type="button"
                     disabled={!selectedCustomer || isSavingNote}
                     onClick={handleSaveNote}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Save className="w-3.5 h-3.5" />
                     <span>{isSavingNote ? 'กำลังบันทึก...' : 'บันทึกหมายเหตุ'}</span>
@@ -1571,12 +1584,12 @@ export default function CustomersPage() {
           <>
             <AppModalHeader
               onClose={() => setCustomerToDelete(null)}
-              icon={<AlertTriangle className="w-5 h-5 text-red-600" />}
+              icon={<AlertTriangle className="w-5 h-5 text-red-700 dark:text-red-400" />}
               title="ยืนยันการลบลูกค้า"
             />
 
             <AppModalBody className="space-y-3 text-center">
-              <div className="w-14 h-14 rounded-full bg-red-100 dark:bg-red-950 text-red-600 flex items-center justify-center mx-auto">
+              <div className="w-14 h-14 rounded-full bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-400 flex items-center justify-center mx-auto">
                 <AlertTriangle className="w-7 h-7" />
               </div>
 
@@ -1584,15 +1597,14 @@ export default function CustomersPage() {
                 <h3 className="text-base font-black text-slate-900 dark:text-slate-100">
                   ยืนยันการลบลูกค้า?
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className="text-xs text-slate-600 dark:text-slate-400">
                   คุณกำลังจะลบข้อมูลลูกค้า <strong className="text-slate-800 dark:text-slate-200">{customerToDelete.customerName}</strong> ({customerToDelete.customerCode}) ลูกค้าจะถูกปิดใช้งานและซ่อนจากรายการ ประวัติบิลยังเก็บไว้ครบ และเปิดใช้งานกลับได้ภายหลัง
                 </p>
               </div>
 
               <div className="space-y-1 text-left mt-3">
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                  <span>เหตุผลในการลบลูกค้า (จำเป็น)</span>
-                  <span className="text-red-500">*</span>
+                  <span>เหตุผลในการลบลูกค้า (ไม่บังคับ)</span>
                 </label>
                 <input
                   type="text"
@@ -1618,7 +1630,6 @@ export default function CustomersPage() {
               <button
                 type="button"
                 onClick={handleConfirmDelete}
-                disabled={!customerDeleteReason.trim()}
                 className="flex-1 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-300 dark:disabled:bg-red-900/40 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-red-500/20 flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
               >
                 <Trash2 className="w-4 h-4" />
@@ -1639,7 +1650,7 @@ export default function CustomersPage() {
           <>
             <AppModalHeader
               onClose={() => setZoomIDCardUrl(null)}
-              icon={<CreditCard className="w-5 h-5 text-sky-500" />}
+              icon={<CreditCard className="w-5 h-5 text-sky-700 dark:text-sky-400" />}
               title="สำเนาบัตรประจำตัวประชาชน"
             />
 

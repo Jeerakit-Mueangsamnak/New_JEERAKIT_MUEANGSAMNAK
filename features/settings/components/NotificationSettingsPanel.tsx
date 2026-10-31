@@ -1,22 +1,26 @@
 'use client'
 
 import { SETTINGS_SECTION_TITLE } from '@/features/settings/components/settings-ui'
-import type { Dispatch, SetStateAction } from 'react'
 import { BellRing } from 'lucide-react'
 import { NumericInput } from '@/components/common/NumericInput'
-import type { SystemConfig } from '@/features/settings/types/settings-page.types'
+import type { NotificationSettings } from '@/features/settings/services/settings-storage'
 
 interface NotificationSettingsPanelProps {
-  config: SystemConfig
-  setConfig: Dispatch<SetStateAction<SystemConfig>>
+  value: NotificationSettings
+  onChange: (next: NotificationSettings) => void
 }
 
-/** In-app notices (policies.notifications): read by rental_overdue_scan and the appointment calendar. */
-export function NotificationSettingsPanel({ config, setConfig }: NotificationSettingsPanelProps) {
+/**
+ * The member's own in-app notices (ตั้งค่าส่วนตัว): profiles.notification_prefs, read by
+ * rental_overdue_scan (per member, menus they hold) and the appointment calendar.
+ */
+export function NotificationSettingsPanel({ value, onChange }: NotificationSettingsPanelProps) {
+  const config = { notifications: value }
+  const setConfig = (next: { notifications: NotificationSettings }) => onChange(next.notifications)
   return (
     <div className="space-y-2.5">
         <h4 className={SETTINGS_SECTION_TITLE}>
-          <BellRing className="w-3.5 h-3.5 text-teal-600" />
+          <BellRing className="w-3.5 h-3.5 text-teal-700 dark:text-teal-400" />
           <span>การแจ้งเตือนในระบบ</span>
         </h4>
 
@@ -39,19 +43,19 @@ export function NotificationSettingsPanel({ config, setConfig }: NotificationSet
                     },
                   })
                 }
-                className="w-4 h-4 text-teal-600 rounded"
+                className="w-4 h-4 text-teal-700 dark:text-teal-400 rounded"
               />
               <div>
                 <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
                   กำหนดส่งสินค้า
                 </span>
-                <span className="text-[11px] text-slate-500">
+                <span className="text-[11px] text-slate-600 dark:text-slate-400">
                   แจ้งเตือนรายการนัดหมายส่งสินค้าล่วงหน้า
                 </span>
               </div>
             </label>
             <div className="flex items-center gap-1 shrink-0">
-              <span className="text-[11px] text-slate-500">แจ้งล่วงหน้า</span>
+              <span className="text-[11px] text-slate-600 dark:text-slate-400">แจ้งล่วงหน้า</span>
               <NumericInput
                 value={config.notifications?.deliveryReminder?.daysBefore ?? 1}
                 onChange={(val) => {
@@ -74,7 +78,7 @@ export function NotificationSettingsPanel({ config, setConfig }: NotificationSet
                 disabled={!config.notifications?.deliveryReminder?.enabled}
                 className="w-12 h-7 px-1.5 py-0 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-bold text-xs disabled:opacity-50"
               />
-              <span className="text-[11px] text-slate-500">วัน</span>
+              <span className="text-[11px] text-slate-600 dark:text-slate-400">วัน</span>
             </div>
           </div>
 
@@ -96,19 +100,19 @@ export function NotificationSettingsPanel({ config, setConfig }: NotificationSet
                     },
                   })
                 }
-                className="w-4 h-4 text-teal-600 rounded"
+                className="w-4 h-4 text-teal-700 dark:text-teal-400 rounded"
               />
               <div>
                 <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
                   กำหนดคืนสินค้า
                 </span>
-                <span className="text-[11px] text-slate-500">
+                <span className="text-[11px] text-slate-600 dark:text-slate-400">
                   แจ้งเตือนบิลที่ใกล้ครบกำหนดรับคืนอุปกรณ์
                 </span>
               </div>
             </label>
             <div className="flex items-center gap-1 shrink-0">
-              <span className="text-[11px] text-slate-500">แจ้งล่วงหน้า</span>
+              <span className="text-[11px] text-slate-600 dark:text-slate-400">แจ้งล่วงหน้า</span>
               <NumericInput
                 value={config.notifications?.returnReminder?.daysBefore ?? 1}
                 onChange={(val) => {
@@ -131,7 +135,7 @@ export function NotificationSettingsPanel({ config, setConfig }: NotificationSet
                 disabled={!config.notifications?.returnReminder?.enabled}
                 className="w-12 h-7 px-1.5 py-0 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-bold text-xs disabled:opacity-50"
               />
-              <span className="text-[11px] text-slate-500">วัน</span>
+              <span className="text-[11px] text-slate-600 dark:text-slate-400">วัน</span>
             </div>
           </div>
 
@@ -153,19 +157,19 @@ export function NotificationSettingsPanel({ config, setConfig }: NotificationSet
                     },
                   })
                 }
-                className="w-4 h-4 text-teal-600 rounded"
+                className="w-4 h-4 text-teal-700 dark:text-teal-400 rounded"
               />
               <div>
                 <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
                   นัดหมายใกล้ถึง
                 </span>
-                <span className="text-[11px] text-slate-500">
+                <span className="text-[11px] text-slate-600 dark:text-slate-400">
                   แจ้งเตือนนัดหมาย และใช้เป็นช่วง &ldquo;ใกล้ถึงกำหนด&rdquo; ในปฏิทินนัดหมาย
                 </span>
               </div>
             </label>
             <div className="flex items-center gap-1 shrink-0">
-              <span className="text-[11px] text-slate-500">แจ้งล่วงหน้า</span>
+              <span className="text-[11px] text-slate-600 dark:text-slate-400">แจ้งล่วงหน้า</span>
               <NumericInput
                 value={config.notifications?.appointmentReminder?.daysBefore ?? 3}
                 onChange={(val) => {
@@ -188,7 +192,7 @@ export function NotificationSettingsPanel({ config, setConfig }: NotificationSet
                 disabled={!config.notifications?.appointmentReminder?.enabled}
                 className="w-12 h-7 px-1.5 py-0 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-bold text-xs disabled:opacity-50"
               />
-              <span className="text-[11px] text-slate-500">วัน</span>
+              <span className="text-[11px] text-slate-600 dark:text-slate-400">วัน</span>
             </div>
           </div>
 
@@ -210,19 +214,19 @@ export function NotificationSettingsPanel({ config, setConfig }: NotificationSet
                     },
                   })
                 }
-                className="w-4 h-4 text-teal-600 rounded"
+                className="w-4 h-4 text-teal-700 dark:text-teal-400 rounded"
               />
               <div>
                 <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
                   ค้างชำระ
                 </span>
-                <span className="text-[11px] text-slate-500">
+                <span className="text-[11px] text-slate-600 dark:text-slate-400">
                   แจ้งเตือนยอดเงินค้างชำระที่ถึงกำหนด
                 </span>
               </div>
             </label>
             <div className="flex items-center gap-1 shrink-0">
-              <span className="text-[11px] text-slate-500">แจ้งล่วงหน้า</span>
+              <span className="text-[11px] text-slate-600 dark:text-slate-400">แจ้งล่วงหน้า</span>
               <NumericInput
                 value={config.notifications?.paymentReminder?.daysBefore ?? 1}
                 onChange={(val) => {
@@ -245,7 +249,7 @@ export function NotificationSettingsPanel({ config, setConfig }: NotificationSet
                 disabled={!config.notifications?.paymentReminder?.enabled}
                 className="w-12 h-7 px-1.5 py-0 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-bold text-xs disabled:opacity-50"
               />
-              <span className="text-[11px] text-slate-500">วัน</span>
+              <span className="text-[11px] text-slate-600 dark:text-slate-400">วัน</span>
             </div>
           </div>
 
@@ -267,13 +271,13 @@ export function NotificationSettingsPanel({ config, setConfig }: NotificationSet
                     },
                   })
                 }}
-                className="w-4 h-4 text-teal-600 rounded"
+                className="w-4 h-4 text-teal-700 dark:text-teal-400 rounded"
               />
               <div>
                 <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
                   สต็อกต่ำ
                 </span>
-                <span className="text-[11px] text-slate-500">
+                <span className="text-[11px] text-slate-600 dark:text-slate-400">
                   แจ้งเตือนเมื่อสินค้าพร้อมใช้ต่ำกว่าขั้นต่ำ
                 </span>
               </div>
@@ -300,13 +304,13 @@ export function NotificationSettingsPanel({ config, setConfig }: NotificationSet
                     },
                   })
                 }
-                className="w-4 h-4 text-teal-600 rounded"
+                className="w-4 h-4 text-teal-700 dark:text-teal-400 rounded"
               />
               <div>
                 <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
                   สินค้าค้างคืน / คืนล่าช้า
                 </span>
-                <span className="text-[11px] text-slate-500">
+                <span className="text-[11px] text-slate-600 dark:text-slate-400">
                   แจ้งเตือนรายการบิลที่เลยกำหนดส่งคืนอุปกรณ์
                 </span>
               </div>

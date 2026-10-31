@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, FileText, FolderOpen, Printer, Trash2, Upload } from 'lucide-react'
 
 import { CustomSelect } from '@/components/common/CustomSelect'
+import { CustomDatePicker, getLocalDateString, parseLocalDate } from '@/components/common/CustomDatePicker'
 import { NumericInput } from '@/components/common/NumericInput'
 import { useToast } from '@/components/common/Toast'
 import type { BusinessSettings, Customer } from '@/lib/types/rental-pos'
@@ -28,7 +29,7 @@ import {
   type CustomerDocumentRow,
 } from '@/features/documents/api/customer-document-repository'
 import { printDocuments } from '@/lib/print/print-service'
-import { getTemplateTarget, loadTemplateLibrary } from '@/features/documents/services/template-library-storage'
+import { getTemplateTarget, loadTemplateLibrary, refreshSharedTemplates } from '@/features/documents/services/template-library-storage'
 
 interface ContractFields {
   rentalStartDate: string
@@ -173,7 +174,22 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
       sublabel: c.phone ? `📞 ${c.phone}` : undefined,
     }))
 
+  // The shop's own forms live on the server (same on every device): read them once on open.
+  const [sharedFormsVersion, setSharedFormsVersion] = useState(0)
+  useEffect(() => {
+    let active = true
+    refreshSharedTemplates()
+      .then(() => {
+        if (active) setSharedFormsVersion((v) => v + 1)
+      })
+      .catch((err: unknown) => console.error('Loading the shop forms failed:', err))
+    return () => {
+      active = false
+    }
+  }, [])
+
   const availableCustomerForms: CustomerFormDefinition[] = useMemo(() => {
+    void sharedFormsVersion
     try {
       const customForms = loadTemplateLibrary()
         .filter((t) => getTemplateTarget(t) === 'CUSTOMER' && !CUSTOMER_FORMS.some((cf) => cf.code === t.id))
@@ -188,7 +204,7 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
     } catch {
       return CUSTOMER_FORMS
     }
-  }, [])
+  }, [sharedFormsVersion])
 
   // ── list of the selected customer: unsaved drafts first, then saved documents ──
   const [drafts, setDrafts] = useState<DraftDoc[]>([])
@@ -470,11 +486,11 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
 
             <div className="flex items-center justify-between gap-1.5 pt-0.5 text-slate-800 dark:text-slate-200 font-bold text-xs shrink-0">
               <span className="flex items-center gap-1.5">
-                <FolderOpen className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <FolderOpen className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
                 <span>รายการเอกสาร</span>
               </span>
               {customer && (
-                <label className="flex items-center gap-1 text-[10px] font-medium text-slate-500 cursor-pointer">
+                <label className="flex items-center gap-1 text-[10px] font-medium text-slate-600 dark:text-slate-400 cursor-pointer">
                   <input type="checkbox" checked={showCancelled} onChange={(e) => setShowCancelled(e.target.checked)} className="w-3 h-3 rounded" />
                   <span>แสดงที่ยกเลิกแล้ว</span>
                 </label>
@@ -487,11 +503,11 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
                   type="checkbox"
                   checked={listItems.length > 0 && checked.length === listItems.length}
                   onChange={toggleAll}
-                  className="w-3.5 h-3.5 text-blue-600 rounded"
+                  className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 rounded"
                 />
                 <span>เลือกทั้งหมด</span>
               </label>
-              <span className="text-[10px] text-slate-500 font-mono font-bold">
+              <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono font-bold">
                 เลือกแล้ว {checked.length} / {listItems.length}
               </span>
             </div>
@@ -521,19 +537,19 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
                           checked={checkedKeys.includes(item.key)}
                           onChange={() => toggleChecked(item.key)}
                           onClick={(e) => e.stopPropagation()}
-                          className="w-3.5 h-3.5 text-blue-600 rounded shrink-0 cursor-pointer"
+                          className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 rounded shrink-0 cursor-pointer"
                         />
                         <div className="min-w-0 flex-1">
                           <p className="font-bold text-slate-900 dark:text-slate-100 text-[11px]">
                             {idx + 1}. {label}
                           </p>
-                          <p className="text-[10px] text-slate-500 font-mono">
+                          <p className="text-[10px] text-slate-600 dark:text-slate-400 font-mono">
                             {item.draft ? (
-                              <span className="text-amber-600 font-bold">ยังไม่บันทึก</span>
+                              <span className="text-amber-700 dark:text-amber-400 font-bold">ยังไม่บันทึก</span>
                             ) : (
                               <>
                                 {docNoOf(item.row)} • {item.row.created_at.slice(0, 10)}
-                                {item.row.status !== 'ACTIVE' && <span className="ml-1 text-red-600 font-bold" title={item.row.status_reason || ''}>• ยกเลิกแล้ว</span>}
+                                {item.row.status !== 'ACTIVE' && <span className="ml-1 text-red-700 dark:text-red-400 font-bold" title={item.row.status_reason || ''}>• ยกเลิกแล้ว</span>}
                               </>
                             )}
                           </p>
@@ -544,19 +560,19 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
                   )
                 })
               ) : (
-                <div className="text-center py-8 text-slate-400 space-y-1">
+                <div className="text-center py-8 text-slate-600 dark:text-slate-400 space-y-1">
                   <FileText className="w-7 h-7 mx-auto text-slate-300 stroke-[1.5]" />
                   {docsLoading ? (
-                    <p className="font-bold text-xs text-slate-500">กำลังโหลดเอกสาร...</p>
+                    <p className="font-bold text-xs text-slate-600 dark:text-slate-400">กำลังโหลดเอกสาร...</p>
                   ) : docsError ? (
                     <>
-                      <p className="font-bold text-xs text-red-600">โหลดเอกสารไม่สำเร็จ</p>
-                      <p className="text-[10px] text-slate-400">{docsError}</p>
+                      <p className="font-bold text-xs text-red-700 dark:text-red-400">โหลดเอกสารไม่สำเร็จ</p>
+                      <p className="text-[10px] text-slate-600 dark:text-slate-400">{docsError}</p>
                     </>
                   ) : (
                     <>
-                      <p className="font-bold text-xs text-slate-500">ยังไม่มีเอกสารในรายการ</p>
-                      <p className="text-[10px] text-slate-400">{customer ? 'เลือกแบบฟอร์มจากเมนูด้านบนเพื่อเพิ่มเอกสาร' : 'เลือกลูกค้าก่อน แล้วเลือกแบบฟอร์มเพื่อเพิ่มเอกสาร'}</p>
+                      <p className="font-bold text-xs text-slate-600 dark:text-slate-400">ยังไม่มีเอกสารในรายการ</p>
+                      <p className="text-[10px] text-slate-600 dark:text-slate-400">{customer ? 'เลือกแบบฟอร์มจากเมนูด้านบนเพื่อเพิ่มเอกสาร' : 'เลือกลูกค้าก่อน แล้วเลือกแบบฟอร์มเพื่อเพิ่มเอกสาร'}</p>
                     </>
                   )}
                 </div>
@@ -565,18 +581,18 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
 
             {previewDraft && previewDraftForm && (
               <div className="shrink-0 max-h-[38%] overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-2 space-y-2">
-                <p className="text-[11px] font-bold text-slate-500">ข้อมูลเพิ่มเติม · {previewDraftForm.label}</p>
+                <p className="text-[11px] font-bold text-slate-600 dark:text-slate-400">ข้อมูลเพิ่มเติม · {previewDraftForm.label}</p>
 
                 {previewDraftForm.docType === 'RENTAL_CONTRACT' && (
                   <>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className={LABEL}>วันเริ่มสัญญา</label>
-                        <input type="date" value={previewDraft.contract.rentalStartDate} onChange={(e) => updateDraft(previewDraft.id, { contract: { ...previewDraft.contract, rentalStartDate: e.target.value } })} className={INPUT} />
+                        <CustomDatePicker align="left" value={parseLocalDate(previewDraft.contract.rentalStartDate)} onChange={(d) => updateDraft(previewDraft.id, { contract: { ...previewDraft.contract, rentalStartDate: d ? getLocalDateString(d) : '' } })} />
                       </div>
                       <div>
                         <label className={LABEL}>วันสิ้นสุดสัญญา</label>
-                        <input type="date" value={previewDraft.contract.rentalEndDate} onChange={(e) => updateDraft(previewDraft.id, { contract: { ...previewDraft.contract, rentalEndDate: e.target.value } })} className={INPUT} />
+                        <CustomDatePicker align="left" value={parseLocalDate(previewDraft.contract.rentalEndDate)} onChange={(d) => updateDraft(previewDraft.id, { contract: { ...previewDraft.contract, rentalEndDate: d ? getLocalDateString(d) : '' } })} />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
@@ -595,7 +611,7 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
                         <button
                           type="button"
                           onClick={() => updateDraft(previewDraft.id, { items: [...previewDraft.items, { productId: '', productName: '', quantity: 1, unit: '', normalPrice: 0, damageFee: 0 }] })}
-                          className="text-[11px] font-bold text-blue-600 hover:underline"
+                          className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
                         >
                           + เพิ่มรายการ
                         </button>
@@ -605,7 +621,7 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
                           <input value={it.productName} onChange={(e) => updateDraft(previewDraft.id, { items: previewDraft.items.map((x, i) => (i === idx ? { ...x, productName: e.target.value } : x)) })} placeholder="ชื่อทรัพย์สิน" className={INPUT} />
                           <NumericInput value={it.quantity} onChange={(v) => updateDraft(previewDraft.id, { items: previewDraft.items.map((x, i) => (i === idx ? { ...x, quantity: Number(v || 0) } : x)) })} min={0} className={INPUT} />
                           <input value={it.unit} onChange={(e) => updateDraft(previewDraft.id, { items: previewDraft.items.map((x, i) => (i === idx ? { ...x, unit: e.target.value } : x)) })} placeholder="หน่วย" className={INPUT} />
-                          <button type="button" onClick={() => updateDraft(previewDraft.id, { items: previewDraft.items.filter((_, i) => i !== idx) })} className="text-slate-400 hover:text-red-600" aria-label="ลบรายการ">
+                          <button type="button" onClick={() => updateDraft(previewDraft.id, { items: previewDraft.items.filter((_, i) => i !== idx) })} className="text-slate-600 dark:text-slate-400 hover:text-red-600" aria-label="ลบรายการ">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -649,7 +665,7 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
                 type="button"
                 onClick={() => void handlePrint()}
                 disabled={listItems.length === 0}
-                className="py-1.5 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                className="py-1.5 px-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>พิมพ์ ({checked.length > 0 ? checked.length : 'ทั้งหมด'})</span>
@@ -661,7 +677,7 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
                 className={`py-1.5 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
                   deletable.length > 0
                     ? 'bg-red-600 text-white shadow-sm hover:bg-red-700'
-                    : 'bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-500 cursor-not-allowed'
+                    : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400 cursor-not-allowed'
                 }`}
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -672,7 +688,7 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
               type="button"
               onClick={() => void handleSave()}
               disabled={saving}
-              className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              className="w-full py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>{saving ? 'กำลังบันทึก...' : customerDrafts.length > 0 ? `บันทึก (${customerDrafts.length})` : 'บันทึก'}</span>

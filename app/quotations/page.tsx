@@ -1,7 +1,10 @@
 'use client'
-import { printQuotationA4 } from '@/features/documents/utils/transaction-print'
+import { isQuotationPrintTemplate, pickQuotationPrintTemplate, printQuotationA4, renderQuotationA4PagesHtml } from '@/features/documents/utils/transaction-print'
+import { QuotationPreviewOverlay } from '@/features/quotations/components/QuotationPreviewOverlay'
+import { loadTemplateLibrary, refreshSharedTemplates } from '@/features/documents/services/template-library-storage'
+import type { DocumentTemplate } from '@/lib/types/document'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
-import { ModalHeader } from '@/components/common/ModalHeader'
+import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
 
 import React, { useState, useEffect } from 'react'
 import {
@@ -14,9 +17,12 @@ import {
   AlertTriangle,
   CheckCircle2,
   Printer,
+  Pencil,
+  Copy,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { CustomSelect } from '@/components/common/CustomSelect'
+import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { Quotation } from '@/lib/types/rental-pos'
 import { logger } from '@/lib/utils/logger'
 import { useToast } from '@/components/common/Toast'
@@ -27,6 +33,8 @@ import {
   confirmQuotationWorkflow,
   cancelQuotationWorkflow,
   fetchQuotationsFromSupabase,
+  quotationStatusView,
+  QUOTATION_WAITING_STATUSES,
 } from '@/features/quotations/services/quotation-storage'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
 
@@ -42,6 +50,13 @@ interface ReservationFulfillmentResult {
   }>
 }
 
+const STATUS_TONE_CLASS = {
+  accepted: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
+  converted: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
+  closed: 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+  waiting: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
+} as const
+
 export default function QuotationsPage() {
   const router = useRouter()
   const { showToast } = useToast()
@@ -51,6 +66,8 @@ export default function QuotationsPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('ALL')
+  const [printTemplates, setPrintTemplates] = useState<DocumentTemplate[]>(() => loadTemplateLibrary().filter(isQuotationPrintTemplate))
+  const [printTemplateId, setPrintTemplateId] = useState('')
 
   const [selectedQuotationForConversion, setSelectedQuotationForConversion] = useState<Quotation | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -82,10 +99,6 @@ export default function QuotationsPage() {
   const handleConfirmRelease = async () => {
     if (!quotationForRelease || isReleasing) return
     const trimmedReason = releaseReason.trim()
-    if (!trimmedReason) {
-      setReleaseError('กรุณาระบุเหตุผลในการปล่อยหรือยกเลิกการจองสินค้า')
-      return
-    }
 
     setIsReleasing(true)
     setReleaseError('')
@@ -102,9 +115,9 @@ export default function QuotationsPage() {
       if (selectedQuotationForConversion?.id === quotationForRelease.id) {
         closeActionModal()
       }
-      showToast('ยกเลิกใบเสนอราคาสำเร็จ', `ยกเลิก ${quotationForRelease.quotationNo} และปล่อยการจองสินค้าเรียบร้อยแล้ว`, 'SUCCESS')
+      showToast('ยกเลิกใบเสนอราคาสำเร็จ', `ยกเลิก ${quotationForRelease.quotationNo} เรียบร้อยแล้ว`, 'SUCCESS')
     } catch (err: any) {
-      setReleaseError(err?.message || 'ไม่สามารถปล่อยการจองได้')
+      setReleaseError(err?.message || 'ไม่สามารถยกเลิกใบเสนอราคาได้')
     } finally {
       setIsReleasing(false)
     }
@@ -133,11 +146,36 @@ export default function QuotationsPage() {
     loadQuotations()
   }, [loadQuotations])
 
+  // The same shop library as Documents; only data-bound quotation templates can print live bills.
+  useEffect(() => {
+    let active = true
+    refreshSharedTemplates()
+      .then((templates) => {
+        if (!active) return
+        const valid = templates.filter(isQuotationPrintTemplate)
+        setPrintTemplates(valid)
+        setPrintTemplateId((oldId) => {
+          if (valid.some((tpl) => tpl.id === oldId)) return oldId
+          // The shop form marked default, else the first usable quotation form.
+          return pickQuotationPrintTemplate(valid)?.id ?? ''
+        })
+      })
+      .catch((error: unknown) => {
+        if (active) showToast('โหลดเทมเพลตไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
+      })
+    return () => { active = false }
+  }, [showToast])
+
+  const selectedPrintTemplate = printTemplates.find((tpl) => tpl.id === printTemplateId)
+    ?? pickQuotationPrintTemplate(printTemplates)
+
   const filteredQuotations = quotations.filter((q) => {
     const matchesSearch =
       q.quotationNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
       q.customerName.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = statusFilter === 'ALL' || q.status === statusFilter
+    const matchesStatus =
+      statusFilter === 'ALL' ||
+      (statusFilter === 'WAITING' ? QUOTATION_WAITING_STATUSES.includes(q.status) : q.status === statusFilter)
     return matchesSearch && matchesStatus
   })
 
@@ -175,8 +213,36 @@ export default function QuotationsPage() {
     router.push(`/pos?quotationId=${encodeURIComponent(quotationId)}`)
   }
 
+  // Edit keeps the number (only DRAFT / SENT / ACCEPTED); copy starts a new quotation from this one.
+  const handleEditQuotation = (q: Quotation) => {
+    router.push(`/pos?mode=quotation&editQuotationId=${encodeURIComponent(q.id)}`)
+  }
+  const handleCopyQuotation = (q: Quotation) => {
+    router.push(`/pos?mode=quotation&copyQuotationId=${encodeURIComponent(q.id)}`)
+  }
+
+  const quotationTemplateProblem = () => selectedPrintTemplate
+    ? 'เทมเพลตที่เลือกไม่รองรับข้อมูลครบหรือใบเสนอราคาหลายหน้า กรุณาเลือกแบบฟอร์มอื่น'
+    : 'ยังไม่มีแบบฟอร์มใบเสนอราคาที่ใช้พิมพ์ได้ กรุณาเพิ่มที่เมนูจัดการเอกสาร'
+
   const handlePrintQuotation = (q: Quotation) => {
-    printQuotationA4(q, systemSettings.business)
+    if (!selectedPrintTemplate || !printQuotationA4(q, systemSettings.business, selectedPrintTemplate)) {
+      showToast('พิมพ์ใบเสนอราคาไม่ได้', quotationTemplateProblem(), 'ERROR')
+    }
+  }
+
+  // Double-click a quotation row: real-size A4 preview (same pages and template as print).
+  const [previewPages, setPreviewPages] = useState<string[]>([])
+  const closeQuotationPreview = React.useCallback(() => setPreviewPages([]), [])
+  const openQuotationPreview = (e: React.MouseEvent, q: Quotation) => {
+    if ((e.target as HTMLElement).closest('button, a, input, select, textarea')) return
+    window.getSelection()?.removeAllRanges()
+    const pages = selectedPrintTemplate ? renderQuotationA4PagesHtml(q, systemSettings.business, selectedPrintTemplate) : []
+    if (pages.length === 0) {
+      showToast('แสดงตัวอย่างใบเสนอราคาไม่ได้', quotationTemplateProblem(), 'ERROR')
+      return
+    }
+    setPreviewPages(pages)
   }
 
   const handleConfirmConvertToPos = async () => {
@@ -199,7 +265,7 @@ export default function QuotationsPage() {
         const backorderMsg = res.backorders.length > 0
           ? ` (มี Backorder ${res.backorders.length} รายการเนื่องจากสต็อกไม่พอ)`
           : ''
-        showToast('ตอบรับใบเสนอราคาสำเร็จ', `ปรับสถานะ ${targetQuotation.quotationNo} เป็น ตอบรับ / จองสินค้าแล้ว${backorderMsg}`, 'SUCCESS')
+        showToast('ตอบรับใบเสนอราคาสำเร็จ', `ปรับสถานะ ${targetQuotation.quotationNo} เป็น ตอบรับแล้ว${backorderMsg}`, 'SUCCESS')
       } else {
         routeAcceptedQuotationToPos(targetQuotation.id)
       }
@@ -214,20 +280,20 @@ export default function QuotationsPage() {
     <div className="h-full min-h-0 flex flex-col overflow-hidden p-2 bg-slate-100 dark:bg-slate-900 gap-2 text-xs">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 shrink-0">
         <div className="bg-slate-100/70 dark:bg-slate-800/70 p-2.5 sm:p-3 rounded-2xl border border-slate-300/70 dark:border-slate-700 shadow-sm">
-          <span className="text-[11px] text-slate-500 font-semibold block">ใบเสนอราคาทั้งหมด</span>
+          <span className="text-[11px] text-slate-600 dark:text-slate-400 font-semibold block">ใบเสนอราคาทั้งหมด</span>
           <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-slate-100 mt-0.5">{quotations.length}</h3>
         </div>
 
         <div className="bg-emerald-50 dark:bg-emerald-950/30 p-2.5 sm:p-3 rounded-2xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-sm">
-          <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold block">ตอบรับ / จองสินค้าแล้ว</span>
-          <h3 className="text-lg sm:text-xl font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
+          <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold block">ตอบรับแล้ว</span>
+          <h3 className="text-lg sm:text-xl font-black text-emerald-700 dark:text-emerald-400 mt-0.5">
             {quotations.filter((q) => q.status === 'ACCEPTED').length}
           </h3>
         </div>
 
         <div className="bg-amber-50 dark:bg-amber-950/30 p-2.5 sm:p-3 rounded-2xl border border-amber-200/60 dark:border-amber-900/40 shadow-sm">
           <span className="text-[11px] text-amber-700 dark:text-amber-300 font-semibold block">รอยืนยัน</span>
-          <h3 className="text-lg sm:text-xl font-black text-amber-600 dark:text-amber-400 mt-0.5">
+          <h3 className="text-lg sm:text-xl font-black text-amber-700 dark:text-amber-400 mt-0.5">
             {quotations.filter((q) => q.status === 'WAITING' || q.status === 'SENT' || q.status === 'DRAFT').length}
           </h3>
         </div>
@@ -240,8 +306,20 @@ export default function QuotationsPage() {
         </div>
       </div>
 
+      <div className="shrink-0 flex flex-wrap items-center gap-2 px-2 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+        <span className="font-semibold text-slate-700 dark:text-slate-300">แบบพิมพ์ใบเสนอราคา</span>
+        <div className="flex-1 min-w-[200px] max-w-[430px]">
+          <CustomSelect
+            value={selectedPrintTemplate?.id ?? ''}
+            onChange={(value) => setPrintTemplateId(String(value))}
+            buttonClassName="h-9 rounded-lg"
+            options={printTemplates.map((tpl) => ({ value: tpl.id, label: tpl.name }))}
+          />
+        </div>
+      </div>
+
       {isLoading && (
-        <div className="flex-1 min-h-0 flex flex-col items-center justify-center py-16 text-slate-400">
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center py-16 text-slate-600 dark:text-slate-400">
           <RefreshCw className="w-8 h-8 animate-spin mb-3" />
           <span className="text-sm font-semibold">กำลังโหลดข้อมูลใบเสนอราคา...</span>
         </div>
@@ -254,7 +332,7 @@ export default function QuotationsPage() {
             {/* Mobile Toolbar */}
             <div className="bg-white dark:bg-slate-800 p-2 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-2 shrink-0">
               <div className="relative w-full">
-                <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <Search className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   placeholder="ค้นหาเลขที่ใบเสนอราคา หรือ ชื่อลูกค้า..."
@@ -272,7 +350,7 @@ export default function QuotationsPage() {
                     buttonClassName="h-9 px-2.5 py-0 rounded-xl"
                     options={[
                       { value: 'ALL', label: 'สถานะ: ทั้งหมด' },
-                      { value: 'ACCEPTED', label: 'ตอบรับ / จองสินค้าแล้ว' },
+                      { value: 'ACCEPTED', label: 'ตอบรับแล้ว' },
                       { value: 'WAITING', label: 'รอยืนยัน' },
                       { value: 'CONVERTED', label: 'แปลงเป็นบิลแล้ว' },
                     ]}
@@ -281,7 +359,7 @@ export default function QuotationsPage() {
 
                 <button
                   onClick={() => router.push('/pos?mode=quotation')}
-                  className="h-9 px-3.5 py-0 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-xs transition-all shrink-0 cursor-pointer"
+                  className="h-9 px-3.5 py-0 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-xs transition-all shrink-0 cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                   <span>สร้าง</span>
@@ -292,14 +370,16 @@ export default function QuotationsPage() {
             {/* Mobile Card List */}
             <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-1">
               {filteredQuotations.length === 0 ? (
-                <div className="p-8 text-center text-slate-400 italic">ไม่พบรายการใบเสนอราคา</div>
+                <div className="p-8 text-center text-slate-600 dark:text-slate-400 italic">ไม่พบรายการใบเสนอราคา</div>
               ) : (
                 filteredQuotations.map((q) => {
-                  const isConverted = q.status === 'CONVERTED'
-                  const buttonLabel = isConverted ? 'เปิดบิลแล้ว' : q.status === 'ACCEPTED' ? 'เปิดบิล POS' : 'ตอบรับ / จองสินค้า'
+                  const view = quotationStatusView(q.status)
+                  const isConverted = !view.actionable
+                  const buttonLabel = q.status === 'CONVERTED' ? 'เปิดบิลแล้ว' : !view.actionable ? view.label : q.status === 'ACCEPTED' ? 'เปิดบิล POS' : 'ตอบรับ'
                   return (
                     <div
                       key={q.id}
+                      onDoubleClick={(e) => openQuotationPreview(e, q)}
                       className="p-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm space-y-2"
                     >
                       <div className="flex justify-between items-start">
@@ -307,28 +387,22 @@ export default function QuotationsPage() {
                           <span className="font-mono font-bold text-sm text-blue-600 dark:text-blue-400 block">
                             {q.quotationNo}
                           </span>
-                          <span className="text-[11px] text-slate-400 block">วันที่: {q.quotationDate}</span>
+                          <span className="text-[11px] text-slate-600 dark:text-slate-400 block">วันที่: {q.quotationDate}</span>
                         </div>
-                        <span className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] ${
-                          q.status === 'ACCEPTED'
-                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                            : q.status === 'CONVERTED'
-                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
-                              : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                        }`}>
-                          {q.status === 'ACCEPTED' ? 'ตอบรับ / จองแล้ว' : q.status === 'CONVERTED' ? 'เปิดบิลแล้ว' : 'รอยืนยัน'}
+                        <span className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] ${STATUS_TONE_CLASS[view.tone]}`}>
+                          {view.label}
                         </span>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 text-xs py-1.5 border-y border-slate-100 dark:border-slate-700/80">
                         <div>
-                          <span className="text-slate-400 block text-[10px]">ลูกค้า:</span>
+                          <span className="text-slate-600 dark:text-slate-400 block text-[10px]">ลูกค้า:</span>
                           <span className="font-bold text-slate-800 dark:text-slate-200 block truncate">
                             {q.customerName}
                           </span>
                         </div>
                         <div>
-                          <span className="text-slate-400 block text-[10px]">ช่วงเช่า:</span>
+                          <span className="text-slate-600 dark:text-slate-400 block text-[10px]">ช่วงเช่า:</span>
                           <span className="font-mono text-slate-600 dark:text-slate-400 block text-[11px]">
                             {q.rentalStartDate} - {q.rentalEndDate}
                           </span>
@@ -337,9 +411,9 @@ export default function QuotationsPage() {
 
                       <div className="flex justify-between items-center pt-1">
                         <div>
-                          <span className="text-[10px] text-slate-400 block">ยอดสุทธิ:</span>
+                          <span className="text-[10px] text-slate-600 dark:text-slate-400 block">ยอดสุทธิ:</span>
                           <span className="font-black text-sm text-slate-900 dark:text-slate-100">
-                            ฿{q.grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                            {q.grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                           </span>
                         </div>
 
@@ -354,14 +428,34 @@ export default function QuotationsPage() {
                             <span>พิมพ์</span>
                           </button>
 
-                          {q.status === 'ACCEPTED' && (
+                          {view.editable && (
+                            <button
+                              type="button"
+                              onClick={() => handleEditQuotation(q)}
+                              className="px-2 py-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs inline-flex items-center gap-1 shadow-xs cursor-pointer min-h-[36px]"
+                              title="แก้ไขใบเสนอราคา (ใช้เลขเดิม)"
+                              aria-label={`แก้ไข ${q.quotationNo}`}
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleCopyQuotation(q)}
+                            className="px-2 py-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs inline-flex items-center gap-1 shadow-xs cursor-pointer min-h-[36px]"
+                            title="คัดลอกเป็นใบเสนอราคาใหม่"
+                            aria-label={`คัดลอก ${q.quotationNo}`}
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                          {view.cancellable && (
                             <button
                               type="button"
                               onClick={() => handleOpenReleaseModal(q)}
                               className="px-2.5 py-1.5 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold text-xs inline-flex items-center gap-1 shadow-xs cursor-pointer min-h-[36px]"
-                              title="ปล่อยการจองสินค้า"
+                              title="ยกเลิกใบเสนอราคา"
                             >
-                              <span>ปล่อยจอง</span>
+                              <span>ยกเลิก</span>
                             </button>
                           )}
 
@@ -371,7 +465,7 @@ export default function QuotationsPage() {
                             className={`px-3 py-1.5 rounded-xl text-white font-extrabold text-xs inline-flex items-center gap-1.5 shadow-sm transition-all min-h-[36px] ${
                               isConverted
                                 ? 'bg-slate-400 cursor-not-allowed'
-                                : 'bg-emerald-600 hover:bg-emerald-700 active:scale-95 cursor-pointer'
+                                : 'bg-emerald-700 hover:bg-emerald-800 active:scale-95 cursor-pointer'
                             }`}
                           >
                             <ShoppingBag className="w-3.5 h-3.5" />
@@ -386,7 +480,7 @@ export default function QuotationsPage() {
               )}
             </div>
 
-            <div className="shrink-0 p-2 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs text-slate-500">
+            <div className="shrink-0 p-2 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-400">
               ทั้งหมด {filteredQuotations.length} รายการ
             </div>
           </div>
@@ -400,7 +494,7 @@ export default function QuotationsPage() {
               <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
                 {/* Search */}
                 <div className="relative min-w-[140px] flex-1 max-w-xs">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <Search className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     placeholder="ค้นหาเลขที่ใบเสนอราคา หรือ ชื่อลูกค้า..."
@@ -418,7 +512,7 @@ export default function QuotationsPage() {
                     buttonClassName="h-9 px-2.5 py-0 rounded-xl"
                     options={[
                       { value: 'ALL', label: 'สถานะ: ทั้งหมด' },
-                      { value: 'ACCEPTED', label: 'ตอบรับ / จองสินค้าแล้ว' },
+                      { value: 'ACCEPTED', label: 'ตอบรับแล้ว' },
                       { value: 'WAITING', label: 'รอยืนยัน' },
                       { value: 'CONVERTED', label: 'แปลงเป็นบิลแล้ว' },
                     ]}
@@ -430,7 +524,7 @@ export default function QuotationsPage() {
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => router.push('/pos?mode=quotation')}
-                  className="h-9 px-3.5 py-0 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs whitespace-nowrap"
+                  className="h-9 px-3.5 py-0 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs whitespace-nowrap"
                 >
                   <Plus className="w-4 h-4" />
                   <span>สร้างใบเสนอราคา</span>
@@ -439,59 +533,57 @@ export default function QuotationsPage() {
             </div>
 
             {/* Table scroll area: rows load incrementally (quotationAutoFit) */}
-            <div
-              ref={quotationAutoFit.containerRef}
-              className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden"
+            <DataTableFrame
+              fill
+              scrollRef={quotationAutoFit.containerRef}
+              rowCount={filteredQuotations.length}
+              shownCount={quotationAutoFit.endIndex}
+              className="flex-1 min-h-0 min-w-0 rounded-none bg-transparent"
             >
                 <table className={`w-full table-fixed text-left text-xs leading-tight border-collapse ${paginatedQuotations.length === 0 ? 'h-full' : ''}`}>
-                  <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 text-slate-500 text-xs font-bold">
+                  <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold">
                     <tr>
-                      <th className="w-[15%] py-2 px-3 whitespace-nowrap">เลขที่ใบเสนอราคา</th>
-                      <th className="w-[11%] py-2 px-3 whitespace-nowrap">วันที่เอกสาร</th>
-                      <th className="w-[20%] py-2 px-3 whitespace-nowrap">ชื่อลูกค้า</th>
-                      <th className="w-[18%] py-2 px-3 whitespace-nowrap">ช่วงเช่าสินค้า</th>
-                      <th className="w-[13%] py-2 px-3 text-right whitespace-nowrap">ยอดรวมสุทธิ</th>
-                      <th className="w-[11%] py-2 px-3 text-center whitespace-nowrap">สถานะ</th>
-                      <th className="w-[12%] py-2 px-3 text-center whitespace-nowrap">การกระทำ</th>
+                      <th className="w-[14%] py-2 px-3 whitespace-nowrap">เลขที่ใบเสนอราคา</th>
+                      <th className="w-[9%] py-2 px-3 whitespace-nowrap">วันที่เอกสาร</th>
+                      <th className="w-[14%] py-2 px-3 whitespace-nowrap">ชื่อลูกค้า</th>
+                      <th className="w-[13%] py-2 px-3 whitespace-nowrap">ช่วงเช่าสินค้า</th>
+                      <th className="w-[11%] py-2 px-3 text-right whitespace-nowrap">ยอดรวมสุทธิ</th>
+                      <th className="w-[10%] py-2 px-3 text-center whitespace-nowrap">สถานะ</th>
+                      <th className="w-[29%] py-2 px-3 text-center whitespace-nowrap">การกระทำ</th>
                     </tr>
                   </thead>
                   <tbody className={`divide-y divide-slate-100 dark:divide-slate-700 ${paginatedQuotations.length === 0 ? 'h-full' : ''}`}>
                     {paginatedQuotations.length === 0 ? (
                       <tr data-empty-row="true" className="h-full">
-                        <td colSpan={7} className="h-full px-4 text-center text-slate-400 italic align-middle">
+                        <td colSpan={7} className="h-full px-4 text-center text-slate-600 dark:text-slate-400 italic align-middle">
                           <div className="flex flex-col items-center justify-center">
-                            <FileText className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-1.5 opacity-50" />
+                            <FileText className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-400 mb-1.5 opacity-50" />
                             <p className="font-bold text-xs text-slate-600 dark:text-slate-400">ไม่พบรายการใบเสนอราคา</p>
-                            <span className="text-[10px] text-slate-400">ลองปรับตัวกรองหรือสร้างใบเสนอราคาใหม่</span>
+                            <span className="text-[10px] text-slate-600 dark:text-slate-400">ลองปรับตัวกรองหรือสร้างใบเสนอราคาใหม่</span>
                           </div>
                         </td>
                       </tr>
                     ) : (
                       paginatedQuotations.map((q) => {
-                        const isConverted = q.status === 'CONVERTED'
-                        const buttonLabel = isConverted ? 'เปิดแล้ว' : q.status === 'ACCEPTED' ? 'เปิดบิล' : 'ตอบรับ/จอง'
+                        const view = quotationStatusView(q.status)
+                        const isConverted = !view.actionable
+                        const buttonLabel = q.status === 'CONVERTED' ? 'เปิดแล้ว' : !view.actionable ? view.label : q.status === 'ACCEPTED' ? 'เปิดบิล' : 'ตอบรับ'
                         return (
-                          <tr key={q.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors">
+                          <tr key={q.id} onDoubleClick={(e) => openQuotationPreview(e, q)} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors">
                             <td className="py-1.5 px-3 font-bold text-blue-600 dark:text-blue-400 font-mono whitespace-nowrap truncate">{q.quotationNo}</td>
-                            <td className="py-1.5 px-3 text-slate-500 font-mono whitespace-nowrap truncate">{q.quotationDate}</td>
+                            <td className="py-1.5 px-3 text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap truncate">{q.quotationDate}</td>
                             <td className="py-1.5 px-3 font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap truncate">{q.customerName}</td>
-                            <td className="py-1.5 px-3 text-slate-500 font-mono whitespace-nowrap truncate">{q.rentalStartDate} ถึง {q.rentalEndDate}</td>
+                            <td className="py-1.5 px-3 text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap truncate">{q.rentalStartDate} ถึง {q.rentalEndDate}</td>
                             <td className="py-1.5 px-3 text-right font-extrabold text-slate-900 dark:text-slate-100 whitespace-nowrap tabular-nums">
-                              ฿{q.grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                              {q.grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                             </td>
                             <td className="py-1.5 px-3 text-center whitespace-nowrap">
-                              <span className={`inline-flex px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                                q.status === 'ACCEPTED'
-                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                  : q.status === 'CONVERTED'
-                                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
-                                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                              }`}>
-                                {q.status === 'ACCEPTED' ? 'ตอบรับ / จองแล้ว' : q.status === 'CONVERTED' ? 'เปิดบิลแล้ว' : 'รอยืนยัน'}
+                              <span className={`inline-flex px-2 py-0.5 rounded-full font-bold text-[10px] ${STATUS_TONE_CLASS[view.tone]}`}>
+                                {view.label}
                               </span>
                             </td>
                             <td className="py-1.5 px-3 text-center whitespace-nowrap">
-                              <div className="inline-flex items-center gap-1">
+                              <div className="inline-flex flex-wrap items-center justify-center gap-1">
                                 <button
                                   type="button"
                                   onClick={() => handlePrintQuotation(q)}
@@ -502,14 +594,34 @@ export default function QuotationsPage() {
                                   <span>พิมพ์</span>
                                 </button>
 
-                                {q.status === 'ACCEPTED' && (
+                                {view.editable && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditQuotation(q)}
+                                    className="shrink-0 p-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 inline-flex items-center shadow-xs hover:bg-slate-50 cursor-pointer"
+                                    title="แก้ไขใบเสนอราคา (ใช้เลขเดิม)"
+                                    aria-label={`แก้ไข ${q.quotationNo}`}
+                                  >
+                                    <Pencil className="w-3 h-3" />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyQuotation(q)}
+                                  className="shrink-0 p-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 inline-flex items-center shadow-xs hover:bg-slate-50 cursor-pointer"
+                                  title="คัดลอกเป็นใบเสนอราคาใหม่"
+                                  aria-label={`คัดลอก ${q.quotationNo}`}
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                                {view.cancellable && (
                                   <button
                                     type="button"
                                     onClick={() => handleOpenReleaseModal(q)}
                                     className="shrink-0 px-2 py-1 rounded-lg border border-rose-300 dark:border-rose-800 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold text-[10px] inline-flex items-center gap-1 shadow-xs hover:scale-[1.02] cursor-pointer"
-                                    title="ปล่อย / ยกเลิกการจองสินค้า"
+                                    title="ยกเลิกใบเสนอราคา"
                                   >
-                                    <span>ปล่อยจอง</span>
+                                    <span>ยกเลิก</span>
                                   </button>
                                 )}
 
@@ -517,7 +629,7 @@ export default function QuotationsPage() {
                                   disabled={isConverted}
                                   onClick={() => !isConverted && handleOpenConversionVerification(q)}
                                   className={`shrink-0 px-2 py-1 rounded-lg text-white font-extrabold text-[10px] inline-flex items-center gap-1 shadow-md transition-all ${
-                                    isConverted ? 'bg-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 hover:scale-[1.02] cursor-pointer'
+                                    isConverted ? 'bg-slate-400 cursor-not-allowed' : 'bg-emerald-700 hover:bg-emerald-800 hover:scale-[1.02] cursor-pointer'
                                   }`}
                                 >
                                   <ShoppingBag className="w-3 h-3" />
@@ -532,43 +644,23 @@ export default function QuotationsPage() {
                     )}
                   </tbody>
                 </table>
-            </div>
-
-            {/* Row count footer (no paging: rows load as the table scrolls) */}
-            <div className="px-3 py-2 border-t border-slate-200 dark:border-slate-700 text-xs text-slate-500 shrink-0 bg-slate-50/50 dark:bg-slate-800/50">
-              {filteredQuotations.length > 0 ? (
-                <span>
-                  แสดง {quotationAutoFit.endIndex} จาก {filteredQuotations.length} รายการ
-                </span>
-              ) : (
-                <span>0 รายการ</span>
-              )}
-            </div>
+            </DataTableFrame>
           </div>
         </>
       )}
 
       {selectedQuotationForConversion && (
-        <div
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !isProcessing) closeActionModal()
-          }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200 cursor-pointer"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 cursor-default max-h-[90vh] overflow-y-auto"
-          >
-            <ModalHeader onClose={() => !isProcessing && closeActionModal()} inset="p6">
-              <div>
-                <span className="text-xs font-mono font-bold text-blue-600">{selectedQuotationForConversion.quotationNo}</span>
-                <h3 className="font-black text-lg text-slate-900 dark:text-slate-100">
-                  {selectedQuotationForConversion.status === 'ACCEPTED' ? 'ตรวจสอบก่อนเปิดบิล' : 'ตอบรับและจองสินค้า'}
+        <AppModal isOpen onClose={() => !isProcessing && closeActionModal()} closeOnBackdropClick={!isProcessing} size="lg">
+            <AppModalHeader onClose={() => !isProcessing && closeActionModal()}>
+              <div className="min-w-0">
+                <span className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400">{selectedQuotationForConversion.quotationNo}</span>
+                <h3 className="font-black text-base text-slate-900 dark:text-slate-100 truncate">
+                  {selectedQuotationForConversion.status === 'ACCEPTED' ? 'ตรวจสอบก่อนเปิดบิล' : 'ตอบรับใบเสนอราคา'}
                 </h3>
               </div>
-            </ModalHeader>
+            </AppModalHeader>
 
-            <div className="space-y-3 text-xs">
+            <AppModalBody className="space-y-3">
               <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl space-y-1">
                 <p>ลูกค้า: <strong>{selectedQuotationForConversion.customerName}</strong> ({selectedQuotationForConversion.phone})</p>
                 <p>ช่วงเวลาเช่า: <strong className="font-mono">{selectedQuotationForConversion.rentalStartDate} ถึง {selectedQuotationForConversion.rentalEndDate}</strong></p>
@@ -580,9 +672,9 @@ export default function QuotationsPage() {
                   <div key={idx} className="p-3 flex justify-between items-center bg-white dark:bg-slate-900">
                     <div>
                       <span className="font-bold block">{item.productName}</span>
-                      <span className="text-[11px] text-slate-500">จำนวน: {item.quantity} | ราคา: {item.unitPrice} บาท</span>
+                      <span className="text-[11px] text-slate-600 dark:text-slate-400">จำนวน: {item.quantity} | ราคา: {item.unitPrice} บาท</span>
                     </div>
-                    <span className="font-extrabold text-blue-600">{item.lineTotal.toLocaleString()} บาท</span>
+                    <span className="font-extrabold text-blue-600 dark:text-blue-400">{item.lineTotal.toLocaleString()} บาท</span>
                   </div>
                 ))}
               </div>
@@ -597,7 +689,7 @@ export default function QuotationsPage() {
               {reservationResult && (
                 <div className={`p-3 rounded-xl border ${reservationResult.hasShortage ? 'bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-900' : 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-900'}`}>
                   <div className="flex gap-2 items-start">
-                    {reservationResult.hasShortage ? <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" /> : <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />}
+                    {reservationResult.hasShortage ? <AlertTriangle className="w-5 h-5 text-amber-700 dark:text-amber-400 shrink-0" /> : <CheckCircle2 className="w-5 h-5 text-emerald-700 dark:text-emerald-400 shrink-0" />}
                     <div className="space-y-1 flex-1">
                       <p className="font-black">
                         {reservationResult.hasShortage ? `ยืนยันแล้ว — รอสินค้า ${reservationResult.shortageQuantity} ชิ้น` : 'จองสินค้าได้ครบ'}
@@ -621,9 +713,9 @@ export default function QuotationsPage() {
                   {actionError}
                 </div>
               )}
-            </div>
+            </AppModalBody>
 
-            <div className="pt-2 flex justify-between items-center gap-2 text-xs">
+            <AppModalFooter className="justify-between">
               <div>
                 {selectedQuotationForConversion.status === 'ACCEPTED' && (
                   <button
@@ -632,7 +724,7 @@ export default function QuotationsPage() {
                     onClick={() => handleOpenReleaseModal(selectedQuotationForConversion)}
                     className="px-3.5 py-2.5 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold text-xs disabled:opacity-50 cursor-pointer"
                   >
-                    ยกเลิก / ปล่อยการจองสินค้านี้
+                    ยกเลิกใบเสนอราคานี้
                   </button>
                 )}
               </div>
@@ -652,43 +744,33 @@ export default function QuotationsPage() {
                     type="button"
                     disabled={isProcessing}
                     onClick={handleConfirmConvertToPos}
-                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold shadow-lg shadow-emerald-500/30 flex items-center gap-2 disabled:opacity-50"
+                    className="px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold shadow-lg shadow-emerald-500/30 flex items-center gap-2 disabled:opacity-50"
                   >
                     {isProcessing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ShoppingBag className="w-4 h-4" />}
-                    <span>{selectedQuotationForConversion.status === 'ACCEPTED' ? 'เข้า POS เพื่อเปิดบิล' : 'ยืนยันและจองสินค้า'}</span>
+                    <span>{selectedQuotationForConversion.status === 'ACCEPTED' ? 'เข้า POS เพื่อเปิดบิล' : 'ยืนยันตอบรับ'}</span>
                     {!isProcessing && <ArrowRight className="w-4 h-4" />}
                   </button>
                 )}
               </div>
-            </div>
-          </div>
-        </div>
+            </AppModalFooter>
+        </AppModal>
       )}
 
       {/* Quotation Release Reservation Modal */}
       {quotationForRelease && (
-        <div
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !isReleasing) handleCloseReleaseModal()
-          }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200 cursor-pointer"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 cursor-default"
-          >
-            <ModalHeader onClose={handleCloseReleaseModal} inset="p6">
-              <div>
-                <span className="text-xs font-mono font-bold text-rose-600 dark:text-rose-400">
+        <AppModal isOpen onClose={() => !isReleasing && handleCloseReleaseModal()} closeOnBackdropClick={!isReleasing} size="sm">
+            <AppModalHeader onClose={() => !isReleasing && handleCloseReleaseModal()}>
+              <div className="min-w-0">
+                <span className="text-xs font-mono font-bold text-rose-700 dark:text-rose-400">
                   {quotationForRelease.quotationNo}
                 </span>
-                <h3 className="font-black text-lg text-slate-900 dark:text-slate-100">
-                  ปล่อยการจองสินค้าจากใบเสนอราคา
+                <h3 className="font-black text-base text-slate-900 dark:text-slate-100">
+                  ยกเลิกใบเสนอราคา
                 </h3>
               </div>
-            </ModalHeader>
+            </AppModalHeader>
 
-            <div className="space-y-3 text-xs">
+            <AppModalBody className="space-y-3">
               <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl space-y-1">
                 <p>ลูกค้า: <strong>{quotationForRelease.customerName}</strong></p>
                 <p>ช่วงเวลาเช่า: <strong className="font-mono">{quotationForRelease.rentalStartDate} ถึง {quotationForRelease.rentalEndDate}</strong></p>
@@ -696,22 +778,21 @@ export default function QuotationsPage() {
 
               <div>
                 <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                  สถานะหลังปล่อยการจอง *
+                  สาเหตุ *
                 </label>
-                <select
+                <CustomSelect
                   value={releaseTargetStatus}
-                  onChange={(e) => setReleaseTargetStatus(e.target.value as any)}
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold focus:ring-2 focus:ring-rose-500 focus:outline-none"
-                >
-                  <option value="CANCELLED">CANCELLED (ยกเลิกใบเสนอราคา)</option>
-                  <option value="WAITING">WAITING (ปรับกลับเป็นรอยืนยัน)</option>
-                  <option value="REJECTED">REJECTED (ปฏิเสธใบเสนอราคา)</option>
-                </select>
+                  onChange={(value) => setReleaseTargetStatus(value as typeof releaseTargetStatus)}
+                  options={[
+                    { value: 'CANCELLED', label: 'ร้านยกเลิกใบเสนอราคา' },
+                    { value: 'REJECTED', label: 'ลูกค้าปฏิเสธ' },
+                  ]}
+                />
               </div>
 
               <div>
                 <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                  เหตุผลในการปล่อยการจอง (จำเป็นต้องระบุ) *
+                  เหตุผลในการยกเลิก (ไม่บังคับ)
                 </label>
                 <textarea
                   rows={3}
@@ -720,7 +801,7 @@ export default function QuotationsPage() {
                     setReleaseReason(e.target.value)
                     if (releaseError) setReleaseError('')
                   }}
-                  placeholder="กรุณาระบุเหตุผล เช่น ลูกค้ายกเลิกคำสั่งเช่า, ไม่สะดวกชำระมัดจำ, สินค้าไม่พร้อม ฯลฯ"
+                  placeholder="กรุณาระบุเหตุผล เช่น ลูกค้าไม่สนใจ, ราคาไม่ตรงงบ, เปลี่ยนแผนงาน ฯลฯ"
                   className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none resize-none"
                 />
               </div>
@@ -730,9 +811,9 @@ export default function QuotationsPage() {
                   {releaseError}
                 </div>
               )}
-            </div>
+            </AppModalBody>
 
-            <div className="pt-2 flex justify-end gap-2 text-xs">
+            <AppModalFooter>
               <button
                 type="button"
                 disabled={isReleasing}
@@ -749,12 +830,13 @@ export default function QuotationsPage() {
                 className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold shadow-lg shadow-rose-500/30 flex items-center gap-2 disabled:opacity-50 cursor-pointer"
               >
                 {isReleasing ? <RefreshCw className="w-4 h-4 animate-spin" /> : null}
-                <span>ยืนยันปล่อยการจอง</span>
+                <span>ยืนยันยกเลิก</span>
               </button>
-            </div>
-          </div>
-        </div>
+            </AppModalFooter>
+        </AppModal>
       )}
+
+      <QuotationPreviewOverlay pages={previewPages} onClose={closeQuotationPreview} />
     </div>
   )
 }

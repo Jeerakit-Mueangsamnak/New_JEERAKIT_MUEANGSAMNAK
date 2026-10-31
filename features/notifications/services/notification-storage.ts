@@ -1,7 +1,7 @@
 /**
  * In-app notifications (Master v4.3.1 §27). Created on the server (rental_overdue_scan:
- * delivery due, return due soon, overdue, payment due, low stock — each switched on/off and
- * timed in Settings). The app reads public.notifications (RLS: own or menu-addressed rows)
+ * delivery due, return due soon, overdue, payment due, low stock — raised per member, switched
+ * on/off and timed by each member in ตั้งค่าส่วนตัว › การแจ้งเตือน). The app reads public.notifications (RLS: own or menu-addressed rows)
  * and marks them read / handled through notification_mark. Notices never change business data.
  */
 import { createClient } from '@/lib/supabase/client'
@@ -14,6 +14,9 @@ export type NotificationType =
   | 'PAYMENT_DUE'
   | 'LOW_STOCK'
   | 'APPOINTMENT_DUE'
+  | 'JOB_STEP'
+  | 'JOB_ACCEPT_LATE'
+  | 'LINE_LINKED'
   | 'OTHER'
 export type NotificationStatus = 'UNREAD' | 'READ' | 'HANDLED' | 'DISMISSED'
 
@@ -35,7 +38,10 @@ export interface ActionableNotification {
   actionedAt?: string
 }
 
-const KNOWN: ReadonlySet<string> = new Set(['RENTAL_DUE_SOON', 'RENTAL_OVERDUE', 'DELIVERY_DUE', 'PAYMENT_DUE', 'LOW_STOCK', 'APPOINTMENT_DUE'])
+const KNOWN: ReadonlySet<string> = new Set([
+  'RENTAL_DUE_SOON', 'RENTAL_OVERDUE', 'DELIVERY_DUE', 'PAYMENT_DUE', 'LOW_STOCK', 'APPOINTMENT_DUE',
+  'JOB_STEP', 'JOB_ACCEPT_LATE', 'LINE_LINKED',
+])
 
 let _cachedNotifications: ActionableNotification[] | null = null
 
@@ -58,6 +64,10 @@ function notifyChanged(): void {
 
 export async function fetchNotificationsFromSupabase(): Promise<ActionableNotification[]> {
   const supabase = createClient()
+  // Notices are raised per member (own switches in ตั้งค่าส่วนตัว). The OWNER may read every row,
+  // so the bell asks only for this member's own rows and the menu-addressed ones.
+  const { data: sessionData } = await supabase.auth.getSession()
+  const me = sessionData.session?.user.id
   const rows = await selectRows<{
     id: string
     event_type: string
@@ -74,6 +84,7 @@ export async function fetchNotificationsFromSupabase(): Promise<ActionableNotifi
       .from('notifications')
       .select('id, event_type, severity, title, body, entity_type, entity_id, status, created_at, handled_at')
       .in('status', ['UNREAD', 'READ', 'HANDLED'])
+      .or(me ? `recipient_user_id.eq.${me},recipient_menu.not.is.null` : 'recipient_menu.not.is.null')
       .order('created_at', { ascending: false })
       .limit(200)
   )
@@ -108,6 +119,29 @@ export async function markAllNotificationsRead(): Promise<ActionableNotification
   return _cachedNotifications
 }
 
+/**
+ * Live notices: every device of the shop (owner, staff) reloads the list as soon as the server
+ * adds or changes a notice (Supabase Realtime on public.notifications; RLS decides which rows a
+ * member hears about). Returns the unsubscribe function.
+ */
+export function subscribeNotifications(): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const reload = () => {
+    if (timer) clearTimeout(timer)
+    // a scan inserts many rows at once: reload once after they settle
+    timer = setTimeout(() => void fetchNotificationsFromSupabase().catch(() => undefined), 500)
+  }
+  const supabase = createClient()
+  const channel = supabase
+    .channel('notifications-live')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, reload)
+    .subscribe()
+  return () => {
+    if (timer) clearTimeout(timer)
+    void supabase.removeChannel(channel)
+  }
+}
+
 /** Runs the server notice scan (OWNER / scheduled job only); others simply skip it. */
 export async function runNotificationScan(): Promise<void> {
   try {
@@ -131,6 +165,8 @@ export function notificationGroup(n: Pick<ActionableNotification, 'type'>): Noti
   switch (n.type) {
     case 'APPOINTMENT_DUE':
     case 'DELIVERY_DUE':
+    case 'JOB_STEP':
+    case 'JOB_ACCEPT_LATE':
       return 'WORK'
     case 'PAYMENT_DUE':
     case 'RENTAL_DUE_SOON':

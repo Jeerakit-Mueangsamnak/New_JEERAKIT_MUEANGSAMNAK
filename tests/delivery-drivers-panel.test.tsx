@@ -25,21 +25,31 @@ vi.mock('@/app/actions/line', () => ({
   createDriverLineLinkCode: mockLine.createDriverLineLinkCode,
   unlinkLineContact: mockLine.unlinkLineContact,
 }))
-vi.mock('@/components/common/ConfirmDialogProvider', () => ({ useAskText: () => mockLine.ask }))
+vi.mock('@/components/common/ConfirmDialogProvider', () => ({ useAskText: () => mockLine.ask, useConfirm: () => async () => true }))
 
 describe('Settings › LINE › ทะเบียนคนขับ', () => {
   afterEach(cleanup)
 
-  it('adds a driver without LINE or QR, edits and switches off (never deletes)', async () => {
+  it('บันทึกและสร้างลิงก์: adds a driver and makes their one-time link at once; edits and switches off (never deletes)', async () => {
     setCachedPolicies({ delivery_drivers: [{ id: 'D001', name: 'สมชาย', active: true }] })
+    mockLine.createDriverLineLinkCode.mockResolvedValue({
+      success: true,
+      data: { code: 'LINK-ABCDEFGHJK', expires_at: new Date(Date.now() + 600_000).toISOString(), oaUrl: 'https://line.me/R/oaMessage/%40myshop/?LINK-ABCDEFGHJK' },
+    })
     render(<DeliveryDriversPanel />)
     expect(screen.getByText('D001')).toBeDefined()
-    expect(screen.getByText('ยังไม่ผูก')).toBeDefined()
+    expect(await screen.findByText('ยังไม่ผูก')).toBeDefined()
 
     fireEvent.change(screen.getByLabelText(/ชื่อ-นามสกุลพนักงานส่งของ/), { target: { value: 'สมหญิง' } })
     fireEvent.change(screen.getByLabelText(/เบอร์โทร/), { target: { value: '0899999999' } })
-    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มพนักงานส่งของ' }))
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึกและสร้างลิงก์' }))
     await waitFor(() => expect(screen.getByText('D002')).toBeDefined())
+    const row = screen.getByText('D002').closest('tr') as HTMLElement
+    await waitFor(() => expect(within(row).getByTestId('driver-line-code').textContent).toBe('LINK-ABCDEFGHJK'))
+    expect(mockLine.createDriverLineLinkCode).toHaveBeenCalledWith('D002')
+    expect(within(row).getByText('รอกดลิงก์')).toBeDefined()
+    expect(within(row).getByText(/หมดอายุใน/)).toBeDefined()
+    expect(within(row).getByAltText(/QR ลิงก์ผูก LINE/)).toBeDefined()
     expect(mockRpc.rpc).toHaveBeenLastCalledWith('settings_update', {
       p_patch: {
         policies: {
@@ -68,9 +78,10 @@ describe('Settings › LINE › ทะเบียนคนขับ', () => {
     mockLine.contacts.mockResolvedValueOnce({ data: [{ id: 'k-1', display_name: 'Somchai', driver_code: 'D001' }], error: null })
     mockLine.createDriverLineLinkCode.mockResolvedValue({ success: true, data: { code: 'LINK-ABCDEFGHJK', expires_at: '2026-10-10T08:00:00Z', oaUrl: null } })
     render(<DeliveryDriversPanel />)
-    expect(await screen.findByText(/เชื่อมแล้ว · Somchai/)).toBeDefined()
+    expect(await screen.findByText(/LINE "Somchai"/)).toBeDefined()
+    expect(screen.getByText('ผูก LINE แล้ว')).toBeDefined()
     const row = screen.getByText('D002').closest('tr') as HTMLElement
-    fireEvent.click(within(row).getByRole('button', { name: 'ออกรหัสเชื่อม LINE' }))
+    fireEvent.click(within(row).getByRole('button', { name: 'สร้างลิงก์' }))
     await waitFor(() => expect(within(row).getByTestId('driver-line-code').textContent).toBe('LINK-ABCDEFGHJK'))
     expect(mockLine.createDriverLineLinkCode).toHaveBeenCalledWith('D002')
   })
@@ -80,6 +91,23 @@ describe('Settings › LINE › ทะเบียนคนขับ', () => {
     mockLine.contacts.mockResolvedValueOnce({ data: null as unknown as unknown[], error: { message: 'relation does not exist' } })
     render(<DeliveryDriversPanel />)
     expect(await screen.findByText(/ระบบ LINE ยังไม่พร้อม/)).toBeDefined()
-    expect(screen.queryByRole('button', { name: 'ออกรหัสเชื่อม LINE' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'สร้างลิงก์' })).toBeNull()
+  })
+
+  it('ยกเลิกการผูก ต้องมีเหตุผล', async () => {
+    setCachedPolicies({ delivery_drivers: [{ id: 'D001', name: 'สมชาย', active: true }] })
+    mockLine.contacts.mockResolvedValue({ data: [{ id: 'k-1', display_name: 'Somchai', driver_code: 'D001' }], error: null })
+    mockLine.unlinkLineContact.mockResolvedValue({ success: true })
+    render(<DeliveryDriversPanel />)
+    const button = await screen.findByRole('button', { name: /ยกเลิกการผูก/ })
+    mockLine.ask.mockResolvedValueOnce('')
+    fireEvent.click(button)
+    await waitFor(() => expect(mockLine.ask).toHaveBeenCalledTimes(1))
+    expect(mockLine.unlinkLineContact).not.toHaveBeenCalled()
+    mockLine.ask.mockResolvedValueOnce('เปลี่ยน LINE')
+    fireEvent.click(button)
+    await waitFor(() => expect(mockLine.unlinkLineContact).toHaveBeenCalledWith('k-1', 'เปลี่ยน LINE'))
+    mockLine.contacts.mockReset()
+    mockLine.contacts.mockResolvedValue({ data: [], error: null })
   })
 })

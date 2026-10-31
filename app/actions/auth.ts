@@ -3,13 +3,7 @@
 import { createClient as createServerSupabase } from '@/lib/supabase/server'
 import { createAdminClient, validateSupabaseAdminConfig } from '@/lib/supabase/admin'
 import { getSupabasePublicKey } from '@/lib/supabase/env'
-import {
-  checkRateLimit,
-  clearRateLimit,
-  normalizeUsername,
-  recordFailedAttempt,
-  resolveUsernameToEmail,
-} from '@/lib/supabase/username-auth'
+import { WRONG_CREDENTIALS, normalizeUsername, resolveUsernameToEmail } from '@/lib/supabase/username-auth'
 
 export interface AuthActionResult<T = unknown> {
   success: boolean
@@ -24,6 +18,8 @@ export interface AuthActionResult<T = unknown> {
  * 3. Authenticates using Supabase Auth signInWithPassword via SSR client
  * 4. Sets session cookies automatically
  * 5. Returns unified error "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" on any credential failure
+ * A wrong password is only refused — no attempt count, no lock (owner 2026-10-26, Master §4.1);
+ * a forgotten password is reset with the Supabase e-mail link.
  */
 export async function loginWithUsername(formData: {
   username: string
@@ -36,7 +32,7 @@ export async function loginWithUsername(formData: {
     if (!rawUsername.trim() || !rawPassword) {
       return {
         success: false,
-        error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
+        error: WRONG_CREDENTIALS,
       }
     }
 
@@ -49,23 +45,12 @@ export async function loginWithUsername(formData: {
       }
     }
 
-    const cleanUsername = await normalizeUsername(rawUsername)
-    const loginRateLimitKey = `login:${cleanUsername}`
-    const loginLimitCheck = await checkRateLimit(loginRateLimitKey)
-    if (!loginLimitCheck.allowed) {
-      return {
-        success: false,
-        error: 'มีการพยายามเข้าสู่ระบบหลายครั้งเกินไป กรุณารอสักครู่ก่อนลองใหม่อีกครั้ง',
-      }
-    }
-
     // 1. Resolve username to email strictly on the server
     const resolveResult = await resolveUsernameToEmail(rawUsername)
     if (!resolveResult.success || !resolveResult.email) {
-      await recordFailedAttempt(loginRateLimitKey)
       return {
         success: false,
-        error: resolveResult.error || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
+        error: resolveResult.error || WRONG_CREDENTIALS,
       }
     }
 
@@ -95,7 +80,7 @@ export async function loginWithUsername(formData: {
         }
       }
 
-      // Network / Supabase outage — not a credential problem, so do not count it as a failed attempt
+      // Network / Supabase outage — not a credential problem
       if (signInError.name === 'AuthRetryableFetchError' || !signInError.status || signInError.status >= 500) {
         console.error('Supabase Auth unavailable during login:', signInError.message)
         return {
@@ -104,7 +89,6 @@ export async function loginWithUsername(formData: {
         }
       }
 
-      await recordFailedAttempt(loginRateLimitKey)
       const errMsg = (signInError.message || '').toLowerCase()
       // Differentiate config / API key / infrastructure errors from credential errors
       if (
@@ -123,19 +107,16 @@ export async function loginWithUsername(formData: {
       // Credential failure (e.g. invalid password)
       return {
         success: false,
-        error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
+        error: WRONG_CREDENTIALS,
       }
     }
 
     if (!signInData?.session) {
-      await recordFailedAttempt(loginRateLimitKey)
       return {
         success: false,
-        error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
+        error: WRONG_CREDENTIALS,
       }
     }
-
-    await clearRateLimit(loginRateLimitKey)
 
     // Correct password, but only an OWNER-approved ACTIVE member may hold a session
     if (resolveResult.memberStatus !== 'ACTIVE') {
@@ -170,7 +151,7 @@ export async function loginWithUsername(formData: {
     }
     return {
       success: false,
-      error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
+      error: WRONG_CREDENTIALS,
     }
   }
 }
@@ -461,7 +442,7 @@ export async function getCurrentUser() {
 export async function logout(): Promise<AuthActionResult> {
   try {
     const serverClient = await createServerSupabase()
-    await serverClient.auth.signOut()
+    await serverClient.auth.signOut({ scope: 'local' })
     return {
       success: true,
     }

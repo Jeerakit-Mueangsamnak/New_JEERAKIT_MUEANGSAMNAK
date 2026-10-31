@@ -18,8 +18,8 @@ SELECT t.set('acc', (SELECT id::text FROM public.products WHERE sku = 'ACC-CROSS
 -- ===================================================================== MENU ACCESS (Master §4.2)
 SELECT t.err('MENU', 'owner-only menu cannot be granted', 'owner',
     format($q$select public.owner_set_member_menus(%L::uuid, ARRAY['members'], 'x')$q$, t.u('cashier')), 'OWNER_ONLY');
-SELECT t.err('MENU', 'user without menus cannot create a customer', 'nomenu',
-    $q$select public.customer_create('{"name":"A","phone":"1","address":"B"}'::jsonb)$q$, 'menu');
+SELECT t.err('MENU', 'creating a customer needs an ACTIVE member (owner 2026-10-26: every ACTIVE member may; one waiting for approval may not)', 'pending',
+    $q$select public.customer_create('{"name":"A","phone":"1","address":"B"}'::jsonb)$q$, 'FORBIDDEN');
 SELECT t.err('MENU', 'PENDING member blocked', 'pending',
     $q$select public.customer_create('{"name":"A","phone":"1","address":"B"}'::jsonb)$q$, 'active member required');
 SELECT t.err('MENU', 'SUSPENDED member blocked', 'suspended',
@@ -28,8 +28,8 @@ SELECT t.check('MENU', 'PENDING sees no products',
     (t.exec_as(t.u('pending'), 'authenticated', $q$select to_jsonb(count(*)) from public.products$q$))::text = '0');
 SELECT t.err('MENU', 'anon cannot read products', NULL, $q$select to_jsonb(count(*)) from public.products$q$,
     'permission denied', 'anon');
-SELECT t.err('MENU', 'cashier (no finance menu) cannot record other income', 'cashier',
-    $q$select public.other_income_create('box', 50, 'CASH')$q$, 'menu');
+SELECT t.err('MENU', 'recording other income needs an ACTIVE member (owner 2026-10-26: every ACTIVE member may; one waiting for approval may not)', 'pending',
+    $q$select public.other_income_create('box', 50, 'CASH')$q$, 'FORBIDDEN');
 SELECT t.set('c1', (t.ok('MENU', 'cashier with pos creates a customer', 'cashier',
     $q$select public.customer_create('{"name":"Somchai","phone":"081-111-2222","address":"Bangkok"}'::jsonb)$q$)) ->> 'id');
 
@@ -54,22 +54,22 @@ SELECT t.err('PIN', 'PIN format is 6 digits', 'nomenu', $q$select public.set_pin
 SELECT t.err('PIN', 'changing a PIN needs the current PIN', 'cashier', $q$select public.set_pin('654321')$q$, 'PIN_REQUIRED');
 SELECT t.err('PIN', 'clients cannot read PIN hashes', 'owner', $q$select to_jsonb(count(*)) from public.user_pins$q$,
     'permission denied');
--- iOS-style waits: misses 1-3 free, 4 = 1 min … 9 = 8 h (each wait is skipped by moving locked_until back)
-SELECT t.exec_as(t.u('finance'), 'authenticated', $q$select public.verify_pin('000000', 'UNLOCK')$q$) FROM generate_series(1, 3);
-SELECT t.check('PIN', '3 misses → still no wait',
-    (SELECT failed_attempts = 3 AND locked_until IS NULL FROM public.user_pins WHERE user_id = t.u('finance')));
+-- PIN waits (owner 2026-10-26): misses 1-5 free, 6 = 1 min … 9 = 60 min (each wait is skipped by moving locked_until back)
+SELECT t.exec_as(t.u('finance'), 'authenticated', $q$select public.verify_pin('000000', 'UNLOCK')$q$) FROM generate_series(1, 5);
+SELECT t.check('PIN', '5 misses → still no wait',
+    (SELECT failed_attempts = 5 AND locked_until IS NULL FROM public.user_pins WHERE user_id = t.u('finance')));
 CREATE TEMP TABLE pin_waits (n int, secs int);
 DO $$
 DECLARE r jsonb;
 BEGIN
-    FOR i IN 4..10 LOOP
+    FOR i IN 6..10 LOOP
         r := t.exec_as(t.u('finance'), 'authenticated', $q$select public.verify_pin('000000', 'UNLOCK')$q$);
         INSERT INTO pin_waits VALUES (i, round(extract(epoch FROM ((r ->> 'locked_until')::timestamptz - now()))));
         UPDATE public.user_pins SET locked_until = now() - interval '1 second' WHERE user_id = t.u('finance');
     END LOOP;
 END $$;
-SELECT t.check('PIN', 'misses 4-9 wait 1m/5m/15m/1h/3h/8h',
-    (SELECT array_agg(secs ORDER BY n) FROM pin_waits WHERE n <= 9) = ARRAY[60, 300, 900, 3600, 10800, 28800],
+SELECT t.check('PIN', 'misses 6-9 wait 1m/5m/15m/60m',
+    (SELECT array_agg(secs ORDER BY n) FROM pin_waits WHERE n <= 9) = ARRAY[60, 300, 900, 3600],
     (SELECT array_agg(secs ORDER BY n)::text FROM pin_waits));
 SELECT t.check('PIN', 'miss 10 blocks the PIN (no more waiting)',
     (SELECT secs FROM pin_waits WHERE n = 10) IS NULL
@@ -318,8 +318,8 @@ SELECT t.err('DOCS', 'signed contract content cannot be edited', 'owner',
 SELECT t.err('DOCS', 'ID image path must be relative', 'owner',
     format($q$select public.customer_document_save(NULL, %L::uuid, '{"doc_type":"ID_CARD","storage_path":"/etc/passwd"}'::jsonb)$q$, t.v('c1')),
     'customer_documents_path_check');
-SELECT t.err('DOCS', 'cashier (no documents/customers menu) cannot read documents', 'cashier',
-    $q$select public.customer_document_set_status(gen_random_uuid(), 'INACTIVE', 'x')$q$, 'menu');
+SELECT t.err('DOCS', 'changing a document needs an ACTIVE member (owner 2026-10-26: every ACTIVE member may; one waiting for approval may not)', 'pending',
+    $q$select public.customer_document_set_status(gen_random_uuid(), 'INACTIVE', 'x')$q$, 'FORBIDDEN');
 SELECT t.check('DOCS', 'bills have no contract columns',
     NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bills'
                  AND column_name LIKE '%contract%'));
@@ -478,7 +478,7 @@ SELECT t.check('DATA', 'quotation total = items 20 + delivery 200',
     (SELECT grand_total = 220 AND deposit_amount = 1000 AND site_name = 'ไซต์ A' FROM public.quotations WHERE id = t.v('qd')::uuid));
 
 SELECT t.ok('NOTICE', 'OWNER session may run the notice scan', 'owner', $q$select to_jsonb(public.rental_overdue_scan())$q$);
-SELECT t.err('NOTICE', 'a USER may not run the notice scan', 'cashier', $q$select to_jsonb(public.rental_overdue_scan())$q$, 'FORBIDDEN');
+SELECT t.err('NOTICE', 'the notice scan needs an ACTIVE member (owner 2026-10-26: every ACTIVE member may; one waiting for approval may not)', 'pending', $q$select to_jsonb(public.rental_overdue_scan())$q$, 'FORBIDDEN');
 
 -- waiving a damage fee = closing the case with no fee while the default is > 0 → PIN
 SELECT t.set('bw', (t.ok('DAMAGE', 'bill for the waiver test', 'cashier',

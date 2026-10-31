@@ -11,6 +11,7 @@ import {
 import { NumericInput } from '@/components/common/NumericInput'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { ActionButton } from '@/components/common/ActionButton'
+import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { Product } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
@@ -179,34 +180,28 @@ export function ProductStockCountView({
         return
       }
 
-      // Review the differences first (Master §11.4: count → discrepancy → review → PIN → adjustment).
+      // Review the differences first (count → discrepancy → review → adjustment).
       const fmt = (from: number, to: number) => `${from} → ${to} (${to - from >= 0 ? '+' : ''}${to - from})`
-      let pinSteps = 0
       const reviewLines = modifiedItems.map((item) => {
         const p = products.find((x) => x.id === item.productId)
         const parts: string[] = []
         if (item.normalQty !== '') parts.push(`ปกติ ${fmt(item.originalAvailableQuantity, Number(item.normalQty))}`)
         if (item.damagedQty !== '' && Number(item.damagedQty) !== (p?.damagedQuantity || 0)) {
           parts.push(`ชำรุด ${fmt(p?.damagedQuantity || 0, Number(item.damagedQty))}`)
-          pinSteps += 1
         }
         if (item.lostQty !== '' && Number(item.lostQty) !== (p?.lostQuantity || 0)) {
           parts.push(`สูญหาย ${fmt(p?.lostQuantity || 0, Number(item.lostQty))}`)
-          pinSteps += 1
         }
         return `• ${item.productName}: ${parts.join(', ') || 'ไม่เปลี่ยน'}`
       })
-      if (modifiedItems.some((item) => item.normalQty !== '')) pinSteps += 1
       const shown = reviewLines.slice(0, 15)
       if (reviewLines.length > shown.length) shown.push(`… และอีก ${reviewLines.length - shown.length} รายการ`)
       const reviewed = await confirm({
         title: 'ตรวจผลต่างก่อนปรับยอดสต็อก',
         message:
           `${shown.join('\n')}\n\n` +
-          (pinSteps > 1
-            ? `จะถาม PIN ${pinSteps} ครั้ง (1 ครั้งต่อ 1 การปรับยอด) — กดยกเลิกที่ PIN แรก ยอดสต็อกจะไม่เปลี่ยน`
-            : 'กดยืนยันแล้วใส่ PIN เพื่อปรับยอด — กดยกเลิก ยอดสต็อกจะไม่เปลี่ยน'),
-        confirmLabel: 'ยืนยันและใส่ PIN',
+          'กดยืนยันเพื่อปรับยอด — กดยกเลิก ยอดสต็อกจะไม่เปลี่ยน',
+        confirmLabel: 'ยืนยันปรับยอด',
       })
       if (!reviewed) return
 
@@ -256,7 +251,7 @@ export function ProductStockCountView({
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 flex-1 min-w-0">
           {/* Search Box */}
           <div className="relative min-w-[140px] flex-1 max-w-xs">
-            <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchTerm}
@@ -334,7 +329,7 @@ export function ProductStockCountView({
 
       {/* Main Stock Count Table Card Content */}
       <div className="flex-1 min-h-0 flex flex-col justify-between overflow-hidden">
-        <div className="flex-1 overflow-y-auto overflow-x-hidden">
+        <DataTableFrame fill className="flex-1 min-h-0 rounded-none bg-transparent">
           <table className="w-full text-left border-collapse table-fixed text-xs">
             <colgroup>
               <col className="w-9 sm:w-10" />
@@ -344,24 +339,24 @@ export function ProductStockCountView({
               <col className="w-14 sm:w-16" />
               <col className="w-14 sm:w-16" />
             </colgroup>
-            <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-900 text-slate-500 font-bold text-xs border-b border-slate-200 dark:border-slate-700 shadow-xs">
+            <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-900 text-slate-700 dark:text-slate-300 font-bold text-xs border-b border-slate-200 dark:border-slate-700 shadow-xs">
               <tr>
                 <th className="w-9 sm:w-10 py-2 px-2 text-center whitespace-nowrap">ลำดับ</th>
                 <th className="py-2 px-3 text-left whitespace-nowrap">ชื่อสินค้า</th>
                 <th className="w-14 sm:w-16 py-2 px-1.5 text-center whitespace-nowrap">ยอดเดิม</th>
-                <th className="w-14 sm:w-16 py-2 px-1 text-center text-emerald-600 dark:text-emerald-400 whitespace-nowrap">ปกติ</th>
-                <th className="w-14 sm:w-16 py-2 px-1 text-center text-red-600 dark:text-red-400 whitespace-nowrap">สูญหาย</th>
-                <th className="w-14 sm:w-16 py-2 px-1 text-center text-amber-600 dark:text-amber-400 whitespace-nowrap">ชำรุด</th>
+                <th className="w-14 sm:w-16 py-2 px-1 text-center text-emerald-700 dark:text-emerald-400 whitespace-nowrap">ปกติ</th>
+                <th className="w-14 sm:w-16 py-2 px-1 text-center text-red-700 dark:text-red-400 whitespace-nowrap">สูญหาย</th>
+                <th className="w-14 sm:w-16 py-2 px-1 text-center text-amber-700 dark:text-amber-400 whitespace-nowrap">ชำรุด</th>
                 <th className="w-14 sm:w-16 py-2 px-1 text-center text-purple-600 dark:text-purple-400 whitespace-nowrap">ขายออก</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 bg-white dark:bg-slate-900">
               {filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-12 text-center text-slate-400">
-                    <Package className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2 opacity-60" />
+                  <td colSpan={7} className="p-12 text-center text-slate-600 dark:text-slate-400">
+                    <Package className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-400 mb-2 opacity-60" />
                     <p className="font-bold text-sm">ไม่พบรายการสินค้าที่ค้นหา</p>
-                    <p className="text-xs text-slate-400 mt-0.5">ลองเปลี่ยนคำค้นหาหรือตัวกรองหมวดหมู่</p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">ลองเปลี่ยนคำค้นหาหรือตัวกรองหมวดหมู่</p>
                   </td>
                 </tr>
               ) : (
@@ -371,7 +366,7 @@ export function ProductStockCountView({
                     className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                   >
                     {/* 1. ลำดับ */}
-                    <td className="px-1 py-1.5 text-center font-bold text-slate-500 whitespace-nowrap">
+                    <td className="px-1 py-1.5 text-center font-bold text-slate-600 dark:text-slate-400 whitespace-nowrap">
                       {idx + 1}
                     </td>
 
@@ -390,7 +385,7 @@ export function ProductStockCountView({
                       <span className="font-mono font-bold text-slate-700 dark:text-slate-300 text-xs">
                         {item.originalAvailableQuantity}
                       </span>{' '}
-                      <span className="text-[10px] text-slate-400 font-normal">{item.unit}</span>
+                      <span className="text-[10px] text-slate-600 dark:text-slate-400 font-normal">{item.unit}</span>
                     </td>
 
                     {/* 4. ปกติ */}
@@ -413,7 +408,7 @@ export function ProductStockCountView({
                         placeholder=""
                         min={0}
                         allowDecimals={false}
-                        className="w-full max-w-[50px] mx-auto px-1 py-1 rounded-lg border border-red-300 dark:border-red-800 text-center font-extrabold text-xs bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 focus:outline-none focus:ring-1.5 focus:ring-red-400"
+                        className="w-full max-w-[50px] mx-auto px-1 py-1 rounded-lg border border-red-300 dark:border-red-800 text-center font-extrabold text-xs bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400 focus:outline-none focus:ring-1.5 focus:ring-red-400"
                       />
                     </td>
 
@@ -425,7 +420,7 @@ export function ProductStockCountView({
                         placeholder=""
                         min={0}
                         allowDecimals={false}
-                        className="w-full max-w-[50px] mx-auto px-1 py-1 rounded-lg border border-amber-300 dark:border-amber-800 text-center font-extrabold text-xs bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 focus:outline-none focus:ring-1.5 focus:ring-amber-400"
+                        className="w-full max-w-[50px] mx-auto px-1 py-1 rounded-lg border border-amber-300 dark:border-amber-800 text-center font-extrabold text-xs bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 focus:outline-none focus:ring-1.5 focus:ring-amber-400"
                       />
                     </td>
 
@@ -445,11 +440,11 @@ export function ProductStockCountView({
               )}
             </tbody>
           </table>
-        </div>
+        </DataTableFrame>
 
         {/* Workspace Footer Bar */}
         <div className="shrink-0 px-3 py-2 bg-slate-50/50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="text-slate-500 dark:text-slate-400 font-medium">
+          <div className="text-slate-600 dark:text-slate-400 font-medium">
             แสดง {filteredItems.length} รายการ {modifiedItems.length > 0 && (
               <span className="text-purple-600 dark:text-purple-400 font-bold ml-1">
                 (มีการกรอกผลตรวจนับแล้ว {modifiedItems.length} รายการ)
@@ -464,8 +459,8 @@ export function ProductStockCountView({
               disabled={isSubmitting || modifiedItems.length === 0}
               className={`px-3 py-1.5 rounded-xl font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-xs whitespace-nowrap ${
                 modifiedItems.length > 0
-                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/30'
-                  : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none'
+                  ? 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-emerald-600/30'
+                  : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 cursor-not-allowed shadow-none'
               }`}
             >
               <CheckCircle2 className="w-3.5 h-3.5" />

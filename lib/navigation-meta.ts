@@ -13,22 +13,12 @@ import {
   Settings,
   ShieldCheck,
   Store,
+  MessageCircle,
 } from 'lucide-react'
 
-export const PAGE_NAME_MAP: Record<string, string> = {
-  '/dashboard': 'แดชบอร์ด',
-  '/reports': 'รายงานสรุป',
-  '/products': 'สินค้า / สต็อก',
-  '/customers': 'ลูกค้า',
-  '/appointments': 'ปฏิทินนัดหมาย',
-  '/pos': 'หน้าร้าน POS',
-  '/bills': 'จัดการบิลเช่า',
-  '/documents': 'จัดการเอกสาร',
-  '/quotations': 'ใบเสนอราคา',
-  '/finance': 'การเงิน',
-  '/settings': 'ตั้งค่าระบบ',
-  '/account': 'บัญชีของฉัน',
-  '/owner-permissions': 'จัดการสิทธิ์ & รายงาน',
+// Pages that are not in the menu (menu pages are handled in getPageMeta below).
+const EXTRA_PAGE_NAMES: Record<string, string> = {
+  '/account': 'ตั้งค่าส่วนตัว',
 }
 
 export interface PageMeta {
@@ -84,6 +74,9 @@ export function getPageMeta(
   if (pathname === '/quotations' || pathname.startsWith('/quotations/')) {
     return { name: 'ใบเสนอราคา', icon: FileText, colorClass: 'text-violet-700 dark:text-violet-400', dotClass: 'bg-violet-500' }
   }
+  if (pathname === '/line') {
+    return { name: 'คนใน LINE', icon: MessageCircle, colorClass: 'text-emerald-700 dark:text-emerald-400', dotClass: 'bg-emerald-500' }
+  }
   if (pathname === '/settings' || pathname.startsWith('/settings/')) {
     return { name: 'ตั้งค่าระบบ', icon: Settings, colorClass: 'text-slate-700 dark:text-slate-300', dotClass: 'bg-slate-500' }
   }
@@ -91,17 +84,10 @@ export function getPageMeta(
     return { name: 'จัดการสิทธิ์ & รายงาน', icon: ShieldCheck, colorClass: 'text-amber-700 dark:text-amber-400', dotClass: 'bg-amber-500' }
   }
 
-  for (const [prefix, name] of Object.entries(PAGE_NAME_MAP)) {
+  for (const [prefix, name] of Object.entries(EXTRA_PAGE_NAMES)) {
     if (pathname === prefix || pathname.startsWith(prefix + '/')) {
       return { name, icon: Store, colorClass: 'text-slate-700 dark:text-slate-300', dotClass: 'bg-emerald-500' }
     }
   }
   return { name: 'ระบบ', icon: Store, colorClass: 'text-slate-700 dark:text-slate-300', dotClass: 'bg-emerald-500' }
-}
-
-export function getPageName(
-  pathname: string,
-  searchParams?: { get: (k: string) => string | null } | null
-): string {
-  return getPageMeta(pathname, searchParams).name
 }

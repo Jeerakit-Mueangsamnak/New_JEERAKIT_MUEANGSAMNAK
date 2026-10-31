@@ -6,7 +6,6 @@ import { TopHeader } from '@/components/TopHeader'
 import { AuthShell } from '@/features/auth/components/AuthShell'
 import { ToastProvider } from '@/components/common/Toast'
 import { ThemeProvider } from '@/lib/contexts/ThemeContext'
-import { DynamicFavicon } from '@/components/common/DynamicFavicon'
 import { RouteContainer } from '@/components/common/RouteContainer'
 import { AuthProvider } from '@/features/auth/contexts/AuthContext'
 import { AppLockProvider } from '@/features/auth/contexts/AppLockContext'
@@ -14,6 +13,7 @@ import { SystemSettingsProvider } from '@/lib/contexts/SystemSettingsContext'
 import { MasterDataProvider } from '@/components/common/MasterDataProvider'
 import { PinConfirmProvider } from '@/components/common/PinConfirmProvider'
 import { ConfirmDialogProvider } from '@/components/common/ConfirmDialogProvider'
+import { DynamicFavicon } from '@/components/common/DynamicFavicon'
 
 const promptFont = Prompt({
   subsets: ['thai', 'latin'],

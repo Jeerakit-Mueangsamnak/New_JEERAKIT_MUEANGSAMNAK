@@ -37,6 +37,7 @@ vi.mock('@/templates/rental-bill/RentalBillTemplate', () => ({
     </output>
   ),
 }))
+vi.mock('@/lib/print/print-react', () => ({ printReactDocuments: mocks.print }))
 vi.mock('@/components/common/PostSavePrintModal', () => ({
   PostSavePrintModal: ({ isOpen, onPrint }: any) => (isOpen ? <button onClick={onPrint}>พิมพ์เอกสาร</button> : null),
 }))
@@ -51,7 +52,6 @@ const doc = () => JSON.parse(screen.getByTestId('doc').textContent || '{}')
 beforeEach(() => {
   localStorage.clear()
   vi.clearAllMocks()
-  window.print = mocks.print
   const settings = loadSystemSettings()
   setCachedSystemSettings({
     ...settings,
@@ -74,10 +74,14 @@ describe('P1-B1 the document printed after saving is the saved bill', () => {
   it('after confirm, the print keeps the items and uses the real bill number although the cart is cleared', async () => {
     render(<SystemSettingsProvider><CheckoutPage /></SystemSettingsProvider>)
     fireEvent.click(screen.getByRole('button', { name: 'เงินสด' }))
-    fireEvent.click(screen.getByRole('button', { name: /ยืนยันออกบิล/ }))
+    fireEvent.click(screen.getByRole('button', { name: /ออกบิล/ }))
     const printButton = await screen.findByRole('button', { name: 'พิมพ์เอกสาร' })
     expect(doc()).toMatchObject({ billNo: 'BL-2026-000009', items: 1, total: 1000, shop: 'ร้านทดสอบ' })
     fireEvent.click(printButton)
     await waitFor(() => expect(mocks.print).toHaveBeenCalledOnce())
+    // Printed through the shared print service with the saved bill, not window.print() of the page
+    const [[nodes, title]] = mocks.print.mock.calls as unknown as [[React.ReactElement<{ data: { billNo: string } }>[], string]]
+    expect(title).toBe('BL-2026-000009')
+    expect(nodes[0].props.data.billNo).toBe('BL-2026-000009')
   })
 })

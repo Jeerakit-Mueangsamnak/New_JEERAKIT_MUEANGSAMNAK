@@ -74,7 +74,7 @@ export default function VerifyEmailPage() {
           <h2 className="text-[26px] font-bold text-slate-900 dark:text-white tracking-tight">
             ยืนยันที่อยู่อีเมล
           </h2>
-          <p className="text-slate-500 dark:text-slate-400 text-xs">
+          <p className="text-slate-600 dark:text-slate-400 text-xs">
             การยืนยันอีเมลสำหรับบัญชีผู้ใช้งาน Rental POS
           </p>
         </div>
@@ -82,15 +82,15 @@ export default function VerifyEmailPage() {
         {/* State Display */}
         {status === 'CHECKING' && (
           <div className="text-center py-6 space-y-3">
-            <RefreshCw className="w-8 h-8 text-blue-500 dark:text-blue-400 animate-spin mx-auto" />
+            <RefreshCw className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin mx-auto" />
             <p className="text-xs text-slate-700 dark:text-slate-300 font-semibold">กำลังตรวจสอบโทเค็นยืนยันอีเมล...</p>
-            <p className="text-[11px] text-slate-500">กรุณารอสักครู่ ระบบกำลังสื่อสารกับเซิร์ฟเวอร์</p>
+            <p className="text-[11px] text-slate-600 dark:text-slate-400">กรุณารอสักครู่ ระบบกำลังสื่อสารกับเซิร์ฟเวอร์</p>
           </div>
         )}
 
         {status === 'VERIFIED' && (
           <div className="text-center py-4 space-y-4">
-            <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-500 dark:text-emerald-400 mx-auto">
+            <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 mx-auto">
               <CheckCircle2 className="w-7 h-7" />
             </div>
             <div className="space-y-1">
@@ -101,7 +101,7 @@ export default function VerifyEmailPage() {
             </div>
             <Link
               href="/login"
-              className="inline-flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-500/20"
+              className="inline-flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-lg shadow-emerald-500/20"
             >
               <span>ไปที่หน้าเข้าสู่ระบบ</span>
               <ArrowRight className="w-4 h-4" />
@@ -111,7 +111,7 @@ export default function VerifyEmailPage() {
 
         {status === 'EXPIRED' && (
           <div className="text-center py-4 space-y-4">
-            <div className="w-14 h-14 rounded-full bg-amber-500/20 border border-amber-400/30 flex items-center justify-center text-amber-500 dark:text-amber-400 mx-auto">
+            <div className="w-14 h-14 rounded-full bg-amber-500/20 border border-amber-400/30 flex items-center justify-center text-amber-700 dark:text-amber-400 mx-auto">
               <Clock className="w-7 h-7" />
             </div>
             <div className="space-y-1">
@@ -122,14 +122,14 @@ export default function VerifyEmailPage() {
             </div>
 
             {resendSuccess ? (
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-600 dark:text-emerald-400 text-xs font-bold">
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-700 dark:text-emerald-400 text-xs font-bold">
                 ส่งอีเมลยืนยันใหม่ไปยังกล่องจดหมายของคุณเรียบร้อยแล้ว
               </div>
             ) : (
               <div className="space-y-3 text-left">
                 {!userEmail && (
                   <div className="relative">
-                    <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <Mail className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                     <input
                       type="email"
                       value={emailInput}
@@ -141,13 +141,13 @@ export default function VerifyEmailPage() {
                   </div>
                 )}
                 {resendError && (
-                  <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">{resendError}</p>
+                  <p className="text-xs font-semibold text-rose-700 dark:text-rose-400">{resendError}</p>
                 )}
                 <button
                   type="button"
                   onClick={handleResend}
                   disabled={isResending || (!userEmail && !emailInput.trim())}
-                  className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 disabled:opacity-50"
+                  className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 disabled:opacity-50"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isResending ? 'animate-spin' : ''}`} />
                   <span>{isResending ? 'กำลังส่งอีเมล...' : 'ส่งอีเมลยืนยันใหม่อีกครั้ง'}</span>
@@ -157,7 +157,7 @@ export default function VerifyEmailPage() {
           </div>
         )}
 
-        <div className="pt-3 border-t border-slate-200 dark:border-slate-800 text-center text-[10px] text-slate-400 dark:text-slate-500">
+        <div className="pt-3 border-t border-slate-200 dark:border-slate-800 text-center text-[10px] text-slate-600 dark:text-slate-400">
           <p>ระบบยืนยันอีเมลสำหรับเข้าใช้งาน</p>
           <Link href="/login" className="text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-block">
             กลับสู่หน้าเข้าสู่ระบบ

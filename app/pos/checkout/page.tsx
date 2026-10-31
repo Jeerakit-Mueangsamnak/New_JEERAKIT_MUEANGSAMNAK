@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { RentalBillTemplate, BillTemplateData } from '@/templates/rental-bill/RentalBillTemplate'
+import { billBusinessFields, printRentalBillDocument } from '@/features/documents/utils/rental-bill-print'
 import { A4FitPreview } from '@/features/pos/components/A4FitPreview'
 import {
   ArrowLeft,
@@ -21,6 +22,7 @@ import {
   loadActiveCart,
   clearActiveCart,
   isSaleCartItem,
+  defaultBillDocumentType,
   validateCartCustomer,
   cartLineUnitPriceForServer,
   isCashShort,
@@ -30,6 +32,8 @@ import { fetchBillByIdFromSupabase, fetchBillsFromSupabase, loadBillById } from 
 import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { calculateBillTotals } from '@/lib/calculation-service'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
+
+const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : '')
 
 const safeFormatDateStr = (d?: Date | string | null): string => {
   if (!d) return '-'
@@ -67,7 +71,7 @@ export default function CheckoutPage() {
   const [discount, setDiscount] = useState<number>(0)
   const [shippingFee, setShippingFee] = useState<number>(0)
   const [depositAmount, setDepositAmount] = useState<number>(0)
-  const [documentType, setDocumentType] = useState<string>('บิลเช่า')
+  const [documentType, setDocumentType] = useState<string>('')
   const [shippingAddress, setShippingAddress] = useState<string>('')
   const [remark, setRemark] = useState<string>('')
   const [quotationId, setQuotationId] = useState<string | null>(null)
@@ -146,12 +150,12 @@ export default function CheckoutPage() {
 
   // Format template data for live preview
   const billData: BillTemplateData = {
-    documentTitle: documentType || 'บิลเช่า',
+    documentType: documentType || defaultBillDocumentType(items),
+    // A quotation is not a payment request: no bank block, no "paid" lines on the blue area
+    showBankDetails: quotationId ? false : undefined,
+    showPaymentSummary: quotationId ? false : undefined,
     // Shop details come from Settings → ข้อมูลร้าน (never made-up values)
-    businessName: settings.business?.businessName || '',
-    businessAddress: settings.business?.address || '',
-    businessTaxId: settings.business?.taxId || '',
-    businessPhone: settings.business?.phone || '',
+    ...billBusinessFields(settings.business),
     customerName: customer?.customerName || 'ลูกค้าทั่วไป',
     customerAddress: customer?.address,
     customerPhone: customer?.phone,
@@ -251,70 +255,90 @@ export default function CheckoutPage() {
     }
   }
 
-  const handleConfirmBill = async () => {
+  /** Screen-side guard before anything is sent: items, payment method, customer, cash. */
+  const validateCheckout = (selectedPaymentMethod: PaymentMethodType): boolean => {
     if (items.length === 0) {
       showToast('ไม่สามารถออกบิลได้', 'ไม่มีรายการสินค้าในตะกร้า', 'ERROR')
-      return
+      return false
     }
-
-    const selectedPaymentMethod = paymentMethod
-    if (!selectedPaymentMethod) {
-      showToast('กรุณาเลือกช่องทางชำระเงิน', 'โปรดเลือกช่องทางชำระเงินก่อนยืนยันบิล', 'ERROR')
-      return
-    }
-
     try {
       validateCartCustomer(items, customer)
-    } catch (error) {
-      showToast('ข้อมูลลูกค้าไม่ครบถ้วน', (error as Error).message, 'ERROR')
-      return
+    } catch (error: unknown) {
+      showToast('ข้อมูลลูกค้าไม่ครบถ้วน', error instanceof Error ? error.message : String(error), 'ERROR')
+      return false
     }
-
     if (isCashShort(selectedPaymentMethod, receivedCash, grandTotal)) {
       showToast('เงินสดไม่ถูกต้อง', 'เงินสดที่รับมาต้องไม่น้อยกว่ายอดชำระ', 'ERROR')
-      return
+      return false
     }
+    return true
+  }
 
+  type SettleResult =
+    | { ok: true; confirmed: Awaited<ReturnType<typeof confirmBill>>; billId: string; total: number }
+    | { ok: false; message: string }
+
+  /** Draft → server total re-check → confirm. Returns the confirmed bill or the reason it stopped. */
+  const saveAndConfirmBill = async (
+    selectedPaymentMethod: PaymentMethodType,
+    isUnpaid: boolean
+  ): Promise<SettleResult> => {
+    const billId = await saveBillDraft(buildDraftInput())
+    savedDraftIdRef.current = billId
+    const draft = await fetchBillByIdFromSupabase(billId)
+    const total = draft?.grandTotal ?? grandTotal
+    // The server's total can differ from the screen's; the cash typed in must still cover it
+    if (!isUnpaid && receivedCashInput !== '' && isCashShort(selectedPaymentMethod, receivedCash, total)) {
+      return {
+        ok: false,
+        message: `ยอดสุทธิจากระบบ ${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })} มากกว่าเงินสดที่รับมา — บิลบันทึกเป็นแบบร่างไว้แล้ว`,
+      }
+    }
+    const confirmed = await confirmBill(
+      billId,
+      isUnpaid || total <= 0 ? [] : [{ method: selectedPaymentMethod, amount: total, reference: bankRef || undefined }]
+    )
+    savedDraftIdRef.current = null
+    return { ok: true, confirmed, billId, total }
+  }
+
+  /** Stock moves only with a real delivery (Master §11.3); failures do not undo the bill. */
+  const deliverIfNeeded = async (billId: string, confirmed: Awaited<ReturnType<typeof confirmBill>>) => {
+    if (!deliverNow || !confirmed) return
+    const lines = confirmed.items
+      .filter((it) => (it.remainingQty ?? 0) > 0)
+      .map((it) => ({ lineId: it.rentalBillItemId, quantity: it.remainingQty ?? 0 }))
+    if (lines.length === 0) return
+    try {
+      await deliverBill(billId, lines)
+    } catch (deliveryErr: unknown) {
+      showToast('ออกบิลแล้ว แต่บันทึกส่งของไม่สำเร็จ', `${errorMessage(deliveryErr)} — ส่งของได้ที่หน้าจัดการบิล`, 'ERROR')
+    }
+  }
+
+  const handleConfirmBill = async () => {
     setIsSubmitting(true)
     try {
+      const selectedPaymentMethod = paymentMethod
+      if (!selectedPaymentMethod) {
+        showToast('กรุณาเลือกช่องทางชำระเงิน', '', 'ERROR')
+        return
+      }
+      if (!validateCheckout(selectedPaymentMethod)) return
+
       const allItemsAreSale = items.length > 0 && items.every((it) => isSaleCartItem(it))
       const isUnpaid = selectedPaymentMethod === 'UNPAID'
 
-      // 1) server draft (prices, discount, override PIN) → 2) confirm with the server's total
-      const billId = await saveBillDraft(buildDraftInput())
-      savedDraftIdRef.current = billId
-      const draft = await fetchBillByIdFromSupabase(billId)
-      const total = draft?.grandTotal ?? grandTotal
-      // The server's total can differ from the screen's; the cash typed in must still cover it
-      if (!isUnpaid && receivedCashInput !== '' && isCashShort(selectedPaymentMethod, receivedCash, total)) {
-        showToast(
-          'เงินสดไม่ถูกต้อง',
-          `ยอดสุทธิจากระบบ ฿${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })} มากกว่าเงินสดที่รับมา — บิลบันทึกเป็นแบบร่างไว้แล้ว`,
-          'ERROR'
-        )
+      const settled = await saveAndConfirmBill(selectedPaymentMethod, isUnpaid)
+      if (!settled.ok) {
+        showToast('เงินสดไม่ถูกต้อง', settled.message, 'ERROR')
         return
       }
-      const confirmed = await confirmBill(
-        billId,
-        isUnpaid || total <= 0 ? [] : [{ method: selectedPaymentMethod, amount: total, reference: bankRef || undefined }]
-      )
-      savedDraftIdRef.current = null
+
+      const { confirmed, billId, total } = settled
+      await deliverIfNeeded(billId, confirmed)
+
       const billNo = confirmed?.billNo || ''
-
-      // Stock moves only with a real delivery (Master §11.3): record it now if the customer takes the goods.
-      if (deliverNow && confirmed) {
-        const lines = confirmed.items
-          .filter((it) => (it.remainingQty ?? 0) > 0)
-          .map((it) => ({ lineId: it.rentalBillItemId, quantity: it.remainingQty ?? 0 }))
-        if (lines.length > 0) {
-          try {
-            await deliverBill(billId, lines)
-          } catch (deliveryErr: any) {
-            showToast('ออกบิลแล้ว แต่บันทึกส่งของไม่สำเร็จ', `${deliveryErr?.message || ''} — ส่งของได้ที่หน้าจัดการบิล`, 'ERROR')
-          }
-        }
-      }
-
       const savedTotal = confirmed?.grandTotal ?? total
       setSavedPrintData({
         ...billData,
@@ -336,9 +360,9 @@ export default function CheckoutPage() {
         title: billTitle,
         description: billDesc,
       })
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (isPinCancelled(err)) return
-      showToast('เกิดข้อผิดพลาดในการบันทึกบิล', err?.message || 'โปรดตรวจสอบข้อมูลอีกครั้ง', 'ERROR')
+      showToast('เกิดข้อผิดพลาดในการบันทึกบิล', errorMessage(err) || 'โปรดตรวจสอบข้อมูลอีกครั้ง', 'ERROR')
     } finally {
       setIsSubmitting(false)
     }
@@ -352,8 +376,8 @@ export default function CheckoutPage() {
 
     try {
       validateCartCustomer(items, customer)
-    } catch (error) {
-      showToast('ข้อมูลลูกค้าไม่ครบถ้วน', (error as Error).message, 'ERROR')
+    } catch (error: unknown) {
+      showToast('ข้อมูลลูกค้าไม่ครบถ้วน', error instanceof Error ? error.message : String(error), 'ERROR')
       return
     }
 
@@ -364,9 +388,9 @@ export default function CheckoutPage() {
       clearCart()
       showToast('บันทึกแบบร่างสำเร็จ', 'บันทึกแบบร่างบิลเรียบร้อยแล้ว (ยังไม่ตัดสต็อก ยังไม่มีเลขบิล)', 'SUCCESS')
       router.push('/bills?status=DRAFT')
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (isPinCancelled(err)) return
-      showToast('เกิดข้อผิดพลาดในการบันทึกแบบร่าง', err?.message || 'โปรดตรวจสอบข้อมูลอีกครั้ง', 'ERROR')
+      showToast('เกิดข้อผิดพลาดในการบันทึกแบบร่าง', errorMessage(err) || 'โปรดตรวจสอบข้อมูลอีกครั้ง', 'ERROR')
     } finally {
       setIsSubmitting(false)
     }
@@ -385,7 +409,7 @@ export default function CheckoutPage() {
           onClick={() => setMobileTab('PAYMENT')}
           className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
             mobileTab === 'PAYMENT'
-              ? 'bg-emerald-600 text-white shadow-xs'
+              ? 'bg-emerald-700 text-white shadow-xs'
               : 'text-slate-600 dark:text-slate-300'
           }`}
         >
@@ -397,7 +421,7 @@ export default function CheckoutPage() {
           onClick={() => setMobileTab('PREVIEW')}
           className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
             mobileTab === 'PREVIEW'
-              ? 'bg-emerald-600 text-white shadow-xs'
+              ? 'bg-emerald-700 text-white shadow-xs'
               : 'text-slate-600 dark:text-slate-300'
           }`}
         >
@@ -425,13 +449,13 @@ export default function CheckoutPage() {
       <div className={`mt-0 flex min-h-0 min-w-0 flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-800 md:mt-0 md:h-full md:p-3.5 lg:p-4 ${
         mobileTab === 'PAYMENT' ? 'flex flex-1' : 'hidden md:flex'
       }`}>
-        
+
         <div className="flex min-h-0 flex-1 flex-col space-y-2 sm:space-y-2.5 overflow-hidden">
           {/* Header */}
           <div className="flex shrink-0 min-w-0 items-center justify-between gap-2 border-b border-slate-100 pb-2 dark:border-slate-700">
             <Link
               href="/pos"
-              className="flex shrink-0 items-center gap-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-semibold"
+              className="flex shrink-0 items-center gap-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-semibold"
             >
               <ArrowLeft className="w-4 h-4 shrink-0" />
               <span className="whitespace-nowrap">ย้อนกลับไป POS</span>
@@ -442,25 +466,22 @@ export default function CheckoutPage() {
           </div>
 
           {/* Amount Due Card */}
-          <div className="shrink-0 rounded-2xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 p-2.5 sm:p-3 text-white shadow-lg lg:p-3.5">
-            <span className="text-[11px] sm:text-xs text-blue-100 block font-medium">ยอดสุทธิ</span>
-            <span className="whitespace-nowrap text-2xl sm:text-3xl font-black tracking-tight block">
-              ฿{grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+          <div className="flex shrink-0 items-center justify-between gap-2 rounded-2xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 p-2.5 sm:p-3 text-white shadow-lg lg:p-3.5">
+            <span className="text-[11px] sm:text-xs text-blue-100 font-medium">ยอดสุทธิ</span>
+            <span className="whitespace-nowrap text-2xl sm:text-3xl font-black tracking-tight tabular-nums">
+              {grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
             </span>
-            {customer && (
-              <div className="mt-1.5 pt-1.5 border-t border-blue-400/30 text-xs text-blue-100 flex items-center justify-between gap-2 min-w-0">
-                <span className="truncate min-w-0">ลูกค้า: {customer.customerName}</span>
-                <span className="shrink-0 font-mono text-[11px]">{customer.phone}</span>
-              </div>
-            )}
           </div>
 
-          {/* Payment Method Selector */}
+          {/* Payment Method Selector — one row, equal-size buttons */}
           <PaymentMethodSelector
             selectedMethod={paymentMethod}
             onSelectMethod={setPaymentMethod}
             showPromptPay={false}
             autoSelectFirst={false}
+            showLabel={false}
+            itemsPerRow={3}
+            labels={{ TRANSFER: 'เงินโอน' }}
           />
 
           {/* Dynamic Inputs per Method */}
@@ -474,11 +495,7 @@ export default function CheckoutPage() {
               bankRef={bankRef}
               onBankRefChange={setBankRef}
             />
-          ) : (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              กรุณาเลือกช่องทางชำระเงินก่อนยืนยันบิล
-            </p>
-          )}
+          ) : null}
         </div>
 
         {/* Action Buttons Group (Confirm, Save Draft, Cancel) */}
@@ -488,39 +505,41 @@ export default function CheckoutPage() {
               type="checkbox"
               checked={deliverNow}
               onChange={(e) => setDeliverNow(e.target.checked)}
-              className="w-4 h-4 text-emerald-600 rounded"
+              className="w-4 h-4 text-emerald-700 dark:text-emerald-400 rounded"
             />
             <span>ลูกค้ารับของเลย (บันทึกส่งมอบทันที) — ไม่ติ๊ก = ส่งภายหลังที่หน้าจัดการบิล</span>
           </label>
-          <button
-            type="button"
-            onClick={handleConfirmBill}
-            disabled={isSubmitting || !paymentMethod}
-            className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 sm:py-3 hover:bg-emerald-700 active:scale-[0.99] text-white font-black text-sm sm:text-base flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
-          >
-            <FileCheck className="w-5 h-5 shrink-0" />
-            <span className="whitespace-nowrap">
-              {isSubmitting ? 'กำลังบันทึกบิล...' : draftBillId ? 'ยืนยันออกบิลจากแบบร่าง' : 'ยืนยันออกบิล'}
-            </span>
-          </button>
+          <div className="flex items-stretch gap-2">
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="flex-1 min-w-0 rounded-xl bg-slate-100 dark:bg-slate-700/80 px-2 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.99] text-slate-700 dark:text-slate-300 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all min-h-[44px] cursor-pointer"
+            >
+              <span className="truncate">ยกเลิก</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={handleSaveDraft}
-            disabled={isSubmitting}
-            className="w-full rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-[0.99] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 px-3 py-2.5 shadow-md shadow-amber-500/20 transition-all disabled:opacity-50 min-h-[38px] cursor-pointer"
-          >
-            <FileText className="w-4 h-4 shrink-0" />
-            <span className="whitespace-nowrap">บันทึกแบบร่าง (Save Draft)</span>
-          </button>
+            <button
+              type="button"
+              onClick={handleSaveDraft}
+              disabled={isSubmitting}
+              className="flex-1 min-w-0 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-[0.99] text-slate-900 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 px-2 py-2.5 shadow-md shadow-amber-500/20 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
+            >
+              <FileText className="w-4 h-4 shrink-0" />
+              <span className="truncate">แบบร่าง</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={handleCancel}
-            className="w-full rounded-xl bg-slate-100 dark:bg-slate-700/80 px-3 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.99] font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all min-h-[36px] cursor-pointer"
-          >
-            <span className="whitespace-nowrap">ยกเลิก</span>
-          </button>
+            <button
+              type="button"
+              onClick={handleConfirmBill}
+              disabled={isSubmitting || !paymentMethod}
+              className="flex-1 min-w-0 rounded-xl bg-emerald-700 px-2 py-2.5 hover:bg-emerald-800 active:scale-[0.99] text-white font-black text-xs sm:text-sm md:text-base flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
+            >
+              <FileCheck className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+              <span className="truncate">
+                {isSubmitting ? 'กำลังบันทึกบิล...' : draftBillId ? 'ออกบิลจากแบบร่าง' : 'ออกบิล'}
+              </span>
+            </button>
+          </div>
         </div>
 
       </div>
@@ -531,7 +550,7 @@ export default function CheckoutPage() {
         title={postSavePrintModal.title}
         description={postSavePrintModal.description}
         onPrint={() => {
-          window.print()
+          printRentalBillDocument(savedPrintData ?? billData)
           clearCart()
           setPostSavePrintModal({ isOpen: false, title: '', description: '' })
           router.push('/pos')

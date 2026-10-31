@@ -1,5 +1,6 @@
 import type { CurrentUser, UserRole } from '@/lib/types/rental-pos'
 import { isMenuCode, normalizeMemberStatus } from '@/features/auth/services/permissions'
+import { normalizeNotificationPrefs } from '@/features/notifications/services/notification-prefs'
 
 export interface AuthUserLike {
   id: string
@@ -63,5 +64,6 @@ export function buildCurrentUser(
     businessId: (profileData?.business_id as string) || null,
     emailVerified: Boolean(authUser.email_confirmed_at),
     avatarUrl: (profileData?.avatar_url as string) || (authUser.user_metadata?.avatar_url as string) || null,
+    notificationPrefs: normalizeNotificationPrefs(profileData?.notification_prefs),
   }
 }

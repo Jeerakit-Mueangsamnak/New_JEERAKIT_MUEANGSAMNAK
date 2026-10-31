@@ -253,7 +253,7 @@ export function ProductCreateView({
                 <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap">
                   {/* ลำดับ */}
                   <div
-                    className="w-8 h-7 flex items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-xs shrink-0 select-none"
+                    className="w-8 h-7 flex items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold text-xs shrink-0 select-none"
                     title="ลำดับ"
                   >
                     {idx + 1}
@@ -329,7 +329,7 @@ export function ProductCreateView({
                   <button
                     type="button"
                     onClick={() => handleRemoveRow(row.id)}
-                    className="w-7 h-7 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors flex items-center justify-center shrink-0 cursor-pointer"
+                    className="w-7 h-7 rounded-lg text-slate-600 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors flex items-center justify-center shrink-0 cursor-pointer"
                     title="จัดการ: ลบแถว"
                   >
                     <X className="w-4 h-4" />
@@ -388,7 +388,7 @@ export function ProductCreateView({
                     className="flex items-center rounded-lg border border-slate-300 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-900 h-7 w-[105px] shrink-0 focus-within:ring-1 focus-within:ring-amber-500"
                     title="ค่าชำรุด"
                   >
-                    <span className="px-1.5 h-full flex items-center bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 font-bold text-[11px] border-r border-slate-200 dark:border-slate-700 shrink-0 select-none">
+                    <span className="px-1.5 h-full flex items-center bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 font-bold text-[11px] border-r border-slate-200 dark:border-slate-700 shrink-0 select-none">
                       ชำรุด
                     </span>
                     <NumericInput
@@ -397,7 +397,7 @@ export function ProductCreateView({
                       onChange={(val) => handleUpdateRow(row.id, 'damageFee', val === '' ? null : val)}
                       min={0}
                       allowDecimals={true}
-                      className="w-full h-full text-center font-bold text-xs text-amber-600 dark:text-amber-400 focus:outline-none bg-transparent"
+                      className="w-full h-full text-center font-bold text-xs text-amber-700 dark:text-amber-400 focus:outline-none bg-transparent"
                     />
                   </div>
 
@@ -406,7 +406,7 @@ export function ProductCreateView({
                     className="flex items-center rounded-lg border border-slate-300 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-900 h-7 w-[105px] shrink-0 focus-within:ring-1 focus-within:ring-red-500"
                     title="ค่าสูญหาย"
                   >
-                    <span className="px-1.5 h-full flex items-center bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 font-bold text-[11px] border-r border-slate-200 dark:border-slate-700 shrink-0 select-none">
+                    <span className="px-1.5 h-full flex items-center bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-400 font-bold text-[11px] border-r border-slate-200 dark:border-slate-700 shrink-0 select-none">
                       สูญหาย
                     </span>
                     <NumericInput
@@ -415,7 +415,7 @@ export function ProductCreateView({
                       onChange={(val) => handleUpdateRow(row.id, 'lossFee', val === '' ? null : val)}
                       min={0}
                       allowDecimals={true}
-                      className="w-full h-full text-center font-bold text-xs text-red-600 dark:text-red-400 focus:outline-none bg-transparent"
+                      className="w-full h-full text-center font-bold text-xs text-red-700 dark:text-red-400 focus:outline-none bg-transparent"
                     />
                   </div>
 
@@ -424,7 +424,7 @@ export function ProductCreateView({
                     className="flex items-center rounded-lg border border-slate-300 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-900 h-7 w-[100px] shrink-0 focus-within:ring-1 focus-within:ring-emerald-500"
                     title="จำนวนเพิ่ม"
                   >
-                    <span className="px-1.5 h-full flex items-center bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 font-bold text-[11px] border-r border-slate-200 dark:border-slate-700 shrink-0 select-none">
+                    <span className="px-1.5 h-full flex items-center bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 font-bold text-[11px] border-r border-slate-200 dark:border-slate-700 shrink-0 select-none">
                       เพิ่ม
                     </span>
                     <NumericInput
@@ -435,7 +435,7 @@ export function ProductCreateView({
                       }
                       min={0}
                       allowDecimals={false}
-                      className="w-full h-full text-center font-bold text-xs text-emerald-600 dark:text-emerald-400 focus:outline-none bg-transparent"
+                      className="w-full h-full text-center font-bold text-xs text-emerald-700 dark:text-emerald-400 focus:outline-none bg-transparent"
                     />
                   </div>
 
@@ -467,7 +467,7 @@ export function ProductCreateView({
             >
               เพิ่มแถวสินค้า
             </ActionButton>
-            <span className="text-[11px] text-slate-400 font-medium">
+            <span className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">
               ทั้งหมด {rows.length} แถว (แถวที่ไม่มีชื่อสินค้าจะไม่ถูกบันทึก)
             </span>
           </div>
@@ -501,17 +501,17 @@ export function ProductCreateView({
       >
         <AppModalHeader
           title="เพิ่มหมวดหมู่สินค้าใหม่"
-          icon={<Tag className="w-4 h-4 text-emerald-600" />}
+          icon={<Tag className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />}
           onClose={() => setShowQuickAddCategoryModal(false)}
         />
         <form onSubmit={handleSaveQuickCategory}>
           <AppModalBody className="space-y-3.5 p-4 sm:p-5 text-xs">
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            <p className="text-[11px] text-slate-600 dark:text-slate-400">
               หมวดหมู่ที่เพิ่มจะถูกบันทึกและเลือกใช้ได้ทันที ข้อมูลแบบร่างจะไม่สูญหาย
             </p>
             <div>
               <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
-                ชื่อหมวดหมู่ <span className="text-red-500">*</span>
+                ชื่อหมวดหมู่ <span className="text-red-700 dark:text-red-400">*</span>
               </label>
               <input
                 type="text"
@@ -601,17 +601,17 @@ export function ProductCreateView({
       >
         <AppModalHeader
           title="เพิ่มหน่วยนับใหม่"
-          icon={<Scale className="w-4 h-4 text-purple-600" />}
+          icon={<Scale className="w-4 h-4 text-purple-600 dark:text-purple-400" />}
           onClose={() => setShowQuickAddUnitModal(false)}
         />
         <form onSubmit={handleSaveQuickUnit}>
           <AppModalBody className="space-y-3.5 p-4 sm:p-5 text-xs">
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            <p className="text-[11px] text-slate-600 dark:text-slate-400">
               หน่วยนับที่เพิ่มจะสามารถเลือกใช้ได้ทันที
             </p>
             <div>
               <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
-                ชื่อหน่วยนับ <span className="text-red-500">*</span>
+                ชื่อหน่วยนับ <span className="text-red-700 dark:text-red-400">*</span>
               </label>
               <input
                 type="text"

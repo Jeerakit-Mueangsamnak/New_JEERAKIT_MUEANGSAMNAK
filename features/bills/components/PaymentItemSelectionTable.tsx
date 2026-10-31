@@ -49,7 +49,7 @@ export function PaymentItemSelectionTable({
                 type="checkbox"
                 checked={items.length > 0 && items.every((item) => item.selected)}
                 onChange={onToggleSelectAll}
-                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                className="w-4 h-4 rounded text-blue-600 dark:text-blue-400 focus:ring-blue-500 cursor-pointer"
                 title="เลือก/ยกเลิกทั้งหมด"
               />
             </th>
@@ -65,9 +65,9 @@ export function PaymentItemSelectionTable({
         <tbody className="divide-y divide-slate-100 dark:divide-slate-700 bg-white dark:bg-slate-800 text-[10.5px] sm:text-xs">
           {items.length === 0 ? (
             <tr>
-              <td colSpan={8} className="py-8 text-center text-slate-500 dark:text-slate-400">
+              <td colSpan={8} className="py-8 text-center text-slate-600 dark:text-slate-400">
                 <p className="font-semibold text-sm">ไม่มีรายการสินค้าที่ต้องเลือก</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
                   สามารถชำระยอดค้างของบิลแบบรวมได้ (กดปุ่ม &quot;ชำระรวม&quot; หรือ &quot;ถัดไป&quot;)
                 </p>
               </td>
@@ -92,14 +92,14 @@ export function PaymentItemSelectionTable({
                       type="checkbox"
                       checked={item.selected ?? true}
                       onChange={() => onToggleSelectItem(idx)}
-                      className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      className="w-4 h-4 rounded text-blue-600 dark:text-blue-400 focus:ring-blue-500 cursor-pointer"
                     />
                   </td>
-                  <td className="py-1 px-1 text-center font-bold text-slate-500">{idx + 1}</td>
+                  <td className="py-1 px-1 text-center font-bold text-slate-600 dark:text-slate-400">{idx + 1}</td>
                   <td className="py-1 px-1.5 font-bold text-slate-800 dark:text-slate-200 overflow-hidden">
                     <div className="truncate">{item.productName}</div>
                     {item.productCode && (
-                      <span className="text-[10px] text-slate-400 font-mono block truncate">
+                      <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono block truncate">
                         {item.productCode}
                       </span>
                     )}
@@ -127,7 +127,7 @@ export function PaymentItemSelectionTable({
                     </span>
                   </td>
                   <td className="py-1 px-1.5 text-right font-black text-slate-900 dark:text-slate-100 tabular-nums truncate">
-                    ฿{itemCalc.itemRentalFee.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                    {itemCalc.itemRentalFee.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                   </td>
                 </tr>
               )

@@ -2,32 +2,29 @@
 
 import React, { useState } from 'react'
 import Link from 'next/link'
-import { Lock, ShieldAlert, CheckCircle2, CircleDashed, KeyRound } from 'lucide-react'
+import { Lock, CheckCircle2, CircleDashed, KeyRound } from 'lucide-react'
 import { useAppLock } from '@/features/auth/contexts/AppLockContext'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { useToast } from '@/components/common/Toast'
 import { PinSetupDialog } from '@/features/auth/components/PinSetupDialog'
 import { setAutoLockSeconds } from '@/features/auth/services/pin-lock'
-import type { MenuCode } from '@/features/auth/services/permissions'
-
-/** Menus whose screens contain actions that ask for a PIN (refund, void, stock adjust, …). */
-const RISKY_MENUS: MenuCode[] = ['pos', 'bills', 'products', 'finance', 'quotations']
+import { CustomSelect } from '@/components/common/CustomSelect'
 
 const lockLabel = (s: number) => (s === 0 ? 'ไม่ล็อกอัตโนมัติ' : s < 60 ? `${s} วินาที` : `${s / 60} นาที`)
 
 /**
  * Settings → Security. Setting a PIN is optional and never forced after sign-up / sign-in.
- * Each user has ONE PIN (stored only as a hash); the two cards show where it is used.
+ * Each user has ONE PIN (stored only as a hash), used only for the screen lock (Master §4.3,
+ * owner 2026-10-26) — no other action asks for it.
  */
 export function SecuritySettings() {
   const { status, refreshLockState } = useAppLock()
-  const { user, hasMenu } = useAuth()
+  const { user } = useAuth()
   const { showToast } = useToast()
   const [dialog, setDialog] = useState<'set' | 'change' | null>(null)
   const [busy, setBusy] = useState(false)
 
   const pinSet = Boolean(status?.pinSet)
-  const canUseRiskyActions = user?.role === 'OWNER' || RISKY_MENUS.some((m) => hasMenu(m))
 
   const changeAutoLock = async (value: string) => {
     setBusy(true)
@@ -59,7 +56,7 @@ export function SecuritySettings() {
       <button
         type="button"
         onClick={() => setDialog(pinSet ? 'change' : 'set')}
-        className="rounded-xl bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 text-sm font-bold"
+        className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-sm font-bold"
       >
         {pinSet ? 'เปลี่ยน PIN' : 'ตั้ง PIN'}
       </button>
@@ -69,7 +66,7 @@ export function SecuritySettings() {
             ลืม PIN
           </Link>
         ) : (
-          <span className="text-xs text-slate-500 dark:text-slate-400">ลืม PIN: ให้เจ้าของร้านล้าง PIN ให้ แล้วตั้งใหม่ที่นี่</span>
+          <span className="text-xs text-slate-600 dark:text-slate-400">ลืม PIN: ให้เจ้าของร้านล้าง PIN ให้ แล้วตั้งใหม่ที่นี่</span>
         )
       )}
     </div>
@@ -97,7 +94,7 @@ export function SecuritySettings() {
         <div className="text-sm text-slate-700 dark:text-slate-300">
           <p className="font-bold text-slate-900 dark:text-white">บัญชีนี้มี PIN ชุดเดียว (1 บัญชี = 1 PIN)</p>
           <p className="mt-0.5">
-            PIN ชุดนี้ใช้ทั้งล็อก/ปลดล็อกหน้าจอ{canUseRiskyActions ? ' และยืนยันรายการเสี่ยง' : ''} — ตั้งหรือเปลี่ยนจากการ์ดไหนก็เป็น PIN เดียวกัน
+            PIN ชุดนี้ใช้ล็อก/ปลดล็อกหน้าจออย่างเดียว — งานอื่น เช่น คืนเงิน ยกเลิกบิล ปรับสต็อก ไม่ถาม PIN แต่ระบบบันทึกประวัติให้อัตโนมัติ
           </p>
         </div>
       </div>
@@ -105,35 +102,27 @@ export function SecuritySettings() {
       {card(
         <Lock className="w-4 h-4" />,
         'PIN สำหรับล็อก/ปลดล็อกหน้าจอ',
-        `ล็อกหน้าจอเมื่อไม่ได้ใช้งานหรือเมื่อกดล็อกเอง โดยไม่ต้องออกจากระบบ ปลดล็อกด้วย PIN แล้วกลับมาหน้าเดิม${canUseRiskyActions ? ' — ใช้ PIN ชุดเดียวกับการยืนยันรายการเสี่ยง' : ''}`,
+        'ล็อกหน้าจอเมื่อไม่ได้ใช้งานหรือเมื่อกดล็อกเอง โดยไม่ต้องออกจากระบบ ปลดล็อกด้วย PIN แล้วกลับมาหน้าเดิม',
         pinSet && status ? (
-          <label className="block pt-3 border-t border-slate-100 dark:border-slate-700/60 text-sm font-semibold text-slate-700 dark:text-slate-300">
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-700/60 text-sm font-semibold text-slate-700 dark:text-slate-300">
             ล็อกหน้าจออัตโนมัติเมื่อไม่ได้ใช้งาน
-            <select
+            <CustomSelect
+              ariaLabel="ล็อกหน้าจออัตโนมัติเมื่อไม่ได้ใช้งาน"
+              className="mt-1.5 block sm:w-64"
               disabled={busy}
               value={String(status.autoLockSeconds)}
-              onChange={(e) => void changeAutoLock(e.target.value)}
-              className="mt-1.5 block w-full sm:w-64 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-normal"
-            >
-              {status.autoLockOptions.map((s) => (
-                <option key={s} value={String(s)}>{lockLabel(s)}</option>
-              ))}
-            </select>
-          </label>
+              onChange={(value) => void changeAutoLock(String(value))}
+              options={status.autoLockOptions.map((s) => ({ value: String(s), label: lockLabel(s) }))}
+            />
+          </div>
         ) : null
-      )}
-
-      {canUseRiskyActions && card(
-        <ShieldAlert className="w-4 h-4" />,
-        'PIN สำหรับยืนยันรายการเสี่ยง',
-        'ใช้ยืนยันรายการที่กระทบเงินหรือสต็อก เช่น คืนเงิน ยกเลิกบิล ปรับสต็อก บันทึกรายจ่าย — ใช้ PIN ชุดเดียวกับการล็อกหน้าจอ'
       )}
 
       <PinSetupDialog
         open={dialog !== null}
         mode={dialog ?? 'set'}
         onClose={() => setDialog(null)}
-        onDone={() => showToast(dialog === 'change' ? 'เปลี่ยน PIN แล้ว' : 'ตั้ง PIN แล้ว', 'ใช้ได้ทันทีทั้งล็อกหน้าจอและยืนยันรายการ', 'SUCCESS')}
+        onDone={() => showToast(dialog === 'change' ? 'เปลี่ยน PIN แล้ว' : 'ตั้ง PIN แล้ว', 'ใช้ปลดล็อกหน้าจอได้ทันที', 'SUCCESS')}
       />
     </div>
   )

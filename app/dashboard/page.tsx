@@ -10,6 +10,7 @@ import { loadNotifications } from '@/features/notifications/services/notificatio
 import { loadAppointments } from '@/features/appointments/services/appointment-storage'
 import { loadSystemSettings } from '@/features/settings/services/settings-storage'
 import { loadAllBusinessData } from '@/components/common/MasterDataProvider'
+import { useAuth } from '@/features/auth/contexts/AuthContext'
 import {
   dashboardAssigneeLookupEnabled,
   fetchDashboardAssigneeNames,
@@ -22,6 +23,7 @@ import { BusinessAnalyticsView } from '@/features/dashboard/components/BusinessA
 function DashboardContent() {
   const searchParams = useSearchParams()
   const viewParam = searchParams.get('view') || 'assets'
+  const { hasMenu } = useAuth()
   const [refreshKey, setRefreshKey] = useState(0)
   const [assigneeNames, setAssigneeNames] = useState<Map<string, string>>(() => new Map())
   const [refreshError, setRefreshError] = useState('')
@@ -106,7 +108,7 @@ function DashboardContent() {
         </div>
       )}
       {currentView === 'assets' && (
-        <AssetsTransactionView metrics={metrics} onRefresh={handleManualRefresh} />
+        <AssetsTransactionView metrics={metrics} onRefresh={handleManualRefresh} showFinance={hasMenu('finance')} />
       )}
       {currentView === 'stock' && (
         <StockManagementView metrics={metrics} onRefresh={handleManualRefresh} />

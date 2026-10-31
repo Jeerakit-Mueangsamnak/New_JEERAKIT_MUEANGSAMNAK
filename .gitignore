@@ -10,7 +10,13 @@
 
 # ── Next.js build output ─────────────────────────────────────────────────────
 .next/
+.next-e2e/
 out/
+
+# ── Playwright output ────────────────────────────────────────────────────────
+test-results/
+playwright-report/
+e2e/.auth/
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
 node_modules/

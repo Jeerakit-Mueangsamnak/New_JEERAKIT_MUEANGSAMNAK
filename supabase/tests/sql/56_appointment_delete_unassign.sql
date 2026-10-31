@@ -44,7 +44,7 @@ SELECT t.dispatch(t.v('job_u')::uuid, 'D922');
 SELECT t.set('task_u2', t.driver_task(t.v('job_u')::uuid, 'D922', 'del-key-0002')::text);
 SELECT t.check('DEL-UNASSIGN', 'a new driver can be dispatched and starts at รับงาน',
     public.line_task_postback(t.v('u922'), t.v('task_u2')::uuid, 'ACCEPT') ->> 'next_stage' = 'PREPARE');
-SELECT t.err('DEL-UNASSIGN', 'a member without the appointments menu cannot unassign', 'nomenu',
+SELECT t.err('DEL-UNASSIGN', 'unassigning needs an ACTIVE member (owner 2026-10-26: every ACTIVE member may; one waiting for approval may not)', 'pending',
     format($q$select public.line_driver_tasks_withdraw(%L::uuid, 'UNASSIGN', %L::jsonb)$q$, t.v('job_u'), t.v('msg')), 'FORBIDDEN');
 
 -- ---------------------------------------------------------------- details: delete
@@ -57,7 +57,7 @@ SELECT t.err_admin('DEL-JOB', 'a plain DELETE is still refused (no-delete trigge
     format($q$delete from public.appointments where id = %L::uuid$q$, t.v('job_d')), 'NO_HARD_DELETE');
 SELECT t.err_admin('DEL-JOB', 'job history is still append-only outside the delete',
     format($q$delete from public.appointment_history where appointment_id = %L::uuid$q$, t.v('job_d')), 'APPEND_ONLY');
-SELECT t.err('DEL-JOB', 'a member without the appointments menu cannot delete', 'nomenu',
+SELECT t.err('DEL-JOB', 'deleting a job needs an ACTIVE member (owner 2026-10-26: every ACTIVE member may; one waiting for approval may not)', 'pending',
     format($q$select public.appointment_delete(%L::uuid, %L::jsonb)$q$, t.v('job_d'), t.v('msg')), 'FORBIDDEN');
 SELECT t.set('dr', (t.ok('DEL-JOB', 'owner deletes the job', 'owner', format(
     $q$select public.appointment_delete(%L::uuid, %L::jsonb)$q$, t.v('job_d'), t.v('msg'))))::text);

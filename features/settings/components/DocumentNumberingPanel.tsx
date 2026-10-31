@@ -11,6 +11,7 @@ import {
   type SystemConfig,
 } from '@/features/settings/services/settings-storage'
 import { previewDocumentNumber } from '@/features/settings/api/settings-repository'
+import { CustomSelect } from '@/components/common/CustomSelect'
 
 interface DocumentNumberingPanelProps {
   config: SystemConfig
@@ -48,7 +49,7 @@ export function DocumentNumberingPanel({ config, setConfig }: DocumentNumberingP
   return (
     <div className="space-y-2.5">
       <h4 className={SETTINGS_SECTION_TITLE}>
-        <Hash className="w-3.5 h-3.5 text-blue-600" />
+        <Hash className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
         <span>รูปแบบเลขเอกสาร</span>
       </h4>
       <p className={SETTINGS_HELPER}>
@@ -56,7 +57,7 @@ export function DocumentNumberingPanel({ config, setConfig }: DocumentNumberingP
       </p>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
-          <thead className="text-[11px] text-slate-500 dark:text-slate-400">
+          <thead className="text-[11px] text-slate-600 dark:text-slate-400">
             <tr className="border-b border-slate-200 dark:border-slate-700">
               <th className="text-left font-semibold py-1.5 pr-2">เอกสาร</th>
               <th className="text-left font-semibold py-1.5 pr-2 w-32">Prefix</th>
@@ -80,20 +81,15 @@ export function DocumentNumberingPanel({ config, setConfig }: DocumentNumberingP
                     />
                   </td>
                   <td className="py-1.5 pr-2">
-                    <select
-                      aria-label={`จำนวนหลัก ${label}`}
+                    <CustomSelect
+                      ariaLabel={`จำนวนหลัก ${label}`}
                       value={f.digits}
-                      onChange={(e) => update(type, { digits: Number(e.target.value) })}
-                      className={`${SETTINGS_INPUT_MONO} h-8`}
-                    >
-                      {DIGIT_CHOICES.map((n) => (
-                        <option key={n} value={n}>
-                          {n}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(value) => update(type, { digits: Number(value) })}
+                      buttonClassName="h-8 px-2.5 py-0 rounded-xl font-mono"
+                      options={DIGIT_CHOICES.map((n) => ({ value: n, label: String(n) }))}
+                    />
                   </td>
-                  <td className="py-1.5">{f.prefix ? <ServerPreview type={type} prefix={f.prefix} digits={f.digits} /> : <span className="text-red-600 text-[11px]">ต้องมี Prefix</span>}</td>
+                  <td className="py-1.5">{f.prefix ? <ServerPreview type={type} prefix={f.prefix} digits={f.digits} /> : <span className="text-red-700 dark:text-red-400 text-[11px]">ต้องมี Prefix</span>}</td>
                 </tr>
               )
             })}

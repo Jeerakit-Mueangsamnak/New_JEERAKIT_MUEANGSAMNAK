@@ -1,7 +1,7 @@
-import { loadTransactions, type StatementTransaction } from '@/features/finance/services/finance-storage'
+import { loadRevenueLedger, loadTransactions, type StatementTransaction } from '@/features/finance/services/finance-storage'
 import { loadBills } from '@/features/bills/services/bill-storage'
 import { loadSystemSettings } from '@/features/settings/services/settings-storage'
-import { calculateGrowth, generateTimeBuckets, getPreviousPeriod, isDateInRange, type ReportDateFilter } from './report-data-common'
+import { calculateGrowth, generateTimeBuckets, getPreviousPeriod, isDateInRange, localDayOf, type ReportDateFilter } from './report-data-common'
 
 // 1. FINANCE REPORT DATA (Topics 1, 2, 3, 7, 8, 18)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,12 +35,14 @@ export interface FinanceReportData {
     outstandingAmount: number
     daysOverdue: number
   }>
-  // Topic 8: Deposits
-  depositReceived: number
-  depositRefunded: number
-  netDepositChange: number
+  // Topic 8: Deposits — the stated deposit on bills only; the system never records a deposit
+  // being received or returned (Master §18), so there is no "deposit in / out" figure.
   billDepositAmount: number
   billsWithDepositCount: number
+  // Revenue per mode (Master §31) from the finance ledger, by the day it was recorded
+  // (bill confirmed / charge confirmed / other income saved), VAT excluded.
+  revenueByClass: Array<{ revenueClass: string; label: string; amount: number }>
+  revenueTotal: number
   // Topic 18: Payment Channels
   paymentChannels: Array<{
     channel: string
@@ -61,12 +63,32 @@ export interface FinanceReportData {
 }
 
 const CHANNEL_COLORS: Record<string, string> = {
+  // Keys are the channel names the statement uses (finance-repository METHOD_TH).
   โอนเงิน: '#10b981', // emerald
   เงินสด: '#3b82f6', // blue
-  บัตรเครดิต: '#8b5cf6', // purple
-  'QR Code': '#06b6d4', // cyan
-  เช็ค: '#f59e0b', // amber
-  อื่นๆ: '#64748b', // slate
+  บัตร: '#8b5cf6', // purple
+  QR: '#06b6d4', // cyan
+  'อื่น ๆ': '#64748b', // slate
+}
+
+const REVENUE_CLASS_ORDER = [
+  'SALE', 'RENTAL', 'DELIVERY_FEE', 'INSTALLATION_FEE', 'SERVICE_FEE', 'DAMAGE', 'LOST', 'ADDITIONAL',
+  'ADJUSTMENT', 'OTHER', 'DISCOUNT', 'VAT_INCLUDED',
+]
+
+const REVENUE_CLASS_LABELS: Record<string, string> = {
+  SALE: 'ขายสินค้า',
+  RENTAL: 'ค่าเช่า',
+  DELIVERY_FEE: 'ค่าขนส่ง',
+  INSTALLATION_FEE: 'ค่าติดตั้ง',
+  SERVICE_FEE: 'ค่าบริการ',
+  DAMAGE: 'ค่าเสียหาย',
+  LOST: 'ค่าสินค้าสูญหาย',
+  ADDITIONAL: 'ค่าใช้จ่ายเพิ่ม',
+  ADJUSTMENT: 'ปรับยอดบิล',
+  OTHER: 'รายรับอื่น',
+  DISCOUNT: 'ส่วนลด',
+  VAT_INCLUDED: 'หัก VAT (ราคารวม VAT)',
 }
 
 export function getFinanceReportData(filter: ReportDateFilter): FinanceReportData {
@@ -83,19 +105,14 @@ export function getFinanceReportData(filter: ReportDateFilter): FinanceReportDat
   let totalExpense = 0
   let incomeCount = 0
   let expenseCount = 0
-  let depositReceived = 0
-  let depositRefunded = 0
 
   const channelMap: Record<string, { amount: number; count: number }> = {}
 
   for (const t of inRangeTxs) {
-    const isDep = t.isDeposit || t.category === 'เงินมัดจำ' || t.category === 'คืนเงินมัดจำ'
-
     if (t.type === 'INCOME') {
       const amt = t.incomeAmount || 0
       totalIncome += amt
       incomeCount++
-      if (isDep) depositReceived += amt
 
       const ch = t.channel || 'โอนเงิน'
       if (!channelMap[ch]) channelMap[ch] = { amount: 0, count: 0 }
@@ -105,7 +122,6 @@ export function getFinanceReportData(filter: ReportDateFilter): FinanceReportDat
       const amt = t.expenseAmount || 0
       totalExpense += amt
       expenseCount++
-      if (isDep) depositRefunded += amt
     }
   }
 
@@ -136,8 +152,14 @@ export function getFinanceReportData(filter: ReportDateFilter): FinanceReportDat
   const debtorBills: FinanceReportData['debtorBills'] = []
   let totalOutstanding = 0
 
+  // Same bill set as the dashboard: drafts are not bills yet; cancelled / void bills owe nothing.
+  const countsAsBill = (b: (typeof allBills)[number]) => {
+    const s = b.serverStatus || b.rentalStatus
+    return s !== 'DRAFT' && s !== 'CANCELLED' && s !== 'VOID'
+  }
+
   for (const b of allBills) {
-    if (b.rentalStatus === 'CANCELLED' || b.rentalStatus === 'VOID') continue
+    if (!countsAsBill(b)) continue
     const out = b.outstandingAmount || 0
     if (out > 0) {
       totalOutstanding += out
@@ -171,13 +193,30 @@ export function getFinanceReportData(filter: ReportDateFilter): FinanceReportDat
   let billDepositAmount = 0
   let billsWithDepositCount = 0
   for (const b of allBills) {
-    if (b.rentalStatus === 'CANCELLED' || b.rentalStatus === 'VOID') continue
+    if (!countsAsBill(b)) continue
     const statedDeposit = b.heldDepositAmount || 0
     if (statedDeposit > 0) {
       billDepositAmount += statedDeposit
       billsWithDepositCount++
     }
   }
+
+  const revenueMap = new Map<string, number>()
+  for (const e of loadRevenueLedger()) {
+    if (!isDateInRange(e.occurredAt, filter.startDate, filter.endDate)) continue
+    revenueMap.set(e.revenueClass, (revenueMap.get(e.revenueClass) || 0) + e.amount)
+  }
+  const revenueByClass = REVENUE_CLASS_ORDER.filter((c) => Math.abs(revenueMap.get(c) || 0) >= 0.005).map((c) => ({
+    revenueClass: c,
+    label: REVENUE_CLASS_LABELS[c] || c,
+    amount: Math.round((revenueMap.get(c) || 0) * 100) / 100,
+  }))
+  for (const [c, amount] of revenueMap) {
+    if (!REVENUE_CLASS_ORDER.includes(c) && Math.abs(amount) >= 0.005) {
+      revenueByClass.push({ revenueClass: c, label: c, amount: Math.round(amount * 100) / 100 })
+    }
+  }
+  const revenueTotal = Math.round(revenueByClass.reduce((s, r) => s + r.amount, 0) * 100) / 100
 
   // Topic 18: Payment Channels
   const paymentChannels: FinanceReportData['paymentChannels'] = Object.entries(channelMap).map(
@@ -199,7 +238,7 @@ export function getFinanceReportData(filter: ReportDateFilter): FinanceReportDat
   }
 
   for (const t of inRangeTxs) {
-    const clean = t.dateTime.includes('T') ? t.dateTime.split('T')[0] : t.dateTime.slice(0, 10)
+    const clean = localDayOf(t.dateTime)
     const key = filter.granularity === 'daily' ? clean : clean.slice(0, 7)
     const entry = bucketMap.get(key)
     if (entry) {
@@ -238,11 +277,10 @@ export function getFinanceReportData(filter: ReportDateFilter): FinanceReportDat
     totalOutstanding,
     debtorCount: debtorBills.length,
     debtorBills,
-    depositReceived,
-    depositRefunded,
-    netDepositChange: depositReceived - depositRefunded,
     billDepositAmount,
     billsWithDepositCount,
+    revenueByClass,
+    revenueTotal,
     paymentChannels,
     trendData,
     transactions: sortedTxs,

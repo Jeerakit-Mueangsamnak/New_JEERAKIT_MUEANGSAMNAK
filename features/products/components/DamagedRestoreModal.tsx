@@ -104,13 +104,13 @@ export function DamagedRestoreModal({
     <AppModal isOpen={isOpen} onClose={onClose} size="md">
       <AppModalHeader
         onClose={onClose}
-        icon={<RotateCcw className="w-5 h-5 text-emerald-600" />}
+        icon={<RotateCcw className="w-5 h-5 text-emerald-700 dark:text-emerald-400" />}
       >
         <div>
           <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
             นำสินค้าชำรุดกลับมาใช้งานต่อ
           </h3>
-          <p className="text-xs text-slate-500 font-mono">
+          <p className="text-xs text-slate-600 dark:text-slate-400 font-mono">
             รหัส: {product.code} | {product.name}
           </p>
         </div>
@@ -121,19 +121,19 @@ export function DamagedRestoreModal({
             {/* Product Summary Info Card */}
             <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 text-xs space-y-2">
               <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">รายการสินค้า:</span>
+                <span className="text-slate-600 dark:text-slate-400 font-medium">รายการสินค้า:</span>
                 <span className="font-extrabold text-slate-800 dark:text-slate-100">{product.name}</span>
               </div>
               <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-200 dark:border-slate-700">
                 <div className="text-center p-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60">
                   <span className="block text-[10px] text-amber-700 dark:text-amber-300 font-semibold">ชำรุดปัจจุบัน</span>
-                  <span className="block text-base font-black text-amber-600 dark:text-amber-400">
+                  <span className="block text-base font-black text-amber-700 dark:text-amber-400">
                     {product.damagedQuantity} <span className="text-[10px] font-normal">{product.unit}</span>
                   </span>
                 </div>
                 <div className="text-center p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60">
                   <span className="block text-[10px] text-emerald-700 dark:text-emerald-300 font-semibold">พร้อมใช้ปัจจุบัน</span>
-                  <span className="block text-base font-black text-emerald-600 dark:text-emerald-400">
+                  <span className="block text-base font-black text-emerald-700 dark:text-emerald-400">
                     {product.availableQuantity} <span className="text-[10px] font-normal">{product.unit}</span>
                   </span>
                 </div>
@@ -149,7 +149,7 @@ export function DamagedRestoreModal({
             {/* Quantity Input */}
             <div className="space-y-1.5">
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-200">
-                จำนวนที่ต้องการนำกลับมาใช้งานต่อ ({product.unit}) <span className="text-red-500">*</span>
+                จำนวนที่ต้องการนำกลับมาใช้งานต่อ ({product.unit}) <span className="text-red-700 dark:text-red-400">*</span>
               </label>
               <div className="flex items-center gap-2">
                 <NumericInput
@@ -170,7 +170,7 @@ export function DamagedRestoreModal({
                 </button>
               </div>
               {!isQtyValid && (
-                <p className="text-[11px] text-red-500 font-medium flex items-center gap-1">
+                <p className="text-[11px] text-red-700 dark:text-red-400 font-medium flex items-center gap-1">
                   <AlertTriangle className="w-3.5 h-3.5" />
                   <span>ต้องระบุจำนวนระหว่าง 1 ถึง {maxRestore}</span>
                 </p>
@@ -198,19 +198,19 @@ export function DamagedRestoreModal({
               </span>
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div className="bg-white dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700">
-                  <span className="text-[10px] text-slate-500 block">สินค้าชำรุด (ลดลง)</span>
+                  <span className="text-[10px] text-slate-600 dark:text-slate-400 block">สินค้าชำรุด (ลดลง)</span>
                   <div className="flex items-center gap-2 mt-1">
-                    <span className="font-bold text-slate-500 line-through">{product.damagedQuantity}</span>
-                    <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="font-black text-amber-600 dark:text-amber-400 text-sm">{targetDamaged}</span>
+                    <span className="font-bold text-slate-600 dark:text-slate-400 line-through">{product.damagedQuantity}</span>
+                    <ArrowRight className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
+                    <span className="font-black text-amber-700 dark:text-amber-400 text-sm">{targetDamaged}</span>
                   </div>
                 </div>
                 <div className="bg-white dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700">
-                  <span className="text-[10px] text-slate-500 block">พร้อมให้เช่า (เพิ่มขึ้น)</span>
+                  <span className="text-[10px] text-slate-600 dark:text-slate-400 block">พร้อมให้เช่า (เพิ่มขึ้น)</span>
                   <div className="flex items-center gap-2 mt-1">
-                    <span className="font-bold text-slate-500">{product.availableQuantity}</span>
-                    <ArrowRight className="w-3.5 h-3.5 text-emerald-500" />
-                    <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">{targetAvailable}</span>
+                    <span className="font-bold text-slate-600 dark:text-slate-400">{product.availableQuantity}</span>
+                    <ArrowRight className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
+                    <span className="font-black text-emerald-700 dark:text-emerald-400 text-sm">{targetAvailable}</span>
                   </div>
                 </div>
               </div>
@@ -232,8 +232,8 @@ export function DamagedRestoreModal({
               disabled={!isQtyValid || isSubmitting}
               className={`px-5 py-2 rounded-xl font-bold text-xs text-white transition-all flex items-center gap-1.5 shadow-sm cursor-pointer ${
                 !isQtyValid || isSubmitting
-                  ? 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed text-slate-400'
-                  : 'bg-emerald-600 hover:bg-emerald-700 active:scale-98'
+                  ? 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed text-slate-600 dark:text-slate-400'
+                  : 'bg-emerald-700 hover:bg-emerald-800 active:scale-98'
               }`}
             >
               <RotateCcw className="w-3.5 h-3.5" />

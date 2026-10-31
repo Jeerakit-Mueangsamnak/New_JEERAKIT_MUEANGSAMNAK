@@ -196,7 +196,7 @@ export function AppointmentDispatchModal({
 
   return (
     <AppModal isOpen onClose={onClose} size="md">
-      <AppModalHeader onClose={onClose} icon={<Send className="w-5 h-5 text-emerald-600" />} title="สั่งงาน" />
+      <AppModalHeader onClose={onClose} icon={<Send className="w-5 h-5 text-emerald-700 dark:text-emerald-400" />} title="สั่งงาน" />
       <AppModalBody className="space-y-4">
         <div className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1">
           <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100">
@@ -241,7 +241,7 @@ export function AppointmentDispatchModal({
                       setWorkType(type)
                       setSelectedLineIds([])
                     }}
-                    className={`h-8 rounded-lg border text-xs font-bold ${workType === type ? 'bg-emerald-600 text-white border-emerald-600' : 'border-slate-300 dark:border-slate-700'}`}
+                    className={`h-8 rounded-lg border text-xs font-bold ${workType === type ? 'bg-emerald-700 text-white border-emerald-600' : 'border-slate-300 dark:border-slate-700'}`}
                   >
                     {type === 'DELIVERY' ? 'ส่งของ' : 'รับคืน'}
                   </button>
@@ -250,14 +250,14 @@ export function AppointmentDispatchModal({
               {workType && (
                 <div className="max-h-36 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-800">
                   {eligibleItems.length === 0 ? (
-                    <p className="p-2 text-[11px] text-slate-500">ไม่มีรายการบิลที่เข้าเงื่อนไขประเภทงานนี้</p>
+                    <p className="p-2 text-[11px] text-slate-600 dark:text-slate-400">ไม่มีรายการบิลที่เข้าเงื่อนไขประเภทงานนี้</p>
                   ) : eligibleItems.map((item) => {
                     const quantity = workType === 'RETURN' ? item.outstandingQty : Number(item.remainingQty)
                     return (
                       <label key={item.rentalBillItemId} className="flex items-center gap-2 p-2 text-xs cursor-pointer">
                         <input type="checkbox" checked={selectedLineIds.includes(item.rentalBillItemId)} onChange={() => toggleLine(item.rentalBillItemId)} />
                         <span className="min-w-0 flex-1 truncate">{item.productName}</span>
-                        <span className="font-mono text-slate-500">เหลือ {quantity} {item.unit}</span>
+                        <span className="font-mono text-slate-600 dark:text-slate-400">เหลือ {quantity} {item.unit}</span>
                       </label>
                     )
                   })}
@@ -278,7 +278,7 @@ export function AppointmentDispatchModal({
               searchable
             />
           ) : (
-            <div className="px-3.5 py-2.5 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-100/70 dark:bg-slate-900 text-xs text-slate-400 dark:text-slate-500 font-medium">
+            <div className="px-3.5 py-2.5 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-100/70 dark:bg-slate-900 text-xs text-slate-600 dark:text-slate-400 font-medium">
               ยังไม่มีข้อมูลพนักงาน
               <span className="block text-[11px] mt-0.5">เพิ่มคนขับได้ที่ ตั้งค่าระบบ › LINE › ทะเบียนคนขับ</span>
             </div>
@@ -289,7 +289,7 @@ export function AppointmentDispatchModal({
           <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">ช่องทางส่งงาน</label>
           <div className="flex items-center justify-between gap-2 p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 text-xs">
             <span className="font-semibold text-slate-700 dark:text-slate-300">LINE OA ของร้าน</span>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium text-right">
+            <span className="text-[11px] text-slate-600 dark:text-slate-400 font-medium text-right">
               ส่งเข้า LINE ของคนขับที่ผูกไว้ · ถ้ายังส่งไม่ได้ ระบบยังบันทึกการสั่งงาน ให้แจ้งคนขับทางโทรศัพท์
               {selectedDriver?.phone ? ` ${selectedDriver.phone}` : ''}
             </span>

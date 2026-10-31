@@ -16,7 +16,7 @@ interface AreaTrendChartProps {
 export function AreaTrendChart({ data, height = 170 }: AreaTrendChartProps) {
   if (!data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-32 text-xs text-slate-400">
+      <div className="flex items-center justify-center h-32 text-xs text-slate-600 dark:text-slate-400">
         ยังไม่มีข้อมูลแนวโน้ม
       </div>
     )
@@ -65,10 +65,10 @@ export function AreaTrendChart({ data, height = 170 }: AreaTrendChartProps) {
   return (
     <div className="w-full">
       <div className="flex items-center justify-end gap-3 text-[10.5px] mb-1 font-bold">
-        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+        <span className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> รายรับ
         </span>
-        <span className="flex items-center gap-1 text-rose-600 dark:text-rose-400">
+        <span className="flex items-center gap-1 text-rose-700 dark:text-rose-400">
           <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" /> รายจ่าย / เงินคืน
         </span>
       </div>
@@ -169,8 +169,8 @@ export function SalesVsRentBarChart({ salesRevenue, rentalRevenue, height = 170 
 
   return (
     <div className="w-full">
-      <div className="flex items-center justify-end gap-3 text-[10px] mb-1 font-bold text-slate-400">
-        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+      <div className="flex items-center justify-end gap-3 text-[10px] mb-1 font-bold text-slate-600 dark:text-slate-400">
+        <span className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
           <span className="w-2.5 h-2.5 rounded-xs bg-emerald-500 inline-block" /> ยอดขายสินค้า
         </span>
         <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
@@ -326,12 +326,12 @@ export function DonutChart({
           )}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center px-1">
-          <span className="text-[9px] text-slate-400 font-bold">{centerTitle}</span>
+          <span className="text-[9px] text-slate-600 dark:text-slate-400 font-bold">{centerTitle}</span>
           <span className="text-[11px] font-black text-slate-800 dark:text-slate-100 font-mono leading-tight truncate max-w-full">
             {centerPrefix}{total.toLocaleString()}
           </span>
           {centerSuffix && (
-            <span className="text-[8.5px] text-slate-400 font-medium">{centerSuffix}</span>
+            <span className="text-[8.5px] text-slate-600 dark:text-slate-400 font-medium">{centerSuffix}</span>
           )}
         </div>
       </div>
@@ -345,9 +345,9 @@ export function DonutChart({
             </div>
             <div className="flex items-center gap-1 font-mono shrink-0 ml-1">
               <span className="font-bold text-slate-800 dark:text-slate-200">
-                {centerPrefix ? `฿${item.value.toLocaleString()}` : item.value.toLocaleString()}
+                {centerPrefix ? `${item.value.toLocaleString()}` : item.value.toLocaleString()}
               </span>
-              <span className="text-[9.5px] text-slate-400 w-8 text-right font-sans">
+              <span className="text-[9.5px] text-slate-600 dark:text-slate-400 w-8 text-right font-sans">
                 {item.percentage}%
               </span>
             </div>
@@ -485,7 +485,7 @@ export function CategoryHorizontalBarChart({
       </div>
 
       {/* Axis ticks at bottom: 0, 100, 200, 300, 400, 500 */}
-      <div className="flex items-center justify-between text-[8.5px] font-mono text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800">
+      <div className="flex items-center justify-between text-[8.5px] font-mono text-slate-600 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800">
         <span>0</span>
         <span>{Math.round(maxScale * 0.25)}</span>
         <span>{Math.round(maxScale * 0.5)}</span>
@@ -599,7 +599,7 @@ export function DoubleLineAreaTrendChart({
 }) {
   if (!data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-32 text-xs text-slate-400">
+      <div className="flex items-center justify-center h-32 text-xs text-slate-600 dark:text-slate-400">
         ยังไม่มีข้อมูลแนวโน้ม
       </div>
     )
@@ -651,12 +651,12 @@ export function DoubleLineAreaTrendChart({
   return (
     <div className="w-full">
       <div className="flex items-center justify-between text-[10.5px] mb-1 font-bold">
-        <span className="text-[9.5px] text-slate-400 font-normal">บาท</span>
+        <span className="text-[9.5px] text-slate-600 dark:text-slate-400 font-normal">บาท</span>
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
             <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" /> ยอดบิลไม่รวม VAT
           </span>
-          <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+          <span className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> รับจริงสุทธิจากบิล
           </span>
         </div>
@@ -722,12 +722,12 @@ export function DoubleLineAreaTrendChart({
         {/* Small Tooltip badge at top right if last point exists */}
         {lastPoint && (
           <div className="hidden sm:block absolute top-2 right-6 bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 shadow-sm text-[9.5px] pointer-events-none">
-            <div className="font-bold text-slate-500 mb-0.5">{lastPoint.label}</div>
+            <div className="font-bold text-slate-600 dark:text-slate-400 mb-0.5">{lastPoint.label}</div>
             <div className="flex items-center gap-2">
-              <span className="text-blue-500 font-mono font-bold">ยอดบิล: ฿{lastPoint.revenue.toLocaleString()}</span>
+              <span className="text-blue-600 dark:text-blue-400 font-mono font-bold">ยอดบิล: {lastPoint.revenue.toLocaleString()}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-emerald-500 font-mono font-bold">รับสุทธิ: ฿{lastPoint.receivedAmount.toLocaleString()}</span>
+              <span className="text-emerald-700 dark:text-emerald-400 font-mono font-bold">รับสุทธิ: {lastPoint.receivedAmount.toLocaleString()}</span>
             </div>
           </div>
         )}

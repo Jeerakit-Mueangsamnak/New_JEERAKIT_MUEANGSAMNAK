@@ -8,20 +8,23 @@ import { useToast } from '@/components/common/Toast'
 import type { BusinessSettings } from '@/lib/types/rental-pos'
 import type { DocumentTemplate, TemplateTargetGroup } from '@/lib/types/document'
 import { renderDocumentTemplate } from '@/features/documents/utils/documentRenderer'
-import { convertFileToInternalTemplate } from '@/features/documents/utils/documentConverter'
+import { convertFileToInternalTemplate, TEMPLATE_UPLOAD_ACCEPT } from '@/features/documents/utils/documentConverter'
 import { A4DocumentWorkspace } from '@/features/documents/components/A4DocumentWorkspace'
 import { BatchDeleteModal } from '@/features/documents/components/BatchDeleteModal'
 import {
+  QUOTATION_STARTER_TEMPLATE,
   INITIAL_DOC_CATEGORIES,
   CUSTOMER_DOC_CATEGORIES,
   BILL_DOC_CATEGORIES,
 } from '@/features/documents/constants/initialDocumentTemplates'
 import {
-  addLibraryTemplate,
   getTemplateTarget,
-  isCoreTemplate,
   loadTemplateLibrary,
-  removeLibraryTemplates,
+  refreshSharedTemplates,
+  removeTemplates,
+  saveSharedTemplate,
+  templateBytes,
+  TEMPLATE_MAX_BYTES,
 } from '@/features/documents/services/template-library-storage'
 import { printDocuments } from '@/lib/print/print-service'
 
@@ -86,11 +89,26 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [libraryFilter, setLibraryFilter] = useState<'ALL' | 'CUSTOMER' | 'BILL'>('ALL')
 
+  // Every form is a shop form from the server (same on every device): the last list read shows at
+  // once, then the server's list; the preview falls back to the first form once it has loaded.
   useEffect(() => {
+    let active = true
     const list = loadTemplateLibrary()
     setTemplates(list)
     setPreviewId(list[0]?.id ?? null)
-  }, [])
+    refreshSharedTemplates()
+      .then((next) => {
+        if (!active) return
+        setTemplates(next)
+        setPreviewId((id) => (id && next.some((t) => t.id === id) ? id : next[0]?.id ?? null))
+      })
+      .catch((err: unknown) => {
+        if (active) showToast('โหลดแบบฟอร์มของร้านไม่สำเร็จ', err instanceof Error ? err.message : 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
+      })
+    return () => {
+      active = false
+    }
+  }, [showToast])
 
   const filteredTemplates = useMemo(() => {
     if (libraryFilter === 'ALL') return templates
@@ -103,7 +121,6 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
   const previewTpl = templates.find((t) => t.id === previewId) ?? null
   const previewHtml = useMemo(() => (previewTpl ? renderLibraryTemplate(previewTpl, business) : ''), [previewTpl, business])
   const checked = templates.filter((t) => checkedIds.includes(t.id))
-  const deletableChecked = checked.filter((t) => !isCoreTemplate(t.id))
 
   const toggleChecked = (id: string) => setCheckedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   const toggleAll = () => {
@@ -122,15 +139,19 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
     printDocuments(checked.map((t) => wrapPage(renderLibraryTemplate(t, business))), checked.length === 1 ? checked[0].name : `แบบฟอร์ม ${checked.length} รายการ`)
   }
 
-  const handleDelete = (reason: string) => {
+  const handleDelete = async (reason: string) => {
     if (!reason.trim()) return showToast('กรุณาระบุเหตุผล', 'จำเป็นต้องระบุเหตุผลในการลบแบบฟอร์ม', 'ERROR')
-    const ids = deletableChecked.map((template) => template.id)
-    if (ids.length === 0) return showToast('ไม่มีแบบฟอร์มที่ลบได้', 'แบบฟอร์มหลักของระบบไม่สามารถลบออกจากคลังได้', 'INFO')
-    const next = removeLibraryTemplates(ids)
-    setTemplates(next)
-    setCheckedIds([])
-    if (previewId && ids.includes(previewId)) setPreviewId(next[0]?.id ?? null)
-    showToast('ลบแบบฟอร์มสำเร็จ', `ลบแบบฟอร์มจำนวน ${ids.length} รายการแล้ว แบบฟอร์มหลักของระบบยังอยู่ในคลัง`, 'SUCCESS')
+    const ids = checked.map((template) => template.id)
+    if (ids.length === 0) return showToast('เลือกแบบฟอร์ม', 'ติ๊กเลือกแบบฟอร์มที่ต้องการลบก่อน', 'INFO')
+    try {
+      const next = await removeTemplates(ids, reason.trim())
+      setTemplates(next)
+      setCheckedIds([])
+      if (previewId && ids.includes(previewId)) setPreviewId(next[0]?.id ?? null)
+      showToast('ลบแบบฟอร์มสำเร็จ', `ลบแบบฟอร์มจำนวน ${ids.length} รายการแล้ว`, 'SUCCESS')
+    } catch (err) {
+      showToast('ลบแบบฟอร์มไม่สำเร็จ', err instanceof Error ? err.message : 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
+    }
   }
 
   // ── เพิ่มแบบฟอร์ม ───────────────────────────────────────────────────────
@@ -140,7 +161,9 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [conversionProgress, setConversionProgress] = useState<string | null>(null)
   const [convertedSchema, setConvertedSchema] = useState<string | null>(null)
+  const [convertedPageCount, setConvertedPageCount] = useState(1)
   const [newFormOrientation, setNewFormOrientation] = useState<'PORTRAIT' | 'LANDSCAPE'>('PORTRAIT')
+  const [isSaving, setIsSaving] = useState(false)
 
   const handleTargetChange = (target: TemplateTargetGroup) => {
     setNewFormTarget(target)
@@ -162,8 +185,8 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
     setConvertedSchema(null)
     setNewFormOrientation('PORTRAIT')
     if (!newFormName) setNewFormName(file.name.replace(/\.[^/.]+$/, ''))
-    setConversionProgress('กำลังแปลงเป็น Internal Template Schema...')
-    const result = await convertFileToInternalTemplate(file, newFormName || file.name, newFormCategory)
+    setConversionProgress('กำลังอ่านไฟล์และแปลงทุกหน้า...')
+    const result = await convertFileToInternalTemplate(file)
     setConversionProgress(null)
     e.target.value = ''
     if (!result.success) {
@@ -171,12 +194,14 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
       return showToast('ไม่สามารถแปลงไฟล์ได้', result.error || 'ไม่สามารถแปลงไฟล์ประเภทนี้เป็น Template ได้', 'ERROR')
     }
     setConvertedSchema(result.templateSchema || '')
+    setConvertedPageCount(result.pageCount || 1)
     if (result.orientation) setNewFormOrientation(result.orientation)
-    showToast('แปลงไฟล์เป็น Template สำเร็จ', 'ระบบแปลงโครงสร้างเอกสารเรียบร้อยแล้ว', 'SUCCESS')
+    showToast('แปลงไฟล์เป็น Template สำเร็จ', `แปลงครบ ${result.pageCount || 1} หน้า`, 'SUCCESS')
   }
 
-  const handleSaveTemplate = (e: React.FormEvent) => {
+  const handleSaveTemplate = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (isSaving) return
     const name = newFormName.trim()
     if (!name) return showToast('กรุณาระบุชื่อแบบฟอร์ม', 'กรอกชื่อแบบฟอร์มก่อนบันทึก', 'INFO')
     const now = today()
@@ -188,19 +213,34 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
       source: uploadedFile ? 'CONVERTED_IMPORT' : 'BUILTIN',
       fileType: uploadedFile ? uploadedFile.name.split('.').pop()?.toUpperCase() || 'DOC' : 'HTML',
       fileName: uploadedFile?.name,
-      templateSchema: convertedSchema || fallbackSchema(name, newFormCategory),
+      // An empty quotation is a copy of the working data-bound A4 form, not a blank static page.
+      templateSchema: convertedSchema || (newFormTarget === 'BILL' && newFormCategory === 'ใบเสนอราคา'
+        ? QUOTATION_STARTER_TEMPLATE.templateSchema
+        : fallbackSchema(name, newFormCategory)),
       paperSize: 'A4',
       orientation: newFormOrientation,
-      pageCount: 1,
+      pageCount: uploadedFile ? convertedPageCount : 1,
       version: 1,
       isDefault: false,
       createdAt: now,
       updatedAt: now,
       createdBy: 'ผู้ใช้',
       description: `เทมเพลต${newFormTarget === 'CUSTOMER' ? 'แบบฟอร์มลูกค้า' : 'แบบฟอร์มบิล'}ที่สร้างใหม่ในระบบ`,
-      defaultTerms: DEFAULT_TERMS,
+      defaultTerms: newFormTarget === 'BILL' && newFormCategory === 'ใบเสนอราคา'
+        ? QUOTATION_STARTER_TEMPLATE.defaultTerms || ''
+        : DEFAULT_TERMS,
     }
-    setTemplates(addLibraryTemplate(saved))
+    if (templateBytes(saved) > TEMPLATE_MAX_BYTES) {
+      return showToast('ไฟล์ใหญ่เกินไป', 'แบบฟอร์มหนึ่งรายการเก็บได้ไม่เกิน 1 MB ลองลดจำนวนหน้าหรือใช้ไฟล์ Word แทน', 'ERROR')
+    }
+    setIsSaving(true)
+    try {
+      setTemplates(await saveSharedTemplate(saved))
+    } catch (err) {
+      return showToast('บันทึกไม่สำเร็จ', err instanceof Error ? err.message : 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
+    } finally {
+      setIsSaving(false)
+    }
     setPreviewId(saved.id)
     onModeChange('LIBRARY')
     setNewFormName('')
@@ -228,7 +268,7 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
               <div className="flex-1 min-h-0 flex flex-col space-y-2 overflow-hidden">
                 <div className="flex items-center justify-between gap-1.5 pt-0.5 text-slate-800 dark:text-slate-200 font-bold text-xs shrink-0">
                   <span className="flex items-center gap-1.5">
-                    <FileCode className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                    <FileCode className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
                     <span>รายการแบบฟอร์มเอกสาร ({templates.length})</span>
                   </span>
                 </div>
@@ -239,8 +279,8 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
                     onClick={() => setLibraryFilter('ALL')}
                     className={`py-1 rounded-md transition-all ${
                       libraryFilter === 'ALL'
-                        ? 'bg-white dark:bg-slate-800 text-purple-600 shadow-xs'
-                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                        ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                     }`}
                   >
                     ทั้งหมด ({templates.length})
@@ -250,8 +290,8 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
                     onClick={() => setLibraryFilter('CUSTOMER')}
                     className={`py-1 rounded-md transition-all ${
                       libraryFilter === 'CUSTOMER'
-                        ? 'bg-white dark:bg-slate-800 text-purple-600 shadow-xs'
-                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                        ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                     }`}
                   >
                     ฟอร์มลูกค้า ({customerCount})
@@ -261,8 +301,8 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
                     onClick={() => setLibraryFilter('BILL')}
                     className={`py-1 rounded-md transition-all ${
                       libraryFilter === 'BILL'
-                        ? 'bg-white dark:bg-slate-800 text-purple-600 shadow-xs'
-                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                        ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                     }`}
                   >
                     ฟอร์มบิล ({billCount})
@@ -275,11 +315,11 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
                       type="checkbox"
                       checked={filteredTemplates.length > 0 && filteredTemplates.every((t) => checkedIds.includes(t.id))}
                       onChange={toggleAll}
-                      className="w-3.5 h-3.5 text-purple-600 rounded"
+                      className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 rounded"
                     />
                     <span>เลือกทั้งหมด</span>
                   </label>
-                  <span className="text-[10px] text-slate-500 font-mono">
+                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono">
                     เลือกแล้ว {checked.length} / {templates.length}
                   </span>
                 </div>
@@ -306,8 +346,7 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
                             checked={checkedIds.includes(tpl.id)}
                             onChange={() => toggleChecked(tpl.id)}
                             onClick={(e) => e.stopPropagation()}
-                            title={isCoreTemplate(tpl.id) ? 'แบบฟอร์มหลักของระบบ ลบออกจากคลังไม่ได้' : undefined}
-                            className="w-3.5 h-3.5 text-purple-600 rounded shrink-0 enabled:cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                            className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 rounded shrink-0 enabled:cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
                           />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 flex-wrap">
@@ -324,11 +363,8 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
                               {tpl.isDefault && (
                                 <span className="px-1.5 rounded bg-purple-600 text-white font-extrabold text-[10px]">Default</span>
                               )}
-                              {isCoreTemplate(tpl.id) && (
-                                <span className="px-1.5 rounded bg-slate-200 text-slate-700 font-bold text-[10px] dark:bg-slate-700 dark:text-slate-200">แบบฟอร์มหลัก</span>
-                              )}
                             </div>
-                            <span className="text-[10px] text-slate-500 font-mono block">
+                            <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono block">
                               หมวด: {tpl.category} | v{tpl.version}
                             </span>
                           </div>
@@ -400,16 +436,16 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
 
                   <div>
                     <div className="p-3 border-2 border-dashed border-purple-300 dark:border-purple-800/80 rounded-xl bg-purple-50/40 dark:bg-purple-950/20 text-center space-y-1.5">
-                      <Upload className="w-5 h-5 text-purple-600 mx-auto" />
+                      <Upload className="w-5 h-5 text-purple-600 dark:text-purple-400 mx-auto" />
                       <p className="font-bold text-slate-700 dark:text-slate-200 text-[10px]">
-                        {uploadedFile ? <span className="text-purple-600 font-mono">📎 {uploadedFile.name}</span> : 'รองรับ PDF, DOCX, XLSX, HTML, TXT, CSV'}
+                        {uploadedFile ? <span className="text-purple-600 dark:text-purple-400 font-mono">📎 {uploadedFile.name}</span> : 'รองรับ PDF, DOCX, XLSX, CSV, HTML, TXT (ไฟล์ .doc รุ่นเก่าให้บันทึกเป็น .docx ก่อน)'}
                       </p>
                       <input
                         type="file"
                         aria-label="ไฟล์ต้นฉบับแบบฟอร์ม"
-                        accept=".pdf,.doc,.docx,.xls,.xlsx,.html,.txt,.rtf,.csv"
+                        accept={TEMPLATE_UPLOAD_ACCEPT}
                         onChange={(e) => void handleFileUploadAndConvert(e)}
-                        className="block w-full text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-extrabold file:bg-purple-600 file:text-white hover:file:bg-purple-700 cursor-pointer"
+                        className="block w-full text-[10px] text-slate-600 dark:text-slate-400 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-extrabold file:bg-purple-600 file:text-white hover:file:bg-purple-700 cursor-pointer"
                       />
                     </div>
                     {conversionProgress && (
@@ -423,10 +459,11 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
 
                 <button
                   type="submit"
-                  className="w-full mt-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 text-xs transition-all"
+                  disabled={isSaving}
+                  className="w-full mt-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 text-xs transition-all disabled:opacity-60"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>บันทึก Template เข้าคลังระบบ</span>
+                  <span>{isSaving ? 'กำลังบันทึก...' : 'บันทึก Template เข้าคลังระบบ'}</span>
                 </button>
               </form>
             )}
@@ -438,7 +475,7 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
                 type="button"
                 onClick={handlePrint}
                 disabled={checked.length === 0}
-                className="py-1.5 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                className="py-1.5 px-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>พิมพ์ ({checked.length})</span>
@@ -446,15 +483,15 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
               <button
                 type="button"
                 onClick={() => setDeleteOpen(true)}
-                disabled={deletableChecked.length === 0}
+                disabled={checked.length === 0}
                 className={`py-1.5 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
-                  deletableChecked.length > 0
+                  checked.length > 0
                     ? 'bg-red-600 text-white shadow-sm hover:bg-red-700'
-                    : 'bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-500 cursor-not-allowed'
+                    : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400 cursor-not-allowed'
                 }`}
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>ลบ ({deletableChecked.length})</span>
+                <span>ลบ ({checked.length})</span>
               </button>
             </div>
           )}
@@ -465,7 +502,7 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
         <A4DocumentWorkspace htmlContent={mode === 'LIBRARY' ? previewHtml : addPreviewHtml} />
       </div>
 
-      <BatchDeleteModal isOpen={deleteOpen} count={deletableChecked.length} itemTypeLabel="แบบฟอร์ม" onClose={() => setDeleteOpen(false)} onConfirm={handleDelete} />
+      <BatchDeleteModal isOpen={deleteOpen} count={checked.length} itemTypeLabel="แบบฟอร์ม" onClose={() => setDeleteOpen(false)} onConfirm={handleDelete} />
     </div>
   )
 }

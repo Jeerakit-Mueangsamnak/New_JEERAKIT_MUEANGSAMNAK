@@ -5,8 +5,11 @@
  */
 import {
   fetchTransactionsFromSupabase as fetchTransactionsFromRepository,
+  fetchRevenueLedgerFromSupabase,
   createExpense,
   createOtherIncome,
+  voidExpense,
+  voidOtherIncome,
 } from '@/features/finance/api/finance-repository'
 import { getLocalDateString } from '@/components/common/CustomDatePicker'
 
@@ -27,6 +30,34 @@ export interface StatementTransaction {
   originalTxId?: string
   correlationId?: string
   isDeposit?: boolean
+  /** Which server record the row comes from (only EXPENSE / OTHER_INCOME can be voided here). */
+  source?: 'PAYMENT' | 'REFUND' | 'EXPENSE' | 'OTHER_INCOME'
+  /** Receipt number of a bill payment (payment_receipts.receipt_no). */
+  receiptNo?: string
+  reference?: string
+}
+
+/** Signed revenue amount per class from the finance ledger (negative = discount / reversal). */
+export interface RevenueLedgerEntry {
+  revenueClass: string
+  amount: number
+  occurredAt: string
+}
+
+let _cachedRevenueLedger: RevenueLedgerEntry[] = []
+
+/** Drops every cached money row (e.g. on sign-out / user switch) so nothing leaks between accounts. */
+export function clearFinanceCache(): void {
+  _cachedRevenueLedger = []
+  _cachedTransactions = null
+}
+
+export function loadRevenueLedger(): RevenueLedgerEntry[] {
+  return _cachedRevenueLedger
+}
+
+export function setCachedRevenueLedger(rows: RevenueLedgerEntry[]): void {
+  _cachedRevenueLedger = rows
 }
 
 let _cachedTransactions: StatementTransaction[] | null = null
@@ -40,7 +71,12 @@ export function loadTransactions(): StatementTransaction[] {
 }
 
 export async function fetchTransactionsFromSupabase(): Promise<StatementTransaction[]> {
-  _cachedTransactions = await fetchTransactionsFromRepository()
+  // Never keep showing the previous (possibly another user's) rows when this fetch fails.
+  _cachedTransactions = null
+  _cachedRevenueLedger = []
+  const [txs, ledger] = await Promise.all([fetchTransactionsFromRepository(), fetchRevenueLedgerFromSupabase()])
+  _cachedTransactions = txs
+  _cachedRevenueLedger = ledger
   return _cachedTransactions
 }
 
@@ -60,6 +96,15 @@ export async function addManualTransaction(input: {
   return fetchTransactionsFromSupabase()
 }
 
+/** Cancels a wrong expense / other-income entry (PIN + reason, Master §22: void, then record again). */
+export async function voidManualTransaction(tx: Pick<StatementTransaction, 'id' | 'source'>, reason?: string): Promise<StatementTransaction[]> {
+  const voidReason = reason ?? ''
+  if (tx.source === 'EXPENSE') await voidExpense(tx.id, voidReason)
+  else if (tx.source === 'OTHER_INCOME') await voidOtherIncome(tx.id, voidReason)
+  else throw new Error('รายการรับชำระ/คืนเงินของบิล ต้องจัดการที่หน้าบิล')
+  return fetchTransactionsFromSupabase()
+}
+
 /** Keeps entries whose local (shop) day is within [startDate, endDate]; dateTime is a UTC timestamp. */
 export function filterTransactionsByLocalDate(
   transactions: StatementTransaction[],
@@ -73,6 +118,14 @@ export function filterTransactionsByLocalDate(
     const tDateStr = getLocalDateString(new Date(t.dateTime))
     return (!fromStr || tDateStr >= fromStr) && (!toStr || tDateStr <= toStr)
   })
+}
+
+/** Server timestamps are UTC; screens show the shop's local date and time (DD/MM/BBBB HH:mm). */
+export function formatLocalDateTime(value: string): string {
+  const d = new Date(value)
+  if (!value || Number.isNaN(d.getTime())) return value
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear() + 543} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 export function getTransactionsForBill(billId: string): StatementTransaction[] {

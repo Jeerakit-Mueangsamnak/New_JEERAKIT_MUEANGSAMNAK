@@ -4,21 +4,17 @@ import { SETTINGS_INPUT, SETTINGS_LABEL, SETTINGS_SECTION_TITLE } from '@/featur
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
+  BellRing,
   Check,
   CheckCircle2,
-  Copy,
   Eye,
   EyeOff,
-  Key,
   Lock,
   LogOut,
   Moon,
   Palette,
-  QrCode,
   Save,
   Shield,
-  ShieldCheck,
-  Smartphone,
   Sun,
   Trash2,
   Upload,
@@ -38,8 +34,12 @@ import { useTheme } from '@/lib/contexts/ThemeContext'
 import { createClient } from '@/lib/supabase/client'
 import { changeOwnPassword } from '@/app/actions/auth'
 import { validatePassword } from '@/features/settings/utils/settings-page-utils'
+import { NotificationSettingsPanel } from '@/features/settings/components/NotificationSettingsPanel'
+import { normalizeNotificationPrefs } from '@/features/notifications/services/notification-prefs'
+import type { NotificationSettings } from '@/features/settings/services/settings-storage'
+import { rpc } from '@/lib/db/rpc'
 
-export type MyAccountTab = 'PROFILE' | 'SECURITY' | 'APPEARANCE'
+export type MyAccountTab = 'PROFILE' | 'SECURITY' | 'NOTIFICATIONS' | 'APPEARANCE'
 
 const INPUT_CLASSES = SETTINGS_INPUT
 const LABEL_CLASSES = SETTINGS_LABEL
@@ -70,16 +70,36 @@ async function toAvatarDataUrl(file: File, size = 256): Promise<string> {
 }
 
 /**
- * บัญชีของฉัน: the signed-in user's own profile, password, PIN / 2FA and personal look.
+ * ตั้งค่าส่วนตัว: the signed-in user's own profile, password, PIN, notifications and look.
  * Open to every active member; nothing here changes shop-wide settings.
  */
-export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAccountTab }) {
+export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { initialTab?: MyAccountTab; embedded?: boolean }) {
   const { showToast } = useToast()
   const confirm = useConfirm()
   const { user, signOut, refreshUser } = useAuth()
   const { theme, setTheme } = useTheme()
   const supabase = useMemo(() => createClient(), [])
   const [tab, setTab] = useState<MyAccountTab>(initialTab)
+
+  // ── Notifications (own switches, profiles.notification_prefs) ─────────────────
+  const savedPrefs = useMemo(() => normalizeNotificationPrefs(user?.notificationPrefs), [user?.notificationPrefs])
+  const [prefsDraft, setPrefsDraft] = useState<NotificationSettings>(savedPrefs)
+  const [prefsSaving, setPrefsSaving] = useState(false)
+  useEffect(() => setPrefsDraft(savedPrefs), [savedPrefs])
+  const prefsDirty = JSON.stringify(prefsDraft) !== JSON.stringify(savedPrefs)
+
+  const handleSavePrefs = async () => {
+    setPrefsSaving(true)
+    try {
+      await rpc('my_notification_prefs_set', { p_prefs: prefsDraft })
+      await refreshUser()
+      showToast('บันทึกการแจ้งเตือนแล้ว', 'มีผลกับการแจ้งเตือนรอบถัดไป', 'SUCCESS')
+    } catch (err) {
+      showToast('บันทึกการแจ้งเตือนไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
+    } finally {
+      setPrefsSaving(false)
+    }
+  }
 
   // ── Profile ────────────────────────────────────────────────────────────────
   const [firstName, setFirstName] = useState('')
@@ -201,115 +221,6 @@ export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAcco
     }
   }
 
-  // ── 2FA (TOTP) ─────────────────────────────────────────────────────────────
-  const [isMfaEnrolled, setIsMfaEnrolled] = useState(false)
-  const [mfaFactors, setMfaFactors] = useState<Array<{ id: string; status: string }>>([])
-  const [isEnrollingMfa, setIsEnrollingMfa] = useState(false)
-  const [mfaEnrollData, setMfaEnrollData] = useState<{ factorId: string; secret: string; qrCode: string; uri: string } | null>(null)
-  const [mfaVerifyCode, setMfaVerifyCode] = useState('')
-  const [mfaVerifyError, setMfaVerifyError] = useState<string | null>(null)
-  const [mfaLoading, setMfaLoading] = useState(false)
-  const [showUnenrollConfirm, setShowUnenrollConfirm] = useState(false)
-  const [copiedSecret, setCopiedSecret] = useState(false)
-
-  useEffect(() => {
-    let active = true
-    void supabase.auth.mfa.listFactors().then(({ data, error }) => {
-      if (!active || error || !data) return
-      const factors = (data.all || []) as Array<{ id: string; status: string }>
-      setMfaFactors(factors)
-      setIsMfaEnrolled(factors.some((f) => f.status === 'verified'))
-    })
-    return () => {
-      active = false
-    }
-  }, [supabase])
-
-  const handleStartMfaEnroll = async () => {
-    setMfaLoading(true)
-    setMfaVerifyError(null)
-    try {
-      const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp' })
-      if (error) throw error
-      setMfaEnrollData({ factorId: data.id, secret: data.totp.secret, qrCode: data.totp.qr_code, uri: data.totp.uri })
-      setIsEnrollingMfa(true)
-      setMfaVerifyCode('')
-    } catch (err) {
-      showToast('เกิดข้อผิดพลาด', err instanceof Error ? err.message : 'ไม่สามารถเริ่มต้นตั้งค่า 2FA ได้', 'ERROR')
-    } finally {
-      setMfaLoading(false)
-    }
-  }
-
-  const handleVerifyMfaEnroll = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!mfaEnrollData?.factorId) return
-    const clean = mfaVerifyCode.trim().replace(/\D/g, '')
-    if (clean.length !== 6) {
-      setMfaVerifyError('กรุณากรอกรหัส 6 หลักจากแอป Authenticator')
-      return
-    }
-    setMfaLoading(true)
-    setMfaVerifyError(null)
-    try {
-      const challenge = await supabase.auth.mfa.challenge({ factorId: mfaEnrollData.factorId })
-      if (challenge.error) throw challenge.error
-      const verify = await supabase.auth.mfa.verify({
-        factorId: mfaEnrollData.factorId,
-        challengeId: challenge.data.id,
-        code: clean,
-      })
-      if (verify.error) throw verify.error
-      setIsEnrollingMfa(false)
-      setMfaEnrollData(null)
-      setMfaVerifyCode('')
-      setIsMfaEnrolled(true)
-      const { data } = await supabase.auth.mfa.listFactors()
-      if (data) setMfaFactors((data.all || []) as Array<{ id: string; status: string }>)
-      showToast('เปิดใช้งาน 2FA สำเร็จ', '', 'SUCCESS')
-    } catch (err) {
-      setMfaVerifyError(err instanceof Error ? err.message : 'รหัสยืนยันไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง')
-    } finally {
-      setMfaLoading(false)
-    }
-  }
-
-  const handleCancelMfaEnroll = async () => {
-    if (mfaEnrollData?.factorId) {
-      await supabase.auth.mfa.unenroll({ factorId: mfaEnrollData.factorId }).catch(() => undefined)
-    }
-    setIsEnrollingMfa(false)
-    setMfaEnrollData(null)
-    setMfaVerifyCode('')
-    setMfaVerifyError(null)
-  }
-
-  const handleUnenrollMfa = async () => {
-    const verifiedFactor = mfaFactors.find((f) => f.status === 'verified')
-    if (!verifiedFactor) return
-    setMfaLoading(true)
-    try {
-      const { error } = await supabase.auth.mfa.unenroll({ factorId: verifiedFactor.id })
-      if (error) throw error
-      setShowUnenrollConfirm(false)
-      setIsMfaEnrolled(false)
-      setMfaFactors(mfaFactors.filter((f) => f.id !== verifiedFactor.id))
-      showToast('ปิดใช้งาน 2FA แล้ว', '', 'INFO')
-    } catch (err) {
-      showToast('เกิดข้อผิดพลาด', err instanceof Error ? err.message : 'ไม่สามารถปิดการใช้งาน 2FA ได้', 'ERROR')
-    } finally {
-      setMfaLoading(false)
-    }
-  }
-
-  const handleCopySecret = () => {
-    if (!mfaEnrollData?.secret) return
-    void navigator.clipboard.writeText(mfaEnrollData.secret)
-    setCopiedSecret(true)
-    showToast('คัดลอกแล้ว', '', 'INFO')
-    setTimeout(() => setCopiedSecret(false), 2000)
-  }
-
   // ── Sessions ───────────────────────────────────────────────────────────────
   const clearUnlockFlags = () => {
     Object.keys(sessionStorage).forEach((key) => {
@@ -326,6 +237,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAcco
   const tabs: Array<{ id: MyAccountTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
     { id: 'PROFILE', label: 'โปรไฟล์', icon: User },
     { id: 'SECURITY', label: 'ความปลอดภัย / PIN / ล็อกอัตโนมัติ', icon: Shield },
+    { id: 'NOTIFICATIONS', label: 'การแจ้งเตือน', icon: BellRing },
     { id: 'APPEARANCE', label: 'เครื่องนี้ / Theme', icon: Palette },
   ]
 
@@ -350,7 +262,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAcco
         <button
           type="button"
           onClick={() => setShown(!shown)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5"
           aria-label={shown ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
         >
           {shown ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -360,9 +272,9 @@ export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAcco
   )
 
   return (
-    <div className="h-full min-h-0 flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-900 text-xs p-2">
-      <div className="flex-1 min-h-0 min-w-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden flex flex-col">
-        <div className="px-2 sm:px-2.5 py-1.5 sm:py-2 border-b border-slate-200 dark:border-slate-700 shrink-0 flex items-center overflow-x-auto no-scrollbar">
+    <div className={embedded ? 'h-full min-h-0 flex flex-col text-xs' : 'h-full min-h-0 flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-900 text-xs p-2'}>
+      <div className={embedded ? 'flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col' : 'flex-1 min-h-0 min-w-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden flex flex-col'}>
+        {!embedded && <div className="px-2 sm:px-2.5 py-1.5 sm:py-2 border-b border-slate-200 dark:border-slate-700 shrink-0 flex items-center overflow-x-auto no-scrollbar">
           <div className={TAB_CONTAINER_CLASSES}>
             {tabs.map((t) => {
               const Icon = t.icon
@@ -379,7 +291,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAcco
               )
             })}
           </div>
-        </div>
+        </div>}
 
         <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4">
           <div className="mx-auto w-full max-w-3xl space-y-3">
@@ -387,7 +299,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAcco
               <>
                 <div className={SECTION_CLASSES}>
                   <span className={SECTION_TITLE_CLASSES}>
-                    <User className="w-4 h-4 text-blue-500" />
+                    <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                     <span>ข้อมูลบัญชี</span>
                   </span>
                   <div className="flex flex-col sm:flex-row gap-4">
@@ -482,7 +394,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAcco
                       type="button"
                       onClick={handleSaveProfile}
                       disabled={profileSaving || !profileLoaded}
-                      className="h-9 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 disabled:opacity-50"
+                      className="h-9 px-3.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center gap-1.5 disabled:opacity-50"
                     >
                       <Save className="w-4 h-4" />
                       <span>{profileSaving ? 'กำลังบันทึก...' : 'บันทึกโปรไฟล์'}</span>
@@ -500,17 +412,17 @@ export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAcco
                 {/* Password */}
                 <div className={SECTION_CLASSES}>
                   <span className={SECTION_TITLE_CLASSES}>
-                    <Lock className="w-4 h-4 text-blue-500" />
+                    <Lock className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                     <span>เปลี่ยนรหัสผ่าน</span>
                   </span>
                   {pwdError && (
-                    <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center gap-2">
+                    <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-xl text-rose-700 dark:text-rose-400 text-xs font-semibold flex items-center gap-2">
                       <AlertCircle className="w-4 h-4 shrink-0" />
                       <span>{pwdError}</span>
                     </div>
                   )}
                   {pwdSuccess && (
-                    <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 rounded-xl text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center gap-2">
+                    <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 rounded-xl text-emerald-700 dark:text-emerald-400 text-xs font-semibold flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 shrink-0" />
                       <span>เปลี่ยนรหัสผ่านเรียบร้อยแล้ว</span>
                     </div>
@@ -532,205 +444,10 @@ export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAcco
                   </div>
                 </div>
 
-                  {/* Two-factor authentication (TOTP) */}
-                    <div className="p-3.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5 text-xs">
-                          <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                          <span>การยืนยันตัวตนสองชั้น (Two-Factor Authentication / TOTP)</span>
-                        </span>
-                        {isMfaEnrolled ? (
-                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold text-[10px] flex items-center gap-1">
-                            <Check className="w-3 h-3" />
-                            <span>เปิดใช้งานแล้ว (AAL2)</span>
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-bold text-[10px]">
-                            ยังไม่เปิดใช้งาน (AAL1)
-                          </span>
-                        )}
-                      </div>
-
-                      <p className="text-[11px] text-slate-500">
-                        เพิ่มความปลอดภัยระดับสูงให้กับบัญชีของคุณด้วย Time-based One-Time Password (TOTP)
-                        ผ่านแอปพลิเคชันอย่าง Google Authenticator, Microsoft Authenticator หรือ 1Password
-                      </p>
-
-                      {/* Not Enrolled State */}
-                      {!isMfaEnrolled && !isEnrollingMfa && (
-                        <div className="pt-1">
-                          <button
-                            type="button"
-                            onClick={handleStartMfaEnroll}
-                            disabled={mfaLoading}
-                            className="h-9 px-3.5 py-0 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                          >
-                            <QrCode className="w-4 h-4" />
-                            <span>{mfaLoading ? 'กำลังสร้างคำขอ...' : 'เปิดใช้งาน 2-Factor Authentication'}</span>
-                          </button>
-                        </div>
-                      )}
-
-                      {/* Enrollment Step-by-step Flow */}
-                      {!isMfaEnrolled && isEnrollingMfa && mfaEnrollData && (
-                        <div className="p-3 bg-slate-50 dark:bg-slate-900/80 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3 animate-in fade-in">
-                          <div className="border-b border-slate-200 dark:border-slate-700 pb-2">
-                            <h5 className="font-bold text-xs text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                              <Smartphone className="w-3.5 h-3.5 text-blue-500" />
-                              <span>ขั้นตอนที่ 1: สแกน QR Code หรือคัดลอก Secret Key</span>
-                            </h5>
-                            <p className="text-[11px] text-slate-500 mt-0.5">
-                              เปิดแอป Authenticator บนมือถือของคุณ แล้วสแกนรูป QR ด้านล่างนี้ หรือพิมพ์คีย์ลับลงในแอป
-                            </p>
-                          </div>
-
-                          <div className="flex flex-col sm:flex-row items-center gap-4">
-                            {/* QR Code Preview */}
-                            <div className="p-2 bg-white rounded-2xl border border-slate-200 shadow-sm shrink-0">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={mfaEnrollData.qrCode}
-                                alt="TOTP QR Code"
-                                className="w-40 h-40 object-contain rounded-xl"
-                              />
-                            </div>
-
-                            {/* Secret key string */}
-                            <div className="flex-1 space-y-2 text-xs w-full">
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                                รหัสคีย์ลับ (Secret Key สำหรับพิมพ์เอง)
-                              </label>
-                              <div className="flex items-center gap-2">
-                                <div className="flex-1 p-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-mono text-[11px] select-all break-all text-slate-900 dark:text-slate-100 font-bold">
-                                  {mfaEnrollData.secret}
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={handleCopySecret}
-                                  className="p-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer shrink-0"
-                                  title="คัดลอก Secret Key"
-                                  aria-label="คัดลอก Secret Key"
-                                >
-                                  {copiedSecret ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-                                </button>
-                              </div>
-                              <p className="text-[10px] text-slate-500">
-                                ผู้ให้บริการ: Rental POS &bull; บัญชี: @{user?.username || user?.email || 'N/A'}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="border-t border-slate-200 dark:border-slate-700 pt-3 space-y-3">
-                            <h5 className="font-bold text-xs text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                              <Key className="w-3.5 h-3.5 text-emerald-500" />
-                              <span>ขั้นตอนที่ 2: กรอกรหัสยืนยัน 6 หลักเพื่อเปิดใช้งาน</span>
-                            </h5>
-
-                            {mfaVerifyError && (
-                              <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center gap-2">
-                                <AlertCircle className="w-4 h-4 shrink-0" />
-                                <span>{mfaVerifyError}</span>
-                              </div>
-                            )}
-
-                            <form onSubmit={handleVerifyMfaEnroll} className="flex flex-wrap items-center gap-2.5">
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                maxLength={6}
-                                value={mfaVerifyCode}
-                                onChange={(e) => setMfaVerifyCode(e.target.value.replace(/\D/g, ''))}
-                                placeholder="000000"
-                                className="w-36 h-9 px-3 py-0 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-center font-mono font-bold tracking-widest text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-blue-500"
-                                autoFocus
-                              />
-                              <button
-                                type="submit"
-                                disabled={mfaLoading || mfaVerifyCode.trim().length !== 6}
-                                className="h-9 px-3.5 py-0 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
-                              >
-                                {mfaLoading ? 'กำลังตรวจสอบ...' : 'ยืนยันและเปิดใช้งาน 2FA'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={handleCancelMfaEnroll}
-                                disabled={mfaLoading}
-                                className="h-9 px-3.5 py-0 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors cursor-pointer"
-                              >
-                                ยกเลิก
-                              </button>
-                            </form>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Enrolled Active State */}
-                      {isMfaEnrolled && (
-                        <div className="space-y-3 pt-1">
-                          <div className="p-3 bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50 rounded-xl flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <div className="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-                                <Smartphone className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <span className="font-bold text-xs text-slate-900 dark:text-slate-100 block">
-                                  Authenticator App (TOTP)
-                                </span>
-                                <span className="text-[10px] text-slate-500">
-                                  รับรหัส 6 หลักจากแอปพลิเคชันทุกครั้งเมื่อเข้าสู่ระบบ
-                                </span>
-                              </div>
-                            </div>
-
-                            {!showUnenrollConfirm && (
-                              <button
-                                type="button"
-                                onClick={() => setShowUnenrollConfirm(true)}
-                                className="h-9 px-3.5 py-0 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 font-bold text-xs border border-rose-200 dark:border-rose-900 transition-colors cursor-pointer"
-                              >
-                                ปิดใช้งาน 2FA
-                              </button>
-                            )}
-                          </div>
-
-                          {showUnenrollConfirm && (
-                            <div className="p-3.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-xl space-y-2 animate-in fade-in">
-                              <span className="font-bold text-rose-800 dark:text-rose-300 text-xs flex items-center gap-1.5">
-                                <AlertCircle className="w-4 h-4" />
-                                <span>ยืนยันการปิดใช้งาน 2-Factor Authentication?</span>
-                              </span>
-                              <p className="text-[11px] text-rose-700 dark:text-rose-400">
-                                หากปิดใช้งาน ระบบจะลดระดับความปลอดภัยของบัญชีลงเหลือ AAL1 (เข้าสู่ระบบด้วยรหัสผ่านอย่างเดียว)
-                              </p>
-                              <div className="flex items-center gap-2 pt-1">
-                                <button
-                                  type="button"
-                                  onClick={handleUnenrollMfa}
-                                  disabled={mfaLoading}
-                                  className="h-9 px-3.5 py-0 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
-                                >
-                                  {mfaLoading ? 'กำลังดำเนินการ...' : 'ยืนยันปิดใช้งาน 2FA'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setShowUnenrollConfirm(false)}
-                                  disabled={mfaLoading}
-                                  className="h-9 px-3.5 py-0 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors cursor-pointer"
-                                >
-                                  ยกเลิก
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
                 {/* Sessions */}
                 <div className={SECTION_CLASSES}>
                   <span className={SECTION_TITLE_CLASSES}>
-                    <LogOut className="w-4 h-4 text-rose-500" />
+                    <LogOut className="w-4 h-4 text-rose-700 dark:text-rose-400" />
                     <span>เซสชันการใช้งาน</span>
                   </span>
                   <div className="flex flex-wrap gap-2">
@@ -740,7 +457,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAcco
                         clearUnlockFlags()
                         await signOut()
                       }}
-                      className="h-9 px-3.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5"
+                      className="h-9 px-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1.5"
                     >
                       <LogOut className="w-4 h-4" />
                       <span>ออกจากระบบเครื่องนี้</span>
@@ -750,7 +467,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAcco
                       onClick={handleLogoutAll}
                       className="h-9 px-3.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 font-bold text-xs flex items-center gap-1.5"
                     >
-                      <Shield className="w-4 h-4 text-indigo-500" />
+                      <Shield className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                       <span>ออกจากระบบทุกอุปกรณ์</span>
                     </button>
                   </div>
@@ -758,10 +475,38 @@ export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAcco
               </>
             )}
 
+            {tab === 'NOTIFICATIONS' && (
+              <div className={SECTION_CLASSES}>
+                <NotificationSettingsPanel value={prefsDraft} onChange={setPrefsDraft} />
+                <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                  ตั้งเฉพาะของคุณเอง · เห็นเฉพาะเรื่องในเมนูที่คุณมีสิทธิ์ · มีผลกับการแจ้งเตือนรอบถัดไป
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPrefsDraft(savedPrefs)}
+                    disabled={!prefsDirty || prefsSaving}
+                    className="h-9 px-3.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs disabled:opacity-50"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSavePrefs()}
+                    disabled={!prefsDirty || prefsSaving}
+                    className="h-9 px-3.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>{prefsSaving ? 'กำลังบันทึก…' : 'บันทึก'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {tab === 'APPEARANCE' && (
               <div className={SECTION_CLASSES}>
                 <span className={SECTION_TITLE_CLASSES}>
-                  <Palette className="w-4 h-4 text-blue-500" />
+                  <Palette className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                   <span>ธีม</span>
                 </span>
                 <div className="grid grid-cols-2 gap-2 max-w-sm">
@@ -789,7 +534,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE' }: { initialTab?: MyAcco
                     )
                   })}
                 </div>
-                <p className="text-[11px] text-slate-500">ใช้กับเครื่อง/เบราว์เซอร์นี้เท่านั้น ไม่ถูกบันทึกไปที่เซิร์ฟเวอร์</p>
+                <p className="text-[11px] text-slate-600 dark:text-slate-400">ใช้กับเครื่อง/เบราว์เซอร์นี้เท่านั้น ไม่ถูกบันทึกไปที่เซิร์ฟเวอร์</p>
               </div>
             )}
           </div>

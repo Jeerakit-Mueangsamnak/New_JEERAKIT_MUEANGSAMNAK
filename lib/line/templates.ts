@@ -1,4 +1,5 @@
 import { LINE_LIMITS, LineMessageError } from './messages'
+import { cardMessage, mapUrl, telUrl, type FlexButton, type FlexRow } from './flex'
 import { type LineMessage } from './types'
 
 /**
@@ -13,6 +14,13 @@ export const LINE_TEMPLATES = {
   LINK_EXPIRED: { text: 'รหัสนี้หมดอายุหรือใช้ไปแล้ว กรุณาขอรหัสใหม่จากร้าน', vars: [] },
   LINK_LOCKED: { text: 'ใส่รหัสผิดหลายครั้ง กรุณารอสักครู่แล้วขอรหัสใหม่จากร้าน', vars: [] },
   LINK_TAKEN: { text: 'LINE นี้ผูกกับบัญชีอื่นแล้ว ให้เจ้าของร้านยกเลิกก่อน', vars: [] },
+  REGISTER_WELCOME: {
+    text: 'ขอบคุณที่เพิ่มเพื่อน{ชื่อร้าน}\nพิมพ์ชื่อ-นามสกุลและเบอร์โทร เพื่อรับบิลและแจ้งเตือนวันคืนทาง LINE\nเช่น สมชาย ใจดี 0812345678',
+    vars: ['ชื่อร้าน'],
+  },
+  REGISTER_RETRY: { text: 'ยังไม่พบชื่อและเบอร์โทรในข้อความ พิมพ์ชื่อ-นามสกุลและเบอร์ 10 หลัก เช่น สมชาย ใจดี 0812345678', vars: [] },
+  REGISTER_PHONE_TAKEN: { text: 'เบอร์นี้ผูกกับ LINE อื่นไว้แล้ว ร้านจะติดต่อกลับทาง LINE นี้', vars: [] },
+  REGISTER_PENDING: { text: 'ได้รับชื่อและเบอร์โทรแล้ว ร้านจะตรวจข้อมูลและติดต่อกลับทาง LINE นี้', vars: [] },
   TEST: { text: 'ข้อความทดสอบจาก {ชื่อร้าน} ถ้าเห็นข้อความนี้ แปลว่า LINE พร้อมใช้งาน', vars: ['ชื่อร้าน'] },
   STAFF_NOTICE: { text: '[{หัวข้อ}] {รายละเอียด}', vars: ['หัวข้อ', 'รายละเอียด'] },
   TASK_NEW: { text: 'งานใหม่จาก {ผู้สั่ง}: {เรื่อง}', vars: ['ผู้สั่ง', 'เรื่อง'] },
@@ -23,9 +31,30 @@ export const LINE_TEMPLATES = {
   TASK_ACCEPT_FIRST: { text: 'กรุณากด "รับงาน" ในข้อความงานก่อนอัปเดตขั้นตอน', vars: [] },
   TASK_WITHDRAWN: { text: 'ถอนงาน: {เรื่อง} งานนี้มอบให้ผู้อื่นแล้ว ไม่ต้องดำเนินการต่อ', vars: ['เรื่อง'] },
   TASK_CANCELLED: { text: 'ยกเลิกงาน: {เรื่อง} ({เหตุผล}) ไม่ต้องดำเนินการต่อ', vars: ['เรื่อง', 'เหตุผล'] },
+  DRIVER_ACCEPT_REMINDER: { text: 'ยังไม่ได้กดรับงาน: {เรื่อง} กรุณากด "รับงาน" ในข้อความงาน', vars: ['เรื่อง'] },
   CUSTOMER_RETURN_REMINDER: {
     text: 'เรียนคุณ{ชื่อลูกค้า} บิล {เลขบิล} ครบกำหนดคืน {วันคืน} ยอดค้าง {ยอดค้าง} บาท ขอบคุณค่ะ {ชื่อร้าน}',
     vars: ['ชื่อลูกค้า', 'เลขบิล', 'วันคืน', 'ยอดค้าง', 'ชื่อร้าน'],
+  },
+  CUSTOMER_DUE_TODAY: {
+    text: 'เรียนคุณ{ชื่อลูกค้า} บิล {เลขบิล} ครบกำหนดคืนวันนี้ ({วันคืน}) ยอดค้าง {ยอดค้าง} บาท ขอบคุณค่ะ {ชื่อร้าน}',
+    vars: ['ชื่อลูกค้า', 'เลขบิล', 'วันคืน', 'ยอดค้าง', 'ชื่อร้าน'],
+  },
+  CUSTOMER_OVERDUE: {
+    text: 'เรียนคุณ{ชื่อลูกค้า} บิล {เลขบิล} เลยกำหนดคืน ({วันคืน}) แล้ว กรุณาติดต่อร้านเพื่อนัดคืนสินค้า ยอดค้าง {ยอดค้าง} บาท {ชื่อร้าน}',
+    vars: ['ชื่อลูกค้า', 'เลขบิล', 'วันคืน', 'ยอดค้าง', 'ชื่อร้าน'],
+  },
+  CUSTOMER_PAYMENT_DUE: {
+    text: 'เรียนคุณ{ชื่อลูกค้า} บิล {เลขบิล} มียอดค้างชำระ {ยอดค้าง} บาท ครบกำหนด {วันครบ} ขอบคุณค่ะ {ชื่อร้าน}',
+    vars: ['ชื่อลูกค้า', 'เลขบิล', 'วันครบ', 'ยอดค้าง', 'ชื่อร้าน'],
+  },
+  CUSTOMER_APPOINTMENT: {
+    text: 'เรียนคุณ{ชื่อลูกค้า} แจ้งนัดหมาย "{เรื่อง}" วันที่ {วันนัด} ขอบคุณค่ะ {ชื่อร้าน}',
+    vars: ['ชื่อลูกค้า', 'เรื่อง', 'วันนัด', 'ชื่อร้าน'],
+  },
+  CUSTOMER_JOB_STEP: {
+    text: 'เรียนคุณ{ชื่อลูกค้า} งาน "{เรื่อง}": {ขั้นตอน} (คนขับ {คนขับ}) {ชื่อร้าน}',
+    vars: ['ชื่อลูกค้า', 'เรื่อง', 'ขั้นตอน', 'คนขับ', 'ชื่อร้าน'],
   },
 } as const satisfies Record<string, { text: string; vars: readonly string[] }>
 
@@ -93,9 +122,38 @@ export function taskMessages(taskId: string, vars: { ผู้สั่ง: stri
   ]
 }
 
+/** What the driver needs on the job card (all from the appointment; empty values are left out). */
+export interface DriverJobDetails {
+  when?: string
+  customer?: string
+  phone?: string | null
+  place?: string | null
+  detail?: string | null
+}
+
 /** Job to a driver: only "รับงาน". After that every reply carries the button of the next step. */
-export function driverTaskMessages(taskId: string, vars: { ผู้สั่ง: string; เรื่อง: string }, overrides?: TemplateOverrides): LineMessage[] {
+export function driverTaskMessages(
+  taskId: string,
+  vars: { ผู้สั่ง: string; เรื่อง: string },
+  overrides?: TemplateOverrides,
+  details?: DriverJobDetails,
+): LineMessage[] {
   const text = renderTemplate('TASK_NEW', vars, overrides)
+  if (details) {
+    const rows: FlexRow[] = [
+      { label: 'วันเวลา', value: details.when ?? '' },
+      { label: 'ลูกค้า', value: details.customer ?? '' },
+      { label: 'โทร', value: details.phone ?? '' },
+      { label: 'สถานที่', value: details.place ?? '' },
+      { label: 'รายละเอียด', value: details.detail ?? '' },
+    ]
+    const buttons: FlexButton[] = [{ label: 'รับงาน', postback: taskPostbackData(taskId, 'ACCEPT'), displayText: 'รับงาน', primary: true }]
+    const map = mapUrl(details.place)
+    const tel = telUrl(details.phone)
+    if (map) buttons.push({ label: 'เปิดแผนที่', uri: map })
+    if (tel) buttons.push({ label: 'โทรหาลูกค้า', uri: tel })
+    return [cardMessage({ altText: text, title: text, rows, buttons })]
+  }
   return [
     {
       type: 'template',
@@ -122,4 +180,20 @@ export function nextStepMessage(taskId: string, text: string, next: { key: strin
       actions: [{ type: 'postback', label, data: taskPostbackData(taskId, 'STEP', next.key), displayText: next.label }],
     },
   }
+}
+
+/** Customer notice card: the (owner-editable) text plus buttons to reach the shop. */
+export function customerNoticeMessages(
+  key: LineTemplateKey,
+  title: string,
+  vars: TemplateVars,
+  overrides?: TemplateOverrides,
+  contact?: { chatUrl?: string | null; phone?: string | null },
+): LineMessage[] {
+  const text = renderTemplate(key, vars, overrides)
+  const buttons: FlexButton[] = []
+  if (contact?.chatUrl) buttons.push({ label: 'แชทกับร้าน', uri: contact.chatUrl, primary: true })
+  const tel = telUrl(contact?.phone)
+  if (tel) buttons.push({ label: 'โทรหาร้าน', uri: tel })
+  return [cardMessage({ altText: text, title, text, buttons })]
 }

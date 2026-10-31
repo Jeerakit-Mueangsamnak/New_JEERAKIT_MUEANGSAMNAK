@@ -39,12 +39,12 @@ export interface PaymentReceiptPlaceholderProps {
 }
 
 export function PaymentReceiptPlaceholder({
-  businessName = 'บริษัท อุปกรณ์เช่ามาตรฐาน จำกัด',
-  businessAddress = '99/9 ถ.สุขุมวิท แขวงคลองเตย เขตคลองเตย กรุงเทพมหานคร 10110',
-  businessTaxId = '0105567012345',
-  businessPhone = '02-123-4567, 081-234-5678',
+  businessName = '',
+  businessAddress = '',
+  businessTaxId = '',
+  businessPhone = '',
   businessEmail,
-  businessServices = 'บริการให้เช่าอุปกรณ์จัดงาน อีเวนต์ นั่งร้าน เครื่องมือก่อสร้าง และเครื่องจักรคุณภาพสูง ครบวงจร',
+  businessServices = '',
   logoDataUrl,
   customerName = 'ลูกค้าทั่วไป',
   customerPhone = '-',
@@ -57,9 +57,9 @@ export function PaymentReceiptPlaceholder({
   paymentChannel = 'CASH',
   outstandingRemaining = 0,
   originalBillTotal = 0,
-  bankName = 'ธนาคารกสิกรไทย (KBANK)',
+  bankName = '',
   bankAccountName,
-  bankAccountNumber = '012-3-45678-9',
+  bankAccountNumber = '',
   promptPayValue,
   qrCodeUrl,
   note = 'รับชำระเงินค่าเช่า / ค่าบริการตามบิลสัญญาเช่า',
@@ -117,7 +117,7 @@ export function PaymentReceiptPlaceholder({
               เลขผู้เสียภาษี: <span className="font-semibold text-slate-900">{businessTaxId}</span> | โทร: <span className="font-semibold text-slate-900">{businessPhone}</span>
               {businessEmail && ` | อีเมล: ${businessEmail}`}
             </p>
-            <p className="text-red-800 font-medium text-[8px] mt-0.5">{businessServices}</p>
+            {businessServices && <p className="text-red-800 font-medium text-[8px] mt-0.5">{businessServices}</p>}
           </div>
         </div>
 
@@ -178,7 +178,7 @@ export function PaymentReceiptPlaceholder({
                       {item.paymentMethod || channelLabels[paymentChannel] || paymentChannel}
                     </td>
                     <td className="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono font-extrabold tabular-nums text-slate-900">
-                      ฿{fmt(item.amount)}
+                      {fmt(item.amount)}
                     </td>
                   </tr>
                 )
@@ -210,9 +210,9 @@ export function PaymentReceiptPlaceholder({
           <div className="flex items-center justify-between rounded border border-slate-300 bg-white p-2 text-[8.5px]">
             <div>
               <p className="font-extrabold text-red-800 text-[9px] mb-0.5">บัญชีผู้รับเงิน / บริษัท:</p>
-              <p><span className="font-bold">ธนาคาร:</span> {bankName}</p>
-              <p><span className="font-bold">ชื่อบัญชี:</span> {bankAccountName || businessName}</p>
-              <p><span className="font-bold">เลขที่บัญชี:</span> <span className="font-mono font-bold text-slate-900">{bankAccountNumber}</span></p>
+              {bankName && <p><span className="font-bold">ธนาคาร:</span> {bankName}</p>}
+              {bankAccountNumber && <p><span className="font-bold">ชื่อบัญชี:</span> {bankAccountName || businessName}</p>}
+              {bankAccountNumber && <p><span className="font-bold">เลขที่บัญชี:</span> <span className="font-mono font-bold text-slate-900">{bankAccountNumber}</span></p>}
               {promptPayValue && <p><span className="font-bold">พร้อมเพย์:</span> <span className="font-mono">{promptPayValue}</span></p>}
             </div>
 
@@ -234,11 +234,11 @@ export function PaymentReceiptPlaceholder({
         <div className="col-span-5 rounded border border-slate-300 bg-slate-50 p-2 text-[8.5px] space-y-0.5">
           <div className="flex justify-between border-b border-slate-200 py-0.5">
             <span className="text-slate-600">มูลค่าบิลรวมทั้งสิ้น:</span>
-            <span className="font-mono font-bold">฿{fmt(originalBillTotal || amount)}</span>
+            <span className="font-mono font-bold">{fmt(originalBillTotal || amount)}</span>
           </div>
           <div className="flex justify-between rounded bg-red-700 p-1.5 text-white font-extrabold text-[9.5px] mt-1 shadow-xs">
             <span>ยอดรับชำระครั้งนี้:</span>
-            <span className="font-mono">฿{fmt(amount)}</span>
+            <span className="font-mono">{fmt(amount)}</span>
           </div>
           <div className="flex justify-between border-t border-slate-200 py-0.5 text-slate-700 font-semibold pt-1">
             <span>ช่องทางชำระ:</span>
@@ -247,7 +247,7 @@ export function PaymentReceiptPlaceholder({
           <div className="flex justify-between border-t border-slate-200 py-0.5 font-bold">
             <span className="text-slate-700">ยอดคงค้างคงเหลือ:</span>
             <span className={outstandingRemaining > 0 ? 'font-mono text-red-700 font-extrabold' : 'font-mono text-emerald-700'}>
-              ฿{fmt(outstandingRemaining)}
+              {fmt(outstandingRemaining)}
             </span>
           </div>
         </div>

@@ -52,8 +52,11 @@ echo "== build"
 P --single-transaction < "$ROOT/supabase/auth-only/01_auth_profiles.sql"
 P --single-transaction < "$BASELINE" 2>&1 | grep -v 'already exists, skipping' || true
 # Local migrations made after the baseline, in name order (never applied to Cloud from here).
+# Already folded into baseline/00_baseline.sql (2026-10-16), same list as reset_local_app_db.sh.
+IN_BASELINE=" 20261016125110 20261016134524 "
 for m in "$ROOT"/supabase/migrations/*.sql; do
   [ -e "$m" ] || continue
+  case "$IN_BASELINE" in *" $(basename "$m" | cut -d_ -f1) "*) echo "   migration $(basename "$m") (in baseline, skipped)"; continue ;; esac
   echo "   migration $(basename "$m")"
   P --single-transaction < "$m"
 done

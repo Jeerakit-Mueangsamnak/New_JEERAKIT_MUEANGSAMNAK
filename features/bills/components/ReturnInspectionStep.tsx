@@ -69,17 +69,17 @@ export function ReturnInspectionStep({
 
                 return (
                   <tr key={item.rentalBillItemId || item.productId} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                    <td className="py-1 px-1 text-center font-bold text-slate-500">{idx + 1}</td>
+                    <td className="py-1 px-1 text-center font-bold text-slate-600 dark:text-slate-400">{idx + 1}</td>
                     <td className="py-1 px-1.5 font-bold text-slate-800 dark:text-slate-200 overflow-hidden">
                       <div className="truncate">{item.productName}</div>
                       {item.productCode && (
-                        <span className="text-[10px] text-slate-400 font-mono block truncate">
+                        <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono block truncate">
                           {item.productCode}
                         </span>
                       )}
                       {item.damagedQty > 0 && (
-                        <div className="flex items-center gap-1 mt-1 text-[10px] text-amber-600 dark:text-amber-400">
-                          <span className="shrink-0 font-medium">ค่าซ่อม/ชิ้น: ฿</span>
+                        <div className="flex items-center gap-1 mt-1 text-[10px] text-amber-700 dark:text-amber-400">
+                          <span className="shrink-0 font-medium">ค่าซ่อม/ชิ้น: </span>
                           <NumericInput
                             value={item.repairFeePerUnit === 0 ? '' : item.repairFeePerUnit}
                             onChange={(value) =>
@@ -92,8 +92,8 @@ export function ReturnInspectionStep({
                         </div>
                       )}
                       {item.lostQty > 0 && (
-                        <div className="flex items-center gap-1 mt-1 text-[10px] text-red-600 dark:text-red-400">
-                          <span className="shrink-0 font-medium">ค่าของหาย/ชิ้น: ฿</span>
+                        <div className="flex items-center gap-1 mt-1 text-[10px] text-red-700 dark:text-red-400">
+                          <span className="shrink-0 font-medium">ค่าของหาย/ชิ้น: </span>
                           <NumericInput
                             value={item.replacementFeePerUnit === 0 ? '' : item.replacementFeePerUnit}
                             onChange={(value) =>
@@ -115,14 +115,14 @@ export function ReturnInspectionStep({
                       </span>
                     </td>
                     <td className="py-1 px-1 text-center">
-                      <span className="px-1.5 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 font-bold">
+                      <span className="px-1.5 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 font-bold">
                         {returnedQty}
                       </span>
                     </td>
                     {([
-                      ['normalQty', maxNormal, 'text-emerald-600 focus:ring-emerald-500'],
-                      ['damagedQty', maxDamaged, 'text-amber-600 focus:ring-amber-500'],
-                      ['lostQty', maxLost, 'text-red-600 focus:ring-red-500'],
+                      ['normalQty', maxNormal, 'text-emerald-700 dark:text-emerald-400 focus:ring-emerald-500'],
+                      ['damagedQty', maxDamaged, 'text-amber-700 dark:text-amber-400 focus:ring-amber-500'],
+                      ['lostQty', maxLost, 'text-red-700 dark:text-red-400 focus:ring-red-500'],
                     ] as const).map(([field, max, activeClass]) => (
                       <td key={field} className="py-1 px-1 text-center">
                         <NumericInput
@@ -139,7 +139,7 @@ export function ReturnInspectionStep({
                           placeholder=""
                           className={`w-full min-w-0 h-7 sm:h-8 text-center font-bold border rounded-lg text-xs focus:outline-none ${
                             isCompleted
-                              ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 cursor-not-allowed'
+                              ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 cursor-not-allowed'
                               : `border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 ${activeClass}`
                           }`}
                         />
@@ -165,7 +165,7 @@ export function ReturnInspectionStep({
           onClick={onNext}
           disabled={!hasReturnItems}
           className={`px-5 py-2 rounded-xl font-bold text-white transition-all text-xs ${
-            hasReturnItems ? 'bg-emerald-600 hover:bg-emerald-700 cursor-pointer shadow-sm' : 'bg-slate-300 cursor-not-allowed'
+            hasReturnItems ? 'bg-emerald-700 hover:bg-emerald-800 cursor-pointer shadow-sm' : 'bg-slate-300 cursor-not-allowed'
           }`}
         >
           ถัดไป

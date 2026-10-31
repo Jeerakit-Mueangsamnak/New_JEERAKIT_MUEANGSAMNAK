@@ -61,14 +61,14 @@ export function DeliveryModal({ isOpen, bill, onClose, onSaved }: DeliveryModalP
       <AppModalHeader title={`ส่งของ — ${bill.billNo}`} icon={<Truck className="w-4 h-4" />} onClose={saving ? undefined : onClose} />
       <AppModalBody>
         {open.length === 0 ? (
-          <div className="py-6 text-center text-sm text-slate-500">ส่งของครบทุกรายการแล้ว</div>
+          <div className="py-6 text-center text-sm text-slate-600 dark:text-slate-400">ส่งของครบทุกรายการแล้ว</div>
         ) : (
           <div className="space-y-2 text-xs">
             {open.map((it) => (
               <div key={it.rentalBillItemId} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2">
                 <div className="min-w-0">
                   <div className="font-bold truncate">{it.productName}</div>
-                  <div className="text-slate-500">ค้างส่ง {it.remainingQty} {it.unit}</div>
+                  <div className="text-slate-600 dark:text-slate-400">ค้างส่ง {it.remainingQty} {it.unit}</div>
                 </div>
                 <NumericInput
                   value={qty[it.rentalBillItemId] ?? 0}

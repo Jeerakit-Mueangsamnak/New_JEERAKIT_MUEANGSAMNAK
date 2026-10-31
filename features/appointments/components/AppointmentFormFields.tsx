@@ -105,7 +105,7 @@ export function AppointmentTypeCombobox({
         }}
         className={`${FIELD} pr-7`}
       />
-      <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+      <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-600 dark:text-slate-400 pointer-events-none" />
       {open && (
         <ModalPortal>
           <div
@@ -151,8 +151,8 @@ export function AppointmentTypeCombobox({
                 <span className="truncate">เพิ่มประเภท &quot;{query.trim()}&quot;</span>
               </button>
             )}
-            {shown.length === 0 && !q && <div className="px-3 py-2 text-center text-slate-400 text-[11px]">ยังไม่มีรายการ</div>}
-            {error && <div className="px-3 py-1.5 text-[11px] font-bold text-red-600">{error}</div>}
+            {shown.length === 0 && !q && <div className="px-3 py-2 text-center text-slate-600 dark:text-slate-400 text-[11px]">ยังไม่มีรายการ</div>}
+            {error && <div className="px-3 py-1.5 text-[11px] font-bold text-red-700 dark:text-red-400">{error}</div>}
           </div>
         </ModalPortal>
       )}
@@ -203,7 +203,7 @@ export function TimeField({ value, onChange, label }: { value: string; onChange:
   const [h, m] = (normalizeTime(draft) ?? value).split(':')
   const cell = (on: boolean) =>
     `w-full py-1 rounded-md font-mono font-bold cursor-pointer ${
-      on ? 'bg-emerald-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
+      on ? 'bg-emerald-700 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
     }`
 
   return (
@@ -231,7 +231,7 @@ export function TimeField({ value, onChange, label }: { value: string; onChange:
         type="button"
         aria-label={`เลือก${label}`}
         onClick={() => setOpen((v) => !v)}
-        className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-400 hover:text-emerald-600 cursor-pointer"
+        className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-600 dark:text-slate-400 hover:text-emerald-600 cursor-pointer"
       >
         <Clock className="w-4 h-4" />
       </button>
@@ -249,7 +249,7 @@ export function TimeField({ value, onChange, label }: { value: string; onChange:
               { title: 'นาที', list: MINUTES, on: m, set: (v: string) => (onChange(`${h}:${v}`), setOpen(false)) },
             ].map((col) => (
               <div key={col.title} role="group" aria-label={col.title} className="min-w-0">
-                <p className="px-1 py-0.5 text-[10px] font-bold text-slate-400 text-center">{col.title}</p>
+                <p className="px-1 py-0.5 text-[10px] font-bold text-slate-600 dark:text-slate-400 text-center">{col.title}</p>
                 <div className="h-48 overflow-y-auto space-y-0.5 pr-0.5">
                   {col.list.map((v) => (
                     <button key={v} type="button" data-selected={v === col.on} onClick={() => col.set(v)} className={cell(v === col.on)}>

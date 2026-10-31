@@ -2125,6 +2125,7 @@ export type Database = {
           id: string
           is_approved: boolean | null
           last_name: string | null
+          notification_prefs: Json
           role: string
           status: string
           status_changed_at: string | null
@@ -2141,6 +2142,7 @@ export type Database = {
           id: string
           is_approved?: boolean | null
           last_name?: string | null
+          notification_prefs?: Json
           role?: string
           status?: string
           status_changed_at?: string | null
@@ -2157,6 +2159,7 @@ export type Database = {
           id?: string
           is_approved?: boolean | null
           last_name?: string | null
+          notification_prefs?: Json
           role?: string
           status?: string
           status_changed_at?: string | null
@@ -2259,6 +2262,7 @@ export type Database = {
           delivery_fee: number
           deposit_amount: number
           discount_total: number
+          document_date: string
           grand_total: number
           id: string
           note: string | null
@@ -2280,6 +2284,7 @@ export type Database = {
           delivery_fee?: number
           deposit_amount?: number
           discount_total?: number
+          document_date?: string
           grand_total?: number
           id?: string
           note?: string | null
@@ -2301,6 +2306,7 @@ export type Database = {
           delivery_fee?: number
           deposit_amount?: number
           discount_total?: number
+          document_date?: string
           grand_total?: number
           id?: string
           note?: string | null
@@ -3697,6 +3703,7 @@ export type Database = {
         }
         Returns: Json
       }
+      my_notification_prefs_set: { Args: { p_prefs: Json }; Returns: Json }
       my_pin_status: { Args: never; Returns: Json }
       notification_mark: {
         Args: { p_notification_id: string; p_status: string }

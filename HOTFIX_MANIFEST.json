@@ -1,0 +1,22 @@
+[
+  {
+    "file": "features/bills/components/LineNotifyModal.tsx",
+    "before_sha256": "ff79aaf2a4469f308a890246a04e1c11dcd67e8add9ec26d89a3fa73f34a54ec",
+    "after_sha256": "28a5d620330c695b4568e71df08af2910942d218b9423506c0451c19d90c4dbb"
+  },
+  {
+    "file": "features/customers/components/CustomerLineLink.tsx",
+    "before_sha256": "fb1d8422b686cd029aa4e236b7e91360cf4f73ee3a9fab2297e92841d9755595",
+    "after_sha256": "08ccb4c63b13fe19215b464c3e9256f47d010395841fe7d5b7c222da835e1471"
+  },
+  {
+    "file": "features/settings/components/DeliveryDriversPanel.tsx",
+    "before_sha256": "482ac99c8e472f87f515d70e64dbb48e84c9f4190f877c5f015a5f89e4d31f8d",
+    "after_sha256": "cc00044e807679f9dacb2ee03d8137310afc60569002a80f58e3b92836405426"
+  },
+  {
+    "file": "tests/appointments-work-order.test.tsx",
+    "before_sha256": "1151833f7e42afb6d2165faa49e5b50ef121a4c0b926e13af182d99ef61abbc5",
+    "after_sha256": "817e1cc5f2617372bc7ad155336461c4796db2323bfaf0159cd6f7e77e79c7ec"
+  }
+]

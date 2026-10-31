@@ -73,14 +73,14 @@ export function CustomerUnifiedSelector({
         <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50/70 dark:bg-emerald-950/40 text-slate-900 dark:text-slate-100 text-xs shadow-xs">
           <div className="flex items-center gap-2 min-w-0 flex-1">
             {selectedCustomer.id ? (
-              <UserCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+              <UserCheck className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
             ) : (
-              <User className="w-4 h-4 text-amber-600 shrink-0" />
+              <User className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0" />
             )}
             <div className="truncate min-w-0">
               <span className="font-bold">{selectedCustomer.customerName}</span>
               {selectedCustomer.phone && (
-                <span className="text-slate-500 text-[11px] ml-1.5 font-mono">({selectedCustomer.phone})</span>
+                <span className="text-slate-600 dark:text-slate-400 text-[11px] ml-1.5 font-mono">({selectedCustomer.phone})</span>
               )}
               {!selectedCustomer.id && (
                 <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-200 text-amber-900 dark:bg-amber-800 dark:text-amber-100">
@@ -93,7 +93,7 @@ export function CustomerUnifiedSelector({
             type="button"
             onClick={handleClear}
             disabled={disabled}
-            className="p-1 text-slate-400 hover:text-red-600 rounded-md hover:bg-white dark:hover:bg-slate-800 transition-colors"
+            className="p-1 text-slate-600 dark:text-slate-400 hover:text-red-600 rounded-md hover:bg-white dark:hover:bg-slate-800 transition-colors"
             title="เปลี่ยนลูกค้า"
           >
             <X className="w-3.5 h-3.5" />
@@ -101,7 +101,7 @@ export function CustomerUnifiedSelector({
         </div>
       ) : (
         <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <Search className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             ref={inputRef}
             type="text"
@@ -119,7 +119,7 @@ export function CustomerUnifiedSelector({
             <button
               type="button"
               onClick={() => setSearchTerm('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400 hover:text-slate-600"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -132,7 +132,7 @@ export function CustomerUnifiedSelector({
         <div className="absolute left-0 right-0 top-full mt-1.5 z-50 max-h-64 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl py-1 text-xs">
           {filteredCustomers.length > 0 ? (
             <div>
-              <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              <div className="px-3 py-1 text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
                 เลือกลูกค้าในระบบ ({filteredCustomers.length})
               </div>
               {filteredCustomers.map((cust) => (
@@ -149,13 +149,13 @@ export function CustomerUnifiedSelector({
                     <div className="font-bold text-slate-900 dark:text-slate-100 truncate flex items-center gap-1.5">
                       <span>{cust.customerName}</span>
                       {cust.isSuspended && (
-                        <span className="text-[10px] text-red-600 font-bold flex items-center gap-0.5">
+                        <span className="text-[10px] text-red-700 dark:text-red-400 font-bold flex items-center gap-0.5">
                           <AlertCircle className="w-3 h-3" /> ระงับสิทธิ์
                         </span>
                       )}
                     </div>
                     {(cust.phone || cust.address) && (
-                      <div className="text-[11px] text-slate-500 truncate mt-0.5">
+                      <div className="text-[11px] text-slate-600 dark:text-slate-400 truncate mt-0.5">
                         {cust.phone && <span className="font-mono mr-2">{cust.phone}</span>}
                         {cust.address && <span>{cust.address}</span>}
                       </div>
@@ -174,7 +174,7 @@ export function CustomerUnifiedSelector({
                 onClick={() => handleSelectGuest(searchTerm)}
                 className="w-full px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-100 font-bold flex items-center gap-2 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors cursor-pointer text-left"
               >
-                <User className="w-4 h-4 text-amber-600 shrink-0" />
+                <User className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0" />
                 <span className="truncate">
                   ใช้ &ldquo;<span className="underline">{searchTerm.trim()}</span>&rdquo; เป็นลูกค้าทั่วไป (Guest)
                 </span>
@@ -183,7 +183,7 @@ export function CustomerUnifiedSelector({
           )}
 
           {filteredCustomers.length === 0 && !searchTerm.trim() && (
-            <div className="px-3 py-4 text-center text-slate-400">
+            <div className="px-3 py-4 text-center text-slate-600 dark:text-slate-400">
               ไม่มีข้อมูลลูกค้า
             </div>
           )}

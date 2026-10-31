@@ -11,14 +11,14 @@ export default function NotFound() {
 
       <h1 className="text-6xl font-black text-slate-900 dark:text-white tracking-tight mb-2">404</h1>
       <h2 className="text-xl font-bold text-slate-700 dark:text-slate-300 mb-3">ไม่พบหน้าที่คุณต้องการ</h2>
-      <p className="text-slate-400 text-sm max-w-md mb-8">
+      <p className="text-slate-600 dark:text-slate-400 text-sm max-w-md mb-8">
         ขออภัย ไม่พบหน้าเว็บที่คุณกำลังเข้าถึง หรือหน้านี้อาจถูกย้าย/ลบออกจากระบบแล้ว
       </p>
 
       <div className="flex items-center gap-3">
         <Link
           href="/dashboard"
-          className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-all"
+          className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-all"
         >
           <Store className="w-4 h-4" />
           <span>กลับไปยังหน้าแดชบอร์ด</span>

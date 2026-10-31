@@ -7,19 +7,21 @@
 \set ON_ERROR_STOP 1
 
 -- ===================================================================== PERMISSION
-SELECT t.err('S1-PERM', 'USER cannot change shop settings (even a column)', 'cashier',
-    $q$select public.settings_update('{"company_name":"hack"}'::jsonb, 'x')$q$, 'OWNER only');
-SELECT t.err('S1-PERM', 'USER cannot write a shop policy key', 'finance',
-    $q$select public.settings_update('{"policies":{"allow_backorder":true}}'::jsonb, 'x')$q$, 'OWNER only');
-SELECT t.err('S1-PERM', 'USER without the products menu cannot write category defaults', 'cashier',
-    $q$select public.settings_update('{"policies":{"category_defaults":{}}}'::jsonb, 'x')$q$, 'OWNER only');
+SELECT t.err('S1-PERM', 'changing shop settings needs an ACTIVE member (owner 2026-10-26: every ACTIVE member may; one waiting for approval may not)', 'pending',
+    $q$select public.settings_update('{"company_name":"hack"}'::jsonb, 'x')$q$, 'FORBIDDEN');
+SELECT t.err('S1-PERM', 'writing a shop policy key needs an ACTIVE member (owner 2026-10-26: every ACTIVE member may; one waiting for approval may not)', 'pending',
+    $q$select public.settings_update('{"policies":{"allow_backorder":true}}'::jsonb, 'x')$q$, 'FORBIDDEN');
+SELECT t.err('S1-PERM', 'writing category defaults needs an ACTIVE member (owner 2026-10-26: every ACTIVE member may; one waiting for approval may not)', 'pending',
+    $q$select public.settings_update('{"policies":{"category_defaults":{}}}'::jsonb, 'x')$q$, 'FORBIDDEN');
 SELECT t.ok('S1-PERM', 'USER with the finance menu still saves the finance quick-income list', 'finance',
     $q$select public.settings_update('{"policies":{"finance_income_items":["ค่าขนส่ง"]}}'::jsonb, 'test')$q$);
-SELECT t.err('S1-PERM', 'the settings menu can no longer be granted to a USER', 'owner',
-    format($q$select public.owner_set_member_menus(%L::uuid, ARRAY['pos','settings'], 'x')$q$, t.u('cashier')), 'OWNER_ONLY');
-SELECT t.check('S1-PERM', 'settings is an owner-only menu', (SELECT owner_only FROM public.menu_catalog WHERE code = 'settings'));
-SELECT t.err('S1-PERM', 'USER cannot read the numbering preview', 'cashier',
-    $q$select to_jsonb(public.document_number_preview('BILL'))$q$, 'OWNER only');
+SELECT t.check('S1-PERM', 'settings is open to every ACTIVE member; member management stays OWNER-only',
+    NOT (SELECT owner_only FROM public.menu_catalog WHERE code = 'settings')
+    AND (SELECT owner_only FROM public.menu_catalog WHERE code = 'members'));
+SELECT t.err('S1-PERM', 'the numbering preview needs an ACTIVE member (owner 2026-10-26: every ACTIVE member may; one waiting for approval may not)', 'pending',
+    $q$select to_jsonb(public.document_number_preview('BILL'))$q$, 'FORBIDDEN');
+SELECT t.ok('S1-PERM', 'a USER with no menus reads the numbering preview', 'nomenu',
+    $q$select to_jsonb(public.document_number_preview('BILL'))$q$);
 SELECT t.ok('S2-PERM', 'OWNER changes shop settings', 'owner',
     $q$select public.settings_update('{"company_name":"ร้านทดสอบ","policies":{"business_profile":{"email":"a@b.th","lineId":"","authorizedPerson":""}}}'::jsonb, 'test')$q$);
 SELECT t.err('S2-PERM', 'policy groups are type checked', 'owner',

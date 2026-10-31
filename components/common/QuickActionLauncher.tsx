@@ -1,8 +1,10 @@
 'use client'
 
 import { useToast } from '@/components/common/Toast'
+import { useCreateCustomer } from '@/features/customers/hooks/useCreateCustomer'
 import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { HEADER_ICON_BUTTON_CLASSES, HEADER_ICON_BUTTON_OPEN_CLASSES, HEADER_ICON_BUTTON_IDLE_CLASSES } from '@/components/common/ActionButton'
 import {
   LayoutGrid,
   ShoppingBag,
@@ -14,12 +16,10 @@ import {
   ClipboardList,
   Sun,
   Moon,
-  Lock,
 } from 'lucide-react'
 import { useTheme } from '@/lib/contexts/ThemeContext'
 import { NewCustomerModal } from '@/features/customers/components/NewCustomerModal'
 import { AddAppointmentModal } from '@/features/appointments/components/AddAppointmentModal'
-import { createCustomerAsync } from '@/features/customers/services/customer-storage'
 import { addAppointment } from '@/features/appointments/services/appointment-storage'
 
 interface QuickActionLauncherProps {
@@ -28,6 +28,7 @@ interface QuickActionLauncherProps {
 
 export function QuickActionLauncher({ className = '' }: QuickActionLauncherProps) {
   const { showToast } = useToast()
+  const createCustomer = useCreateCustomer()
   const router = useRouter()
   const { toggleTheme, isDark } = useTheme()
   const [isOpen, setIsOpen] = useState(false)
@@ -63,49 +64,49 @@ export function QuickActionLauncher({ className = '' }: QuickActionLauncherProps
       label: 'หน้าร้าน POS',
       icon: ShoppingBag,
       onClick: () => router.push('/pos'),
-      color: 'text-blue-500 hover:text-blue-400',
+      color: 'text-blue-600 dark:text-blue-400 hover:text-blue-400',
     },
     {
       id: 'add-customer',
       label: 'เพิ่มลูกค้า',
       icon: UserPlus,
       onClick: () => setShowNewCustomerModal(true),
-      color: 'text-indigo-500 hover:text-indigo-400',
+      color: 'text-indigo-600 dark:text-indigo-400 hover:text-indigo-400',
     },
     {
       id: 'add-appointment',
       label: 'เพิ่มนัดหมาย',
       icon: CalendarPlus,
       onClick: () => setShowAddAppointmentModal(true),
-      color: 'text-purple-500 hover:text-purple-400',
+      color: 'text-purple-600 dark:text-purple-400 hover:text-purple-400',
     },
     {
       id: 'returns',
       label: 'รับคืนสินค้า',
       icon: RefreshCw,
       onClick: () => router.push('/bills'),
-      color: 'text-emerald-500 hover:text-emerald-400',
+      color: 'text-emerald-700 dark:text-emerald-400 hover:text-emerald-400',
     },
     {
       id: 'payment',
       label: 'รับชำระเงิน',
       icon: CreditCard,
       onClick: () => router.push('/bills'),
-      color: 'text-teal-500 hover:text-teal-400',
+      color: 'text-teal-700 dark:text-teal-400 hover:text-teal-400',
     },
     {
       id: 'quotation',
       label: 'ใบเสนอราคา',
       icon: FileText,
       onClick: () => router.push('/quotations'),
-      color: 'text-cyan-500 hover:text-cyan-400',
+      color: 'text-cyan-700 dark:text-cyan-400 hover:text-cyan-400',
     },
     {
       id: 'stock-count',
       label: 'ตรวจนับสินค้า',
       icon: ClipboardList,
       onClick: () => router.push('/products?tab=count'),
-      color: 'text-amber-500 hover:text-amber-400',
+      color: 'text-amber-700 dark:text-amber-400 hover:text-amber-400',
     },
     {
       id: 'theme',
@@ -113,13 +114,6 @@ export function QuickActionLauncher({ className = '' }: QuickActionLauncherProps
       icon: isDark ? Sun : Moon,
       onClick: toggleTheme,
       color: isDark ? 'text-amber-400 hover:text-amber-300' : 'text-indigo-400 hover:text-indigo-300',
-    },
-    {
-      id: 'lock',
-      label: 'ล็อกหน้าจอ',
-      icon: Lock,
-      onClick: () => {},
-      color: 'text-blue-400 hover:text-blue-300',
     },
   ]
 
@@ -132,11 +126,7 @@ export function QuickActionLauncher({ className = '' }: QuickActionLauncherProps
           onClick={() => setIsOpen((prev) => !prev)}
           aria-label="เมนูลัด (Quick Actions)"
           title="เมนูลัด"
-          className={`p-2 rounded-xl border transition-all cursor-pointer flex items-center justify-center ${
-            isOpen
-              ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-400 text-blue-600 dark:text-blue-400 shadow-sm'
-              : 'bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-300'
-          }`}
+          className={`${HEADER_ICON_BUTTON_CLASSES} ${isOpen ? HEADER_ICON_BUTTON_OPEN_CLASSES : HEADER_ICON_BUTTON_IDLE_CLASSES}`}
         >
           <LayoutGrid className="w-4 h-4" />
         </button>
@@ -169,7 +159,7 @@ export function QuickActionLauncher({ className = '' }: QuickActionLauncherProps
         onClose={() => setShowNewCustomerModal(false)}
         onSave={async (c) => {
           try {
-            await createCustomerAsync(c)
+            await createCustomer(c)
             setShowNewCustomerModal(false)
           } catch (err) {
             console.error(err)
@@ -182,10 +172,7 @@ export function QuickActionLauncher({ className = '' }: QuickActionLauncherProps
       <AddAppointmentModal
         isOpen={showAddAppointmentModal}
         onClose={() => setShowAddAppointmentModal(false)}
-        onSave={(newApt) => {
-          void addAppointment(newApt).catch((err: unknown) => console.error('บันทึกนัดหมายไม่สำเร็จ', err))
-          setShowAddAppointmentModal(false)
-        }}
+        onSave={(newApt) => addAppointment(newApt)}
       />
     </>
   )

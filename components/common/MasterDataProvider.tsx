@@ -17,7 +17,7 @@ import { fetchCustomersFromSupabase } from '@/features/customers/api/customer-re
 import { fetchBillsFromSupabase, setCachedBills } from '@/features/bills/services/bill-storage'
 import { fetchQuotationsFromSupabase, setCachedQuotations } from '@/features/quotations/services/quotation-storage'
 import { fetchAppointmentsFromSupabase, setCachedAppointments } from '@/features/appointments/services/appointment-storage'
-import { fetchTransactionsFromSupabase, setCachedTransactions } from '@/features/finance/services/finance-storage'
+import { fetchTransactionsFromSupabase, setCachedTransactions, setCachedRevenueLedger } from '@/features/finance/services/finance-storage'
 import { fetchNotificationsFromSupabase, setCachedNotifications, runNotificationScan } from '@/features/notifications/services/notification-storage'
 import { fetchSharedSystemConfig } from '@/features/settings/api/settings-repository'
 import { setCachedSystemSettings, resetSystemSettings } from '@/features/settings/services/settings-storage'
@@ -115,6 +115,7 @@ function clearAllBusinessData(): void {
   setCachedQuotations([])
   setCachedAppointments([])
   setCachedTransactions([])
+  setCachedRevenueLedger([])
   setCachedNotifications([])
 }
 
@@ -177,7 +178,7 @@ export function MasterDataProvider({ children }: { children: React.ReactNode }) 
 
   if (authLoading) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-slate-50 dark:bg-slate-900 text-slate-500">
+      <div className="flex h-screen w-full items-center justify-center bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400">
         <div className="flex flex-col items-center">
           <RefreshCw className="h-8 w-8 animate-spin mb-4" />
           <p className="font-semibold">กำลังตรวจสอบสิทธิ์...</p>
@@ -188,7 +189,7 @@ export function MasterDataProvider({ children }: { children: React.ReactNode }) 
 
   if (error) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-red-50 text-red-500 flex-col">
+      <div className="flex h-screen w-full items-center justify-center bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400 flex-col">
         <h2 className="text-2xl font-bold mb-4">เชื่อมต่อฐานข้อมูลล้มเหลว</h2>
         <p>{error.message}</p>
       </div>
@@ -197,7 +198,7 @@ export function MasterDataProvider({ children }: { children: React.ReactNode }) 
 
   if (!isLoaded) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-slate-50 dark:bg-slate-900 text-slate-500">
+      <div className="flex h-screen w-full items-center justify-center bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400">
         <div className="flex flex-col items-center">
           <RefreshCw className="h-8 w-8 animate-spin mb-4" />
           <p className="font-semibold">กำลังโหลดข้อมูลระบบ...</p>

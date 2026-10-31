@@ -49,7 +49,7 @@ const eventTime = (iso: string) => iso.slice(11, 16)
 
 const fmt = (d: Date, opts: Intl.DateTimeFormatOptions) => d.toLocaleDateString('th-TH', opts)
 
-const TODAY_DOT = 'bg-red-500 text-white font-bold'
+const TODAY_DOT = 'bg-red-600 text-white font-bold'
 const SELECTED_DOT = 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold'
 
 export function CalendarView({ events, onEventClick, renderDay, actions, onDateChange }: CalendarViewProps) {
@@ -97,7 +97,7 @@ export function CalendarView({ events, onEventClick, renderDay, actions, onDateC
 
   if (!mounted) {
     return (
-      <div className="h-full min-h-0 flex items-center justify-center text-slate-400 font-bold animate-pulse">
+      <div className="h-full min-h-0 flex items-center justify-center text-slate-600 dark:text-slate-400 font-bold animate-pulse">
         กำลังโหลดปฏิทินนัดหมาย...
       </div>
     )
@@ -184,7 +184,7 @@ function WeekStrip({
             type="button"
             onClick={() => onSelect(day)}
             className={`py-1.5 flex items-center justify-center gap-1.5 text-[13px] cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/40 ${
-              weekend ? 'text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-100 font-semibold'
+              weekend ? 'text-slate-600 dark:text-slate-400' : 'text-slate-800 dark:text-slate-100 font-semibold'
             }`}
           >
             <span>{WEEKDAY_LABELS[day.getDay()]}</span>
@@ -231,7 +231,7 @@ function MonthView({
           <div
             key={label}
             className={`py-1 text-right pr-2 text-[11px] font-bold ${
-              i === 0 || i === 6 ? 'text-slate-400 dark:text-slate-500' : 'text-slate-700 dark:text-slate-300'
+              i === 0 || i === 6 ? 'text-slate-600 dark:text-slate-400' : 'text-slate-700 dark:text-slate-300'
             }`}
           >
             {label}
@@ -265,9 +265,9 @@ function MonthView({
                   isToday
                     ? TODAY_DOT
                     : !inMonth
-                      ? 'text-slate-300 dark:text-slate-600'
+                      ? 'text-slate-600 dark:text-slate-400'
                       : weekend
-                        ? 'text-slate-400 dark:text-slate-500'
+                        ? 'text-slate-600 dark:text-slate-400'
                         : 'text-slate-800 dark:text-slate-100 font-semibold'
                 }`}
               >
@@ -289,7 +289,7 @@ function MonthView({
                 </button>
               ))}
               {dayEvents.length > 2 && (
-                <span className="px-1 text-[10px] font-bold text-slate-500 dark:text-slate-400">+{dayEvents.length - 2} งาน</span>
+                <span className="px-1 text-[10px] font-bold text-slate-600 dark:text-slate-400">+{dayEvents.length - 2} งาน</span>
               )}
             </div>
           )

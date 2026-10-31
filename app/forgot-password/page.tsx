@@ -41,7 +41,7 @@ export default function ForgotPasswordPage() {
         </div>
 
         {error && (
-          <div className="p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center gap-2.5 text-rose-600 dark:text-rose-400 text-xs font-semibold animate-in fade-in">
+          <div className="p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center gap-2.5 text-rose-700 dark:text-rose-400 text-xs font-semibold animate-in fade-in">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{error}</span>
           </div>
@@ -49,7 +49,7 @@ export default function ForgotPasswordPage() {
 
         {isSubmitted ? (
           <div className="text-center py-4 space-y-4">
-            <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-500 dark:text-emerald-400 mx-auto">
+            <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 mx-auto">
               <CheckCircle2 className="w-7 h-7" />
             </div>
             <div className="space-y-1.5">
@@ -71,7 +71,7 @@ export default function ForgotPasswordPage() {
             <div>
               <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">อีเมลที่ลงทะเบียน</label>
               <div className="relative">
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Mail className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="email"
                   required
@@ -87,7 +87,7 @@ export default function ForgotPasswordPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-extrabold text-xs rounded-xl border border-blue-500 flex items-center justify-center gap-2 transition-all disabled:opacity-50 mt-2 shadow-lg shadow-blue-500/20 cursor-pointer"
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-700 text-white font-extrabold text-xs rounded-xl border border-blue-500 flex items-center justify-center gap-2 transition-all disabled:opacity-50 mt-2 shadow-lg shadow-blue-500/20 cursor-pointer"
             >
               {isSubmitting ? (
                 <span>กำลังส่งคำขอ...</span>
@@ -100,7 +100,7 @@ export default function ForgotPasswordPage() {
             </button>
 
             <div className="text-center pt-2">
-              <Link href="/login" className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 inline-flex items-center gap-1.5 font-medium">
+              <Link href="/login" className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 inline-flex items-center gap-1.5 font-medium">
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>กลับสู่หน้าเข้าสู่ระบบ</span>
               </Link>
@@ -108,7 +108,7 @@ export default function ForgotPasswordPage() {
           </form>
         )}
 
-        <p className="text-center text-[10px] text-slate-400 dark:text-slate-600 pt-3 border-t border-slate-200 dark:border-slate-800">
+        <p className="text-center text-[10px] text-slate-600 dark:text-slate-400 pt-3 border-t border-slate-200 dark:border-slate-800">
           Rental POS &copy; {new Date().getFullYear()} - All rights reserved
         </p>
       </div>

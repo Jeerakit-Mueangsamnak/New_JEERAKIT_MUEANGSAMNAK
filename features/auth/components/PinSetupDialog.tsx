@@ -119,15 +119,15 @@ export function PinSetupDialog({ open, mode, onClose, onDone }: PinSetupDialogPr
       ? 'ตัวเลข 6 หลัก ห้ามเลขซ้ำทั้งหมดหรือเลขเรียง'
       : 'กด PIN ชุดเดิมอีกครั้ง'
   const chip = (active: boolean) =>
-    `px-3 py-1 rounded-full text-[11px] font-bold ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'}`
+    `px-3 py-1 rounded-full text-[11px] font-bold ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`
 
   return (
     <ModalPortal>
       <div className="fixed inset-0 z-[10001] bg-black/50 flex items-center justify-center p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-label={heading}>
         <div className="w-full max-w-sm rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl px-6 py-7 flex flex-col items-center">
-          <ShieldCheck className="w-8 h-8 text-blue-600" />
+          <ShieldCheck className="w-8 h-8 text-blue-600 dark:text-blue-400" />
           <h2 className="mt-3 text-xl font-bold text-slate-900 dark:text-white text-center">{heading}</h2>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 text-center">{hint}</p>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400 text-center">{hint}</p>
 
           <div className="mt-4 flex items-center gap-2">
             {mode === 'change' && <span className={chip(step === 'current')}>PIN เดิม</span>}
@@ -141,9 +141,9 @@ export function PinSetupDialog({ open, mode, onClose, onDone }: PinSetupDialogPr
 
           <div className="mt-5 min-h-[20px] text-center">
             {busy ? (
-              <span className="text-xs text-slate-500">กำลังบันทึก…</span>
+              <span className="text-xs text-slate-600 dark:text-slate-400">กำลังบันทึก…</span>
             ) : error ? (
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-700 dark:text-rose-400">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 {error}
               </span>

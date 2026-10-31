@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
+import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import {
   fetchPinStatus,
   setPinOnServer,
@@ -11,9 +12,13 @@ import {
   getLastActivity,
   setLastActivity,
   isIdleExpired,
+  effectiveAutoLockSeconds,
   type PinStatus,
   type PinVerifyResult,
 } from '@/features/auth/services/pin-lock'
+
+/** Set while this browser tab stays open (sessionStorage ends with the tab, survives a reload). */
+const tabOpenKey = (userId: string) => `pos_tab_open:${userId}`
 
 export interface AppLockContextType {
   /** The user has a PIN on the server. */
@@ -37,7 +42,8 @@ const ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'touchstart', 'wheel', 'scrol
 
 export function AppLockProvider({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading } = useAuth()
-  const [status, setStatus] = useState<PinStatus | null>(null)
+  const { settings } = useSystemSettings()
+  const [serverStatus, setStatus] = useState<PinStatus | null>(null)
   const [isLocked, setIsLocked] = useState(false)
   const [checkedUserId, setCheckedUserId] = useState<string | null | undefined>(undefined)
   const userId = user?.status === 'ACTIVE' ? user.id : null
@@ -67,6 +73,23 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
     void refreshLockState()
   }, [refreshLockState])
 
+  // The OWNER may change the allowed auto-lock times from another device: read again on return.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshLockState()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [refreshLockState])
+
+  // The member's own choice applies only while the OWNER still allows it (shop default otherwise).
+  const shopDefaultSeconds = settings.shopSecurity.autoLockDefaultSeconds
+  const status = useMemo<PinStatus | null>(() => {
+    if (!serverStatus) return null
+    const seconds = effectiveAutoLockSeconds(serverStatus.autoLockSeconds, serverStatus.autoLockOptions, shopDefaultSeconds)
+    return seconds === serverStatus.autoLockSeconds ? serverStatus : { ...serverStatus, autoLockSeconds: seconds }
+  }, [serverStatus, shopDefaultSeconds])
+
   // A locked device implies a PIN was set (the lock flag is only written when it was).
   const pinEnabled = Boolean(status?.pinSet) || isLocked
 
@@ -82,6 +105,25 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
     setAppLockedState(userId, false)
     setLastActivity(userId, Date.now())
   }, [userId])
+
+  // A brand-new/reopened tab signed in without its tab marker still asks for the PIN.
+  // Merely changing browser tabs or apps must NOT lock immediately; ordinary idle-time
+  // auto-lock (and the explicit lock button) remain enabled below.
+  const signedOutSeen = useRef(false)
+  useEffect(() => {
+    if (!authLoading && !userId) signedOutSeen.current = true
+  }, [authLoading, userId])
+
+  useEffect(() => {
+    if (!userId || !pinEnabled) return
+    const key = tabOpenKey(userId)
+    try {
+      if (!isLocked && !signedOutSeen.current && window.sessionStorage.getItem(key) !== '1') lockApp()
+      window.sessionStorage.setItem(key, '1')
+    } catch {
+      // storage unavailable: the idle timer and manual lock remain available
+    }
+  }, [userId, pinEnabled, isLocked, lockApp])
 
   // Auto-lock after the user's own idle time (PROFILE value; 0 = never). The session stays
   // signed in. The last activity is kept on this device, and the elapsed time is checked again

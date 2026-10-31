@@ -41,10 +41,6 @@ export function DepositModal({ isOpen, bill, onClose, onSaved }: DepositModalPro
 
   const handleSave = async () => {
     if (!changed) return onClose()
-    if (!reason.trim()) {
-      showToast('กรุณาระบุเหตุผล', 'การแก้ไขมัดจำต้องระบุเหตุผล', 'ERROR')
-      return
-    }
     setIsSaving(true)
     try {
       await correctBill(bill.id, { depositAmount: amount, depositNote: note || null }, reason.trim())
@@ -77,7 +73,7 @@ export function DepositModal({ isOpen, bill, onClose, onSaved }: DepositModalPro
           </label>
           {changed && (
             <label className="block text-xs font-semibold">
-              เหตุผลที่แก้ไข (ต้องยืนยัน PIN)
+              เหตุผลที่แก้ไข (ไม่บังคับ)
               <input value={reason} onChange={(e) => setReason(e.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2" placeholder="เช่น พิมพ์ยอดผิด" />
             </label>
           )}
@@ -86,7 +82,7 @@ export function DepositModal({ isOpen, bill, onClose, onSaved }: DepositModalPro
       <AppModalFooter>
         <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl border text-sm font-semibold">ปิด</button>
         {changed && (
-          <button type="button" disabled={isSaving} onClick={() => void handleSave()} className="px-4 py-2 rounded-xl bg-amber-600 text-white text-sm font-bold disabled:opacity-50">
+          <button type="button" disabled={isSaving} onClick={() => void handleSave()} className="px-4 py-2 rounded-xl bg-amber-500 text-slate-900 text-sm font-bold disabled:opacity-50">
             {isSaving ? 'กำลังบันทึก…' : 'บันทึกการแก้ไข'}
           </button>
         )}

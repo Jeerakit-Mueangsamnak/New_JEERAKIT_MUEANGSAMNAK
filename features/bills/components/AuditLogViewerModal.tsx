@@ -71,34 +71,34 @@ export function AuditLogViewerModal({
     <AppModal isOpen={true} onClose={onClose} size="lg">
       <AppModalHeader
         onClose={onClose}
-        icon={<History className="w-5 h-5 text-blue-500" />}
+        icon={<History className="w-5 h-5 text-blue-600 dark:text-blue-400" />}
       >
         <div>
           <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
             ประวัติการทำรายการและตรวจสอบ (Audit Log History)
           </h3>
-          <p className="text-xs text-slate-400">
-            เลขที่บิล: <span className="font-mono text-blue-500 font-bold">{billNo}</span> | ลูกค้า: {customerName}
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            เลขที่บิล: <span className="font-mono text-blue-600 dark:text-blue-400 font-bold">{billNo}</span> | ลูกค้า: {customerName}
           </p>
         </div>
       </AppModalHeader>
 
       <AppModalBody className="space-y-4">
         {loading ? (
-          <div className="text-center py-12 text-slate-400">
+          <div className="text-center py-12 text-slate-600 dark:text-slate-400">
             <Clock className="w-8 h-8 mx-auto mb-2 opacity-50 animate-spin" />
             <p className="text-xs">กำลังโหลดประวัติ Audit Log...</p>
           </div>
         ) : error ? (
-          <div className="text-center py-8 text-rose-500 bg-rose-500/10 rounded-xl p-4">
+          <div className="text-center py-8 text-rose-700 dark:text-rose-400 bg-rose-500/10 rounded-xl p-4">
             <AlertCircle className="w-6 h-6 mx-auto mb-2" />
             <p className="text-xs font-bold">{error}</p>
           </div>
         ) : auditLogs.length === 0 ? (
-          <div className="text-center py-12 text-slate-400">
-            <ShieldCheck className="w-10 h-10 mx-auto mb-2 text-emerald-500 opacity-60" />
+          <div className="text-center py-12 text-slate-600 dark:text-slate-400">
+            <ShieldCheck className="w-10 h-10 mx-auto mb-2 text-emerald-700 dark:text-emerald-400 opacity-60" />
             <p className="font-bold text-sm text-slate-300">บิลนี้ยังไม่มีประวัติ Mutation เพิ่มเติม</p>
-            <p className="text-xs mt-1 text-slate-500">
+            <p className="text-xs mt-1 text-slate-600 dark:text-slate-400">
               เมื่อมีการยกเลิกบิล, รับคืนสินค้า, รับชำระเงิน หรือปรับเปลี่ยนสถานะ จะถูกบันทึกที่นี่แบบ Real-time
             </p>
           </div>
@@ -118,14 +118,14 @@ export function AuditLogViewerModal({
 
                   <div className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2.5">
                     {/* Header Row: Actor & Time */}
-                    <div className="flex flex-wrap justify-between items-center text-slate-500 font-mono text-[11px] gap-2">
+                    <div className="flex flex-wrap justify-between items-center text-slate-600 dark:text-slate-400 font-mono text-[11px] gap-2">
                       <span className="flex items-center gap-1.5 font-bold text-slate-700 dark:text-slate-300">
-                        <UserCheck className="w-3.5 h-3.5 text-blue-500" />
+                        <UserCheck className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                         ผู้ทำรายการ: <strong className="text-blue-600 dark:text-blue-400">{log.displayName}</strong>
-                        <span className="text-slate-400 font-normal">({log.userId ? log.userId.slice(0, 10) : 'system'})</span>
+                        <span className="text-slate-600 dark:text-slate-400 font-normal">({log.userId ? log.userId.slice(0, 10) : 'system'})</span>
                       </span>
                       <span className="flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-slate-400" />
+                        <Clock className="w-3 h-3 text-slate-600 dark:text-slate-400" />
                         {formatDateTime(log.createdAt)}
                       </span>
                     </div>
@@ -140,8 +140,8 @@ export function AuditLogViewerModal({
                           {log.entityType}: {log.entityId}
                         </span>
                       </div>
-                      <span className="text-[10px] text-slate-400 font-mono flex items-center gap-0.5">
-                        <Hash className="w-3 h-3 text-slate-400" />
+                      <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono flex items-center gap-0.5">
+                        <Hash className="w-3 h-3 text-slate-600 dark:text-slate-400" />
                         Corr: {log.correlationId ? `${log.correlationId.slice(0, 18)}...` : '-'}
                       </span>
                     </div>
@@ -149,7 +149,7 @@ export function AuditLogViewerModal({
                     {/* Reason */}
                     {log.reason && (
                       <div className="bg-white/70 dark:bg-slate-900/70 p-2.5 rounded-xl border border-slate-200/70 dark:border-slate-800 text-xs">
-                        <span className="font-bold text-slate-500 dark:text-slate-400 mr-1.5">เหตุผลที่ระบุ (Reason):</span>
+                        <span className="font-bold text-slate-600 dark:text-slate-400 mr-1.5">เหตุผลที่ระบุ (Reason):</span>
                         <span className="text-slate-800 dark:text-slate-100 font-medium">
                           {log.reason}
                         </span>
@@ -160,7 +160,7 @@ export function AuditLogViewerModal({
                     {(log.before || log.after) && (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-[11px] font-mono">
                         <div className="bg-rose-50/80 dark:bg-rose-950/20 p-2.5 rounded-xl border border-rose-200/60 dark:border-rose-900/40">
-                          <span className="text-rose-600 dark:text-rose-400 font-bold block text-[10px] mb-1">
+                          <span className="text-rose-700 dark:text-rose-400 font-bold block text-[10px] mb-1">
                             ข้อมูลก่อนแก้ไข (Before):
                           </span>
                           {log.before ? (
@@ -168,12 +168,12 @@ export function AuditLogViewerModal({
                               {JSON.stringify(log.before, null, 2)}
                             </pre>
                           ) : (
-                            <span className="text-slate-400 italic text-[10px]">(ไม่มีข้อมูลก่อนหน้า / สร้างใหม่)</span>
+                            <span className="text-slate-600 dark:text-slate-400 italic text-[10px]">(ไม่มีข้อมูลก่อนหน้า / สร้างใหม่)</span>
                           )}
                         </div>
 
                         <div className="bg-emerald-50/80 dark:bg-emerald-950/20 p-2.5 rounded-xl border border-emerald-200/60 dark:border-emerald-900/40">
-                          <span className="text-emerald-600 dark:text-emerald-400 font-bold block text-[10px] mb-1">
+                          <span className="text-emerald-700 dark:text-emerald-400 font-bold block text-[10px] mb-1">
                             ข้อมูลหลังแก้ไข (After):
                           </span>
                           {log.after ? (
@@ -181,7 +181,7 @@ export function AuditLogViewerModal({
                               {JSON.stringify(log.after, null, 2)}
                             </pre>
                           ) : (
-                            <span className="text-slate-400 italic text-[10px]">(ถูกลบ / ไม่มีข้อมูลปลายทาง)</span>
+                            <span className="text-slate-600 dark:text-slate-400 italic text-[10px]">(ถูกลบ / ไม่มีข้อมูลปลายทาง)</span>
                           )}
                         </div>
                       </div>
@@ -196,8 +196,8 @@ export function AuditLogViewerModal({
 
       <AppModalFooter>
         <div className="flex-1 flex items-center justify-between w-full">
-          <span className="text-xs text-slate-400 flex items-center gap-1">
-            <ShieldCheck className="w-4 h-4 text-emerald-500" />
+          <span className="text-xs text-slate-600 dark:text-slate-400 flex items-center gap-1">
+            <ShieldCheck className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
             ระบบบันทึกประวัติการตรวจสอบอัตโนมัติ (Immutable Audit Log)
           </span>
           <button

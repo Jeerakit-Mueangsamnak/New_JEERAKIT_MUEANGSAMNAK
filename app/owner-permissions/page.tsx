@@ -1,6 +1,6 @@
 'use client'
 
-import { useAskText } from '@/components/common/ConfirmDialogProvider'
+import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { SETTINGS_INPUT } from '@/features/settings/components/settings-ui'
 import { ActionButton, TAB_BUTTON_ACTIVE_CLASSES, TAB_BUTTON_BASE_CLASSES, TAB_BUTTON_INACTIVE_CLASSES, TAB_CONTAINER_CLASSES } from '@/components/common/ActionButton'
 import { DataTableFrame, DATA_TABLE_CLASSES } from '@/components/common/DataTableFrame'
@@ -24,10 +24,8 @@ import {
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { CustomSelect, SelectOption } from '@/components/common/CustomSelect'
-import { GRANTABLE_MENUS, POS_STAFF_PRESET } from '@/features/auth/services/permissions'
-import { listMembers, resetMemberPin, setMemberActions, setMemberMenus, setMemberRole, setMemberStatus } from '@/app/actions/members'
-import { fetchAuditLogs } from '@/features/audits/services/audit-storage'
-import { PermissionMatrixPanel } from '@/features/auth/components/PermissionMatrixPanel'
+import { listMembers, resetMemberPin, setMemberRole, setMemberStatus } from '@/app/actions/members'
+import { auditCategoryOf, fetchAuditLogs } from '@/features/audits/services/audit-storage'
 
 type ActivityLogCategory = 'BILL' | 'STOCK' | 'SYSTEM' | 'CUSTOMER' | 'MEMBER' | 'FINANCE'
 
@@ -63,8 +61,6 @@ interface UserActivityLog {
 // Menu access (Master v4.3.1 §4.2): the OWNER grants whole menus per person; same list as
 // public.menu_catalog. Owner-only menus (settings, member management) are never granted.
 
-const PERMISSIONS_CATALOG: Array<{ code: string; label: string; module: string; description: string }> =
-  GRANTABLE_MENUS.map((m) => ({ code: m.code, label: m.label, module: 'MENU', description: m.href }))
 
 
 type ActiveTab = 'PERMISSIONS' | 'AUDIT_REPORT' | 'AUDIT_LOGS'
@@ -82,9 +78,8 @@ const categoryNames: Record<AuditSubTab, string> = {
 import { getCurrentUser } from '@/app/actions/auth'
 
 export default function OwnerPermissionsPage() {
-  // Member changes are audited and the database requires a reason (in-app dialog).
-  const askText = useAskText()
-  const askReason = (question: string) => askText({ title: question })
+  // Member changes are audited by the database; no reason is asked (owner decision 2026-10-22).
+  const confirm = useConfirm()
   const router = useRouter()
   const [user, setUser] = useState<{ id: string; role: string } | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
@@ -125,14 +120,9 @@ export default function OwnerPermissionsPage() {
   const [feedback, setFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
   // Modal states for delete confirmation
-  const [deleteConfirmMember, setDeleteConfirmMember] = useState<BusinessMemberUser | null>(null)
 
   // Permission matrix of the selected member (menus are the only stored grant)
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null)
-  const [selectedPermCodes, setSelectedPermCodes] = useState<string[]>([])
-  const [selectedActionCodes, setSelectedActionCodes] = useState<string[]>([])
-  const [actionGrantsAvailable, setActionGrantsAvailable] = useState(true)
-  const [savingPerms, setSavingPerms] = useState(false)
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
     setFeedback({ message, type })
@@ -148,7 +138,6 @@ export default function OwnerPermissionsPage() {
         setFeedback({ message: result.error || 'โหลดรายชื่อผู้ใช้งานไม่สำเร็จ', type: 'error' })
         return
       }
-      setActionGrantsAvailable(result.data.actionGrantsAvailable)
       setMembers(
         result.data.members.map((m) => ({
           id: m.userId,
@@ -202,18 +191,11 @@ export default function OwnerPermissionsPage() {
     loadMembers()
   }, [loadMembers])
 
-  // After a reload the matrix shows what the server saved.
-  useEffect(() => {
-    const m = members.find((x) => x.id === selectedMemberId)
-    setSelectedPermCodes(m?.menus || [])
-    setSelectedActionCodes(m?.actions || [])
-  }, [members, selectedMemberId])
-
   useEffect(() => {
     if (activeTab === 'AUDIT_REPORT' || activeTab === 'AUDIT_LOGS') {
       loadLogs()
     }
-  }, [activeTab, auditSubTab, selectedActorId, loadLogs])
+  }, [activeTab, selectedActorId, loadLogs])
 
   // Member Actions: each one is checked, audited, and applied by the database RPC
   const runMemberAction = async (
@@ -236,101 +218,44 @@ export default function OwnerPermissionsPage() {
   }
 
   const handleApprove = async (member: BusinessMemberUser) => {
-    const reason = await askReason('เหตุผลที่อนุมัติให้เข้าใช้งาน')
-    if (!reason) return
-    await runMemberAction(member, () => setMemberStatus(member.id, 'ACTIVE', reason), 'อนุมัติผู้ใช้งานแล้ว')
+    await runMemberAction(member, () => setMemberStatus(member.id, 'ACTIVE'), 'อนุมัติผู้ใช้งานแล้ว')
   }
 
   const handleSuspend = async (member: BusinessMemberUser) => {
-    const reason = await askReason('เหตุผลที่ระงับการใช้งาน')
-    if (!reason) return
-    await runMemberAction(member, () => setMemberStatus(member.id, 'SUSPENDED', reason), 'ระงับการใช้งานแล้ว')
+    if (!(await confirm({ title: `ระงับการใช้งาน ${member.profile?.fullName || member.profile?.username || ''}`.trim(), danger: true }))) return
+    await runMemberAction(member, () => setMemberStatus(member.id, 'SUSPENDED'), 'ระงับการใช้งานแล้ว')
   }
 
   const handleRoleChange = async (member: BusinessMemberUser, newRole: string) => {
     if (newRole !== 'OWNER' && newRole !== 'USER') return
-    const reason = await askReason(`เหตุผลที่เปลี่ยนระดับสิทธิ์เป็น ${newRole}`)
-    if (!reason) return
-    await runMemberAction(member, () => setMemberRole(member.id, newRole, reason), 'เปลี่ยนระดับสิทธิ์แล้ว')
+    if (!(await confirm({ title: `เปลี่ยนระดับสิทธิ์เป็น ${newRole}` }))) return
+    await runMemberAction(member, () => setMemberRole(member.id, newRole), 'เปลี่ยนระดับสิทธิ์แล้ว')
   }
 
   // Forgotten / blocked PIN of a USER (Master §4.3): clear it; the member sets a new one at next use.
   const handleResetPin = async (member: BusinessMemberUser) => {
-    const reason = await askReason('เหตุผลที่ล้าง PIN (เช่น ลืม PIN / PIN ถูกล็อก)')
-    if (!reason) return
-    await runMemberAction(member, () => resetMemberPin(member.id, reason), 'ล้าง PIN แล้ว — ผู้ใช้ตั้ง PIN ใหม่ได้เมื่อเข้าระบบ')
+    if (!(await confirm({ title: 'ล้าง PIN ของผู้ใช้นี้', danger: true }))) return
+    await runMemberAction(member, () => resetMemberPin(member.id), 'ล้าง PIN แล้ว — ผู้ใช้ตั้ง PIN ใหม่ได้เมื่อเข้าระบบ')
   }
 
-  const handleDeleteMember = async () => {
-    if (!deleteConfirmMember) return
-    setDeleteConfirmMember(null)
+  // Every ACTIVE member uses every menu and action (owner 2026-10-26, Master §4.2); this page keeps
+  // only what stays with the OWNER: approve / suspend, role, PIN reset and the audit log.
+  const handleSelectMember = (member: BusinessMemberUser) => {
+    setSelectedMemberId(member.id)
+  }
+
+  const handleDeleteMember = async (member: BusinessMemberUser) => {
+    const ok = await confirm({
+      title: 'ยืนยันการลบผู้ใช้งาน',
+      message: `คุณต้องการลบผู้ใช้งาน ${member.profile?.fullName || member.profile?.username || ''} ออกจากร้านใช่หรือไม่? พนักงานคนนี้จะไม่สามารถล็อกอินเข้าสู่ระบบได้อีกต่อไป`,
+      confirmLabel: 'ยืนยันการลบ',
+      danger: true,
+    })
+    if (!ok) return
     // Master §3.3: users with history are never hard-deleted
     showNotification('ลบผู้ใช้งานไม่ได้เพราะต้องเก็บประวัติการทำรายการ กรุณาใช้ "ระงับสิทธิ์" แทน', 'error')
   }
 
-  const selectedMember = members.find((m) => m.id === selectedMemberId) ?? null
-  const savedMenus = selectedMember?.menus ?? []
-  const savedActions = selectedMember?.actions ?? []
-  const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((c) => b.includes(c))
-  const menusDirty = selectedMember?.role === 'USER' && !sameSet(selectedPermCodes, savedMenus)
-  const actionsDirty = selectedMember?.role === 'USER' && !sameSet(selectedActionCodes, savedActions)
-  const permsDirty = menusDirty || actionsDirty
-
-  const handleSelectMember = (member: BusinessMemberUser) => {
-    setSelectedMemberId(member.id)
-    setSelectedPermCodes(member.menus || [])
-    setSelectedActionCodes(member.actions || [])
-  }
-
-  const handleToggleAction = (code: string) => {
-    setSelectedActionCodes((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]))
-  }
-
-  const handleTogglePermission = (code: string) => {
-    setSelectedPermCodes((prev) =>
-      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
-    )
-  }
-
-  const handleSelectAllPerms = () => {
-    setSelectedPermCodes(PERMISSIONS_CATALOG.map((p) => p.code))
-  }
-
-  const handleClearAllPerms = () => {
-    setSelectedPermCodes([])
-  }
-
-  const handlePresetPosPerms = () => {
-    setSelectedPermCodes([...POS_STAFF_PRESET])
-  }
-
-  const handleSavePermissions = async () => {
-    if (!selectedMember || selectedMember.role !== 'USER') return
-    const reason = await askReason('เหตุผลที่เปลี่ยนสิทธิ์การทำงาน')
-    if (!reason) return
-    setSavingPerms(true)
-    try {
-      if (menusDirty) {
-        const result = await setMemberMenus(selectedMember.id, selectedPermCodes, reason)
-        if (!result.success) {
-          showNotification(result.error || 'บันทึกสิทธิ์ไม่สำเร็จ', 'error')
-          return
-        }
-      }
-      if (actionsDirty) {
-        const result = await setMemberActions(selectedMember.id, selectedActionCodes, reason)
-        if (!result.success) {
-          showNotification(result.error || 'บันทึกสิทธิ์การทำรายการไม่สำเร็จ', 'error')
-          await loadMembers()
-          return
-        }
-      }
-      showNotification('บันทึกสิทธิ์แล้ว')
-      await loadMembers()
-    } finally {
-      setSavingPerms(false)
-    }
-  }
 
   // Format dates helper
   const formatDateTime = (isoString?: string) => {
@@ -345,17 +270,26 @@ export default function OwnerPermissionsPage() {
     return `${day}/${month}/${year} ${hours}:${minutes} น.`
   }
 
+  // Rows of the selected group (บิล / ลูกค้า / …) that match the search box.
+  const searchText = searchTerm.trim().toLowerCase()
+  const visibleLogs = logs.filter(
+    (log) =>
+      auditCategoryOf(log.category) === auditSubTab &&
+      (!searchText ||
+        [log.action, log.details, log.actorName, JSON.stringify(log.metadata ?? {})].some((v) => (v || '').toLowerCase().includes(searchText)))
+  )
+
   // Export audit logs to Excel
   const handleExportAuditExcel = () => {
-    if (logs.length === 0) {
+    if (visibleLogs.length === 0) {
       showNotification('ไม่มีข้อมูลสำหรับส่งออก', 'error')
       return
     }
 
-    const exportData = logs.map((log, idx) => ({
+    const exportData = visibleLogs.map((log, idx) => ({
       ลำดับ: idx + 1,
       การกระทำ: log.action,
-      หมวดหมู่: categoryNames[auditSubTab] || log.category,
+      หมวดหมู่: categoryNames[auditCategoryOf(log.category)],
       รายละเอียด: log.details || '-',
       'วันที่-เวลา': formatDateTime(log.createdAt),
       ผู้ทำรายการ: log.actorName || '-',
@@ -374,7 +308,7 @@ export default function OwnerPermissionsPage() {
     return (
       <div className="flex h-full min-h-[400px] items-center justify-center bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-white">
         <div className="flex flex-col items-center gap-3">
-          <RefreshCw className="w-8 h-8 animate-spin text-emerald-600 dark:text-emerald-400" />
+          <RefreshCw className="w-8 h-8 animate-spin text-emerald-700 dark:text-emerald-400" />
           <p className="text-sm font-bold text-slate-600 dark:text-slate-300">กำลังตรวจสอบสิทธิ์เจ้าของร้าน...</p>
         </div>
       </div>
@@ -423,7 +357,7 @@ export default function OwnerPermissionsPage() {
           </div>
           <div className="flex items-center gap-1.5 justify-end">
             {activeTab !== 'PERMISSIONS' && (
-              <ActionButton size="sm" variant="neutral" onClick={handleExportAuditExcel} disabled={logs.length === 0} icon={<FileSpreadsheet />}>
+              <ActionButton size="sm" variant="neutral" onClick={handleExportAuditExcel} disabled={visibleLogs.length === 0} icon={<FileSpreadsheet />}>
                 Export
               </ActionButton>
             )}
@@ -449,9 +383,9 @@ export default function OwnerPermissionsPage() {
                 }`}
               >
                 {feedback.type === 'success' ? (
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
                 ) : (
-                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400 shrink-0" />
                 )}
                 <span>{feedback.message}</span>
               </div>
@@ -470,7 +404,6 @@ export default function OwnerPermissionsPage() {
                           <th className="px-3">Username</th>
                           <th className="px-3 text-center">ระดับสิทธิ์</th>
                           <th className="px-3 text-center">สถานะ</th>
-                          <th className="px-3 text-center">เมนู</th>
                           <th className="px-3 hidden 2xl:table-cell">วันที่สร้าง</th>
                           <th className="px-3 text-right sticky right-0 bg-[#E3E3E3] dark:bg-slate-800">จัดการ</th>
                         </tr>
@@ -478,16 +411,16 @@ export default function OwnerPermissionsPage() {
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700 font-medium">
                         {loadingMembers ? (
                           <tr>
-                            <td colSpan={8} className="py-8 text-center text-slate-500 dark:text-slate-400">
+                            <td colSpan={8} className="py-8 text-center text-slate-600 dark:text-slate-400">
                               <div className="flex items-center justify-center gap-2">
-                                <RefreshCw className="w-4 h-4 animate-spin text-emerald-600 dark:text-emerald-400" />
+                                <RefreshCw className="w-4 h-4 animate-spin text-emerald-700 dark:text-emerald-400" />
                                 <span>กำลังโหลด...</span>
                               </div>
                             </td>
                           </tr>
                         ) : members.length === 0 ? (
                           <tr>
-                            <td colSpan={8} className="py-8 text-center text-slate-500 dark:text-slate-400 italic">
+                            <td colSpan={8} className="py-8 text-center text-slate-600 dark:text-slate-400 italic">
                               ไม่พบผู้ใช้งาน
                             </td>
                           </tr>
@@ -508,7 +441,7 @@ export default function OwnerPermissionsPage() {
                                 }`}
                               >
                                 {/* 1. User UUID */}
-                                <td className="px-3 font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap hidden 2xl:table-cell">
+                                <td className="px-3 font-mono text-[11px] text-slate-600 dark:text-slate-400 whitespace-nowrap hidden 2xl:table-cell">
                                   <span title={member.userId || '-'}>
                                     {member.userId ? `${member.userId.slice(0, 8)}…` : '-'}
                                   </span>
@@ -536,16 +469,20 @@ export default function OwnerPermissionsPage() {
 
                                 {/* 4. Role Selector */}
                                 <td className="px-3 text-center">
-                                  <select
-                                    onClick={(e) => e.stopPropagation()}
-                                    value={member.role}
-                                    disabled={isSelf || member.role === 'OWNER' || actionLoading === member.id}
-                                    onChange={(e) => handleRoleChange(member, e.target.value)}
-                                    className="h-7 px-2 py-0 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:border-emerald-500 disabled:opacity-60 cursor-pointer"
-                                  >
-                                    <option value="OWNER">OWNER (เจ้าของร้าน)</option>
-                                    <option value="USER">USER (พนักงาน)</option>
-                                  </select>
+                                  {/* stopPropagation: picking a role must not also select the row */}
+                                  <div className="inline-block w-40" onClick={(e) => e.stopPropagation()}>
+                                    <CustomSelect
+                                      ariaLabel={`บทบาท ${member.profile?.fullName || member.profile?.username || ''}`}
+                                      value={member.role ?? ''}
+                                      disabled={isSelf || member.role === 'OWNER' || actionLoading === member.id}
+                                      onChange={(value) => handleRoleChange(member, String(value))}
+                                      buttonClassName="h-7 px-2 py-0 rounded-lg"
+                                      options={[
+                                        { value: 'OWNER', label: 'OWNER (เจ้าของร้าน)' },
+                                        { value: 'USER', label: 'USER (พนักงาน)' },
+                                      ]}
+                                    />
+                                  </div>
                                 </td>
 
                                 {/* 5. Status Badge */}
@@ -563,12 +500,9 @@ export default function OwnerPermissionsPage() {
                                   )}
                                 </td>
 
-                                <td className="px-3 text-center font-mono text-slate-600 dark:text-slate-300">
-                                  {member.role === 'OWNER' ? 'ทั้งหมด' : member.menus?.length || 0}
-                                </td>
 
                                 {/* 6. Created */}
-                                <td className="px-3 text-slate-500 dark:text-slate-400 text-[11px] font-mono whitespace-nowrap hidden 2xl:table-cell">
+                                <td className="px-3 text-slate-600 dark:text-slate-400 text-[11px] font-mono whitespace-nowrap hidden 2xl:table-cell">
                                   {formatDateTime(member.profile?.createdAt)}
                                 </td>
 
@@ -618,7 +552,7 @@ export default function OwnerPermissionsPage() {
                                         size="sm"
                                         variant="ghost"
                                         disabled={actionLoading === member.id}
-                                        onClick={() => setDeleteConfirmMember(member)}
+                                        onClick={() => handleDeleteMember(member)}
                                         className="px-1.5 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30"
                                         title="ลบผู้ใช้นี้ออกจากร้าน"
                                         icon={<Trash2 />}
@@ -633,35 +567,6 @@ export default function OwnerPermissionsPage() {
                       </tbody>
                     </table>
               </DataTableFrame>
-            </div>
-            <div className="min-h-0 h-[55%] 2xl:h-auto 2xl:w-[420px] shrink-0 flex flex-col">
-              <PermissionMatrixPanel
-                member={
-                  selectedMember
-                    ? {
-                        id: selectedMember.id,
-                        name: selectedMember.profile?.fullName || selectedMember.profile?.username || 'ไม่ระบุชื่อ',
-                        role: selectedMember.role,
-                        status: selectedMember.status,
-                      }
-                    : null
-                }
-                draftMenus={selectedMember?.role === 'USER' ? selectedPermCodes : []}
-                draftActions={selectedMember?.role === 'USER' ? selectedActionCodes : []}
-                actionGrantsAvailable={actionGrantsAvailable}
-                onToggleAction={handleToggleAction}
-                dirty={Boolean(permsDirty)}
-                saving={savingPerms}
-                onToggle={handleTogglePermission}
-                onPresetPos={handlePresetPosPerms}
-                onSelectAll={handleSelectAllPerms}
-                onClear={handleClearAllPerms}
-                onCancel={() => {
-                  setSelectedPermCodes(savedMenus)
-                  setSelectedActionCodes(savedActions)
-                }}
-                onSave={() => void handleSavePermissions()}
-              />
             </div>
           </div>
         )}
@@ -701,11 +606,11 @@ export default function OwnerPermissionsPage() {
                         placeholder="ค้นหาเลขบิล, ลูกค้า, รหัสสินค้า..."
                         className={`${SETTINGS_INPUT} pl-8`}
                       />
-                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                      <Search className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                     </div>
               </div>
             </div>
-            <DataTableFrame fill rowCount={logs.length} className="flex-1 min-h-0 rounded-none border-0 bg-transparent shadow-none p-0">
+            <DataTableFrame fill rowCount={visibleLogs.length} className="flex-1 min-h-0 rounded-none border-0 bg-transparent shadow-none p-0">
 <table className={`${DATA_TABLE_CLASSES} text-xs`}>
                       <thead>
                         <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs">
@@ -720,23 +625,23 @@ export default function OwnerPermissionsPage() {
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700 font-medium">
                         {loadingLogs ? (
                           <tr>
-                            <td colSpan={6} className="py-8 text-center text-slate-500 dark:text-slate-400">
+                            <td colSpan={6} className="py-8 text-center text-slate-600 dark:text-slate-400">
                               <div className="flex items-center justify-center gap-2">
-                                <RefreshCw className="w-4 h-4 animate-spin text-emerald-600 dark:text-emerald-400" />
+                                <RefreshCw className="w-4 h-4 animate-spin text-emerald-700 dark:text-emerald-400" />
                                 <span>กำลังโหลด...</span>
                               </div>
                             </td>
                           </tr>
-                        ) : logs.length === 0 ? (
+                        ) : visibleLogs.length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="py-8 text-center text-slate-500 dark:text-slate-400 italic">
+                            <td colSpan={6} className="py-8 text-center text-slate-600 dark:text-slate-400 italic">
                               ไม่พบประวัติในหมวดนี้
                             </td>
                           </tr>
                         ) : (
-                          logs.map((log, idx) => (
+                          visibleLogs.map((log, idx) => (
                             <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors">
-                              <td className="px-3 text-center text-slate-400 dark:text-slate-500 font-mono">
+                              <td className="px-3 text-center text-slate-600 dark:text-slate-400 font-mono">
                                 {idx + 1}
                               </td>
 
@@ -755,7 +660,7 @@ export default function OwnerPermissionsPage() {
                               </td>
 
                               <td className="px-3 text-emerald-700 dark:text-emerald-400 font-bold text-[11px] whitespace-nowrap">
-                                {categoryNames[auditSubTab] || log.category}
+                                {categoryNames[auditCategoryOf(log.category)]}
                               </td>
 
                               <td className="px-3 text-slate-600 dark:text-slate-300 max-w-xs truncate" title={log.details}>
@@ -779,47 +684,6 @@ export default function OwnerPermissionsPage() {
         )}
       </div>
 
-      {/* Delete User Modal Confirmation */}
-      {deleteConfirmMember && (
-        <div className="fixed inset-0 z-50 bg-black/60 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-500/40 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95">
-            <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400">
-              <div className="p-3 bg-rose-50 dark:bg-rose-500/20 rounded-xl">
-                <Trash2 className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-900 dark:text-white text-base">ยืนยันการลบผู้ใช้งาน</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">การดำเนินการนี้ไม่สามารถเรียกคืนได้</p>
-              </div>
-            </div>
-
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              คุณต้องการลบผู้ใช้งาน{' '}
-              <strong className="text-slate-900 dark:text-white">
-                {deleteConfirmMember.profile?.fullName || deleteConfirmMember.profile?.username}
-              </strong>{' '}
-              ออกจากร้านใช่หรือไม่? พนักงานคนนี้จะไม่สามารถล็อกอินเข้าสู่ระบบได้อีกต่อไป
-            </p>
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setDeleteConfirmMember(null)}
-                className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 text-xs font-bold transition-colors cursor-pointer"
-              >
-                ยกเลิก
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteMember}
-                className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 dark:hover:bg-rose-500 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
-              >
-                ยืนยันการลบ
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

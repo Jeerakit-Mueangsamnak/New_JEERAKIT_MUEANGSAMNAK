@@ -1,8 +1,7 @@
 'use server'
 
 import { createClient as createServerSupabase } from '@/lib/supabase/server'
-import { isMenuCode, GRANTABLE_MENUS, normalizeMemberStatus } from '@/features/auth/services/permissions'
-import { GRANTABLE_ACTIONS } from '@/features/auth/services/permission-matrix'
+import { isMenuCode, normalizeMemberStatus } from '@/features/auth/services/permissions'
 import type { MemberStatus, UserRole } from '@/lib/types/rental-pos'
 
 /**
@@ -58,7 +57,8 @@ function toThaiError(message: string | undefined): string {
   return key ? RPC_ERROR_MESSAGES[key] : 'ทำรายการไม่สำเร็จ กรุณาลองใหม่อีกครั้ง'
 }
 
-function requireReason(reason: string): string | null {
+/** Reason is optional (owner decision 2026-10-22); the server records a fixed marker when empty. */
+function optionalReason(reason?: string): string | null {
   const trimmed = (reason || '').trim()
   return trimmed ? trimmed : null
 }
@@ -120,7 +120,7 @@ export async function listMembers(): Promise<MemberActionResult<MemberList>> {
 }
 
 async function callOwnerRpc(
-  fn: 'owner_set_member_status' | 'owner_set_member_role' | 'owner_set_member_menus' | 'owner_set_member_actions' | 'owner_reset_member_pin',
+  fn: 'owner_set_member_status' | 'owner_set_member_role' | 'owner_reset_member_pin',
   args: Record<string, unknown>
 ): Promise<MemberActionResult> {
   try {
@@ -140,60 +140,25 @@ async function callOwnerRpc(
 export async function setMemberStatus(
   userId: string,
   status: Exclude<MemberStatus, 'PENDING'>,
-  reason: string
+  reason?: string
 ): Promise<MemberActionResult> {
-  const cleanReason = requireReason(reason)
-  if (!cleanReason) return { success: false, error: RPC_ERROR_MESSAGES.REASON_REQUIRED }
+  const cleanReason = optionalReason(reason)
   if (status !== 'ACTIVE' && status !== 'SUSPENDED') {
     return { success: false, error: RPC_ERROR_MESSAGES.INVALID_STATUS }
   }
   return callOwnerRpc('owner_set_member_status', { p_user_id: userId, p_status: status, p_reason: cleanReason })
 }
 
-export async function setMemberRole(userId: string, role: UserRole, reason: string): Promise<MemberActionResult> {
-  const cleanReason = requireReason(reason)
-  if (!cleanReason) return { success: false, error: RPC_ERROR_MESSAGES.REASON_REQUIRED }
+export async function setMemberRole(userId: string, role: UserRole, reason?: string): Promise<MemberActionResult> {
+  const cleanReason = optionalReason(reason)
   if (role !== 'OWNER' && role !== 'USER') {
     return { success: false, error: RPC_ERROR_MESSAGES.INVALID_ROLE }
   }
   return callOwnerRpc('owner_set_member_role', { p_user_id: userId, p_role: role, p_reason: cleanReason })
 }
 
-/** Replaces the member's menu set (owner-only menus can never be granted). */
-export async function setMemberMenus(
-  userId: string,
-  codes: string[],
-  reason: string
-): Promise<MemberActionResult> {
-  const cleanReason = requireReason(reason)
-  if (!cleanReason) return { success: false, error: RPC_ERROR_MESSAGES.REASON_REQUIRED }
-  const grantable = new Set<string>(GRANTABLE_MENUS.map((m) => m.code))
-  if (!codes.every((c) => isMenuCode(c) && grantable.has(c))) {
-    return { success: false, error: RPC_ERROR_MESSAGES.UNKNOWN_OR_OWNER_ONLY_MENU }
-  }
-  return callOwnerRpc('owner_set_member_menus', {
-    p_user_id: userId,
-    p_menus: Array.from(new Set(codes)),
-    p_reason: cleanReason,
-  })
-}
-
-/** Replaces the USER's granted risky actions (OWNER only on the server, audited). */
-export async function setMemberActions(userId: string, codes: string[], reason: string): Promise<MemberActionResult> {
-  const cleanReason = requireReason(reason)
-  if (!cleanReason) return { success: false, error: RPC_ERROR_MESSAGES.REASON_REQUIRED }
-  const known = new Set<string>(GRANTABLE_ACTIONS)
-  if (!codes.every((c) => known.has(c))) return { success: false, error: RPC_ERROR_MESSAGES.UNKNOWN_ACTION }
-  return callOwnerRpc('owner_set_member_actions', {
-    p_user_id: userId,
-    p_actions: Array.from(new Set(codes)),
-    p_reason: cleanReason,
-  })
-}
-
 /** Forgotten or blocked PIN of a USER: the OWNER clears it; the member sets a new one. Audited. */
-export async function resetMemberPin(userId: string, reason: string): Promise<MemberActionResult> {
-  const cleanReason = requireReason(reason)
-  if (!cleanReason) return { success: false, error: RPC_ERROR_MESSAGES.REASON_REQUIRED }
+export async function resetMemberPin(userId: string, reason?: string): Promise<MemberActionResult> {
+  const cleanReason = optionalReason(reason)
   return callOwnerRpc('owner_reset_member_pin', { p_user_id: userId, p_reason: cleanReason })
 }

@@ -43,8 +43,14 @@ export async function confirmPin(req: PinConfirmRequest): Promise<PinConfirmResu
   return result
 }
 
-/** Always-risky action: PIN first, then the action (one retry if the token went stale). */
+/**
+ * Owner decision 2026-10-22: actions no longer ask for a PIN or a reason — the user's menu/action
+ * rights are checked by the server and every change is written to the audit log by the database.
+ * withPin/withPinIfRequired now run the action straight away with no token (the RPCs take NULL);
+ * only PIN_CHANGE (the lock-screen PIN itself) still opens the PIN dialog.
+ */
 export async function withPin<T>(req: PinConfirmRequest, run: (token: string, reason?: string) => Promise<T>): Promise<T> {
+  if (req.action !== 'PIN_CHANGE') return run(null as unknown as string)
   const first = await confirmPin(req)
   try {
     return await run(first.token, first.reason)
@@ -55,18 +61,11 @@ export async function withPin<T>(req: PinConfirmRequest, run: (token: string, re
   }
 }
 
-/** Conditionally risky action (price override, discount over limit, changed fee): try plainly,
- *  ask for PIN only when the server says PIN_REQUIRED. */
 export async function withPinIfRequired<T>(
   req: PinConfirmRequest,
   run: (token?: string, reason?: string) => Promise<T>
 ): Promise<T> {
-  try {
-    return await run()
-  } catch (err) {
-    if (!isDbError(err, 'PIN_REQUIRED')) throw err
-    return withPin(req, run)
-  }
+  return withPin(req, run)
 }
 
 export function isPinCancelled(err: unknown): boolean {

@@ -4,6 +4,8 @@ import React from 'react'
 
 export interface BillTemplateData {
   documentTitle?: string
+  /** "บิลเช่า" / "ใบเสนอราคา" — printed under the business name. */
+  documentType?: string
   businessName: string
   businessAddress: string
   businessTaxId: string
@@ -17,6 +19,8 @@ export interface BillTemplateData {
   showAuthorizedPerson?: boolean
   showQRCode?: boolean
   qrCodeUrl?: string
+  /** Bank transfer block: hidden on a quotation (prices are not a payment request yet). */
+  showBankDetails?: boolean
   bankName?: string
   bankAccountName?: string
   bankAccountNumber?: string
@@ -52,6 +56,8 @@ export interface BillTemplateData {
   grandTotal: number
   paidAmount: number
   outstandingAmount: number
+  /** Payment / receipt block under the totals. Off for a quotation. */
+  showPaymentSummary?: boolean
   remark?: string
 }
 
@@ -83,9 +89,12 @@ export function RentalBillTemplate({ data }: { data: BillTemplateData }) {
       maximumFractionDigits: 2,
     })
 
+  // A sale-only bill talks about a buyer, not a renter, and has no rental period.
+  const isSaleBill = data.documentType === 'บิลขาย'
+
   const servicesDesc =
     data.businessServices ||
-    'บริการให้เช่าอุปกรณ์จัดงาน อีเวนต์ นั่งร้าน เครื่องมือก่อสร้าง และเครื่องจักรคุณภาพสูง ครบวงจร'
+    ''
 
   return (
     <div className="box-border flex h-full w-full flex-col justify-between overflow-hidden bg-white px-[10mm] py-[8mm] font-sans text-[9.5px] leading-[1.3] text-slate-900">
@@ -106,10 +115,10 @@ export function RentalBillTemplate({ data }: { data: BillTemplateData }) {
           )}
           <div>
             <h1 className="whitespace-nowrap text-[16px] font-black uppercase tracking-tight text-slate-900">
-              {data.businessName || 'บริษัท อุปกรณ์เช่ามาตรฐาน จำกัด'}
+              {data.businessName}
             </h1>
             <p className="text-slate-600 text-[8.5px] mt-0.5 max-w-md leading-tight">
-              {data.businessAddress || '99/9 ถ.สุขุมวิท แขวงคลองเตย เขตคลองเตย กรุงเทพฯ 10110'}
+              {data.businessAddress}
             </p>
             <p className="text-slate-600 text-[8.5px]">
               เลขผู้เสียภาษี: <span className="font-semibold text-slate-900">{data.businessTaxId || '-'}</span> | โทร: <span className="font-semibold text-slate-900">{data.businessPhone || '-'}</span>
@@ -121,7 +130,7 @@ export function RentalBillTemplate({ data }: { data: BillTemplateData }) {
 
         <div className="text-right shrink-0">
           <div className="mb-1 inline-block whitespace-nowrap rounded bg-red-700 px-3 py-1 font-black text-[10.5px] uppercase tracking-wider text-white shadow-xs">
-            {data.documentTitle || 'ใบแจ้งหนี้ / บิลเช่าสินค้า'}
+            {data.documentType || data.documentTitle || 'บิลเช่า'}
           </div>
           <p className="whitespace-nowrap text-[10px] font-bold text-slate-800">
             เลขที่เอกสาร: <span className="text-red-700 font-extrabold">{data.billNo}</span>
@@ -135,7 +144,7 @@ export function RentalBillTemplate({ data }: { data: BillTemplateData }) {
       {/* 2. Customer & Rental Details */}
       <div className="mb-2 grid grid-cols-2 gap-3 rounded border border-slate-300 bg-slate-50/80 p-2 text-[9px]">
         <div>
-          <h4 className="font-extrabold text-red-800 uppercase mb-0.5 text-[9.5px]">ข้อมูลผู้เช่า / ลูกค้า:</h4>
+          <h4 className="font-extrabold text-red-800 uppercase mb-0.5 text-[9.5px]">{isSaleBill ? 'ข้อมูลผู้ซื้อ / ลูกค้า:' : 'ข้อมูลผู้เช่า / ลูกค้า:'}</h4>
           <p className="whitespace-nowrap font-bold text-slate-900 text-[10px]">{data.customerName || 'ลูกค้าทั่วไป'}</p>
           {data.customerAddress && <p className="text-slate-600 truncate">{data.customerAddress}</p>}
           <p className="text-slate-600">
@@ -145,11 +154,11 @@ export function RentalBillTemplate({ data }: { data: BillTemplateData }) {
             )}
           </p>
         </div>
-        <div>
+        {!isSaleBill && (<div>
           <h4 className="font-extrabold text-red-800 uppercase mb-0.5 text-[9.5px]">กำหนดการเช่าสินค้า:</h4>
           <p>วันเริ่มเช่า: <span className="font-bold text-slate-900">{formatThaiShortDate(data.headerRentalDate) || '-'}</span> | กำหนดคืน: <span className="font-bold text-slate-900">{formatThaiShortDate(data.headerReturnDate) || '-'}</span></p>
           {data.siteName && <p className="truncate">สถานที่ใช้งาน/หน้างาน: <span className="font-semibold text-slate-800">{data.siteName}</span></p>}
-        </div>
+        </div>)}
       </div>
 
       {/* 3. Items Table (Exactly 20 Rows) */}
@@ -183,12 +192,12 @@ export function RentalBillTemplate({ data }: { data: BillTemplateData }) {
                     </td>
                     <td className="border-r border-slate-300 px-1 py-0.5 text-center font-mono font-bold">{item.quantity}</td>
                     <td className="border-r border-slate-300 px-1 py-0.5 text-center">{item.unit}</td>
-                    <td className="border-r border-slate-300 px-1 py-0.5 text-right font-mono tabular-nums">฿{fmt(item.price)}</td>
+                    <td className="border-r border-slate-300 px-1 py-0.5 text-right font-mono tabular-nums">{fmt(item.price)}</td>
                     <td className="border-r border-slate-300 px-1 py-0.5 text-center font-medium">
                       {item.rentalType === 'DAILY' ? `${item.billableDays || 1} วัน` : item.rentalType === 'SALE' ? 'ขาย' : `${item.usageCount || 1} รอบ`}
                     </td>
                     <td className="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono font-extrabold tabular-nums text-slate-900">
-                      ฿{fmt(item.lineTotal)}
+                      {fmt(item.lineTotal)}
                     </td>
                   </tr>
                 )
@@ -222,13 +231,14 @@ export function RentalBillTemplate({ data }: { data: BillTemplateData }) {
             {data.remark && <p className="mt-0.5 font-bold text-slate-800">หมายเหตุ: {data.remark}</p>}
           </div>
 
-          {/* Bank Info + QR */}
+          {/* Bank Info + QR — a quotation has nothing to pay yet */}
+          {data.showBankDetails !== false && (
           <div className="flex items-center justify-between rounded border border-slate-300 bg-white p-2 text-[8.5px]">
             <div>
               <p className="font-extrabold text-red-800 text-[9px] mb-0.5">ข้อมูลการชำระเงินผ่านธนาคาร:</p>
-              <p><span className="font-bold">ธนาคาร:</span> {data.bankName || 'ธนาคารกสิกรไทย (KBANK)'}</p>
-              <p><span className="font-bold">ชื่อบัญชี:</span> {data.bankAccountName || data.businessName}</p>
-              <p><span className="font-bold">เลขที่บัญชี:</span> <span className="font-mono font-bold text-slate-900">{data.bankAccountNumber || '012-3-45678-9'}</span></p>
+              {data.bankName && <p><span className="font-bold">ธนาคาร:</span> {data.bankName}</p>}
+              {data.bankAccountNumber && <p><span className="font-bold">ชื่อบัญชี:</span> {data.bankAccountName || data.businessName}</p>}
+              {data.bankAccountNumber && <p><span className="font-bold">เลขที่บัญชี:</span> <span className="font-mono font-bold text-slate-900">{data.bankAccountNumber}</span></p>}
               {data.promptPayValue && <p><span className="font-bold">พร้อมเพย์:</span> <span className="font-mono">{data.promptPayValue}</span></p>}
             </div>
 
@@ -246,51 +256,56 @@ export function RentalBillTemplate({ data }: { data: BillTemplateData }) {
               </div>
             )}
           </div>
+          )}
         </div>
 
         {/* Right 5 cols: Financial Breakdown */}
         <div className="col-span-5 rounded border border-slate-300 bg-slate-50 p-2 text-[8.5px] space-y-0.5">
           <div className="flex justify-between border-b border-slate-200 py-0.5">
             <span className="text-slate-600">มูลค่ารวมก่อนส่วนลด:</span>
-            <span className="font-mono font-bold">฿{fmt(data.subtotal)}</span>
+            <span className="font-mono font-bold">{fmt(data.subtotal)}</span>
           </div>
           {data.discount > 0 && (
             <div className="flex justify-between border-b border-slate-200 py-0.5 text-emerald-700 font-bold">
               <span>ส่วนลด:</span>
-              <span className="font-mono">-฿{fmt(data.discount)}</span>
+              <span className="font-mono">-{fmt(data.discount)}</span>
             </div>
           )}
           {data.shippingFee > 0 && (
             <div className="flex justify-between border-b border-slate-200 py-0.5 text-slate-700">
               <span>ค่าจัดส่ง / บริการ:</span>
-              <span className="font-mono font-semibold">+฿{fmt(data.shippingFee)}</span>
+              <span className="font-mono font-semibold">+{fmt(data.shippingFee)}</span>
             </div>
           )}
           {data.taxAmount > 0 && (
             <div className="flex justify-between border-b border-slate-200 py-0.5 text-slate-700">
               <span>ภาษีมูลค่าเพิ่ม (7%):</span>
-              <span className="font-mono font-semibold">+฿{fmt(data.taxAmount)}</span>
+              <span className="font-mono font-semibold">+{fmt(data.taxAmount)}</span>
             </div>
           )}
           {data.depositAmount > 0 && (
             <div className="flex justify-between border-b border-slate-200 py-0.5 text-amber-800 font-bold">
               <span>เงินมัดจำประกัน:</span>
-              <span className="font-mono">฿{fmt(data.depositAmount)}</span>
+              <span className="font-mono">{fmt(data.depositAmount)}</span>
             </div>
           )}
           <div className="flex justify-between rounded bg-red-700 p-1.5 text-white font-extrabold text-[9.5px] mt-1 shadow-xs">
             <span>ยอดสุทธิรวมทั้งสิ้น:</span>
-            <span className="font-mono">฿{fmt(data.grandTotal)}</span>
+            <span className="font-mono">{fmt(data.grandTotal)}</span>
           </div>
+          {data.showPaymentSummary !== false && (
+            <>
           <div className="flex justify-between py-0.5 text-slate-700 font-semibold pt-1">
             <span>ชำระแล้ว:</span>
-            <span className="font-mono text-emerald-700 font-bold">฿{fmt(data.paidAmount)}</span>
+            <span className="font-mono text-emerald-700 font-bold">{fmt(data.paidAmount)}</span>
           </div>
           {(data.outstandingAmount || 0) > 0 && (
             <div className="flex justify-between border-t border-slate-200 py-0.5 text-red-700 font-black">
               <span>ยอดคงค้างชำระ:</span>
-              <span className="font-mono">฿{fmt(data.outstandingAmount)}</span>
+              <span className="font-mono">{fmt(data.outstandingAmount)}</span>
             </div>
+          )}
+            </>
           )}
         </div>
       </div>
@@ -299,8 +314,8 @@ export function RentalBillTemplate({ data }: { data: BillTemplateData }) {
       <div className="mt-auto grid grid-cols-2 gap-8 border-t border-slate-300 pt-2 text-center text-[8.5px]">
         <div>
           <div className="mx-auto mb-1 h-6 w-40 border-b border-dashed border-slate-400" />
-          <p className="font-bold text-slate-900">ลงชื่อ ({data.customerName || 'ผู้เช่า / ผู้รับมอบสินค้า'})</p>
-          <p className="text-slate-500 text-[8px]">ผู้เช่า / ผู้ตรวจรับมอบอุปกรณ์</p>
+          <p className="font-bold text-slate-900">ลงชื่อ ({data.customerName || (isSaleBill ? 'ผู้ซื้อ / ผู้รับสินค้า' : 'ผู้เช่า / ผู้รับมอบสินค้า')})</p>
+          <p className="text-slate-500 text-[8px]">{isSaleBill ? 'ผู้ซื้อ / ผู้รับสินค้า' : 'ผู้เช่า / ผู้ตรวจรับมอบอุปกรณ์'}</p>
           <p className="text-slate-400 text-[7.5px]">วันที่ _____/_____/_________</p>
         </div>
         <div>

@@ -17,25 +17,31 @@ function block(channel: string, target: string): never {
   throw new Error(message)
 }
 
-function hostOf(target: unknown): string | null {
+// Returns the host the call really goes to, or null when the target has no destination at all
+// (e.g. a Request built from a relative URL). A Request whose URL cannot be parsed is reported as
+// unparseable instead of being taken for a local call.
+function hostOf(target: unknown): string | null | 'unparseable' {
   try {
     if (typeof target === 'string') return new URL(target, 'http://localhost').hostname
     if (target instanceof URL) return target.hostname
     if (target && typeof target === 'object') {
-      const t = target as { url?: string; hostname?: string; host?: string; path?: string }
+      const t = target as { url?: string; hostname?: string; host?: string; href?: string; path?: string }
       if (typeof t.url === 'string') return new URL(t.url, 'http://localhost').hostname
+      if (typeof t.href === 'string') return new URL(t.href, 'http://localhost').hostname
       if (t.hostname || t.host) return String(t.hostname || t.host).replace(/:\d+$/, '')
       if (t.path) return 'localhost' // IPC pipe / unix socket
     }
   } catch {
-    return null
+    return 'unparseable'
   }
-  return 'localhost'
+  return null
 }
 
 function guard(channel: string, target: unknown) {
   const host = hostOf(target)
-  if (!host || !LOOPBACK.has(host)) block(channel, String(host ?? target))
+  if (!host || host === 'unparseable' || !LOOPBACK.has(host)) {
+    block(channel, host === 'unparseable' ? 'an unparseable target' : String(host ?? target))
+  }
 }
 
 // 1) Environment: the Supabase values must be the local test ones from vitest.config.mjs.

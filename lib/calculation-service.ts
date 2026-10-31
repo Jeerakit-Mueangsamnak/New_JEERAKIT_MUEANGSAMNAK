@@ -36,7 +36,11 @@ export type RoundingMode = 'ROUND_HALF_UP' | 'ROUND_UP' | 'ROUND_DOWN'
 /** The OWNER's discount limit in percent, or null when the limit is off (no limit). */
 export function discountLimitPercent(cfg: SystemConfig): number | null {
   const t = cfg.taxDiscount
-  return t.discountLimitEnabled && t.discountLimitPercent !== null ? t.discountLimitPercent : null
+  const pct = t.discountLimitPercent
+  // A limit the OWNER switched on is used only when the stored percent is a real, positive number.
+  if (!t.discountLimitEnabled) return null
+  if (typeof pct !== 'number' || !Number.isFinite(pct) || pct <= 0) return null
+  return pct
 }
 
 export interface RoundMoneyOptions {
@@ -453,47 +457,33 @@ export interface LateReturnInspectionInput {
   actualReturnDate: string | Date
 }
 
-export interface LateReturnInspectionResult {
-  scheduledDate: string
-  actualDate: string
-  isLate: boolean
-  lateDays: number
-  penaltyAmount: number // STRICT INVARIANT: Must always be 0 (no automatic penalty)
-  isOverdue: boolean
-  overdueDays: number
-  calculatedLateFee: number
+export interface ParsedBillReturnDates {
+  scheduledReturnDate?: string | Date
+  actualReturnDate?: string | Date
+  [key: string]: unknown
+}
+
+/** A date the caller gave, or the fallback when it is missing / not a real date. */
+function usableDate(value: string | Date | undefined, fallback: Date): Date {
+  if (value === undefined) return fallback
+  const d = new Date(value)
+  return isNaN(d.getTime()) ? fallback : d
 }
 
 /**
  * Evaluates late returns. Tracks overdue dates and day counts,
  * but STRICTLY forbids automatic penalty charges.
+ * Without a scheduled return date there is nothing to inspect: the result is never late.
  */
-export function evaluateLateReturn(
-  scheduledOrBillOrInput: LateReturnInspectionInput | { scheduledReturnDate?: string | Date; [key: string]: any } | string | Date,
-  actualReturnDate?: string | Date
-): LateReturnInspectionResult {
-  let scheduledRaw: string | Date | undefined
-  let actualRaw: string | Date | undefined
-
-  if (typeof scheduledOrBillOrInput === 'object' && scheduledOrBillOrInput !== null && 'scheduledReturnDate' in scheduledOrBillOrInput) {
-    scheduledRaw = scheduledOrBillOrInput.scheduledReturnDate
-    actualRaw = actualReturnDate || (scheduledOrBillOrInput as any).actualReturnDate || new Date()
-  } else if (actualReturnDate !== undefined) {
-    scheduledRaw = scheduledOrBillOrInput as string | Date
-    actualRaw = actualReturnDate
-  } else {
-    scheduledRaw = new Date()
-    actualRaw = new Date()
-  }
-
-  const scheduled = new Date(scheduledRaw || new Date())
-  const actual = new Date(actualRaw || new Date())
+export function evaluateLateReturn(input: LateReturnInspectionInput): LateReturnInspectionResult {
+  const today = new Date()
+  const scheduled = usableDate(input.scheduledReturnDate, today)
+  const actual = usableDate(input.actualReturnDate, today)
   scheduled.setHours(0, 0, 0, 0)
   actual.setHours(0, 0, 0, 0)
 
   const diffMs = actual.getTime() - scheduled.getTime()
   const lateDays = diffMs > 0 ? Math.round(diffMs / (1000 * 60 * 60 * 24)) : 0
-
   return {
     scheduledDate: isNaN(scheduled.getTime()) ? '' : scheduled.toISOString().slice(0, 10),
     actualDate: isNaN(actual.getTime()) ? '' : actual.toISOString().slice(0, 10),
@@ -504,4 +494,30 @@ export function evaluateLateReturn(
     overdueDays: lateDays,
     calculatedLateFee: 0,
   }
+}
+
+/** Adapter for a bill-shaped object: no scheduled return date = nothing inspected / never late. */
+export function evaluateBillLateReturn(
+  bill: ParsedBillReturnDates,
+  actualReturnDate?: string | Date
+): LateReturnInspectionResult {
+  if (bill.scheduledReturnDate === undefined || bill.scheduledReturnDate === null || bill.scheduledReturnDate === '') {
+    const empty = evaluateLateReturn({ scheduledReturnDate: new Date(), actualReturnDate: new Date() })
+    return { ...empty, scheduledDate: '', isLate: false, lateDays: 0, isOverdue: false, overdueDays: 0 }
+  }
+  return evaluateLateReturn({
+    scheduledReturnDate: bill.scheduledReturnDate,
+    actualReturnDate: actualReturnDate ?? bill.actualReturnDate ?? new Date(),
+  })
+}
+
+export interface LateReturnInspectionResult {
+  scheduledDate: string
+  actualDate: string
+  isLate: boolean
+  lateDays: number
+  penaltyAmount: number // STRICT INVARIANT: Must always be 0 (no automatic penalty)
+  isOverdue: boolean
+  overdueDays: number
+  calculatedLateFee: number
 }

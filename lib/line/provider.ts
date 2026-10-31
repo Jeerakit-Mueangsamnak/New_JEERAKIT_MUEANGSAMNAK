@@ -4,6 +4,7 @@ import { MockLineProvider } from './mock-provider'
 import { type LineMessage, type LineProvider, type ProviderResult } from './types'
 
 const LINE_API = 'https://api.line.me/v2/bot/message'
+const LINE_PROFILE_API = 'https://api.line.me/v2/bot/profile'
 const TIMEOUT_MS = 10_000
 
 type FetchLike = (input: string, init: RequestInit) => Promise<Response>
@@ -61,6 +62,27 @@ export class HttpLineProvider implements LineProvider {
 
   reply(input: { replyToken: string; messages: LineMessage[] }): Promise<ProviderResult> {
     return this.call('reply', { replyToken: input.replyToken, messages: input.messages })
+  }
+
+  /** Get profile (free). Any failure = null: the name is only shown to the shop. */
+  async profile(userId: string): Promise<{ displayName: string } | null> {
+    if (!/^U[0-9a-f]{32}$/.test(userId)) return null
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+    try {
+      const res = await this.fetchImpl(`${LINE_PROFILE_API}/${userId}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+        signal: controller.signal,
+      })
+      if (!res.ok) return null
+      const body = (await res.json()) as { displayName?: unknown }
+      return typeof body.displayName === 'string' ? { displayName: body.displayName.slice(0, 200) } : null
+    } catch {
+      return null
+    } finally {
+      clearTimeout(timer)
+    }
   }
 }
 

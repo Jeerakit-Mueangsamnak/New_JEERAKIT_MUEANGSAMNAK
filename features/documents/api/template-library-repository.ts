@@ -83,6 +83,7 @@ export async function createDocumentTemplate(id: string, template: NewDocumentTe
   return toDocumentTemplate(row)
 }
 
-export async function deactivateDocumentTemplates(ids: string[], reason: string): Promise<void> {
-  await rpc('document_template_set_status', { p_template_ids: ids, p_reason: reason })
+/** Deletes shop forms for good (the server keeps an audit entry with the reason). */
+export async function deleteDocumentTemplates(ids: string[], reason: string): Promise<void> {
+  await rpc('document_template_delete', { p_template_ids: ids, p_reason: reason })
 }

@@ -6,6 +6,7 @@ import POSPage from '@/app/pos/page'
 import { AppointmentDispatchModal } from '@/features/appointments/components/AppointmentDispatchModal'
 import type { Appointment, Customer, Product } from '@/lib/types/rental-pos'
 import type { FullBill } from '@/lib/types/rental-return'
+import { ConfirmDialogProvider } from '@/components/common/ConfirmDialogProvider'
 
 const mocks = vi.hoisted(() => ({
   fetchAppointments: vi.fn(),
@@ -145,7 +146,7 @@ afterEach(() => {
 
 describe('Appointment and bill work-order integration', () => {
   it('prefills POS from the appointment customer, actual product record, quantity, and job site', async () => {
-    render(<POSPage />)
+    render(<ConfirmDialogProvider><POSPage /></ConfirmDialogProvider>)
     const cart = await screen.findByTestId('prefilled-cart')
     expect(cart.textContent).toContain('คุณสมชาย')
     expect(cart.textContent).toContain('โต๊ะพับ:2:250')
@@ -154,7 +155,7 @@ describe('Appointment and bill work-order integration', () => {
 
   it('does not invent an appointment product when its active product record is missing', async () => {
     mocks.products = []
-    render(<POSPage />)
+    render(<ConfirmDialogProvider><POSPage /></ConfirmDialogProvider>)
 
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(
       'โหลดรายการสินค้าไม่ครบ',
@@ -166,7 +167,7 @@ describe('Appointment and bill work-order integration', () => {
 
   it('uses the product master daily rental mode and price when that product is per-day', async () => {
     mocks.products = [{ ...product, rentalType: 'DAILY', calculationType: 'PER_DAY' }]
-    render(<POSPage />)
+    render(<ConfirmDialogProvider><POSPage /></ConfirmDialogProvider>)
 
     const cart = await screen.findByTestId('prefilled-cart')
     expect(cart.textContent).toContain('โต๊ะพับ:2:50')

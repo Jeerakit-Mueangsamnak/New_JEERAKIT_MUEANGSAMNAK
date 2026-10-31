@@ -5,7 +5,7 @@ import type { Quotation, QuotationItem, QuotationStatus } from '@/lib/types/rent
 
 /**
  * Quotations (Master v4.3.1 §10) on the v4.3 schema. A quotation is an offer — it does not
- * move stock or money. DRAFT → SENT (number assigned) → ACCEPTED / REJECTED / EXPIRED, and
+ * move stock or money and has no expiry. DRAFT → SENT (number assigned) → ACCEPTED / REJECTED, and
  * CONVERTED when a bill made from it is confirmed (bill_confirm does that on the server).
  */
 
@@ -14,11 +14,12 @@ interface QuotationRow {
   quotation_no: string | null
   customer_id: string | null
   status: string
-  valid_until: string | null
+  document_date: string | null
   subtotal: number
   discount_total: number
   vat_amount: number
   grand_total: number
+  pricing_snapshot: { vat_enabled?: boolean; vat_rate?: number | null } | null
   converted_bill_id: string | null
   note: string | null
   site_name: string | null
@@ -44,7 +45,13 @@ interface QuotationItemRow {
   line_total: number
 }
 
-const day = (ts: string | null | undefined) => (ts ? ts.slice(0, 10) : '')
+/** Local calendar day (yyyy-mm-dd) of a timestamp — a slice of the UTC text would show the day before for Thai midnight. */
+const day = (ts: string | null | undefined) => {
+  if (!ts) return ''
+  const d = new Date(ts)
+  if (!Number.isFinite(d.getTime())) return ts.slice(0, 10)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 export async function fetchQuotationsFromSupabase(): Promise<Quotation[]> {
   const supabase = createClient()
@@ -96,8 +103,7 @@ export async function fetchQuotationsFromSupabase(): Promise<Quotation[]> {
     return {
       id: q.id,
       quotationNo: q.quotation_no || `ร่าง-${q.id.slice(0, 8)}`,
-      quotationDate: day(q.created_at),
-      expiryDate: day(q.valid_until),
+      quotationDate: q.document_date || day(q.created_at),
       customerId: q.customer_id || '',
       customerName: c?.name || 'ลูกค้าทั่วไป',
       phone: c?.phone,
@@ -112,6 +118,8 @@ export async function fetchQuotationsFromSupabase(): Promise<Quotation[]> {
       shippingFee: Number(q.delivery_fee),
       depositAmount: Number(q.deposit_amount),
       taxAmount: Number(q.vat_amount),
+      vatEnabled: Boolean(q.pricing_snapshot?.vat_enabled),
+      vatRate: q.pricing_snapshot?.vat_enabled && q.pricing_snapshot.vat_rate != null ? Number(q.pricing_snapshot.vat_rate) : undefined,
       grandTotal: Number(q.grand_total),
       status: q.status as QuotationStatus,
       remark: q.note || undefined,
@@ -131,8 +139,10 @@ const endOfDay = (d?: string) => {
 }
 
 /**
- * Saves a DRAFT quotation; returns its id. The bill-level discount is spread over the item
- * lines (quotations price per line). A price different from the list asks PIN + reason.
+ * Saves a quotation; returns its id. A new one is created, an existing DRAFT / SENT / ACCEPTED one
+ * is revised in place (same number, back to waiting — the server refuses CONVERTED / REJECTED).
+ * The bill-level discount is spread over the item lines (quotations price per line). A price
+ * different from the list asks PIN + reason. VAT is chosen per quotation, like a bill.
  */
 export async function saveQuotationDraft(q: Quotation, isExistingDraft: boolean): Promise<string> {
   const gross = q.items.map((it) => Number(it.unitPrice) * Number(it.quantity) * (it.rentalType === 'SALE' ? 1 : Math.max(1, Number(it.usageCountOrDays) || 1)))
@@ -158,7 +168,8 @@ export async function saveQuotationDraft(q: Quotation, isExistingDraft: boolean)
   })
   const data = {
     customer_id: q.customerId || null,
-    valid_until: q.expiryDate ? endOfDay(q.expiryDate) : null,
+    document_date: q.quotationDate ? q.quotationDate.slice(0, 10) : null,
+    vat_enabled: Boolean(q.vatEnabled),
     note: q.remark || null,
     site_name: q.siteName || null,
     delivery_fee: Number(q.shippingFee) || 0,
@@ -182,7 +193,7 @@ export async function sendQuotation(id: string): Promise<void> {
   await rpc('quotation_send', { p_quotation_id: id })
 }
 
-/** SENT/ACCEPTED → ACCEPTED / REJECTED / EXPIRED. */
-export async function setQuotationStatus(id: string, status: 'ACCEPTED' | 'REJECTED' | 'EXPIRED', reason?: string): Promise<void> {
+/** SENT → ACCEPTED; DRAFT / SENT / ACCEPTED → REJECTED (cancelled). Quotations do not expire. */
+export async function setQuotationStatus(id: string, status: 'ACCEPTED' | 'REJECTED', reason?: string): Promise<void> {
   await rpc('quotation_set_status', { p_quotation_id: id, p_status: status, p_reason: reason ?? null })
 }

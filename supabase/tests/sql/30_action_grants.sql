@@ -23,61 +23,28 @@ SELECT t.check('A-GRANT', 'revoke is audited with before and after',
 SELECT t.check('A-GRANT', 'the cashier sees only their own grants (none)',
     (t.exec_as(t.u('cashier'), 'authenticated', $q$select to_jsonb(count(*)) from public.member_action_grants$q$))::text = '0');
 
--- ===================================================================== USER DEFAULT DENY (menu ok, no grant)
-SELECT t.err('A-DENY', 'void refused without the grant', 'cashier',
-    format($q$select public.bill_void(%L::uuid, 'x', NULL)$q$, gen_random_uuid()), 'ACTION_NOT_GRANTED: BILL_VOID');
-SELECT t.err('A-DENY', 'refund refused without the grant', 'cashier',
-    format($q$select public.refund_pay(%L::uuid, 1, 'CASH', 'x', 'key-act-rf-0', NULL, NULL)$q$, gen_random_uuid()), 'ACTION_NOT_GRANTED: REFUND');
-SELECT t.err('A-DENY', 'cancelling a CONFIRMED bill needs the void grant', 'cashier',
-    format($q$select public.bill_cancel(%L::uuid, 'x', NULL)$q$, t.v('vat_bill')), 'ACTION_NOT_GRANTED: BILL_VOID');
-SELECT t.set('act_draft', (t.ok('A-DENY', 'a draft for the free cancel', 'cashier', t.draft('', '', NULL))) ->> 'id');
-SELECT t.ok('A-DENY', 'a DRAFT still cancels freely (no grant, no PIN)', 'cashier',
-    format($q$select public.bill_cancel(%L::uuid, 'not needed', NULL)$q$, t.v('act_draft')));
-SELECT t.err('A-DENY', 'a grant without the menu does not open the action', 'nomenu',
-    format($q$select public.refund_pay(%L::uuid, 1, 'CASH', 'x', 'key-act-rf-nm', NULL, NULL)$q$, gen_random_uuid()), 'menu');
-
--- ===================================================================== VOID / REFUND are separate
-SELECT t.ok('A-SPLIT', 'owner grants REFUND only', 'owner',
-    format($q$select public.owner_set_member_actions(%L::uuid, ARRAY['REFUND'], 'refund only')$q$, t.u('cashier')));
-SELECT t.err('A-SPLIT', 'REFUND granted: refund passes the grant and still asks the PIN', 'cashier',
-    format($q$select public.refund_pay(%L::uuid, 1, 'CASH', 'x', 'key-act-rf-1', NULL, NULL)$q$, t.v('b1')), 'PIN_REQUIRED');
-SELECT t.err('A-SPLIT', 'REFUND granted: void is still refused', 'cashier',
-    format($q$select public.bill_void(%L::uuid, 'x', NULL)$q$, gen_random_uuid()), 'ACTION_NOT_GRANTED: BILL_VOID');
-SELECT t.ok('A-SPLIT', 'owner grants BILL_VOID only', 'owner',
-    format($q$select public.owner_set_member_actions(%L::uuid, ARRAY['BILL_VOID'], 'void only')$q$, t.u('cashier')));
-SELECT t.err('A-SPLIT', 'BILL_VOID granted: refund is refused again', 'cashier',
-    format($q$select public.refund_pay(%L::uuid, 1, 'CASH', 'x', 'key-act-rf-2', NULL, NULL)$q$, t.v('b1')), 'ACTION_NOT_GRANTED: REFUND');
-SELECT t.err('A-SPLIT', 'BILL_VOID granted: cancelling a confirmed bill still asks the PIN', 'cashier',
-    format($q$select public.bill_cancel(%L::uuid, 'x', NULL)$q$, t.v('vat_bill')), 'PIN_REQUIRED');
-SELECT t.ok('A-SPLIT', 'menu + grant + PIN: the confirmed bill is cancelled', 'cashier',
-    format($q$select public.bill_cancel(%L::uuid, 'customer changed mind', %L::uuid)$q$, t.v('vat_bill'), t.pin('cashier', 'BILL_CANCEL')));
-
--- ===================================================================== PRICE / STOCK are separate
-SELECT t.ok('A-SPLIT', 'owner gives the cashier the products menu', 'owner',
-    format($q$select public.owner_set_member_menus(%L::uuid, ARRAY['pos','bills','products'], 'test')$q$, t.u('cashier')));
-SELECT t.ok('A-SPLIT', 'owner grants STOCK_ADJUST only', 'owner',
-    format($q$select public.owner_set_member_actions(%L::uuid, ARRAY['STOCK_ADJUST'], 'stock only')$q$, t.u('cashier')));
-SELECT t.err('A-SPLIT', 'STOCK_ADJUST granted: main price change refused', 'cashier',
-    format($q$select public.product_set_price(%L::uuid, NULL, 12, 'x', NULL)$q$, t.v('bk2')), 'ACTION_NOT_GRANTED: PRODUCT_PRICE_CHANGE');
-SELECT t.err('A-SPLIT', 'STOCK_ADJUST granted: stock adjust passes the grant and asks the PIN', 'cashier',
-    format($q$select public.stock_adjust(%L::uuid, 'AVAILABLE', 'INSPECTION', 1, 'x', 'key-act-adj', NULL)$q$, t.v('bk1')), 'PIN_REQUIRED');
-SELECT t.ok('A-SPLIT', 'owner grants PRODUCT_PRICE_CHANGE only', 'owner',
-    format($q$select public.owner_set_member_actions(%L::uuid, ARRAY['PRODUCT_PRICE_CHANGE'], 'price only')$q$, t.u('cashier')));
-SELECT t.err('A-SPLIT', 'PRODUCT_PRICE_CHANGE granted: stock adjust refused', 'cashier',
-    format($q$select public.stock_adjust(%L::uuid, 'AVAILABLE', 'INSPECTION', 1, 'x', 'key-act-adj2', NULL)$q$, t.v('bk1')), 'ACTION_NOT_GRANTED: STOCK_ADJUST');
-SELECT t.err('A-SPLIT', 'PRODUCT_PRICE_CHANGE granted: price change passes the grant and asks the PIN', 'cashier',
-    format($q$select public.product_set_price(%L::uuid, NULL, 12, 'x', NULL)$q$, t.v('bk2')), 'PIN_REQUIRED');
-
--- ===================================================================== FINANCE actions
-SELECT t.ok('A-FIN', 'owner revokes every action from the finance user', 'owner',
-    format($q$select public.owner_set_member_actions(%L::uuid, ARRAY[]::text[], 'test')$q$, t.u('finance')));
-SELECT t.err('A-FIN', 'expense refused without the grant', 'finance',
-    $q$select public.expense_create('FUEL', 1, 'CASH', 'x', NULL)$q$, 'ACTION_NOT_GRANTED: EXPENSE');
-SELECT t.err('A-FIN', 'write-off refused without the grant', 'finance',
-    format($q$select public.write_off_record(%L::uuid, 1, 'x', NULL, NULL, NULL)$q$, gen_random_uuid()), 'ACTION_NOT_GRANTED: WRITE_OFF');
-
--- ===================================================================== OWNER full
-SELECT t.err('A-OWNER', 'the OWNER needs no grant (only the PIN)', 'owner',
-    format($q$select public.product_set_price(%L::uuid, NULL, 12, 'x', NULL)$q$, t.v('bk2')), 'PIN_REQUIRED');
-SELECT t.err('A-OWNER', 'the OWNER needs no grant for refunds (only the PIN)', 'owner',
-    format($q$select public.refund_pay(%L::uuid, 1, 'CASH', 'x', 'key-act-rf-o', NULL, NULL)$q$, t.v('b1')), 'PIN_REQUIRED');
+-- ===================================================================== EVERY ACTIVE MEMBER (owner 2026-10-26)
+-- Grants no longer gate any action: _require_action only asks for an ACTIVE member, and every
+-- ACTIVE member holds every menu except member management. Nothing here changes shop data.
+SELECT t.ok('A-ALL', 'a USER with no grant passes every risky-action check', 'nomenu',
+    $q$select to_jsonb(count(*)) from unnest(ARRAY['REFUND','BILL_VOID','PRODUCT_PRICE_CHANGE','STOCK_ADJUST','EXPENSE','WRITE_OFF']) c,
+       lateral (select public._require_action(c)) x$q$, 'postgres');
+SELECT t.err('A-ALL', 'a member waiting for approval is refused', 'pending',
+    $q$select public._require_action('REFUND')$q$, 'FORBIDDEN', 'postgres');
+SELECT t.err('A-ALL', 'a suspended member is refused', 'suspended',
+    $q$select public._require_action('EXPENSE')$q$, 'FORBIDDEN', 'postgres');
+SELECT t.check('A-ALL', 'a USER with no menu grants holds every menu but member management',
+    (t.exec_as(t.u('nomenu'), 'authenticated',
+        $q$select jsonb_build_object('finance', public.has_menu('finance'), 'settings', public.has_menu('settings'),
+                                     'pos', public.has_menu('pos'), 'members', public.has_menu('members'))$q$)
+     = '{"finance": true, "settings": true, "pos": true, "members": false}'::jsonb));
+SELECT t.check('A-ALL', 'a member waiting for approval holds no menu',
+    (t.exec_as(t.u('pending'), 'authenticated', $q$select to_jsonb(public.has_menu('pos'))$q$))::text = 'false');
+SELECT t.err('A-ALL', 'member management stays OWNER-only (approve / suspend)', 'cashier',
+    format($q$select public.owner_set_member_status(%L::uuid, 'ACTIVE', 'x')$q$, t.u('pending')), 'OWNER');
+SELECT t.check('A-ALL', 'the audit log stays OWNER read-only (a USER sees no row)',
+    (t.exec_as(t.u('nomenu'), 'authenticated', $q$select to_jsonb(count(*)) from public.audit_logs$q$))::text = '0'
+    AND (SELECT count(*) FROM public.audit_logs) > 0);
+SELECT t.check('A-ALL', 'a USER sees the names of every member (member_directory) but not their e-mail',
+    (t.exec_as(t.u('nomenu'), 'authenticated', $q$select to_jsonb(count(*)) from public.member_directory()$q$))::int
+       = (SELECT count(*) FROM public.profiles));

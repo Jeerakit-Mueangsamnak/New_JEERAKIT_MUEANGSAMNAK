@@ -60,8 +60,8 @@ export function PaymentDynamicContent({
           </div>
           <div className="flex justify-between items-center pt-1 border-t border-slate-200 dark:border-slate-700">
             <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">เงินทอน</span>
-            <span className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 tabular-nums whitespace-nowrap">
-              ฿{changeAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+            <span className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 tabular-nums whitespace-nowrap">
+              {changeAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
             </span>
           </div>
         </div>
@@ -89,10 +89,10 @@ export function PaymentDynamicContent({
           {qrError ? (
             <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg text-red-700 dark:text-red-300 text-xs space-y-2 w-full">
               <div className="flex items-center justify-center gap-1.5 font-bold">
-                <AlertCircle className="w-4 h-4 text-red-500" />
+                <AlertCircle className="w-4 h-4 text-red-700 dark:text-red-400" />
                 <span>ไม่สามารถสร้าง QR Payment ได้</span>
               </div>
-              <p className="text-[11px] text-red-600 dark:text-red-400">{qrError}</p>
+              <p className="text-[11px] text-red-700 dark:text-red-400">{qrError}</p>
               <div className="flex items-center justify-center gap-2 pt-1">
                 {onRetryQr && (
                   <button
@@ -109,8 +109,8 @@ export function PaymentDynamicContent({
             <>
               <div className="flex aspect-square w-24 h-24 sm:w-28 sm:h-28 max-w-[120px] max-h-[120px] items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1 shadow-sm">
                 {isQrLoading ? (
-                  <div className="flex flex-col items-center justify-center text-slate-400 gap-1">
-                    <RefreshCw className="w-5 h-5 animate-spin text-purple-600" />
+                  <div className="flex flex-col items-center justify-center text-slate-600 dark:text-slate-400 gap-1">
+                    <RefreshCw className="w-5 h-5 animate-spin text-purple-600 dark:text-purple-400" />
                     <span className="text-[10px]">กำลังสร้าง QR...</span>
                   </div>
                 ) : displayQr ? (
@@ -123,7 +123,7 @@ export function PaymentDynamicContent({
                     className="w-full h-full object-contain rounded"
                   />
                 ) : (
-                  <div className="flex flex-col items-center justify-center text-slate-400 text-xs">
+                  <div className="flex flex-col items-center justify-center text-slate-600 dark:text-slate-400 text-xs">
                     <QrCode className="w-6 h-6 text-slate-300 mb-1" />
                     <span>พื้นที่แสดง QR Code</span>
                   </div>
@@ -141,7 +141,7 @@ export function PaymentDynamicContent({
         <div className="bg-amber-50/80 dark:bg-amber-950/40 p-2 rounded-xl border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 leading-snug">
           {unpaidMessage || (
             <>
-              ⚠️ บิลนี้จะถูกตั้งเป็น <strong>&quot;ค้างชำระ (Unpaid)&quot;</strong> ยอดคงค้าง ฿{targetAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} จะแสดงในระบบรายงานลูกหนี้
+              ⚠️ บิลนี้จะถูกตั้งเป็น <strong>&quot;ค้างชำระ (Unpaid)&quot;</strong> ยอดคงค้าง {targetAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} จะแสดงในระบบรายงานลูกหนี้
             </>
           )}
         </div>

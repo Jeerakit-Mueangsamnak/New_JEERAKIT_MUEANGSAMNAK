@@ -35,57 +35,57 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
         {/* 1. การเติบโตของธุรกิจ */}
         <div className="p-2 bg-emerald-50/60 dark:bg-emerald-950/30 rounded-2xl border border-emerald-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">ยอดบิลเทียบเดือนก่อน</span>
-            <div className="w-6 h-6 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">ยอดบิลเทียบเดือนก่อน</span>
+            <div className="w-6 h-6 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0">
               <TrendingUp className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
-              <span className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">
+              <span className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 font-mono">
                 {metrics.growthRate === null ? '—' : metrics.growthRate >= 0 ? `+${metrics.growthRate}%` : `${metrics.growthRate}%`}
               </span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">ยอดบิลไม่รวม VAT เทียบเดือนก่อน</span>
+            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ยอดบิลไม่รวม VAT เทียบเดือนก่อน</span>
           </div>
         </div>
 
         {/* 2. แนวโน้มรายวัน / รายเดือน */}
         <div className="p-2 bg-rose-50/60 dark:bg-rose-950/30 rounded-2xl border border-rose-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">แนวโน้มรายวัน / รายเดือน</span>
-            <div className="w-6 h-6 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">แนวโน้มรายวัน / รายเดือน</span>
+            <div className="w-6 h-6 rounded-lg bg-rose-500/10 text-rose-700 dark:text-rose-400 flex items-center justify-center shrink-0">
               <BarChart3 className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 font-mono">
-                ฿{metrics.currentMonthRevenue.toLocaleString()}
+                {metrics.currentMonthRevenue.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">
+              <span className="text-[9px] font-bold text-emerald-700 dark:text-emerald-400">
                 {metrics.growthRate === null ? '—' : `${metrics.growthRate >= 0 ? '+' : ''}${metrics.growthRate}%`}
               </span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">ยอดบิลเดือนนี้ ไม่รวม VAT</span>
+            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ยอดบิลเดือนนี้ ไม่รวม VAT</span>
           </div>
         </div>
 
         {/* 3. สินค้าทำเงินสูงสุด */}
         <div className="p-2 bg-amber-50/60 dark:bg-amber-950/30 rounded-2xl border border-amber-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">สินค้ามูลค่าบิลสูงสุด</span>
-            <div className="w-6 h-6 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">สินค้ามูลค่าบิลสูงสุด</span>
+            <div className="w-6 h-6 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 flex items-center justify-center shrink-0">
               <Star className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
-              <span className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400 font-mono">
-                ฿{metrics.topProductMetric.revenue.toLocaleString()}
+              <span className="text-base sm:text-lg font-black text-amber-700 dark:text-amber-400 font-mono">
+                {metrics.topProductMetric.revenue.toLocaleString()}
               </span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">
+            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">
               {metrics.topProductMetric.name} ({metrics.topProductMetric.type})
             </span>
           </div>
@@ -94,7 +94,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
         {/* 4. ลูกค้าหลัก */}
         <div className="p-2 bg-blue-50/60 dark:bg-blue-950/30 rounded-2xl border border-blue-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">ลูกค้าหลัก</span>
+            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">ลูกค้าหลัก</span>
             <div className="w-6 h-6 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
               <Users className="w-3.5 h-3.5" />
             </div>
@@ -104,9 +104,9 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
               <span className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 font-mono">
                 {metrics.topCustomerMetric.count}
               </span>
-              <span className="text-[10px] font-bold text-slate-400">ราย</span>
+              <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">ราย</span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">
+            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">
               สัดส่วนยอดบิลของลูกค้าหลัก {metrics.topCustomerMetric.percentage}%
             </span>
           </div>
@@ -115,13 +115,13 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
         {/* 5. ช่องทางรับเงิน */}
         <div className="p-2 bg-purple-50/60 dark:bg-purple-950/30 rounded-2xl border border-purple-500/20 shadow-xs flex flex-col justify-between col-span-2 sm:col-span-1">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">ช่องทางรับชำระ (ก่อนคืนเงิน)</span>
+            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">ช่องทางรับชำระ (ก่อนคืนเงิน)</span>
             <div className="flex items-center gap-1">
               {onRefresh && (
                 <button
                   type="button"
                   onClick={onRefresh}
-                  className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                  className="p-1 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
                   title="รีเฟรชข้อมูล"
                   aria-label="รีเฟรชข้อมูล"
                 >
@@ -136,10 +136,10 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-purple-600 dark:text-purple-400 font-mono">
-                ฿{metrics.topChannelMetric.amount.toLocaleString()}
+                {metrics.topChannelMetric.amount.toLocaleString()}
               </span>
             </div>
-            <span className="text-[9.5px] text-slate-400 block truncate mt-0.5">
+            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">
               รับผ่าน{metrics.topChannelMetric.name} {metrics.topChannelMetric.percentage}% ของยอดรับชำระจากบิล
             </span>
           </div>
@@ -183,10 +183,10 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
           </div>
 
           {metrics.topRevenueProducts.length === 0 ? (
-            <div className="py-8 text-center text-xs text-slate-400">            ยังไม่มีข้อมูลสินค้าในบิลช่วง 6 เดือนล่าสุด</div>
+            <div className="py-8 text-center text-xs text-slate-600 dark:text-slate-400">            ยังไม่มีข้อมูลสินค้าในบิลช่วง 6 เดือนล่าสุด</div>
           ) : (
             <div className="space-y-1.5">
-              <div className="grid grid-cols-12 text-[10px] font-bold text-slate-400 border-b border-slate-100 dark:border-slate-800 pb-1">
+              <div className="grid grid-cols-12 text-[10px] font-bold text-slate-600 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800 pb-1">
                 <span className="col-span-1 text-center">#</span>
                 <span className="col-span-6">สินค้า</span>
                 <span className="col-span-3 text-right">                มูลค่าบิล (ไม่รวม VAT)</span>
@@ -199,13 +199,13 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
                 return (
                   <div key={p.id || idx} className="grid grid-cols-12 items-center text-[11px] gap-1">
                     <span className="col-span-1 text-center">
-                      <span className="w-4 h-4 rounded-full bg-amber-500 text-white font-bold text-[9.5px] inline-flex items-center justify-center">
+                      <span className="w-4 h-4 rounded-full bg-amber-500 text-slate-900 font-bold text-[9.5px] inline-flex items-center justify-center">
                         {idx + 1}
                       </span>
                     </span>
                     <div className="col-span-6 min-w-0 pr-1">
                       <div className="font-semibold text-slate-700 dark:text-slate-200 truncate">
-                        {p.name} <span className="text-[9.5px] text-slate-400">({p.type})</span>
+                        {p.name} <span className="text-[9.5px] text-slate-600 dark:text-slate-400">({p.type})</span>
                       </div>
                       <div className="w-full h-1 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden mt-0.5">
                         <div
@@ -217,7 +217,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
                     <span className="col-span-3 text-right font-mono font-bold text-slate-800 dark:text-slate-100 text-[11px]">
                       {p.revenue.toLocaleString()}
                     </span>
-                    <span className="col-span-2 text-right font-mono text-[10px] text-slate-400">
+                    <span className="col-span-2 text-right font-mono text-[10px] text-slate-600 dark:text-slate-400">
                       {p.percentage}%
                     </span>
                   </div>
@@ -267,7 +267,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
               {metrics.topCustomers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-xs text-slate-400">
+                  <td colSpan={8} className="py-8 text-center text-xs text-slate-600 dark:text-slate-400">
                     ยังไม่มีข้อมูลลูกค้า
                   </td>
                 </tr>
@@ -297,7 +297,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
                     <td className="px-2 text-right font-mono text-amber-700 dark:text-amber-300 whitespace-nowrap">
                       {cust.outstandingAmount.toLocaleString()}
                     </td>
-                    <td className="px-2 text-right font-mono text-[10.5px] text-slate-400 whitespace-nowrap">
+                    <td className="px-2 text-right font-mono text-[10.5px] text-slate-600 dark:text-slate-400 whitespace-nowrap">
                       {cust.percentage}%
                     </td>
                   </tr>
@@ -316,7 +316,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
             </h3>
           </div>
           {metrics.paymentChannelsData.length === 0 ? (
-            <div className="py-8 text-center text-xs text-slate-400">ยังไม่มีข้อมูลช่องทางรับเงิน</div>
+            <div className="py-8 text-center text-xs text-slate-600 dark:text-slate-400">ยังไม่มีข้อมูลช่องทางรับเงิน</div>
           ) : (
             <DonutChart
               data={metrics.paymentChannelsData.map((c) => ({
@@ -327,7 +327,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
               }))}
               size={120}
               centerTitle="รวมทั้งสิ้น"
-              centerPrefix="฿"
+              centerPrefix=""
               centerSuffix="บาท"
             />
           )}
@@ -346,15 +346,15 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
           {/* Card 1: ยอดบิลรายเดือน */}
           <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800 flex items-start gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
               <TrendingUp className="w-4 h-4" />
             </div>
             <div className="min-w-0">
               <h4 className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
                 ยอดบิลเดือนนี้เทียบเดือนก่อน
               </h4>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
-                ยอดบิลไม่รวม VAT เดือนนี้ ฿{metrics.currentMonthRevenue.toLocaleString()} เปลี่ยนแปลง {metrics.growthRate === null ? 'ไม่มีฐานเปรียบเทียบ' : `${metrics.growthRate}%`} จากเดือนก่อน
+              <p className="text-[10px] text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
+                ยอดบิลไม่รวม VAT เดือนนี้ {metrics.currentMonthRevenue.toLocaleString()} เปลี่ยนแปลง {metrics.growthRate === null ? 'ไม่มีฐานเปรียบเทียบ' : `${metrics.growthRate}%`} จากเดือนก่อน
               </p>
             </div>
           </div>
@@ -368,8 +368,8 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
               <h4 className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
                 ยอดบิลตามลูกค้าที่ระบุในระบบ
               </h4>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
-                ลูกค้า {metrics.topCustomerMetric.count} อันดับแรกมียอดบิลไม่รวม VAT ฿{metrics.topCustomerMetric.totalBilled.toLocaleString()}{' '}
+              <p className="text-[10px] text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
+                ลูกค้า {metrics.topCustomerMetric.count} อันดับแรกมียอดบิลไม่รวม VAT {metrics.topCustomerMetric.totalBilled.toLocaleString()}{' '}
                 คิดเป็น {metrics.topCustomerMetric.percentage}% ของยอดบิลของลูกค้าที่ระบุ
               </p>
             </div>
@@ -377,17 +377,17 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
 
           {/* Card 3: สินค้าทำเงิน */}
           <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800 flex items-start gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+            <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
               <Package className="w-4 h-4" />
             </div>
             <div className="min-w-0">
               <h4 className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
                 มูลค่าบิลตามสินค้า
               </h4>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+              <p className="text-[10px] text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
                 {metrics.topProductMetric.name !== 'ไม่มีข้อมูล' ? (
                   <>
-                    สินค้ามูลค่าบิลสูงสุดคือ {metrics.topProductMetric.name} ({metrics.topProductMetric.type}) ฿{metrics.topProductMetric.revenue.toLocaleString()} ไม่รวม VAT
+                    สินค้ามูลค่าบิลสูงสุดคือ {metrics.topProductMetric.name} ({metrics.topProductMetric.type}) {metrics.topProductMetric.revenue.toLocaleString()} ไม่รวม VAT
                   </>
                 ) : (
                   'ยังไม่มีรายการสินค้าในบิลช่วง 6 เดือนล่าสุด'
@@ -405,7 +405,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
               <h4 className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
                 ช่องทางรับชำระจากบิล (ก่อนคืนเงิน)
               </h4>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+              <p className="text-[10px] text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
                 รับชำระผ่าน{metrics.topChannelMetric.name} {metrics.topChannelMetric.percentage}% ของยอดชำระจากบิลในข้อมูลปัจจุบัน
               </p>
             </div>

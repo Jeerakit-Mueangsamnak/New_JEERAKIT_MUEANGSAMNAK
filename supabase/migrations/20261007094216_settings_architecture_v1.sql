@@ -198,6 +198,16 @@ BEGIN
     IF COALESCE((p_data ->> 'deposit_amount')::numeric, 0) < 0 THEN
         RAISE EXCEPTION 'INVALID_DEPOSIT' USING ERRCODE = '22023';
     END IF;
+    -- ค่าจัดส่ง / ค่าติดตั้ง / ค่าบริการ ต้องไม่เกิน 4,000 บาทต่อรายการ (ป้องกัน Parameter Tampering)
+    IF COALESCE((p_data ->> 'delivery_fee')::numeric, 0) > 4000 THEN
+        RAISE EXCEPTION 'FEE_TOO_HIGH: delivery_fee' USING ERRCODE = '22023';
+    END IF;
+    IF COALESCE((p_data ->> 'installation_fee')::numeric, 0) > 4000 THEN
+        RAISE EXCEPTION 'FEE_TOO_HIGH: installation_fee' USING ERRCODE = '22023';
+    END IF;
+    IF COALESCE((p_data ->> 'service_fee')::numeric, 0) > 4000 THEN
+        RAISE EXCEPTION 'FEE_TOO_HIGH: service_fee' USING ERRCODE = '22023';
+    END IF;
     v_override := false;
 
     IF p_bill_id IS NULL THEN
@@ -242,6 +252,10 @@ BEGIN
         v_list := public._list_price(v_line.product_id, v_line.line_mode);
         v_price := COALESCE(v_line.unit_price, v_list);
         v_override := v_override OR v_price IS DISTINCT FROM v_list;
+        -- ราคาสินค้าต้องไม่ต่ำกว่า 50% หรือสูงเกิน 200% ของราคาปกติในระบบ (ป้องกัน Parameter Tampering ราคา)
+        IF v_list > 0 AND (v_price < v_list * 0.5 OR v_price > v_list * 2.0) THEN
+            RAISE EXCEPTION 'PRICE_OUT_OF_RANGE: %', v_line.product_id USING ERRCODE = '22023';
+        END IF;
         INSERT INTO public.bill_lines (bill_id, line_no, product_id, line_mode, ordered_qty, unit_price,
             price_overridden, line_discount_type, line_discount_value, rental_calculation_type, period_type,
             period_count, rental_start_at, rental_end_at, rental_status, created_by)

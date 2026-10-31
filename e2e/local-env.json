@@ -1,0 +1,9 @@
+{
+  "NEXT_PUBLIC_SUPABASE_URL": "http://127.0.0.1:54321",
+  "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH",
+  "NEXT_PUBLIC_SUPABASE_ANON_KEY": "",
+  "SUPABASE_SECRET_KEY": "sb_secret_N7UND0UgjKTVK-Uodkm0Hg_xSvEMPvz",
+  "NEXT_PUBLIC_SITE_URL": "http://127.0.0.1:3100",
+  "LINE_DELIVERY_MODE": "mock",
+  "NEXT_DIST_DIR": ".next-e2e"
+}

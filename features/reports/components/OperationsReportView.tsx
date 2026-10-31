@@ -29,7 +29,7 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
         <div className="p-2 rounded-xl border border-blue-500/20 bg-blue-50/50 dark:bg-blue-950/20 flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-blue-800 dark:text-blue-300 flex items-center gap-1">
-              <Truck className="w-3.5 h-3.5 text-blue-500" />
+              <Truck className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
               งานส่งมอบสินค้า
             </span>
             <span className="p-1 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
@@ -39,9 +39,9 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-blue-700 dark:text-blue-400">
               {formatNumber(data.dispatchCount)}{' '}
-              <span className="text-xs font-normal text-slate-400">งาน</span>
+              <span className="text-xs font-normal text-slate-600 dark:text-slate-400">งาน</span>
             </div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+            <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               ส่งมอบให้ลูกค้าในงวด
             </div>
           </div>
@@ -54,23 +54,23 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
         <div className="p-2 rounded-xl border border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-950/20 flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
-              <RotateCcw className="w-3.5 h-3.5 text-emerald-500" />
+              <RotateCcw className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
               งานรับคืนสินค้า
             </span>
-            <span className="p-1 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+            <span className="p-1 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
               <CheckCircle className="w-3 h-3" />
             </span>
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-emerald-700 dark:text-emerald-400">
               {formatNumber(data.returnCount)}{' '}
-              <span className="text-xs font-normal text-slate-400">งาน</span>
+              <span className="text-xs font-normal text-slate-600 dark:text-slate-400">งาน</span>
             </div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+            <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               ตรวจรับอุปกรณ์กลับเข้าคลัง
             </div>
           </div>
-          <div className="text-[9.5px] text-emerald-600/80 dark:text-emerald-400/80 font-bold">
+          <div className="text-[9.5px] text-emerald-700/80 dark:text-emerald-400/80 font-bold">
             ตรวจเช็คความสมบูรณ์
           </div>
         </div>
@@ -79,7 +79,7 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
         <div className="p-2 rounded-xl border border-purple-500/20 bg-purple-50/50 dark:bg-purple-950/20 flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-purple-800 dark:text-purple-300 flex items-center gap-1">
-              <CalendarClock className="w-3.5 h-3.5 text-purple-500" />
+              <CalendarClock className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
               การจองสินค้า
             </span>
             <span className="p-1 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400">
@@ -89,9 +89,9 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-purple-700 dark:text-purple-400">
               {formatNumber(data.activeReservationsCount)}{' '}
-              <span className="text-xs font-normal text-slate-400">รายการ</span>
+              <span className="text-xs font-normal text-slate-600 dark:text-slate-400">รายการ</span>
             </div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+            <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               จองล่วงหน้ารอส่งมอบ
             </div>
           </div>
@@ -104,25 +104,25 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
         <div className="p-2 rounded-xl border border-rose-500/20 bg-rose-50/50 dark:bg-rose-950/20 flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-rose-800 dark:text-rose-300 flex items-center gap-1">
-              <AlertOctagon className="w-3.5 h-3.5 text-rose-500" />
+              <AlertOctagon className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400" />
               งานที่ต้องจัดการ
             </span>
             <span
               className={`px-1.5 py-0.5 rounded-xs text-[9px] font-bold ${
                 data.actionItemsCount > 0
-                  ? 'bg-rose-500 text-white'
-                  : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                  ? 'bg-rose-600 text-white'
+                  : 'bg-rose-500/10 text-rose-700 dark:text-rose-400'
               }`}
             >
               {data.actionItemsCount} จุด
             </span>
           </div>
           <div className="my-1">
-            <div className="text-base sm:text-lg font-black font-mono text-rose-600 dark:text-rose-400">
+            <div className="text-base sm:text-lg font-black font-mono text-rose-700 dark:text-rose-400">
               {formatNumber(data.actionItemsCount)}{' '}
-              <span className="text-xs font-normal text-slate-400">ภารกิจ</span>
+              <span className="text-xs font-normal text-slate-600 dark:text-slate-400">ภารกิจ</span>
             </div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+            <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               เกินกำหนด / หนี้ค้าง / ซ่อมแซม
             </div>
           </div>
@@ -143,7 +143,7 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
                 กราฟจำนวนงานปฏิบัติการ (ส่งมอบ / รับคืน / จอง)
               </h3>
             </div>
-            <span className="text-[10px] text-slate-400">ตามช่วงเวลา</span>
+            <span className="text-[10px] text-slate-600 dark:text-slate-400">ตามช่วงเวลา</span>
           </div>
 
           <div className="flex-1 min-h-40">
@@ -166,7 +166,7 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
           header={
             <div className="flex items-center justify-between mb-2 shrink-0">
               <div className="flex items-center gap-1.5">
-                <CalendarClock className="w-3.5 h-3.5 text-purple-500" />
+                <CalendarClock className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
                 <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">
                   การจองสินค้าล่วงหน้า ({data.reservations.length} รายการ)
                 </h3>
@@ -185,7 +185,7 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
         >
           <table className="w-full text-left border-collapse text-[11px]">
             <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
+              <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400">
                 <th className="px-1.5">เลขที่จอง</th>
                 <th className="px-1.5">สินค้า</th>
                 <th className="px-1.5 text-center">จำนวน</th>
@@ -196,7 +196,7 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
               {data.reservations.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-xs text-slate-400">
+                  <td colSpan={5} className="py-8 text-center text-xs text-slate-600 dark:text-slate-400">
                     ไม่มีรายการจองสินค้าล่วงหน้าในขณะนี้
                   </td>
                 </tr>
@@ -215,7 +215,7 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
                     <td className="px-1.5 text-slate-600 dark:text-slate-300 truncate max-w-[100px]">
                       {r.customerName}
                     </td>
-                    <td className="px-1.5 font-mono text-[9.5px] text-slate-500 whitespace-nowrap">
+                    <td className="px-1.5 font-mono text-[9.5px] text-slate-600 dark:text-slate-400 whitespace-nowrap">
                       {formatThaiDate(r.startDate)} - {formatThaiDate(r.endDate)}
                     </td>
                   </tr>
@@ -230,18 +230,18 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
       <div className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1.5">
-            <AlertOctagon className="w-3.5 h-3.5 text-rose-500" />
+            <AlertOctagon className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400" />
             <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">
               งานและจุดที่ต้องจัดการ (Action Items Checklist)
             </h3>
           </div>
-          <span className="text-[10px] text-slate-400">
+          <span className="text-[10px] text-slate-600 dark:text-slate-400">
             จำแนกตามความเร่งด่วนและผู้รับผิดชอบ
           </span>
         </div>
 
         {data.actionItems.length === 0 ? (
-          <div className="text-xs text-emerald-600 dark:text-emerald-400 py-6 text-center font-bold">
+          <div className="text-xs text-emerald-700 dark:text-emerald-400 py-6 text-center font-bold">
             🎉 ยอดเยี่ยม! ไม่มีงานค้างหรือจุดที่ต้องจัดการในขณะนี้
           </div>
         ) : (
@@ -249,10 +249,10 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
             {data.actionItems.map((item) => {
               const badgeClass =
                 item.priority === 'high'
-                  ? 'bg-rose-500/10 text-rose-600 border-rose-500/20'
+                  ? 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20'
                   : item.priority === 'medium'
-                  ? 'bg-amber-500/10 text-amber-600 border-amber-500/20'
-                  : 'bg-blue-500/10 text-blue-600 border-blue-500/20'
+                  ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'
+                  : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
 
               return (
                 <div
@@ -279,7 +279,7 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
                       {item.title}
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2 mt-1 text-[10px] text-slate-400">
+                    <div className="flex flex-wrap items-center gap-2 mt-1 text-[10px] text-slate-600 dark:text-slate-400">
                       {item.customerName && <span>ลูกค้า: {item.customerName}</span>}
                       {item.customerPhone && (
                         <span className="font-mono">({item.customerPhone})</span>
@@ -289,8 +289,8 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
                   </div>
 
                   <div className="text-right shrink-0">
-                    <span className="inline-flex items-center gap-1 text-[9.5px] font-bold text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-800 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700">
-                      <UserCheck className="w-3 h-3 text-emerald-500" />
+                    <span className="inline-flex items-center gap-1 text-[9.5px] font-bold text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-800 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700">
+                      <UserCheck className="w-3 h-3 text-emerald-700 dark:text-emerald-400" />
                       {item.suggestedHandler}
                     </span>
                   </div>
@@ -308,12 +308,12 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
         header={
           <div className="flex items-center justify-between mb-2 shrink-0">
             <div className="flex items-center gap-1.5">
-              <Truck className="w-3.5 h-3.5 text-slate-500" />
+              <Truck className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
               <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">
                 รายการงานปฏิบัติการย้อนหลัง ({data.historyRecords.length} งาน)
               </h3>
             </div>
-            <span className="text-[10px] text-slate-400">เรียงตามวันที่ล่าสุด</span>
+            <span className="text-[10px] text-slate-600 dark:text-slate-400">เรียงตามวันที่ล่าสุด</span>
           </div>
         }
       >
@@ -332,22 +332,22 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
             {data.historyRecords.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-xs text-slate-400">
+                <td colSpan={7} className="py-8 text-center text-xs text-slate-600 dark:text-slate-400">
                   ไม่มีประวัติงานปฏิบัติการในช่วงเวลานี้
                 </td>
               </tr>
             ) : (
               data.historyRecords.map((h) => (
                 <tr key={h.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                  <td className="px-2 font-mono text-slate-500 whitespace-nowrap">
+                  <td className="px-2 font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
                     {formatThaiDate(h.date)}
                   </td>
                   <td className="px-2 whitespace-nowrap">
                     <span
                       className={`px-1.5 py-0.5 rounded-md text-[9.5px] font-bold ${
                         h.event === 'DISPATCH'
-                           ? 'bg-blue-500/10 text-blue-600'
-                          : 'bg-emerald-500/10 text-emerald-600'
+                           ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                          : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
                       }`}
                     >
                       {h.event === 'DISPATCH' ? 'ส่งมอบสินค้า' : 'รับคืนสินค้า'}

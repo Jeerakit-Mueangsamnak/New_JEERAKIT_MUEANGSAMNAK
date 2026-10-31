@@ -1,5 +1,5 @@
 /**
- * Shared look for every Settings screen (ตั้งค่าระบบ, บัญชีของฉัน, สิทธิ์ผู้ใช้):
+ * Shared look for every Settings screen (ตั้งค่าระบบ, ตั้งค่าส่วนตัว, สิทธิ์ผู้ใช้):
  * one input / label / section / title style so the pages read as one system.
  * Main / sub tabs use TAB_* from components/common/ActionButton.
  */

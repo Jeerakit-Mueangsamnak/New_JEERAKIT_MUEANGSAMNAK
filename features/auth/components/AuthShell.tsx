@@ -11,19 +11,59 @@ import { firstAllowedHref, menuForPath } from '@/features/auth/services/permissi
 export function AuthShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { session, loading: authLoading, user, hasMenu } = useAuth()
+  const { session, loading: authLoading, user, hasMenu, refreshUser } = useAuth()
   const { pinEnabled, isLocked, loading: appLockLoading, unlockApp } = useAppLock()
 
   const isPublicRoute = isPublicPath(pathname)
   const pageRef = useRef<HTMLDivElement>(null)
   const locked = Boolean(session && user && pinEnabled && isLocked && pathname !== '/forgot-pin')
 
+  // No zoom anywhere (owner 2026-10-26): pinch on iPad (Safari ignores user-scalable=no) and on
+  // trackpads, and Ctrl + wheel / + / - / 0 on a PC. Double-tap zoom is off in globals.css.
+  useEffect(() => {
+    const block = (e: Event) => e.preventDefault()
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length > 1) e.preventDefault()
+    }
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) e.preventDefault()
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && ['+', '=', '-', '_', '0'].includes(e.key)) e.preventDefault()
+    }
+    const opts: AddEventListenerOptions = { passive: false }
+    document.addEventListener('gesturestart', block, opts)
+    document.addEventListener('gesturechange', block, opts)
+    document.addEventListener('touchmove', onTouchMove, opts)
+    window.addEventListener('wheel', onWheel, opts)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('gesturestart', block)
+      document.removeEventListener('gesturechange', block)
+      document.removeEventListener('touchmove', onTouchMove)
+      window.removeEventListener('wheel', onWheel)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [])
+
   // While locked the page underneath cannot be focused or clicked (inert), but keeps its state.
+  // The field being typed in (often inside a modal, which is portalled outside this page) loses
+  // focus so the PIN digits never reach it, and gets it back after unlocking.
+  const focusBeforeLock = useRef<HTMLElement | null>(null)
   useEffect(() => {
     const el = pageRef.current
     if (!el) return
-    if (locked) el.setAttribute('inert', '')
-    else el.removeAttribute('inert')
+    if (locked) {
+      const active = document.activeElement
+      focusBeforeLock.current = active instanceof HTMLElement ? active : null
+      focusBeforeLock.current?.blur()
+      el.setAttribute('inert', '')
+    } else {
+      el.removeAttribute('inert')
+      const previous = focusBeforeLock.current
+      focusBeforeLock.current = null
+      if (previous?.isConnected) previous.focus({ preventScroll: true })
+    }
   }, [locked])
 
   useEffect(() => {
@@ -37,6 +77,19 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
       }
     }
   }, [authLoading, session, user, isPublicRoute, pathname, router])
+
+  // Menus and role are set centrally by the OWNER (จัดการสิทธิ์), possibly from another device:
+  // read them again on every page change so an open device follows the latest grants.
+  const firstPath = useRef(true)
+  const signedIn = Boolean(session && user)
+  useEffect(() => {
+    if (firstPath.current) {
+      firstPath.current = false
+      return
+    }
+    if (signedIn && !isPublicRoute) void refreshUser()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a page change triggers the re-read
+  }, [pathname])
 
   // Menu access (Master §4.2): a page outside the user's menus sends them to their first menu.
   const pageMenu = menuForPath(pathname)

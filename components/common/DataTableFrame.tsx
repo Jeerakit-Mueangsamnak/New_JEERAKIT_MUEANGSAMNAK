@@ -15,6 +15,8 @@ export interface DataTableFrameProps extends React.HTMLAttributes<HTMLDivElement
   rowCount?: number
   /** Rows currently rendered when loading incrementally (defaults to rowCount). */
   shownCount?: number
+  /** Ref on the rows' scroll area (e.g. useAutoFitPageSize().containerRef for incremental rows). */
+  scrollRef?: React.Ref<HTMLDivElement>
   children: React.ReactNode
 }
 
@@ -49,6 +51,7 @@ export function DataTableFrame({
   fill = false,
   rowCount,
   shownCount,
+  scrollRef,
   children,
   ...props
 }: DataTableFrameProps) {
@@ -70,6 +73,7 @@ export function DataTableFrame({
         className={`flex-1 min-h-0 overflow-hidden ${padded ? `-mx-2 ${!footer && rowCount === undefined ? '-mb-2' : ''}` : ''} ${containerClassName}`.trim()}
       >
         <div
+          ref={scrollRef}
           className={`overflow-y-auto overflow-x-auto ${fill ? 'h-full' : DATA_TABLE_FRAME_HEIGHT_CLASSES} [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20 [&_thead]:bg-[#E3E3E3] dark:[&_thead]:bg-slate-800 [&_thead]:font-bold [&_thead]:shadow-xs [&_th]:py-2 [&_th]:font-bold [&_th]:whitespace-nowrap [&_td]:py-1.5 ${bodyClassName}`.trim()}
         >
           {empty && emptyState ? emptyState : children}
@@ -79,7 +83,7 @@ export function DataTableFrame({
       {/* Row-count bar sits right under the rows (no gap); a custom footer goes below it. */}
       {rowCount !== undefined && (
         <div
-          className={`shrink-0 px-2 py-1.5 bg-slate-100/70 dark:bg-slate-900/60 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 truncate ${padded ? `-mx-2 ${footer ? '' : '-mb-2'}` : ''}`.trim()}
+          className={`shrink-0 px-2 py-1.5 bg-slate-100/70 dark:bg-slate-900/60 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 truncate ${padded ? `-mx-2 ${footer ? '' : '-mb-2'}` : ''}`.trim()}
         >
           {rowCount > 0
             ? `แสดง ${Math.min(shownCount ?? rowCount, rowCount)} จากทั้งหมด ${rowCount} รายการ`

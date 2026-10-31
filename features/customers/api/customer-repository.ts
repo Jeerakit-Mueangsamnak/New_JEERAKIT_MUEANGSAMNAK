@@ -29,7 +29,7 @@ interface CustomerRow {
 
 const DETAIL_KEYS = [
   'companyName', 'phone2', 'lineId', 'houseNo', 'moo', 'soi', 'road', 'subDistrict', 'district', 'province',
-  'postalCode', 'idCardNumber', 'idCardExpiry',
+  'postalCode', 'idCardNumber', 'idCardExpiry', 'birthDate',
 ] as const
 
 export function mapCustomerRow(c: CustomerRow): Customer {
@@ -61,6 +61,7 @@ export function mapCustomerRow(c: CustomerRow): Customer {
     idCardNumber: d.idCardNumber,
     idCardImageUrl: d.idCardImageUrl,
     idCardExpiry: d.idCardExpiry,
+    birthDate: d.birthDate,
   }
 }
 
@@ -109,7 +110,13 @@ export async function fetchCustomersFromSupabase(): Promise<Customer[]> {
  * Creates (no id / unknown id) or updates a customer; returns the saved row.
  * A possible duplicate (same phone or name, Master §5) asks the user before saving anyway.
  */
-export async function saveCustomerToSupabase(customer: Customer, isNew: boolean, reason?: string): Promise<Customer> {
+/** `confirmDuplicate` asks the user when the server reports a possible duplicate; without it the save stops. */
+export async function saveCustomerToSupabase(
+  customer: Customer,
+  isNew: boolean,
+  reason?: string,
+  confirmDuplicate?: () => Promise<boolean>
+): Promise<Customer> {
   const payload = customerPayload(customer)
   let saved: Customer
   if (isNew) {
@@ -117,8 +124,7 @@ export async function saveCustomerToSupabase(customer: Customer, isNew: boolean,
       saved = mapCustomerRow(await rpc<CustomerRow>('customer_create', { p_data: payload }))
     } catch (err) {
       if (!isDbError(err, 'DUPLICATE_CUSTOMER')) throw err
-      const ok = typeof window !== 'undefined' &&
-        window.confirm('พบลูกค้าที่ชื่อหรือเบอร์โทรซ้ำกับที่มีอยู่แล้ว ต้องการบันทึกเป็นลูกค้าใหม่ต่อหรือไม่?')
+      const ok = confirmDuplicate ? await confirmDuplicate() : false
       if (!ok) throw err
       saved = mapCustomerRow(await rpc<CustomerRow>('customer_create', { p_data: payload, p_confirm_duplicate: true }))
     }

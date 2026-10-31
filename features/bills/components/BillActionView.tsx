@@ -12,10 +12,8 @@ import {
   DollarSign,
   ChevronLeft,
   ChevronRight,
-  X,
 } from 'lucide-react'
 import { CustomDatePicker, getLocalDateString, parseLocalDate } from '@/components/common/CustomDatePicker'
-import { ModalPortal } from '@/components/common/ModalPortal'
 import { NumericInput } from '@/components/common/NumericInput'
 import { A4FitPreview } from '@/features/pos/components/A4FitPreview'
 import { ReturnSlipPlaceholder } from '@/features/documents/components/ReturnSlipPlaceholder'
@@ -134,7 +132,6 @@ export function BillActionView({
   })
 
   // Full-screen / Full-area Preview Overlay State
-  const [isFullPreviewOpen, setIsFullPreviewOpen] = useState<boolean>(false)
 
   // Active Bill Selection
   const customerBills = useMemo(() => {
@@ -371,6 +368,7 @@ export function BillActionView({
           businessAddress={business?.address}
           businessTaxId={business?.taxId}
           businessPhone={business?.phone}
+          logoDataUrl={business?.logoDataUrl}
           customerName={activeBill.customerName}
           customerPhone={activeBill.customerPhone}
           slipNo={customReturnNo || savedReturnInfo?.returnNo || 'รอสร้างเลขเอกสาร'}
@@ -424,6 +422,7 @@ export function BillActionView({
           businessAddress={business?.address}
           businessTaxId={business?.taxId}
           businessPhone={business?.phone}
+          logoDataUrl={business?.logoDataUrl}
           customerName={activeBill.customerName}
           customerPhone={activeBill.customerPhone}
           customerAddress={activeBill.customerAddress}
@@ -477,6 +476,7 @@ export function BillActionView({
         businessAddress={business?.address}
         businessTaxId={business?.taxId}
         businessPhone={business?.phone}
+        logoDataUrl={business?.logoDataUrl}
         customerName={activeBill.customerName}
         customerPhone={activeBill.customerPhone}
         customerAddress={activeBill.customerAddress}
@@ -519,10 +519,11 @@ export function BillActionView({
       ? 'หลายช่องทาง (Split Payment)'
       : (channelLabels[activeTenders[0]?.paymentMethod] || paymentChannel)
 
-    // Use database confirmed outstanding after payment without double deduction
+    // After saving: the database figure. Before saving (preview): what is left after this payment.
+    const tenderTotal = activeTenders.reduce((sum, t) => sum + Math.max(0, Number(t.amount) || 0), 0)
     const remainingOutstanding = savedPaymentInfo?.outstandingAfter !== undefined
       ? savedPaymentInfo.outstandingAfter
-      : activeBill.outstandingAmount
+      : Math.max(0, activeBill.outstandingAmount - tenderTotal)
 
     return (
       <PaymentReceiptPlaceholder
@@ -530,6 +531,7 @@ export function BillActionView({
         businessAddress={business?.address}
         businessTaxId={business?.taxId}
         businessPhone={business?.phone}
+        logoDataUrl={business?.logoDataUrl}
         customerName={activeBill.customerName}
         customerPhone={activeBill.customerPhone}
         customerAddress={activeBill.customerAddress}
@@ -790,7 +792,7 @@ export function BillActionView({
       showToast(
         'บันทึกรับคืนสินค้าสำเร็จ',
         result.suggestedRefund > 0
-          ? `ใบคืน ${returnNo} — ลูกค้าจ่ายเกิน ฿${result.suggestedRefund.toLocaleString('th-TH')} กดปุ่ม "คืนเงินรับชำระ" เพื่อคืนเงิน (ใส่ PIN)`
+          ? `ใบคืน ${returnNo} — ลูกค้าจ่ายเกิน ${result.suggestedRefund.toLocaleString('th-TH')} กดปุ่ม "คืนเงินรับชำระ" เพื่อคืนเงิน`
           : `รับคืนสินค้าใบคืนเลขที่ ${returnNo} สำเร็จแล้ว`,
         'SUCCESS'
       )
@@ -864,7 +866,7 @@ export function BillActionView({
 
       showToast(
         'บันทึกรับชำระเงินสำเร็จ',
-        `รับชำระเงิน ฿${totalPayment.toLocaleString()} (${validTenders.length} ช่องทาง) สำเร็จแล้ว`,
+        `รับชำระเงิน ${totalPayment.toLocaleString()} (${validTenders.length} ช่องทาง) สำเร็จแล้ว`,
         'SUCCESS'
       )
 
@@ -925,13 +927,13 @@ export function BillActionView({
               className={`py-1.5 sm:py-2 px-1 sm:px-2.5 rounded-xl text-center text-xs font-bold transition-all truncate whitespace-nowrap min-w-0 border ${
                 active
                   ? mode === 'RETURN'
-                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
+                    ? 'bg-emerald-700 border-emerald-600 text-white shadow-sm'
                     : 'bg-blue-600 border-blue-600 text-white shadow-sm'
                   : passed
                   ? mode === 'RETURN'
                     ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
                     : 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300'
-                  : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-400'
+                  : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
               } ${canClick ? 'cursor-pointer hover:opacity-90' : 'cursor-default'}`}
             >
               {s.title}
@@ -954,15 +956,15 @@ export function BillActionView({
                     <span className="font-bold text-xs text-slate-800 dark:text-slate-200 truncate">
                       เลือกรายการสินค้าและกำหนดวันคืนจริง
                     </span>
-                    <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800 shrink-0">
+                    <span className="font-mono text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800 shrink-0">
                       {activeBill.billNo}
                     </span>
-                    <span className="text-slate-500 text-xs truncate hidden md:inline">
+                    <span className="text-slate-600 dark:text-slate-400 text-xs truncate hidden md:inline">
                       ({activeBill.customerName})
                     </span>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 font-medium shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-400 font-medium shrink-0">
                     <div className="flex items-center gap-1.5">
                       <span className="font-bold text-slate-700 dark:text-slate-300">วันรับคืน:</span>
                       <CustomDatePicker
@@ -973,7 +975,7 @@ export function BillActionView({
                         className="text-xs"
                       />
                     </div>
-                    <span>เลือกแล้ว: <strong className="text-emerald-600 dark:text-emerald-400 font-bold">{inspectionItems.filter((i) => i.selected).length}</strong>/{inspectionItems.length} รายการ</span>
+                    <span>เลือกแล้ว: <strong className="text-emerald-700 dark:text-emerald-400 font-bold">{inspectionItems.filter((i) => i.selected).length}</strong>/{inspectionItems.length} รายการ</span>
                   </div>
                 </div>
 
@@ -997,7 +999,7 @@ export function BillActionView({
                             type="checkbox"
                             checked={inspectionItems.length > 0 && inspectionItems.every((i) => i.selected)}
                             onChange={handleToggleSelectAll}
-                            className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                            className="w-4 h-4 rounded text-emerald-700 dark:text-emerald-400 focus:ring-emerald-500 cursor-pointer"
                             title="เลือก/ยกเลิกทั้งหมด"
                           />
                         </th>
@@ -1032,14 +1034,14 @@ export function BillActionView({
                                 type="checkbox"
                                 checked={item.selected ?? false}
                                 onChange={() => handleToggleSelectItem(idx)}
-                                className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                className="w-4 h-4 rounded text-emerald-700 dark:text-emerald-400 focus:ring-emerald-500 cursor-pointer"
                               />
                             </td>
-                            <td className="py-1 px-1 text-center font-bold text-slate-500">{idx + 1}</td>
+                            <td className="py-1 px-1 text-center font-bold text-slate-600 dark:text-slate-400">{idx + 1}</td>
                             <td className="py-1 px-1.5 font-bold text-slate-800 dark:text-slate-200 overflow-hidden">
                               <div className="truncate">{item.productName}</div>
                               {item.productCode && (
-                                <span className="text-[10px] text-slate-400 font-mono block truncate">
+                                <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono block truncate">
                                   {item.productCode}
                                 </span>
                               )}
@@ -1077,7 +1079,7 @@ export function BillActionView({
                     disabled={inspectionItems.filter((i) => i.selected).length === 0}
                     className={`px-5 py-2 rounded-xl font-bold text-white transition-all text-xs ${
                       inspectionItems.filter((i) => i.selected).length > 0
-                        ? 'bg-emerald-600 hover:bg-emerald-700 cursor-pointer shadow-sm'
+                        ? 'bg-emerald-700 hover:bg-emerald-800 cursor-pointer shadow-sm'
                         : 'bg-slate-300 cursor-not-allowed'
                     }`}
                   >
@@ -1122,7 +1124,7 @@ export function BillActionView({
                         type="button"
                         onClick={handlePrevReturnDoc}
                         aria-label="เอกสารก่อนหน้า"
-                        className="w-7 sm:w-9 h-full flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors z-10 shrink-0 cursor-pointer group"
+                        className="w-7 sm:w-9 h-full flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors z-10 shrink-0 cursor-pointer group"
                         title="เอกสารก่อนหน้า (ใบรับคืน / ใบเสร็จรับเงิน)"
                       >
                         <ChevronLeft className="w-5 h-5 opacity-50 group-hover:opacity-100 transition-opacity" />
@@ -1136,11 +1138,9 @@ export function BillActionView({
                       </div>
                     )}
 
-                    {/* A4 Center Container with Double-click to Full Preview */}
+                    {/* A4 Center Container (double-click the sheet: A4FitPreview opens the full preview) */}
                     <div
-                      className="flex-1 min-h-0 min-w-0 h-full relative cursor-pointer"
-                      onDoubleClick={() => setIsFullPreviewOpen(true)}
-                      title="ดับเบิ้ลคลิกเพื่อดูตัวอย่างเอกสารแบบเต็มจอ"
+                      className="flex-1 min-h-0 min-w-0 h-full relative"
                     >
                       <A4FitPreview paddingPx={4} align="center">
                         {renderReturnDoc(availableReturnDocs[returnDocIndex])}
@@ -1153,7 +1153,7 @@ export function BillActionView({
                         type="button"
                         onClick={handleNextReturnDoc}
                         aria-label="เอกสารถัดไป"
-                        className="w-7 sm:w-9 h-full flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors z-10 shrink-0 cursor-pointer group"
+                        className="w-7 sm:w-9 h-full flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors z-10 shrink-0 cursor-pointer group"
                         title="เอกสารถัดไป (ใบรับคืน / ใบเสร็จรับเงิน / ใบเสร็จค่าชำรุด)"
                       >
                         <ChevronRight className="w-5 h-5 opacity-50 group-hover:opacity-100 transition-opacity" />
@@ -1167,7 +1167,7 @@ export function BillActionView({
                       {/* 1. Header */}
                       <div className="flex shrink-0 min-w-0 items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-1.5">
                         <div className="flex items-center gap-1.5 min-w-0">
-                          <DollarSign className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <DollarSign className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
                           <h3 className="truncate whitespace-nowrap text-sm font-bold text-slate-900 dark:text-slate-100">
                             สรุปยอดและรับชำระเงิน
                           </h3>
@@ -1181,28 +1181,28 @@ export function BillActionView({
                       <div className="shrink-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/60 p-2 text-xs">
                         <div className="grid grid-cols-2 gap-x-2.5 gap-y-1">
                           <div className="flex justify-between">
-                            <span className="text-slate-500">ยอดรวมบิลเดิม:</span>
-                            <span className="font-bold tabular-nums">฿{calcResult.persistedGrandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+                            <span className="text-slate-600 dark:text-slate-400">ยอดรวมบิลเดิม:</span>
+                            <span className="font-bold tabular-nums">{calcResult.persistedGrandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-500">ชำระแล้ว:</span>
-                            <span className="font-bold text-emerald-600 tabular-nums">฿{calcResult.persistedPaidAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+                            <span className="text-slate-600 dark:text-slate-400">ชำระแล้ว:</span>
+                            <span className="font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">{calcResult.persistedPaidAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-500">ค่าปรับ ({calcResult.lateDays} วัน):</span>
-                            <span className="font-bold text-red-600 tabular-nums">
-                              ฿{calcResult.lateFeeTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                            <span className="text-slate-600 dark:text-slate-400">ค่าปรับ ({calcResult.lateDays} วัน):</span>
+                            <span className="font-bold text-red-700 dark:text-red-400 tabular-nums">
+                              {calcResult.lateFeeTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-500">ค่าเสียหาย/สูญหาย:</span>
-                            <span className="font-bold text-amber-600 tabular-nums">
-                              ฿{calcResult.totalDamageFee.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                            <span className="text-slate-600 dark:text-slate-400">ค่าเสียหาย/สูญหาย:</span>
+                            <span className="font-bold text-amber-700 dark:text-amber-400 tabular-nums">
+                              {calcResult.totalDamageFee.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                             </span>
                           </div>
                           <div className="flex justify-between font-extrabold text-slate-900 dark:text-slate-100 border-t border-slate-200 dark:border-slate-700 pt-0.5 col-span-2">
                             <span>ยอดรวมสุทธิหลังรับคืน:</span>
-                            <span className="tabular-nums">฿{calcResult.grandTotalCharge.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+                            <span className="tabular-nums">{calcResult.grandTotalCharge.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
                           </div>
                         </div>
                       </div>
@@ -1210,7 +1210,7 @@ export function BillActionView({
                       {/* Deposit: shown only — the system never deducts or refunds it (Master §18) */}
                       {activeBill.heldDepositAmount > 0 && (
                         <div className="shrink-0 p-2 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs font-bold text-amber-900 dark:text-amber-200">
-                          บิลนี้มีมัดจำ ฿{activeBill.heldDepositAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} — ระบบไม่หัก/ไม่คืนให้อัตโนมัติ คืนหรือหักที่หน้าร้านตามจริง
+                          บิลนี้มีมัดจำ {activeBill.heldDepositAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} — ระบบไม่หัก/ไม่คืนให้อัตโนมัติ คืนหรือหักที่หน้าร้านตามจริง
                         </div>
                       )}
 
@@ -1230,7 +1230,7 @@ export function BillActionView({
                             : 'ชำระครบถ้วนแล้ว (ไม่มีค่าใช้จ่ายเพิ่มเติม)'}
                         </span>
                         <h2 className="text-lg sm:text-xl font-black tabular-nums leading-tight">
-                          {calcResult.netAmount > 0 ? '฿' : calcResult.netAmount < 0 ? '- ฿' : '฿'}
+                          {calcResult.netAmount > 0 ? '' : calcResult.netAmount < 0 ? '- ' : ''}
                           {Math.abs(calcResult.netAmount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                         </h2>
                       </div>
@@ -1254,7 +1254,7 @@ export function BillActionView({
                               max={calcResult.netAmount}
                               className="w-full rounded-xl border border-slate-300 bg-white px-3 py-1 text-base font-extrabold text-slate-900 focus:ring-2 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 tabular-nums"
                             />
-                            <p className="text-[10px] text-slate-400 mt-0.5">* รองรับการจ่ายบางส่วน (Partial Payment)</p>
+                            <p className="text-[10px] text-slate-600 dark:text-slate-400 mt-0.5">* รองรับการจ่ายบางส่วน (Partial Payment)</p>
                           </div>
 
                           {/* Payment Method Selector */}
@@ -1278,7 +1278,7 @@ export function BillActionView({
                             promptPayId={promptPayId}
                             unpaidMessage={
                               <>
-                                ⚠️ ยอดส่วนต่าง ฿{calcResult.netAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}{' '}
+                                ⚠️ ยอดส่วนต่าง {calcResult.netAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}{' '}
                                 จะถูกบันทึกเป็น <strong>&quot;ค้างชำระ (Unpaid)&quot;</strong> ในระบบ
                               </>
                             }
@@ -1318,7 +1318,7 @@ export function BillActionView({
                           (paymentChannel !== 'UNPAID' && calcResult.netAmount > 0 && userCollectedAmount <= 0)
                         }
                         onClick={() => handleFinalCloseAndConfirmReturn(false)}
-                        className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm py-2 transition-all shadow-md shadow-emerald-600/25 active:scale-[0.99] disabled:opacity-50 min-h-[38px] whitespace-nowrap"
+                        className="flex-1 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs sm:text-sm py-2 transition-all shadow-md shadow-emerald-600/25 active:scale-[0.99] disabled:opacity-50 min-h-[38px] whitespace-nowrap"
                       >
                         {isSubmitting ? 'กำลังบันทึก...' : 'บันทึก'}
                       </button>
@@ -1339,7 +1339,7 @@ export function BillActionView({
                 {/* Top Summary & Payment Date Bar */}
                 <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/60 shrink-0">
                   <div className="flex items-center gap-2 min-w-0">
-                    <DollarSign className="w-4 h-4 text-blue-600 shrink-0" />
+                    <DollarSign className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
                     <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
                       เลือกรายการ และกำหนดวันที่สำหรับรับชำระ
                     </span>
@@ -1349,7 +1349,7 @@ export function BillActionView({
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">วันที่ชำระ:</span>
+                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">วันที่ชำระ:</span>
                     <div className="w-32 sm:w-36">
                       <CustomDatePicker
                         value={parseLocalDate(paymentDate) || new Date()}
@@ -1392,7 +1392,7 @@ export function BillActionView({
                       disabled={activeBill.outstandingAmount <= 0 || activeBill.paymentStatus === 'PAID'}
                       className={`px-4 sm:px-5 py-2 rounded-xl font-black text-white transition-all text-xs shadow-md shadow-emerald-600/20 active:scale-[0.99] ${
                         activeBill.outstandingAmount > 0 && activeBill.paymentStatus !== 'PAID'
-                          ? 'bg-emerald-600 hover:bg-emerald-700 cursor-pointer'
+                          ? 'bg-emerald-700 hover:bg-emerald-800 cursor-pointer'
                           : 'bg-slate-300 cursor-not-allowed'
                       }`}
                       title="คำนวณยอดค้างชำระทั้งหมดและไปหน้าสรุปรับชำระทันที"
@@ -1422,9 +1422,7 @@ export function BillActionView({
                 {/* Left: Document Preview Area */}
                 <div className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900/60 shadow-inner">
                   <div
-                    className="flex-1 min-h-0 min-w-0 h-full relative cursor-pointer"
-                    onDoubleClick={() => setIsFullPreviewOpen(true)}
-                    title="ดับเบิ้ลคลิกเพื่อดูตัวอย่างเอกสารแบบเต็มจอ"
+                    className="flex-1 min-h-0 min-w-0 h-full relative"
                   >
                     <A4FitPreview paddingPx={4} align="center">
                       {renderPaymentDoc()}
@@ -1438,7 +1436,7 @@ export function BillActionView({
                     {/* 1. Header */}
                     <div className="flex shrink-0 min-w-0 items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-1.5">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <DollarSign className="w-4 h-4 text-blue-600 shrink-0" />
+                        <DollarSign className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
                         <h3 className="truncate whitespace-nowrap text-sm font-bold text-slate-900 dark:text-slate-100">
                           ระบุยอดที่ต้องการชำระ
                         </h3>
@@ -1455,7 +1453,7 @@ export function BillActionView({
                           ยอดค้างชำระทั้งหมด
                         </span>
                         <span className="whitespace-nowrap text-lg sm:text-xl font-black tracking-tight block leading-tight">
-                          ฿{activeBill.outstandingAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          {activeBill.outstandingAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                         </span>
                       </div>
 
@@ -1482,13 +1480,20 @@ export function BillActionView({
                         ระบุยอดรับชำระเงิน (บาท)
                       </label>
                       <div className="relative">
-                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-black text-slate-400">฿</span>
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-black text-slate-600 dark:text-slate-400"></span>
                         <NumericInput
                           value={userCollectedAmount}
+                          // The tender rows are what gets saved. With one row this box drives it;
+                          // with several rows it only shows their total (edit the rows instead).
+                          disabled={splitTenders.length > 1}
                           onChange={(val) => {
                             const num = val === '' ? 0 : val
                             setUserCollectedAmount(num)
                             setReceivedCashInput(num > 0 ? num.toString() : '')
+                            if (splitTenders.length === 1) {
+                              const [only] = splitTenders
+                              setSplitTenders([{ ...only, amount: num, cashReceived: only.paymentMethod === 'CASH' ? num : only.cashReceived }])
+                            }
                           }}
                           defaultValueOnBlur={0}
                           min={0}
@@ -1496,7 +1501,7 @@ export function BillActionView({
                           className="w-full pl-8 pr-3 py-1.5 rounded-xl border-2 border-blue-200 focus:border-blue-500 bg-white dark:bg-slate-900 font-black text-lg text-slate-800 dark:text-slate-100 tabular-nums"
                         />
                       </div>
-                      <p className="text-[10px] text-slate-500 font-bold">* รองรับการจ่ายบางส่วน (Partial Payment)</p>
+                      <p className="text-[10px] text-slate-600 dark:text-slate-400 font-bold">* รองรับการจ่ายบางส่วน (Partial Payment)</p>
                     </div>
 
                     {/* 4-5. Atomic Split Tender */}
@@ -1541,45 +1546,6 @@ export function BillActionView({
           </>
         )}
       </div>
-
-      {/* Full-screen / Full-area Preview Modal (Activated by Double-clicking A4) */}
-      {isFullPreviewOpen && activeBill && (
-        <ModalPortal>
-          <div
-            className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150 select-none cursor-pointer"
-            onClick={() => setIsFullPreviewOpen(false)}
-            title="แตะหรือคลิกที่ใดก็ได้เพื่อปิดตัวอย่างแบบเต็มจอ"
-          >
-            <div
-              className="w-full h-full max-w-5xl max-h-full flex items-center justify-center"
-              onClick={(e) => {
-                e.stopPropagation()
-                setIsFullPreviewOpen(false)
-              }}
-            >
-              <A4FitPreview paddingPx={0} align="center">
-                {mode === 'RETURN'
-                  ? renderReturnDoc(availableReturnDocs[returnDocIndex])
-                  : renderPaymentDoc()}
-              </A4FitPreview>
-            </div>
-
-            {/* Floating Close Button */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                setIsFullPreviewOpen(false)
-              }}
-              className="absolute top-4 right-4 p-2.5 rounded-full bg-slate-800/90 hover:bg-slate-700 text-white shadow-2xl transition-all border border-slate-600 z-[110]"
-              aria-label="ปิดตัวอย่างเต็มจอ"
-              title="ปิดตัวอย่างเต็มจอ"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </ModalPortal>
-      )}
 
       {/* Post-Save Print Confirmation Modal */}
       <PostSavePrintModal

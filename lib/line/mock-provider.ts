@@ -34,6 +34,11 @@ export class MockLineProvider implements LineProvider {
     return { ok: true, status: 200 }
   }
 
+  /** No LINE in mock mode: the display name stays unknown. */
+  async profile(): Promise<{ displayName: string } | null> {
+    return null
+  }
+
   reset(): void {
     this.pushed.length = 0
     this.replied.length = 0

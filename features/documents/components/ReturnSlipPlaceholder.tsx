@@ -52,12 +52,12 @@ export interface ReturnSlipPlaceholderProps {
 }
 
 export function ReturnSlipPlaceholder({
-  businessName = 'บริษัท อุปกรณ์เช่ามาตรฐาน จำกัด',
-  businessAddress = '99/9 ถ.สุขุมวิท แขวงคลองเตย เขตคลองเตย กรุงเทพมหานคร 10110',
-  businessTaxId = '0105567012345',
-  businessPhone = '02-123-4567, 081-234-5678',
+  businessName = '',
+  businessAddress = '',
+  businessTaxId = '',
+  businessPhone = '',
   businessEmail,
-  businessServices = 'บริการให้เช่าอุปกรณ์จัดงาน อีเวนต์ นั่งร้าน เครื่องมือก่อสร้าง และเครื่องจักรคุณภาพสูง ครบวงจร',
+  businessServices = '',
   logoDataUrl,
   customerName = 'ลูกค้าทั่วไป',
   customerPhone = '-',
@@ -76,9 +76,9 @@ export function ReturnSlipPlaceholder({
   grandTotalCharge = 0,
   netAmount = 0,
   userCollectedAmount = 0,
-  bankName = 'ธนาคารกสิกรไทย (KBANK)',
+  bankName = '',
   bankAccountName,
-  bankAccountNumber = '012-3-45678-9',
+  bankAccountNumber = '',
   promptPayValue,
   qrCodeUrl,
   remark = '',
@@ -114,7 +114,7 @@ export function ReturnSlipPlaceholder({
               เลขผู้เสียภาษี: <span className="font-semibold text-slate-900">{businessTaxId}</span> | โทร: <span className="font-semibold text-slate-900">{businessPhone}</span>
               {businessEmail && ` | อีเมล: ${businessEmail}`}
             </p>
-            <p className="text-red-800 font-medium text-[8px] mt-0.5">{businessServices}</p>
+            {businessServices && <p className="text-red-800 font-medium text-[8px] mt-0.5">{businessServices}</p>}
           </div>
         </div>
 
@@ -185,7 +185,7 @@ export function ReturnSlipPlaceholder({
                     <td className="border-r border-slate-300 px-1 py-0.5 text-center font-mono font-bold text-amber-700">{item.damagedQty}</td>
                     <td className="border-r border-slate-300 px-1 py-0.5 text-center font-mono font-bold text-red-700">{item.lostQty}</td>
                     <td className="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono font-bold tabular-nums text-slate-900">
-                      ฿{fmt(item.damageFee || 0)}
+                      {fmt(item.damageFee || 0)}
                     </td>
                   </tr>
                 )
@@ -220,9 +220,9 @@ export function ReturnSlipPlaceholder({
           <div className="flex items-center justify-between rounded border border-slate-300 bg-white p-2 text-[8.5px]">
             <div>
               <p className="font-extrabold text-red-800 text-[9px] mb-0.5">ข้อมูลบัญชีเงินโอนคืนมัดจำ / ชำระเพิ่ม:</p>
-              <p><span className="font-bold">ธนาคาร:</span> {bankName}</p>
-              <p><span className="font-bold">ชื่อบัญชี:</span> {bankAccountName || businessName}</p>
-              <p><span className="font-bold">เลขที่บัญชี:</span> <span className="font-mono font-bold text-slate-900">{bankAccountNumber}</span></p>
+              {bankName && <p><span className="font-bold">ธนาคาร:</span> {bankName}</p>}
+              {bankAccountNumber && <p><span className="font-bold">ชื่อบัญชี:</span> {bankAccountName || businessName}</p>}
+              {bankAccountNumber && <p><span className="font-bold">เลขที่บัญชี:</span> <span className="font-mono font-bold text-slate-900">{bankAccountNumber}</span></p>}
               {promptPayValue && <p><span className="font-bold">พร้อมเพย์:</span> <span className="font-mono">{promptPayValue}</span></p>}
             </div>
 
@@ -244,23 +244,23 @@ export function ReturnSlipPlaceholder({
         <div className="col-span-5 rounded border border-slate-300 bg-slate-50 p-2 text-[8.5px] space-y-0.5">
           <div className="flex justify-between border-b border-slate-200 py-0.5">
             <span className="text-slate-600">ค่าปรับส่งคืนล่าช้า:</span>
-            <span className="font-mono font-semibold text-red-700">฿{fmt(lateFeeTotal)}</span>
+            <span className="font-mono font-semibold text-red-700">{fmt(lateFeeTotal)}</span>
           </div>
           <div className="flex justify-between border-b border-slate-200 py-0.5">
             <span className="text-slate-600">ค่าชำรุด / สูญหาย:</span>
-            <span className="font-mono font-semibold text-amber-800">฿{fmt(totalDamageFee)}</span>
+            <span className="font-mono font-semibold text-amber-800">{fmt(totalDamageFee)}</span>
           </div>
           <div className="flex justify-between border-b border-slate-200 py-0.5 font-bold">
             <span className="text-slate-900">รวมค่าใช้จ่ายส่วนเพิ่ม:</span>
-            <span className="font-mono text-slate-900">฿{fmt(grandTotalCharge)}</span>
+            <span className="font-mono text-slate-900">{fmt(grandTotalCharge)}</span>
           </div>
           <div className="flex justify-between py-0.5 text-slate-700 font-semibold">
             <span>รับชำระแล้วครั้งนี้:</span>
-            <span className="font-mono font-bold">฿{fmt(userCollectedAmount)}</span>
+            <span className="font-mono font-bold">{fmt(userCollectedAmount)}</span>
           </div>
           <div className="flex justify-between rounded bg-red-700 p-1.5 text-white font-extrabold text-[9.5px] mt-1 shadow-xs">
             <span>{netAmount > 0 ? 'ยอดต้องชำระเพิ่ม:' : 'ยอดคืนเงินมัดจำ:'}</span>
-            <span className="font-mono">฿{fmt(Math.abs(netAmount))}</span>
+            <span className="font-mono">{fmt(Math.abs(netAmount))}</span>
           </div>
         </div>
       </div>

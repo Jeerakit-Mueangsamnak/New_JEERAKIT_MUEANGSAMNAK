@@ -5,6 +5,7 @@ import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/compon
 import { NumericInput } from '@/components/common/NumericInput'
 import { getRefundSuggestion, refundPayment } from '@/features/bills/services/bill-service'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
+import { CustomSelect } from '@/components/common/CustomSelect'
 
 export type RefundMethod = 'CASH' | 'TRANSFER' | 'QR' | 'CHEQUE' | 'OTHER'
 
@@ -98,7 +99,6 @@ export function PaymentRefundModal({ isOpen, rentalBillId, billNo, onClose, onSu
     if (amount <= 0 || amount > selected.refundableAmount + 0.001) {
       return setError(`ยอดคืนเงินต้องอยู่ระหว่าง 0.01 ถึง ${money(selected.refundableAmount)} บาท`)
     }
-    if (!reason.trim()) return setError('กรุณาระบุเหตุผลการคืนเงิน')
 
     setSaving(true)
     setError('')
@@ -108,9 +108,9 @@ export function PaymentRefundModal({ isOpen, rentalBillId, billNo, onClose, onSu
         paymentId: selected.id,
         amount,
         method: refundMethod,
-        reason: referenceNo.trim() ? `${reason.trim()} (อ้างอิง ${referenceNo.trim()})` : reason.trim(),
+        reason: [reason.trim(), referenceNo.trim() && `(อ้างอิง ${referenceNo.trim()})`].filter(Boolean).join(' '),
       })
-      await onSuccess(`คืนเงินจำนวน ฿${money(amount)} สำเร็จ`)
+      await onSuccess(`คืนเงินจำนวน ${money(amount)} สำเร็จ`)
       onClose()
     } catch (e: unknown) {
       if (!isPinCancelled(e)) setError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาดในการคืนเงิน')
@@ -125,44 +125,50 @@ export function PaymentRefundModal({ isOpen, rentalBillId, billNo, onClose, onSu
       <AppModalBody>
         <div className="space-y-3 text-xs">
           {loading ? (
-            <div className="py-8 text-center text-slate-500">กำลังโหลดรายการรับชำระ...</div>
+            <div className="py-8 text-center text-slate-600 dark:text-slate-400">กำลังโหลดรายการรับชำระ...</div>
           ) : payments.length === 0 ? (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center text-slate-500 dark:border-slate-700 dark:bg-slate-900">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center text-slate-600 dark:text-slate-400 dark:border-slate-700 dark:bg-slate-900">
               ไม่มีรายการรับชำระที่ยังมียอดคืนได้
             </div>
           ) : (
             <>
               {suggested > 0 && (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
-                  ระบบคำนวณว่าลูกค้าจ่ายเกิน ฿{money(suggested)} — ตรวจสอบแล้วกดยืนยันเพื่อคืนเงิน
+                  ระบบคำนวณว่าลูกค้าจ่ายเกิน {money(suggested)} — ตรวจสอบแล้วกดยืนยันเพื่อคืนเงิน
                 </div>
               )}
               <div>
                 <label className="mb-1 block font-bold text-slate-600 dark:text-slate-300">คืนจากรายการรับชำระ</label>
-                <select value={paymentId} onChange={(event) => choosePayment(event.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
-                  {payments.map((payment) => (
-                    <option key={payment.id} value={payment.id}>
-                      {METHOD_LABEL[payment.paymentMethod] || payment.paymentMethod} ฿{money(payment.paidAmount)} · คืนได้ ฿{money(payment.refundableAmount)}
-                    </option>
-                  ))}
-                </select>
+                <CustomSelect
+                  ariaLabel="คืนจากรายการรับชำระ"
+                  value={paymentId}
+                  onChange={(value) => choosePayment(String(value))}
+                  options={payments.map((payment) => ({
+                    value: payment.id,
+                    label: `${METHOD_LABEL[payment.paymentMethod] || payment.paymentMethod} ${money(payment.paidAmount)} · คืนได้ ${money(payment.refundableAmount)}`,
+                  }))}
+                />
               </div>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block font-bold text-slate-600 dark:text-slate-300">ยอดคืนเงิน (บาท)</label>
                   <NumericInput value={amount} min={0} max={selected?.refundableAmount || 0} onChange={(value) => setAmount(value === '' ? 0 : Number(value))} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-bold dark:border-slate-700 dark:bg-slate-900" />
-                  <div className="mt-1 text-[10px] text-slate-500">คืนได้สูงสุด ฿{money(selected?.refundableAmount || 0)}</div>
+                  <div className="mt-1 text-[10px] text-slate-600 dark:text-slate-400">คืนได้สูงสุด {money(selected?.refundableAmount || 0)}</div>
                 </div>
                 <div>
                   <label className="mb-1 block font-bold text-slate-600 dark:text-slate-300">ช่องทางคืนเงิน</label>
-                  <select value={refundMethod} onChange={(event) => setRefundMethod(event.target.value as RefundMethod)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
-                    <option value="CASH">เงินสด</option>
-                    <option value="TRANSFER">โอนเงิน</option>
-                    <option value="QR">QR</option>
-                    <option value="CHEQUE">เช็ค</option>
-                    <option value="OTHER">อื่น ๆ</option>
-                  </select>
+                  <CustomSelect
+                    ariaLabel="ช่องทางคืนเงิน"
+                    value={refundMethod}
+                    onChange={(value) => setRefundMethod(value as RefundMethod)}
+                    options={[
+                      { value: 'CASH', label: 'เงินสด' },
+                      { value: 'TRANSFER', label: 'โอนเงิน' },
+                      { value: 'QR', label: 'QR' },
+                      { value: 'OTHER', label: 'อื่น ๆ' },
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -172,7 +178,7 @@ export function PaymentRefundModal({ isOpen, rentalBillId, billNo, onClose, onSu
               </div>
 
               <div>
-                <label className="mb-1 block font-bold text-slate-600 dark:text-slate-300">เหตุผลการคืนเงิน *</label>
+                <label className="mb-1 block font-bold text-slate-600 dark:text-slate-300">เหตุผลการคืนเงิน (ไม่บังคับ)</label>
                 <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={3} className="w-full resize-none rounded-xl border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900" placeholder="ระบุเหตุผล (บันทึกในประวัติการทำรายการ)" />
               </div>
             </>
@@ -183,7 +189,7 @@ export function PaymentRefundModal({ isOpen, rentalBillId, billNo, onClose, onSu
       </AppModalBody>
       <AppModalFooter>
         <button type="button" onClick={onClose} disabled={saving} className="rounded-xl border border-slate-300 px-4 py-2 font-bold text-slate-700 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200">ยกเลิก</button>
-        <button type="button" onClick={submit} disabled={saving || loading || !selected} className="rounded-xl bg-red-600 px-4 py-2 font-extrabold text-white hover:bg-red-700 disabled:opacity-50">{saving ? 'กำลังคืนเงิน...' : 'ยืนยันคืนเงิน (ใส่ PIN)'}</button>
+        <button type="button" onClick={submit} disabled={saving || loading || !selected} className="rounded-xl bg-red-600 px-4 py-2 font-extrabold text-white hover:bg-red-700 disabled:opacity-50">{saving ? 'กำลังคืนเงิน...' : 'ยืนยันคืนเงิน'}</button>
       </AppModalFooter>
     </AppModal>
   )

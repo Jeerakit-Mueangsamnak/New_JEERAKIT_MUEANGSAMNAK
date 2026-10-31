@@ -61,6 +61,39 @@ export function isHighRiskAction(action: string): boolean {
   return HIGH_RISK_ACTIONS.includes(action)
 }
 
+/** Group of the audit screen (จัดการสิทธิ์ › ประวัติการทำรายการ) each database entity_type belongs to. */
+export type AuditCategory = 'BILL' | 'CUSTOMER' | 'STOCK' | 'MEMBER' | 'FINANCE' | 'SYSTEM'
+
+const AUDIT_CATEGORY_BY_ENTITY: Record<string, AuditCategory> = {
+  BILL: 'BILL',
+  BILL_LINE: 'BILL',
+  CARRY_FORWARD: 'BILL',
+  CHARGE: 'BILL',
+  INCIDENT: 'BILL',
+  RESERVATION: 'BILL',
+  QUOTATION: 'BILL',
+  APPOINTMENT: 'BILL',
+  LINE_TASK: 'BILL',
+  CUSTOMER: 'CUSTOMER',
+  CUSTOMER_DOCUMENT: 'CUSTOMER',
+  PRODUCT: 'STOCK',
+  PRODUCT_CATEGORY: 'STOCK',
+  PRODUCT_UNIT: 'STOCK',
+  UNIT: 'STOCK',
+  STOCK_COUNT: 'STOCK',
+  MEMBER: 'MEMBER',
+  PROFILE: 'MEMBER',
+  PAYMENT: 'FINANCE',
+  REFUND: 'FINANCE',
+  EXPENSE: 'FINANCE',
+  OTHER_INCOME: 'FINANCE',
+}
+
+/** Unknown entity types (settings, LINE channel, …) fall under SYSTEM. */
+export function auditCategoryOf(entityType: string | null | undefined): AuditCategory {
+  return AUDIT_CATEGORY_BY_ENTITY[entityType || ''] ?? 'SYSTEM'
+}
+
 export function generateCorrelationId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`

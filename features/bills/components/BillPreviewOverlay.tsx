@@ -2,20 +2,24 @@
 
 import React, { useMemo } from 'react'
 import { A4FullPreviewOverlay } from '@/features/pos/components/A4FitPreview'
-import { sanitizeDocumentHtml } from '@/features/documents/utils/document-html'
+import { RentalBillTemplate } from '@/templates/rental-bill/RentalBillTemplate'
+import { fullBillToTemplateData } from '@/features/documents/utils/rental-bill-print'
+import type { FullBill } from '@/lib/types/rental-return'
+import type { BusinessSettings } from '@/features/settings/types/settings-page.types'
 
 interface BillPreviewOverlayProps {
-  html: string | null
+  bill: FullBill | null
+  business: Partial<BusinessSettings> | undefined
   onClose: () => void
 }
 
-/** Full-screen A4 bill preview, rendered through the central A4 preview overlay. */
-export function BillPreviewOverlay({ html, onClose }: BillPreviewOverlayProps) {
-  const safeHtml = useMemo(() => (html ? sanitizeDocumentHtml(html) : ''), [html])
+/** Full-screen A4 bill preview: the same rental-bill document checkout and print use. */
+export function BillPreviewOverlay({ bill, business, onClose }: BillPreviewOverlayProps) {
+  const data = useMemo(() => (bill ? fullBillToTemplateData(bill, business) : null), [bill, business])
 
   return (
-    <A4FullPreviewOverlay open={!!html} onClose={onClose}>
-      <div className="p-8 text-slate-900 font-sans text-xs" dangerouslySetInnerHTML={{ __html: safeHtml }} />
+    <A4FullPreviewOverlay open={!!data} onClose={onClose}>
+      {data && <RentalBillTemplate data={data} />}
     </A4FullPreviewOverlay>
   )
 }

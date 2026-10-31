@@ -9,16 +9,20 @@ interface ProductCardProps {
   product: Product
   mode?: 'RENT' | 'SALE'
   onClick: (product: Product) => void
+  /** Quotation mode: an out-of-stock product can still be quoted (shown dimmed, not locked). */
+  allowOutOfStock?: boolean
 }
 
-export function ProductCard({ product, mode = 'RENT', onClick }: ProductCardProps) {
+export function ProductCard({ product, mode = 'RENT', onClick, allowOutOfStock = false }: ProductCardProps) {
   const stockValue = Number(product.availableQuantity ?? product.available_qty ?? 0)
   const available = Number.isFinite(stockValue) && stockValue > 0 ? stockValue : 0
   const isOutOfStock = available <= 0
   const isLowStock = !isOutOfStock && isBelowReorderPoint({ availableQuantity: available, minimumStock: product.minimumStock })
 
   let borderStyle = 'border-emerald-200 dark:border-emerald-900 bg-white dark:bg-slate-800 hover:border-emerald-500 hover:shadow-lg'
-  if (isOutOfStock) {
+  if (isOutOfStock && allowOutOfStock) {
+    borderStyle = 'border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/60 opacity-70 hover:border-amber-400'
+  } else if (isOutOfStock) {
     borderStyle = 'border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/60 opacity-50 cursor-not-allowed'
   } else if (isLowStock) {
     borderStyle = 'border-amber-300 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 hover:border-amber-500 hover:shadow-md'
@@ -55,12 +59,12 @@ export function ProductCard({ product, mode = 'RENT', onClick }: ProductCardProp
 
   return (
     <div
-      onClick={() => !isOutOfStock && onClick(product)}
+      onClick={() => (allowOutOfStock || !isOutOfStock) && onClick(product)}
       className={`relative group min-h-[132px] rounded-xl p-2.5 md:p-3 border transition-all duration-200 cursor-pointer flex flex-col justify-between ${borderStyle}`}
     >
       <div>
         <div className="flex items-center justify-between gap-1.5 mb-1.5">
-          <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 tracking-wide">
+          <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 tracking-wide">
             {product.product_code || product.code}
           </span>
           <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap ${typeBadge.classes}`}>
@@ -76,15 +80,15 @@ export function ProductCard({ product, mode = 'RENT', onClick }: ProductCardProp
       <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-700/50 space-y-1">
         <div className="font-bold text-[10px] md:text-xs whitespace-nowrap">
           {isOutOfStock ? (
-            <span className="text-red-500 flex items-center gap-1">
+            <span className="text-red-700 dark:text-red-400 flex items-center gap-1">
               <AlertCircle className="w-3 h-3 shrink-0" /> สินค้าหมด
             </span>
           ) : isLowStock ? (
-            <span className="text-amber-600 dark:text-amber-400">
+            <span className="text-amber-700 dark:text-amber-400">
               คงเหลือ {available} {product.unit_name || product.unit || 'ชิ้น'}
             </span>
           ) : (
-            <span className="text-emerald-600 dark:text-emerald-400">
+            <span className="text-emerald-700 dark:text-emerald-400">
               คงเหลือ {available} {product.unit_name || product.unit || 'ชิ้น'}
             </span>
           )}
@@ -92,7 +96,7 @@ export function ProductCard({ product, mode = 'RENT', onClick }: ProductCardProp
 
         <div className="flex items-baseline gap-1 text-xs text-slate-700 dark:text-slate-300">
           <span className="font-semibold">ราคา {price.toLocaleString('th-TH')}</span>
-          <span className="text-slate-500 font-medium">/ {product.unit_name || product.unit || 'ชิ้น'}</span>
+          <span className="text-slate-600 dark:text-slate-400 font-medium">/ {product.unit_name || product.unit || 'ชิ้น'}</span>
         </div>
       </div>
     </div>

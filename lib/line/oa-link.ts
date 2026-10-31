@@ -5,3 +5,10 @@ export function lineOaMessageUrl(lineId: string | null | undefined, text: string
   if (!/^@?[A-Za-z0-9._-]{2,40}$/.test(id)) return null
   return `https://line.me/R/oaMessage/${encodeURIComponent(id)}/?${encodeURIComponent(text)}`
 }
+
+/** "Add friend" link of the shop's official account (QR at the counter). Adding the friend links nobody. */
+export function lineOaAddFriendUrl(lineId: string | null | undefined): string | null {
+  const id = (lineId || '').trim()
+  if (!/^@?[A-Za-z0-9._-]{2,40}$/.test(id)) return null
+  return `https://line.me/R/ti/p/${encodeURIComponent(id)}`
+}

@@ -123,7 +123,6 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
       vatMode: row.vat_mode === 'INCLUSIVE' || row.vat_mode === 'EXCLUSIVE' ? row.vat_mode : null,
       discountLimitEnabled: pol.discount_limit_enabled === true,
       discountLimitPercent: pol.discount_limit_enabled === true ? num(pol.discount_limit_percent) : null,
-      quotationVatEnabled: Boolean(row.vat_enabled),
     },
     payment: { allowOverpayment: bool(pol.allow_overpayment, d.payment.allowOverpayment) },
     salesRental: {

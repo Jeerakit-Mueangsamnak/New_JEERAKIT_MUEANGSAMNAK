@@ -7,6 +7,7 @@ import { CartPanel, CartPanelQuotationData } from '@/features/pos/components/Car
 import { QuantityModal } from '@/features/pos/components/QuantityModal'
 import { Product, Customer, Quotation, QuotationItem, Appointment } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
+import { useCreateCustomer } from '@/features/customers/hooks/useCreateCustomer'
 import {
   TAB_CONTAINER_CLASSES,
   TAB_BUTTON_BASE_CLASSES,
@@ -15,11 +16,19 @@ import {
 } from '@/components/common/ActionButton'
 import { ShoppingBag, Package, FileText, ArrowLeft } from 'lucide-react'
 import { loadProducts, validateProductMode } from '@/features/products/services/product-storage'
-import { loadCustomers, createCustomerAsync, isIdCardUploadError } from '@/features/customers/services/customer-storage'
+import { loadCustomers, isIdCardUploadError } from '@/features/customers/services/customer-storage'
 import { CartItem, cartLineListPrice } from '@/features/pos/services/cart-storage'
 import { fetchAppointmentsFromSupabase } from '@/features/appointments/services/appointment-storage'
 import { getLocalDateString } from '@/components/common/CustomDatePicker'
-import { addQuotation, getQuotationById, generateQuotationNo, mapQuotationToPos } from '@/features/quotations/services/quotation-storage'
+import {
+  addQuotation,
+  fetchQuotationsFromSupabase,
+  getQuotationById,
+  generateQuotationNo,
+  mapQuotationToPos,
+  quotationPeriodOf,
+  quotationStatusView,
+} from '@/features/quotations/services/quotation-storage'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { loadBillById } from '@/features/bills/services/bill-storage'
 
@@ -30,7 +39,11 @@ function POSContent() {
   const quotationId = searchParams.get('quotationId')
   const draftBillId = searchParams.get('draftBillId')
   const appointmentId = searchParams.get('appointmentId')
+  // Quotation mode only: revise an existing quotation in place, or start a new one from a copy.
+  const editQuotationId = isQuotationMode ? searchParams.get('editQuotationId') : null
+  const copyQuotationId = isQuotationMode ? searchParams.get('copyQuotationId') : null
   const { showToast } = useToast()
+  const createCustomer = useCreateCustomer()
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [selectedProductMode, setSelectedProductMode] = useState<'RENT' | 'SALE'>('RENT')
@@ -48,7 +61,47 @@ function POSContent() {
     shippingAddress?: string
     rentalStartDate?: string
     rentalEndDate?: string
+    documentDate?: string
   }>({})
+  const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null)
+
+  // Edit / copy: load the quotation (also after a page reload, when the list cache is empty).
+  useEffect(() => {
+    const sourceId = editQuotationId || copyQuotationId
+    if (!sourceId) return
+    let alive = true
+    void (async () => {
+      try {
+        const quote = getQuotationById(sourceId) || (await fetchQuotationsFromSupabase()).find((q) => q.id === sourceId)
+        if (!alive) return
+        if (!quote) {
+          showToast('ไม่พบใบเสนอราคา', `ไม่พบใบเสนอราคารหัส ${sourceId}`, 'ERROR')
+          return
+        }
+        if (editQuotationId && !quotationStatusView(quote.status).editable) {
+          showToast('แก้ไขไม่ได้', `ใบเสนอราคา ${quote.quotationNo} เปิดบิลหรือยกเลิกไปแล้ว — ใช้ "คัดลอก" เพื่อทำใบใหม่`, 'ERROR')
+          router.push('/quotations')
+          return
+        }
+        const { customer, cartItems: loadedItems, values } = mapQuotationToPos(quote, loadProducts(), loadCustomers())
+        setSelectedCustomer(customer.id ? customer : null)
+        setCartItems(loadedItems)
+        // A copy is a new document: it is dated today; an edit keeps its own document date.
+        setQuotationValues(editQuotationId ? values : { ...values, documentDate: undefined })
+        setEditingQuotation(editQuotationId ? quote : null)
+        showToast(
+          editQuotationId ? 'แก้ไขใบเสนอราคา' : 'คัดลอกใบเสนอราคา',
+          editQuotationId ? `กำลังแก้ไข ${quote.quotationNo} (บันทึกแล้วใช้เลขเดิม)` : `ทำใบใหม่จาก ${quote.quotationNo}`,
+          'INFO'
+        )
+      } catch (error) {
+        if (alive) showToast('โหลดใบเสนอราคาไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [editQuotationId, copyQuotationId, router, showToast])
 
   useEffect(() => {
     const prods = loadProducts()
@@ -140,27 +193,33 @@ function POSContent() {
     }
 
     if (quotationId) {
-      const quote = getQuotationById(quotationId)
-      if (quote) {
-        if (quote.status === 'CONVERTED') {
-          showToast('ไม่สามารถเปิดใบเสนอราคาได้', `ใบเสนอราคา ${quote.quotationNo} ถูกแปลงเป็นบิลไปแล้ว`, 'ERROR')
-          router.push('/quotations')
-          return
-        }
+      let active = true
+      void (async () => {
         try {
+          // Deep links must work after refresh, when the in-memory quotation list is empty.
+          const quote = getQuotationById(quotationId)
+            || (await fetchQuotationsFromSupabase()).find((candidate) => candidate.id === quotationId)
+          if (!active) return
+          if (!quote) {
+            showToast('ไม่พบใบเสนอราคา', `ไม่พบใบเสนอราคาที่มีรหัส ${quotationId}`, 'ERROR')
+            return
+          }
+          if (quote.status === 'CONVERTED' || quote.status === 'CANCELLED' || quote.status === 'REJECTED') {
+            showToast('ไม่สามารถเปิดใบเสนอราคาได้', `ใบเสนอราคา ${quote.quotationNo} มีสถานะ ${quote.status} ไม่สามารถเปิดบิลได้`, 'ERROR')
+            router.push('/quotations')
+            return
+          }
           const { customer, cartItems: convertedItems, values, quotationNo } = mapQuotationToPos(quote, prods, custs)
           setSelectedCustomer(customer)
           setCartItems(convertedItems)
           setQuotationValues(values)
           setLoadedQuotationNo(quotationNo || quote.quotationNo)
-
           showToast('โหลดใบเสนอราคาสำเร็จ', `โหลดข้อมูลจากใบเสนอราคา ${quote.quotationNo} เรียบร้อยแล้ว`, 'SUCCESS')
         } catch (error) {
-          showToast('โหลดใบเสนอราคาไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาตรวจสอบสินค้าในใบเสนอราคา', 'ERROR')
+          if (active) showToast('โหลดใบเสนอราคาไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาตรวจสอบข้อมูลใบเสนอราคา', 'ERROR')
         }
-      } else {
-        showToast('ไม่พบใบเสนอราคา', `ไม่พบใบเสนอราคาที่มีรหัส ${quotationId}`, 'ERROR')
-      }
+      })()
+      return () => { active = false }
     } else if (draftBillId) {
       const draftBill = loadBillById(draftBillId)
       if (draftBill && draftBill.rentalStatus === 'DRAFT') {
@@ -285,7 +344,7 @@ function POSContent() {
       return
     }
 
-    // STOCK VALIDATION
+    // STOCK VALIDATION — a quotation holds no stock, so it may quote more than is free (warning only).
     const stockValue = Number(data.product.availableQuantity ?? data.product.available_qty ?? 0)
     if (!Number.isFinite(stockValue) || stockValue < 0) {
       showToast('ตรวจสอบสต็อกไม่ได้', `ไม่พบยอดสต็อกพร้อมใช้ที่ถูกต้องสำหรับ ${data.product.name}`, 'ERROR')
@@ -296,7 +355,13 @@ function POSContent() {
       .filter((item) => item.productId === data.product.id)
       .reduce((sum, item) => sum + item.quantity, 0)
 
-    if (currentCartQty + data.quantity > available) {
+    if (currentCartQty + data.quantity > available && isQuotationMode) {
+      showToast(
+        'สต็อกพร้อมใช้ไม่พอ (เสนอราคาได้)',
+        `ในใบนี้มี ${currentCartQty + data.quantity} แต่สต็อกพร้อมใช้มี ${available} — ต้องมีของพอตอนเปิดบิล`,
+        'INFO'
+      )
+    } else if (currentCartQty + data.quantity > available) {
       showToast(
         'สินค้าไม่เพียงพอ',
         `มีสินค้าในตะกร้าแล้ว ${currentCartQty} และต้องการเพิ่มอีก ${data.quantity} แต่สต็อกพร้อมใช้มีเพียง ${available}`,
@@ -336,23 +401,26 @@ function POSContent() {
     showToast('เพิ่มสินค้าในตะกร้าแล้ว', `${data.product.name} × ${data.quantity}`, 'SUCCESS')
   }
 
-  const handleAddCustomer = async (newCustomer: Customer) => {
+  /** false = not saved, so the customer form stays open with what was typed. */
+  const handleAddCustomer = async (newCustomer: Customer): Promise<boolean> => {
     try {
       // The server assigns the customer id; select the saved record, not the form copy.
-      const saved = await createCustomerAsync(newCustomer)
+      const saved = await createCustomer(newCustomer)
       setCustomersList(loadCustomers())
       setSelectedCustomer(saved)
       showToast('เพิ่มลูกค้าสำเร็จ', `เพิ่มลูกค้า ${newCustomer.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
+      return true
     } catch (err: any) {
       if (isIdCardUploadError(err)) {
         // The customer is saved (only the photo failed): select it instead of asking to re-enter.
         setCustomersList(loadCustomers())
         setSelectedCustomer(err.saved)
         showToast('บันทึกข้อมูลลูกค้าแล้ว', err.message, 'INFO')
-        return
+        return true
       }
-      if (err?.tag === 'DUPLICATE_CUSTOMER') return
+      if (err?.tag === 'DUPLICATE_CUSTOMER') return false
       showToast('ไม่สามารถเพิ่มลูกค้าได้', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
+      return false
     }
   }
 
@@ -368,11 +436,9 @@ function POSContent() {
 
     const now = new Date()
     const qDate = quotationData?.documentDate || getLocalDateString(now)
-    const expiry = new Date(now)
-    expiry.setDate(expiry.getDate() + 15)
-    const expiryDate = getLocalDateString(expiry)
 
-    const existingQuotation = quotationId ? getQuotationById(quotationId) : null
+    // Only an edit revises an existing quotation; a new one or a copy gets a fresh id.
+    const existingQuotation = editingQuotation
     const id = existingQuotation?.id || `qt-${Date.now()}`
     const quotationNo = existingQuotation?.quotationNo || generateQuotationNo()
 
@@ -384,7 +450,7 @@ function POSContent() {
       quantity: item.quantity,
       unitName: item.unitName || item.product.unit || 'ชิ้น',
       unitPrice: item.unitPrice,
-      usageCountOrDays: item.billableDays || item.usageCount || 1,
+      usageCountOrDays: quotationPeriodOf(item),
       lineTotal: item.lineTotal,
       dailyStartDate: item.dailyStartDate,
       dailyEndDate: item.dailyEndDate,
@@ -404,7 +470,6 @@ function POSContent() {
       id,
       quotationNo,
       quotationDate: qDate,
-      expiryDate,
       customerId: selectedCustomer?.id || '',
       customerName: selectedCustomer?.customerName || 'ลูกค้าทั่วไป',
       phone: selectedCustomer?.phone || '',
@@ -419,13 +484,15 @@ function POSContent() {
       shippingFee,
       depositAmount,
       taxAmount,
+      vatEnabled: Boolean(quotationData?.vatEnabled),
       grandTotal,
       status: existingQuotation?.status || 'WAITING',
+      remark: existingQuotation?.remark,
     }
 
     try {
-      const saved = await addQuotation(newQuotation)
-      const no = saved.find((q) => q.items.length > 0 && q.status === 'SENT')?.quotationNo
+      const savedId = await addQuotation(newQuotation)
+      const no = getQuotationById(savedId)?.quotationNo
       showToast('บันทึกใบเสนอราคาสำเร็จ', no ? `ใบเสนอราคา ${no}` : 'บันทึกเรียบร้อยแล้ว', 'SUCCESS')
       router.push('/quotations')
     } catch (err) {
@@ -445,9 +512,9 @@ function POSContent() {
       {isQuotationMode && (
         <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 px-3 py-1.5 rounded-xl flex items-center justify-between gap-2 text-xs shrink-0 shadow-xs">
           <div className="flex items-center gap-2 min-w-0">
-            <FileText className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <FileText className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0" />
             <span className="font-extrabold text-amber-900 dark:text-amber-200 truncate">
-              📋 โหมดสร้างใบเสนอราคา (ไม่ตัดสต็อก / ไม่จองสินค้า)
+              📋 {editingQuotation ? `แก้ไขใบเสนอราคา ${editingQuotation.quotationNo}` : 'โหมดสร้างใบเสนอราคา'} (ไม่ตัดสต็อก / ไม่จองสินค้า)
             </span>
           </div>
           <button
@@ -496,7 +563,7 @@ function POSContent() {
             mobileTab === 'PRODUCTS' ? 'block' : 'hidden md:block'
           }`}
         >
-          <ProductGrid products={productsList} onSelectProduct={handleSelectProduct} />
+          <ProductGrid products={productsList} onSelectProduct={handleSelectProduct} allowOutOfStock={isQuotationMode} />
         </div>
 
         {/* Right Column - Cart Panel */}
@@ -516,7 +583,7 @@ function POSContent() {
             isQuotationMode={isQuotationMode}
             onSaveQuotation={handleSaveQuotation}
             quotationId={quotationId || undefined}
-            quotationNo={loadedQuotationNo}
+            quotationNo={loadedQuotationNo ?? editingQuotation?.quotationNo}
             draftBillId={draftBillId || undefined}
             initialDiscount={quotationValues.discount}
             initialShippingFee={quotationValues.shippingFee}
@@ -526,6 +593,7 @@ function POSContent() {
             initialRentalStartDate={quotationValues.rentalStartDate}
             initialRentalEndDate={quotationValues.rentalEndDate}
             initialVatEnabled={quotationValues.vatEnabled}
+            initialDocumentDate={quotationValues.documentDate}
           />
         </div>
       </div>
@@ -535,6 +603,7 @@ function POSContent() {
         <QuantityModal
           product={selectedProduct}
           mode={selectedProductMode}
+          allowOverStock={isQuotationMode}
           onAdd={handleAddToCart}
           onClose={() => setSelectedProduct(null)}
         />
@@ -547,7 +616,7 @@ export default function POSPage() {
   return (
     <Suspense
       fallback={
-        <div className="h-full flex items-center justify-center text-slate-500 font-bold text-xs">
+        <div className="h-full flex items-center justify-center text-slate-600 dark:text-slate-400 font-bold text-xs">
           กำลังโหลดหน้า POS...
         </div>
       }

@@ -9,6 +9,7 @@ export const LINE_LIMITS = {
   buttonsActions: 4,
   actionLabelLength: 20,
   postbackDataLength: 300,
+  flexBytes: 30_000,
 } as const
 
 export class LineMessageError extends Error {
@@ -49,6 +50,31 @@ export function assertValidMessages(messages: unknown): asserts messages is Line
       }
       continue
     }
+    if (m.type === 'flex') {
+      const c = m.contents as { type?: unknown } | undefined
+      if (!isText(m.altText, LINE_LIMITS.altTextLength) || !c || (c.type !== 'bubble' && c.type !== 'carousel')) {
+        throw new LineMessageError('LINE_FLEX_INVALID')
+      }
+      if (new TextEncoder().encode(JSON.stringify(c)).length > LINE_LIMITS.flexBytes) throw new LineMessageError('LINE_FLEX_TOO_LARGE')
+      for (const a of flexActions(c)) {
+        if (a.type === 'postback' && isText(a.data, LINE_LIMITS.postbackDataLength)) continue
+        if (a.type === 'uri' && typeof a.uri === 'string' && /^(https:\/\/|tel:)/.test(a.uri)) continue
+        throw new LineMessageError('LINE_ACTION_INVALID')
+      }
+      continue
+    }
     throw new LineMessageError('LINE_MESSAGE_TYPE')
   }
+}
+
+/** Every `action` object anywhere inside a flex container (same walk as the database check). */
+function flexActions(node: unknown, out: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> {
+  if (Array.isArray(node)) node.forEach((n) => flexActions(n, out))
+  else if (node && typeof node === 'object') {
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      if (k === 'action' && v && typeof v === 'object' && !Array.isArray(v)) out.push(v as Record<string, unknown>)
+      flexActions(v, out)
+    }
+  }
+  return out
 }

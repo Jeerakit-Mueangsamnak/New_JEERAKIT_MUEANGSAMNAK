@@ -98,8 +98,8 @@ SELECT t.err('LINE-RLS', 'clients never read line_user_id', 'owner',
     $q$select to_jsonb(count(line_user_id)) from public.line_contacts$q$, 'permission denied');
 SELECT t.err('LINE-RLS', 'clients never read link codes', 'owner',
     $q$select to_jsonb(count(*)) from public.line_link_codes$q$, 'permission denied');
-SELECT t.check('LINE-RLS', 'a member without the LINE menu sees no one else''s LINE',
-    (t.ok('LINE-RLS', 'nomenu reads line_contacts', 'nomenu',
+SELECT t.check('LINE-RLS', 'a member waiting for approval sees no LINE contacts (owner 2026-10-26: every ACTIVE member may; one waiting for approval may not)',
+    (t.ok('LINE-RLS', 'pending reads line_contacts', 'pending',
           $q$select to_jsonb(count(*)) from public.line_contacts$q$))::int = 0);
 SELECT t.err('LINE-RLS', 'clients cannot write line_deliveries directly', 'owner',
     $q$insert into public.line_deliveries (contact_id, source_type, template_key, messages, dedupe_key) values (gen_random_uuid(), 'TEST', 'TEST', '[]', 'x-direct-1')$q$,
@@ -126,7 +126,7 @@ BEGIN
         PERFORM t.check('LINE-VAULT', 'SKIPPED: vault schema not installed in this database', true);
         RETURN;
     END IF;
-    PERFORM t.err('LINE-VAULT', 'a non-owner cannot set credentials', 'cashier',
+    PERFORM t.err('LINE-VAULT', 'setting credentials needs an ACTIVE member (owner 2026-10-26: every ACTIVE member may; one waiting for approval may not)', 'pending',
         $q$select public.line_channel_set('0123456789abcdef0123456789abcdef', NULL)$q$, 'FORBIDDEN');
     PERFORM t.ok('LINE-VAULT', 'owner sets secret + token', 'owner',
         $q$select public.line_channel_set('0123456789abcdef0123456789abcdef', 'token-aaaaaaaaaaaaaaaaaaaaaaaa')$q$);

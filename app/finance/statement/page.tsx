@@ -2,20 +2,31 @@
 
 import React, { useState, useMemo, useEffect } from 'react'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
-import { Plus, FileSpreadsheet, Search, TrendingUp, TrendingDown, Wallet, Settings, ChevronLeft, Pencil, Trash2, Check, X } from 'lucide-react'
+import { Plus, FileSpreadsheet, Search, TrendingUp, TrendingDown, Wallet, Settings, ChevronLeft, Pencil, Trash2, Check, X, Ban } from 'lucide-react'
+import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { CustomSelect } from '@/components/common/CustomSelect'
+import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { NumericInput } from '@/components/common/NumericInput'
 import { CustomDatePicker, getLocalDateString } from '@/components/common/CustomDatePicker'
 import { useToast } from '@/components/common/Toast'
 import { logger } from '@/lib/utils/logger'
 import * as XLSX from 'xlsx'
-import { loadTransactions as fetchTransactions, addManualTransaction, filterTransactionsByLocalDate, type StatementTransaction } from '@/features/finance/services/finance-storage'
+import {
+  loadTransactions,
+  fetchTransactionsFromSupabase,
+  addManualTransaction,
+  voidManualTransaction,
+  filterTransactionsByLocalDate,
+  formatLocalDateTime as formatDateTime,
+  type StatementTransaction,
+} from '@/features/finance/services/finance-storage'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { EXPENSE_CATEGORIES } from '@/features/finance/api/finance-repository'
 import { getPolicy, savePolicies } from '@/lib/db/policies'
 
 export default function StatementPage() {
   const { showToast } = useToast()
+  const confirm = useConfirm()
   // Quick items: income names are an adjustable shop setting (policies.finance_income_items);
   // expense categories are the fixed server list (Master §22).
   const [incomeCategories, setIncomeCategories] = useState<Array<{ id: string; label: string }>>(() =>
@@ -50,14 +61,24 @@ export default function StatementPage() {
   const savingRef = React.useRef(false)
   const [saving, setSaving] = useState(false)
 
-  const loadTransactions = React.useCallback(async () => {
-    const list = fetchTransactions()
-    setTransactions(list)
-  }, [])
-
+  // Show the cached list at once, then the latest from the server (money may have moved on
+  // other pages or devices since the app loaded).
   useEffect(() => {
-    loadTransactions()
-  }, [loadTransactions])
+    let alive = true
+    setTransactions(loadTransactions())
+    const reload = () => {
+      fetchTransactionsFromSupabase()
+        .then((list) => alive && setTransactions(list))
+        .catch((err: unknown) => logger.error('Finance statement reload failed', err))
+    }
+    const fromCache = () => setTransactions(loadTransactions())
+    reload()
+    window.addEventListener('business_data_refreshed', fromCache)
+    return () => {
+      alive = false
+      window.removeEventListener('business_data_refreshed', fromCache)
+    }
+  }, [])
 
   // Form State for manual entry (Quick Item + Manual Description)
   const [modalView, setModalView] = useState<'FORM' | 'MANAGE_CATEGORIES'>('FORM')
@@ -146,9 +167,9 @@ export default function StatementPage() {
 
   const handleExportExcel = () => {
     const dataToExport = filtered.map((t) => ({
-      'วัน-เวลา': t.dateTime,
+      'วัน-เวลา': formatDateTime(t.dateTime),
       'เลขที่รายการ': t.refNo,
-      'ประเภท': t.type === 'INCOME' ? 'รายรับ' : 'รายจ่าย',
+      'ประเภท': t.type === 'INCOME' ? 'รายรับ' : t.source === 'REFUND' ? 'คืนเงิน' : 'รายจ่าย',
       'รายละเอียด': t.description,
       'ลูกค้า': t.customerName || '-',
       'เงินเข้า (บาท)': t.incomeAmount,
@@ -216,6 +237,27 @@ export default function StatementPage() {
     }
   }
 
+  // รายการผิด → ยกเลิก แล้วบันทึกใหม่ (Master §22). Bill payments / refunds are handled on the bill.
+  const [voidingId, setVoidingId] = useState<string | null>(null)
+  const handleVoid = async (t: StatementTransaction) => {
+    if (voidingId) return
+    const ok = await confirm({
+      title: `ยกเลิกรายการ ${t.refNo}`,
+      message: `${t.description} — ${(t.incomeAmount || t.expenseAmount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}`,
+      danger: true,
+    })
+    if (!ok) return
+    setVoidingId(t.id)
+    try {
+      setTransactions(await voidManualTransaction(t))
+      showToast('ยกเลิกรายการแล้ว', t.refNo, 'SUCCESS')
+    } catch (err) {
+      if (!isPinCancelled(err)) showToast('ยกเลิกไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
+    } finally {
+      setVoidingId(null)
+    }
+  }
+
   const handleCreateCategory = async () => {
     const trimmed = newCatLabel.trim()
     if (!trimmed) return
@@ -260,23 +302,23 @@ export default function StatementPage() {
         <div className="bg-emerald-50 dark:bg-emerald-950/30 p-2.5 sm:p-3 rounded-2xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-sm flex items-center justify-between">
           <div>
             <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold block">รายรับรวม</span>
-            <h3 className="text-lg sm:text-xl font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
-              ฿{totalIncome.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+            <h3 className="text-lg sm:text-xl font-black text-emerald-700 dark:text-emerald-400 mt-0.5">
+              {totalIncome.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
             </h3>
           </div>
-          <div className="p-2 sm:p-2.5 bg-emerald-100 dark:bg-emerald-900/50 rounded-xl text-emerald-600 dark:text-emerald-300">
+          <div className="p-2 sm:p-2.5 bg-emerald-100 dark:bg-emerald-900/50 rounded-xl text-emerald-700 dark:text-emerald-300">
             <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
         </div>
 
         <div className="bg-red-50 dark:bg-red-950/30 p-2.5 sm:p-3 rounded-2xl border border-red-200/60 dark:border-red-900/40 shadow-sm flex items-center justify-between">
           <div>
-            <span className="text-[11px] text-red-700 dark:text-red-300 font-semibold block">รายจ่ายรวม</span>
-            <h3 className="text-lg sm:text-xl font-black text-red-600 dark:text-red-400 mt-0.5">
-              ฿{totalExpense.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+            <span className="text-[11px] text-red-700 dark:text-red-300 font-semibold block">เงินออกรวม (รายจ่าย + คืนเงิน)</span>
+            <h3 className="text-lg sm:text-xl font-black text-red-700 dark:text-red-400 mt-0.5">
+              {totalExpense.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
             </h3>
           </div>
-          <div className="p-2 sm:p-2.5 bg-red-100 dark:bg-red-900/50 rounded-xl text-red-600 dark:text-red-300">
+          <div className="p-2 sm:p-2.5 bg-red-100 dark:bg-red-900/50 rounded-xl text-red-700 dark:text-red-300">
             <TrendingDown className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
         </div>
@@ -290,11 +332,11 @@ export default function StatementPage() {
             <span className={`text-[11px] font-semibold block ${netBalance >= 0 ? 'text-blue-700 dark:text-blue-300' : 'text-red-700 dark:text-red-300'}`}>
               คงเหลือสุทธิ
             </span>
-            <h3 className={`text-lg sm:text-xl font-black mt-0.5 ${netBalance >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-red-600 dark:text-red-400'}`}>
-              ฿{netBalance.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+            <h3 className={`text-lg sm:text-xl font-black mt-0.5 ${netBalance >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-red-700 dark:text-red-400'}`}>
+              {netBalance.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
             </h3>
           </div>
-          <div className={`p-2 sm:p-2.5 rounded-xl ${netBalance >= 0 ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300' : 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-300'}`}>
+          <div className={`p-2 sm:p-2.5 rounded-xl ${netBalance >= 0 ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300' : 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300'}`}>
             <Wallet className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
         </div>
@@ -314,13 +356,13 @@ export default function StatementPage() {
         {showCategorySummary && (
           <div className="px-3 pb-3 grid grid-cols-1 md:grid-cols-2 gap-3 max-h-56 overflow-y-auto">
             {([
-              { key: 'income', title: 'รายรับตามหมวด', rows: categorySummary.income, total: totalIncome, bar: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
-              { key: 'expense', title: 'รายจ่ายตามหมวด', rows: categorySummary.expense, total: totalExpense, bar: 'bg-red-500', text: 'text-red-600 dark:text-red-400' },
+              { key: 'income', title: 'รายรับตามหมวด', rows: categorySummary.income, total: totalIncome, bar: 'bg-emerald-500', text: 'text-emerald-700 dark:text-emerald-400' },
+              { key: 'expense', title: 'เงินออกตามหมวด', rows: categorySummary.expense, total: totalExpense, bar: 'bg-red-500', text: 'text-red-700 dark:text-red-400' },
             ] as const).map((col) => (
               <div key={col.key} className="space-y-1.5 min-w-0">
-                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">{col.title}</p>
+                <p className="text-[11px] font-bold text-slate-600 dark:text-slate-400">{col.title}</p>
                 {col.rows.length === 0 ? (
-                  <p className="text-[11px] text-slate-400">ไม่มีรายการในช่วงนี้</p>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400">ไม่มีรายการในช่วงนี้</p>
                 ) : (
                   col.rows.map((r) => {
                     const pct = col.total > 0 ? (r.amount / col.total) * 100 : 0
@@ -329,7 +371,7 @@ export default function StatementPage() {
                         <div className="flex justify-between gap-2 text-[11px]">
                           <span className="truncate text-slate-700 dark:text-slate-200">{r.label}</span>
                           <span className={`font-bold tabular-nums whitespace-nowrap ${col.text}`}>
-                            ฿{r.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ({pct.toFixed(0)}%)
+                            {r.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ({pct.toFixed(0)}%)
                           </span>
                         </div>
                         <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
@@ -354,7 +396,7 @@ export default function StatementPage() {
           {/* Search & Type Filters & 2 DatePickers */}
           <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
             <div className="relative min-w-[140px] flex-1 max-w-xs">
-              <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 placeholder="ค้นหาเลขที่, รายละเอียด..."
@@ -369,21 +411,21 @@ export default function StatementPage() {
               <button
                 type="button"
                 onClick={() => setTypeFilter('ALL')}
-                className={`h-7 px-3.5 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center justify-center ${typeFilter === 'ALL' ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-xs' : 'text-slate-500'}`}
+                className={`h-7 px-3.5 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center justify-center ${typeFilter === 'ALL' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-xs' : 'text-slate-600 dark:text-slate-400'}`}
               >
                 ทั้งหมด
               </button>
               <button
                 type="button"
                 onClick={() => setTypeFilter('INCOME')}
-                className={`h-7 px-3.5 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center justify-center ${typeFilter === 'INCOME' ? 'bg-white dark:bg-slate-800 text-emerald-600 shadow-xs' : 'text-slate-500'}`}
+                className={`h-7 px-3.5 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center justify-center ${typeFilter === 'INCOME' ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-400 shadow-xs' : 'text-slate-600 dark:text-slate-400'}`}
               >
                 เข้า
               </button>
               <button
                 type="button"
                 onClick={() => setTypeFilter('EXPENSE')}
-                className={`h-7 px-3.5 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center justify-center ${typeFilter === 'EXPENSE' ? 'bg-white dark:bg-slate-800 text-red-600 shadow-xs' : 'text-slate-500'}`}
+                className={`h-7 px-3.5 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center justify-center ${typeFilter === 'EXPENSE' ? 'bg-white dark:bg-slate-800 text-red-700 dark:text-red-400 shadow-xs' : 'text-slate-600 dark:text-slate-400'}`}
               >
                 ออก
               </button>
@@ -401,7 +443,7 @@ export default function StatementPage() {
                   buttonClassName="h-9 px-2.5 py-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-mono font-semibold hover:border-slate-300 dark:hover:border-slate-600"
                 />
               </div>
-              <span className="text-slate-400 font-bold text-xs shrink-0">ถึง</span>
+              <span className="text-slate-600 dark:text-slate-400 font-bold text-xs shrink-0">ถึง</span>
               <div className="w-34 sm:w-40">
                 <CustomDatePicker
                   value={endDate}
@@ -422,7 +464,7 @@ export default function StatementPage() {
               onClick={handleExportExcel}
               className="h-9 px-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs whitespace-nowrap"
             >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              <FileSpreadsheet className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
               <span>Excel</span>
             </button>
 
@@ -442,23 +484,24 @@ export default function StatementPage() {
         </div>
 
         {/* Table Content */}
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col">
+        <DataTableFrame fill rowCount={filtered.length} className="flex-1 min-h-0 rounded-none bg-transparent">
           <table className={`w-full table-fixed text-left text-xs leading-tight border-collapse ${filtered.length === 0 ? 'h-full' : ''}`}>
-            <thead className="sticky top-0 bg-[#E3E3E3] dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 text-slate-500 text-xs font-bold z-10">
+            <thead className="sticky top-0 bg-[#E3E3E3] dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold z-10">
               <tr>
                 <th className="w-[13%] py-2 px-3 whitespace-nowrap">วัน-เวลา</th>
                 <th className="w-[13%] py-2 px-3 whitespace-nowrap">เลขที่เอกสาร</th>
-                <th className="w-[30%] py-2 px-3 whitespace-nowrap">รายละเอียด</th>
+                <th className="w-[26%] py-2 px-3 whitespace-nowrap">รายละเอียด</th>
                 <th className="w-[10%] py-2 px-3 whitespace-nowrap">ช่องทาง</th>
                 <th className="w-[11%] py-2 px-3 text-right whitespace-nowrap">เงินเข้า</th>
                 <th className="w-[11%] py-2 px-3 text-right whitespace-nowrap">เงินออก</th>
                 <th className="w-[12%] py-2 px-3 text-right whitespace-nowrap">คงเหลือ</th>
+                <th className="w-[4%] py-2 px-1" aria-label="จัดการ" />
               </tr>
             </thead>
             <tbody className={`divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300 ${filtered.length === 0 ? 'h-full' : ''}`}>
               {filtered.length === 0 ? (
                 <tr className="h-full">
-                  <td colSpan={7} className="h-full px-4 text-center text-slate-400 italic align-middle">
+                  <td colSpan={8} className="h-full px-4 text-center text-slate-600 dark:text-slate-400 italic align-middle">
                     <div className="flex flex-col items-center justify-center py-6">
                       <p className="font-bold text-xs text-slate-600 dark:text-slate-400">ไม่พบรายการความเคลื่อนไหวทางการเงิน</p>
                     </div>
@@ -467,27 +510,41 @@ export default function StatementPage() {
               ) : (
                 filtered.map((t) => (
                   <tr key={t.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="py-1.5 px-3 whitespace-nowrap text-slate-500 font-mono text-[11px] truncate">{t.dateTime}</td>
+                    <td className="py-1.5 px-3 whitespace-nowrap text-slate-600 dark:text-slate-400 font-mono text-[11px] truncate">{formatDateTime(t.dateTime)}</td>
                     <td className="py-1.5 px-3 whitespace-nowrap font-bold text-slate-900 dark:text-slate-100 truncate">{t.refNo}</td>
                     <td className="py-1.5 px-3 font-semibold text-slate-800 dark:text-slate-200 truncate" title={t.description}>
                       {t.description}
                     </td>
-                    <td className="py-1.5 px-3 whitespace-nowrap text-slate-500 truncate">{t.channel}</td>
-                    <td className="py-1.5 px-3 whitespace-nowrap text-right font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-                      {t.incomeAmount > 0 ? `+฿${t.incomeAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : '-'}
+                    <td className="py-1.5 px-3 whitespace-nowrap text-slate-600 dark:text-slate-400 truncate">{t.channel}</td>
+                    <td className="py-1.5 px-3 whitespace-nowrap text-right font-black text-emerald-700 dark:text-emerald-400 tabular-nums">
+                      {t.incomeAmount > 0 ? `+${t.incomeAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : '-'}
                     </td>
-                    <td className="py-1.5 px-3 whitespace-nowrap text-right font-black text-red-600 dark:text-red-400 tabular-nums">
-                      {t.expenseAmount > 0 ? `-฿${t.expenseAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : '-'}
+                    <td className="py-1.5 px-3 whitespace-nowrap text-right font-black text-red-700 dark:text-red-400 tabular-nums">
+                      {t.expenseAmount > 0 ? `-${t.expenseAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : '-'}
                     </td>
                     <td className="py-1.5 px-3 whitespace-nowrap text-right font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">
-                      ฿{t.runningBalance.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                      {t.runningBalance.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="py-1.5 px-1 text-center">
+                      {(t.source === 'EXPENSE' || t.source === 'OTHER_INCOME') && (
+                        <button
+                          type="button"
+                          onClick={() => void handleVoid(t)}
+                          disabled={voidingId !== null}
+                          className="-my-1 p-1 rounded-lg text-slate-600 dark:text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer disabled:opacity-40"
+                          title="ยกเลิกรายการ"
+                          aria-label={`ยกเลิกรายการ ${t.refNo}`}
+                        >
+                          <Ban className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
-        </div>
+        </DataTableFrame>
       </div>
 
       {/* Add Manual Transaction & Inline Category Management Modal */}
@@ -504,7 +561,7 @@ export default function StatementPage() {
           <>
             <AppModalHeader
               onClose={() => setShowAddModal(false)}
-              icon={<Wallet className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />}
+              icon={<Wallet className="w-5 h-5 text-emerald-700 dark:text-emerald-400" />}
               title="เพิ่มรายรับ/รายจ่าย"
             />
 
@@ -516,7 +573,7 @@ export default function StatementPage() {
                     <button
                       type="button"
                       onClick={() => setManualType('INCOME')}
-                      className={`h-9 py-0 rounded-xl font-bold border transition-colors cursor-pointer flex items-center justify-center text-xs ${manualType === 'INCOME' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700'}`}
+                      className={`h-9 py-0 rounded-xl font-bold border transition-colors cursor-pointer flex items-center justify-center text-xs ${manualType === 'INCOME' ? 'bg-emerald-700 text-white border-emerald-600 shadow-xs' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700'}`}
                     >
                       รายรับ (เงินเข้า)
                     </button>
@@ -579,7 +636,7 @@ export default function StatementPage() {
                       { value: 'เงินสด', label: 'เงินสด' },
                       { value: 'โอนธนาคาร', label: 'โอนธนาคาร' },
                       { value: 'PromptPay QR', label: 'PromptPay QR' },
-                      { value: 'เช็ค', label: 'เช็ค' },
+                      { value: 'อื่น ๆ', label: 'อื่น ๆ' },
                     ]}
                   />
                 </div>
@@ -607,7 +664,7 @@ export default function StatementPage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="h-9 px-5 py-0 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center justify-center disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="h-9 px-5 py-0 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center justify-center disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   บันทึกรายการ
                 </button>
@@ -624,7 +681,7 @@ export default function StatementPage() {
                 setShowAddModal(false)
                 setModalView('FORM')
               }}
-              icon={<Settings className="w-5 h-5 text-blue-600" />}
+              icon={<Settings className="w-5 h-5 text-blue-600 dark:text-blue-400" />}
               title="จัดการรายการด่วน"
               headerActions={
                 <button
@@ -647,8 +704,8 @@ export default function StatementPage() {
                   onClick={() => setCategoryManageType('INCOME')}
                   className={`h-7 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center justify-center ${
                     categoryManageType === 'INCOME'
-                      ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                      ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-400 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                   }`}
                 >
                   รายการด่วนรายรับ
@@ -658,8 +715,8 @@ export default function StatementPage() {
                   onClick={() => setCategoryManageType('EXPENSE')}
                   className={`h-7 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center justify-center ${
                     categoryManageType === 'EXPENSE'
-                      ? 'bg-white dark:bg-slate-800 text-red-600 dark:text-red-400 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                      ? 'bg-white dark:bg-slate-800 text-red-700 dark:text-red-400 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                   }`}
                 >
                   รายการด่วนรายจ่าย
@@ -699,11 +756,11 @@ export default function StatementPage() {
 
               {/* List of Quick Items */}
               <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
-                <label className="block font-semibold text-slate-500 text-[11px]">
+                <label className="block font-semibold text-slate-600 dark:text-slate-400 text-[11px]">
                   รายการด่วนปัจจุบัน ({manageTargetList.length})
                 </label>
                 {manageTargetList.length === 0 ? (
-                  <div className="text-center py-6 text-slate-400 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700">
+                  <div className="text-center py-6 text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700">
                     ยังไม่มีรายการด่วน
                   </div>
                 ) : (
@@ -728,7 +785,7 @@ export default function StatementPage() {
                           <button
                             type="button"
                             onClick={() => handleSaveEditCategory(cat.id)}
-                            className="p-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 cursor-pointer"
+                            className="p-1 rounded-lg bg-emerald-700 text-white hover:bg-emerald-800 cursor-pointer"
                             title="บันทึก"
                           >
                             <Check className="w-3.5 h-3.5" />
@@ -752,7 +809,7 @@ export default function StatementPage() {
                                 setEditingCatId(cat.id)
                                 setEditingCatLabel(cat.label)
                               }}
-                              className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-blue-600 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
                               title="แก้ไข"
                             >
                               <Pencil className="w-3.5 h-3.5" />
@@ -760,7 +817,7 @@ export default function StatementPage() {
                             <button
                               type="button"
                               onClick={() => handleDeleteCategory(cat.id, cat.label)}
-                              className="p-1.5 rounded-lg text-slate-500 hover:text-red-600 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-red-600 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
                               title="ลบ"
                             >
                               <Trash2 className="w-3.5 h-3.5" />

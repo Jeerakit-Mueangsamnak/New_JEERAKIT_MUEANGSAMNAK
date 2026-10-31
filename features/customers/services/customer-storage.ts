@@ -43,9 +43,12 @@ export function isIdCardUploadError(err: unknown): err is Error & { saved: Custo
 }
 
 /** Creates the customer and returns the saved record (with the server id). */
-export async function createCustomerAsync(incoming: Customer): Promise<Customer> {
+export async function createCustomerAsync(
+  incoming: Customer,
+  confirmDuplicate?: () => Promise<boolean>
+): Promise<Customer> {
   try {
-    const saved = await saveCustomerToSupabase(incoming, true)
+    const saved = await saveCustomerToSupabase(incoming, true, undefined, confirmDuplicate)
     await syncCustomersFromSupabase()
     return saved
   } catch (err) {

@@ -13,10 +13,9 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
-    from: (table: string) => ({
-      select: () =>
-        table === 'line_contacts' ? { eq: () => mocks.contacts() } : { order: () => mocks.profiles() },
-    }),
+    from: () => ({ select: () => ({ eq: () => mocks.contacts() }) }),
+    // Staff names come from member_directory() (every member opens this tab, owner 2026-10-26)
+    rpc: (fn: string) => (fn === 'member_directory' ? mocks.profiles() : Promise.reject(new Error(fn))),
   }),
 }))
 vi.mock('@/app/actions/line', () => ({
@@ -25,7 +24,10 @@ vi.mock('@/app/actions/line', () => ({
 }))
 vi.mock('@/features/auth/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'p-me', role: 'USER' } }) }))
 vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: mocks.toast }) }))
-vi.mock('@/components/common/ConfirmDialogProvider', () => ({ useAskText: () => mocks.ask }))
+vi.mock('@/components/common/ConfirmDialogProvider', () => ({
+  useAskText: () => mocks.ask,
+  useConfirm: () => async () => true,
+}))
 
 import { LineMembersPanel } from '@/features/settings/components/LineMembersPanel'
 
@@ -62,11 +64,10 @@ describe('Settings › LINE › เพิ่มข้อมูล', () => {
     await renderPanel()
     expect(screen.queryByRole('table', { name: 'ตารางลูกค้า LINE' })).toBeNull()
     expect(within(row('ตารางพนักงาน LINE', 'เจ้าของ')).getByText(/เชื่อมแล้ว · Boss/)).toBeDefined()
-    // a staff code is only for oneself; another member's row has no button
+    // own row: issue my own code; owner 2026-10-26 — any member may invite or unlink another member
     expect(within(row('ตารางพนักงาน LINE', 'ฉันเอง')).getByRole('button', { name: 'ออกรหัสของฉัน' })).toBeDefined()
-    expect(within(row('ตารางพนักงาน LINE', 'พนักงาน X')).queryByRole('button')).toBeNull()
-    // only oneself or the OWNER may unlink a member
-    expect(within(row('ตารางพนักงาน LINE', 'เจ้าของ')).queryByRole('button', { name: /ยกเลิกการเชื่อม/ })).toBeNull()
+    expect(within(row('ตารางพนักงาน LINE', 'พนักงาน X')).queryByRole('button', { name: 'ออกรหัสของฉัน' })).toBeNull()
+    expect(within(row('ตารางพนักงาน LINE', 'เจ้าของ')).getByRole('button', { name: /ยกเลิกการเชื่อม/ })).toBeDefined()
   })
 
   it('ออกรหัสของตัวเองแล้วแสดงรหัสในแถวนั้น', async () => {

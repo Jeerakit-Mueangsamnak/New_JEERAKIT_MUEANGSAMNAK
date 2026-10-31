@@ -79,12 +79,11 @@ export async function saveLineSecrets(input: { lineToken?: string; lineSecret?: 
   return toStatus(data)
 }
 
-/** Removes both credentials from Vault (OWNER, reason required, audited). */
-export async function clearLineSecrets(reason: string): Promise<LineSecretStatus> {
+/** Removes both credentials from Vault (OWNER, audited; reason optional). */
+export async function clearLineSecrets(reason?: string): Promise<LineSecretStatus> {
   const why = typeof reason === 'string' ? reason.trim() : ''
-  if (!why) throw new Error(thaiError('REASON_REQUIRED'))
   const supabase = await createServerSupabase()
-  const { data, error } = await supabase.rpc('line_channel_clear', { p_reason: why })
+  const { data, error } = await supabase.rpc('line_channel_clear', { p_reason: why || null })
   if (error) throw new Error(thaiError(error.message))
   return toStatus(data)
 }

@@ -41,11 +41,6 @@ export interface TaxDiscountSettings {
   discountLimitEnabled: boolean
   /** The OWNER's own percent; null while the limit is off. */
   discountLimitPercent: number | null
-  /**
-   * Legacy store_settings.vat_enabled, read only. Quotations still follow it on the server
-   * (quotation_save_draft) until quotations get their own per-document VAT. Not editable here.
-   */
-  quotationVatEnabled: boolean
 }
 
 export interface PaymentSettings {
@@ -192,7 +187,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   timezone: 'Asia/Bangkok',
   business: DEFAULT_BUSINESS_SETTINGS,
   // No VAT rate/mode and no discount limit until the OWNER sets them (never invented).
-  taxDiscount: { vatRate: null, vatMode: null, discountLimitEnabled: false, discountLimitPercent: null, quotationVatEnabled: false },
+  taxDiscount: { vatRate: null, vatMode: null, discountLimitEnabled: false, discountLimitPercent: null },
   payment: { allowOverpayment: false },
   salesRental: { allowBackorder: false, reservationAutoRelease: false },
   // Same starting value new products had before (the old minimum-stock default).

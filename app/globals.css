@@ -38,6 +38,13 @@ body {
   padding: 0;
 }
 
+/* No zoom anywhere (owner 2026-10-26, Master §4.1): no double-tap zoom on touch screens.
+   iPad Safari ignores the viewport's user-scalable=no, so this and AuthShell enforce it.
+   A double-tap still reaches the app's own double-click (document preview). */
+html {
+  touch-action: manipulation;
+}
+
 body {
   color: var(--foreground);
   background: var(--background);
@@ -90,6 +97,30 @@ body.non-pos-route .non-pos-portal::-webkit-scrollbar-thumb,
 body.non-pos-route .non-pos-portal *::-webkit-scrollbar-thumb {
   background: transparent;
   display: none;
+}
+
+
+/* Bills table: keep the shared DataTableFrame behavior but show the horizontal rail.
+   The non-POS scrollbar reset above hides the only desktop cue that more columns exist. */
+.non-pos-ui .bill-table-x-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 transparent;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.non-pos-ui .bill-table-x-scroll::-webkit-scrollbar {
+  display: block;
+  height: 8px;
+  width: 6px;
+}
+.non-pos-ui .bill-table-x-scroll::-webkit-scrollbar-track {
+  display: block;
+  background: transparent;
+}
+.non-pos-ui .bill-table-x-scroll::-webkit-scrollbar-thumb {
+  display: block;
+  background: #94a3b8;
+  border-radius: 6px;
 }
 
 /* 2. Hide number input stepper spin buttons globally (Chrome, Safari, Edge, Opera, Firefox) */

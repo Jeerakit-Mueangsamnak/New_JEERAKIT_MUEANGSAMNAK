@@ -1,3 +1,4 @@
+import type { NotificationSettings } from '@/features/settings/services/settings-storage'
 // TypeScript Definitions for Rental POS Database & Domain Models
 
 export type RentalType = 'NORMAL' | 'DAILY' | 'SALE'
@@ -67,6 +68,8 @@ export interface CurrentUser {
   businessId: string | null
   emailVerified: boolean
   avatarUrl?: string | null
+  /** Own notification switches (profiles.notification_prefs, defaults filled in). */
+  notificationPrefs?: NotificationSettings
 }
 
 
@@ -232,6 +235,7 @@ export interface Customer {
   idCardNumber?: string
   idCardImageUrl?: string
   idCardExpiry?: string
+  birthDate?: string
   isSuspended?: boolean
   note?: string
   createdAt?: string
@@ -347,8 +351,10 @@ export interface QuotationItem {
 export interface Quotation {
   id: string
   quotationNo: string
+  /** Document date chosen in POS (quotations.document_date). */
   quotationDate: string
-  expiryDate: string
+  /** Quotations have no expiry (owner 2026-10-18); kept empty for older callers. */
+  expiryDate?: string
   customerId: string
   customerName: string
   phone?: string
@@ -363,6 +369,10 @@ export interface Quotation {
   shippingFee: number
   depositAmount: number
   taxAmount: number
+  /** VAT chosen for this quotation in POS (pricing_snapshot.vat_enabled). */
+  vatEnabled?: boolean
+  /** VAT rate (%) used when the quotation was saved; undefined when VAT is off. */
+  vatRate?: number
   grandTotal: number
   status: QuotationStatus
   remark?: string

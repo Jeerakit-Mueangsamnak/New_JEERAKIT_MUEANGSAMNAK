@@ -12,12 +12,13 @@ import {
   FileText
 } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
+import { AppModal, AppModalBody } from '@/components/common/AppModal'
 import { NewCustomerModal } from '@/features/customers/components/NewCustomerModal'
 import { CalendarPanel, getLocalDateString } from '@/components/common/CustomDatePicker'
 import { CustomSelect, SelectOption } from '@/components/common/CustomSelect'
 import { NumericInput } from '@/components/common/NumericInput'
 import { CustomerUnifiedSelector } from '@/features/pos/components/CustomerUnifiedSelector'
-import { CartItem, isSaleCartItem, saveActiveCart, validateCartCustomer } from '@/features/pos/services/cart-storage'
+import { CartItem, defaultBillDocumentType, isSaleCartItem, saveActiveCart, validateCartCustomer } from '@/features/pos/services/cart-storage'
 import { calculateBillTotals } from '@/lib/calculation-service'
 import { isVatConfigured } from '@/features/settings/services/settings-storage'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
@@ -36,12 +37,15 @@ export interface CartPanelQuotationData {
   rentalStartDate?: string
   rentalEndDate?: string
   documentDate?: string
+  /** VAT ON/OFF chosen for this quotation (rate + mode come from the shop settings). */
+  vatEnabled?: boolean
 }
 
 interface CartPanelProps {
   onCheckout: () => void
   customers?: Customer[]
-  onAddCustomer?: (newCustomer: Customer) => void
+  /** Resolves false when saving failed, so the customer form stays open. */
+  onAddCustomer?: (newCustomer: Customer) => Promise<boolean | void> | void
   isQuotationMode?: boolean
   onSaveQuotation?: (data?: CartPanelQuotationData) => void
   items?: CartItem[]
@@ -58,8 +62,10 @@ interface CartPanelProps {
   initialShippingAddress?: string
   initialRentalStartDate?: string
   initialRentalEndDate?: string
-  /** VAT ON/OFF of a loaded draft bill; a new cart starts with VAT off. */
+  /** VAT ON/OFF of a loaded draft bill / quotation; a new cart starts with VAT off. */
   initialVatEnabled?: boolean
+  /** Document date (yyyy-mm-dd) of a quotation being edited. */
+  initialDocumentDate?: string
 }
 
 export function CartPanel({
@@ -83,17 +89,18 @@ export function CartPanel({
   initialRentalStartDate,
   initialRentalEndDate,
   initialVatEnabled,
+  initialDocumentDate,
 }: CartPanelProps) {
   const { showToast } = useToast()
   const { settings } = useSystemSettings()
-  // VAT ON/OFF belongs to THIS bill only (never written to the shop settings) and starts off for
-  // every new cart. Quotations still follow the shop's old VAT value on the server.
+  // VAT ON/OFF belongs to THIS bill / quotation only (never written to the shop settings) and starts
+  // off for every new cart. Rate + mode come from the shop settings, the same for both.
   const vatConfigured = isVatConfigured(settings)
   const [billVatEnabled, setBillVatEnabled] = useState<boolean>(Boolean(initialVatEnabled))
   useEffect(() => {
     if (initialVatEnabled !== undefined) setBillVatEnabled(initialVatEnabled)
   }, [initialVatEnabled])
-  const vatOn = isQuotationMode ? settings.taxDiscount.quotationVatEnabled : billVatEnabled && vatConfigured
+  const vatOn = billVatEnabled && vatConfigured
   
   const [internalCustomer, setInternalCustomer] = useState<Customer | null>(null)
   const [internalItems, setInternalItems] = useState<CartItem[]>([])
@@ -110,7 +117,8 @@ export function CartPanel({
   const [shippingAddress, setShippingAddress] = useState<string>('')
   const [headerRentalDate, setHeaderRentalDate] = useState<Date | null>(new Date())
   const [headerReturnDate, setHeaderReturnDate] = useState<Date | null>(new Date())
-  const [documentType, setDocumentType] = useState<string>('บิลเช่า')
+  // Empty = not picked: the bill title then follows the cart (บิลขาย / บิลเช่า / บิลเช่า/ขาย).
+  const [documentType, setDocumentType] = useState<string>('')
   const [documentDate, setDocumentDate] = useState<Date | null>(new Date())
 
   const removeItem = (id: string) => {
@@ -183,6 +191,10 @@ export function CartPanel({
   }, [initialDiscount])
 
   useEffect(() => {
+    if (initialDocumentDate) setDocumentDate(new Date(`${initialDocumentDate.slice(0, 10)}T00:00:00`))
+  }, [initialDocumentDate])
+
+  useEffect(() => {
     if (initialShippingFee !== undefined) setShippingFee(initialShippingFee)
   }, [initialShippingFee])
 
@@ -214,7 +226,7 @@ export function CartPanel({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {isQuotationMode ? (
-              <FileText className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+              <FileText className="w-4 h-4 text-amber-700 dark:text-amber-400" />
             ) : (
               <ShoppingBag className="w-4 h-4 text-blue-600 dark:text-blue-400" />
             )}
@@ -225,7 +237,7 @@ export function CartPanel({
           {items.length > 0 && (
             <button
               onClick={clearCart}
-              className="text-xs text-red-500 hover:text-red-700 font-semibold transition-colors"
+              className="text-xs text-red-700 dark:text-red-400 hover:text-red-700 font-semibold transition-colors"
             >
               ล้างตะกร้า
             </button>
@@ -252,7 +264,7 @@ export function CartPanel({
 
           {/* Row 2: Shipping Address / Project (Full Width) */}
           <div className="relative">
-            <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <MapPin className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder="สถานที่จัดส่ง / โครงการ..."
@@ -282,11 +294,11 @@ export function CartPanel({
             <button
               type="button"
               onClick={handleOpenAddCustomerModal}
-              className="px-2.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs flex items-center gap-1 shrink-0 shadow-sm transition-all whitespace-nowrap"
+              className="px-2.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs flex items-center gap-1 shrink-0 shadow-sm transition-all whitespace-nowrap"
               title="เพิ่มลูกค้าใหม่"
             >
               <UserPlus className="w-3.5 h-3.5" />
-              <span>+ เพิ่มลูกค้า</span>
+              <span>เพิ่มลูกค้า</span>
             </button>
           </div>
 
@@ -301,11 +313,11 @@ export function CartPanel({
               className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-[10px] sm:text-[11px] font-bold flex items-center justify-between shadow-xs hover:border-emerald-500 transition-colors"
             >
               <div className="flex items-center gap-2 flex-wrap min-w-0 leading-tight">
-                <span className="text-emerald-600 whitespace-nowrap">📝 {documentDate ? documentDate.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit'}) : '--/--'}</span>
-                <span className="text-blue-600 whitespace-nowrap">🟢 {headerRentalDate ? headerRentalDate.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit'}) : '--/--'}</span>
-                <span className="text-red-600 whitespace-nowrap">🔴 {headerReturnDate ? headerReturnDate.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit'}) : '--/--'}</span>
+                <span className="text-emerald-700 dark:text-emerald-400 whitespace-nowrap">📝 {documentDate ? documentDate.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit'}) : '--/--'}</span>
+                <span className="text-blue-600 dark:text-blue-400 whitespace-nowrap">🟢 {headerRentalDate ? headerRentalDate.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit'}) : '--/--'}</span>
+                <span className="text-red-700 dark:text-red-400 whitespace-nowrap">🔴 {headerReturnDate ? headerReturnDate.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit'}) : '--/--'}</span>
               </div>
-              <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0 ml-1" />
+              <Calendar className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 shrink-0 ml-1" />
             </button>
           </div>
         </div>
@@ -314,10 +326,10 @@ export function CartPanel({
       {/* Cart Items List */}
       <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
         {items.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full py-12 text-center text-slate-400">
+          <div className="flex flex-col items-center justify-center h-full py-12 text-center text-slate-600 dark:text-slate-400">
             <ShoppingBag className="w-12 h-12 stroke-1 mb-2 text-slate-300" />
-            <p className="text-sm font-semibold text-slate-500">ตะกร้ายังว่างอยู่</p>
-            <p className="text-xs text-slate-400 mt-0.5">เลือกสินค้าจากรายการด้านซ้ายเพื่อเพิ่มในตะกร้า</p>
+            <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">ตะกร้ายังว่างอยู่</p>
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">เลือกสินค้าจากรายการด้านซ้ายเพื่อเพิ่มในตะกร้า</p>
           </div>
         ) : (
           items.map((item) => (
@@ -331,23 +343,23 @@ export function CartPanel({
                     {item.productName || item.product.name || item.product.product_name}
                   </span>
                   <span className="font-extrabold text-xs text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                    ฿{item.lineTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                    {item.lineTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
                   </span>
                 </div>
 
                 {/* Calculation detail */}
-                <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">
                   {item.rentalType === 'DAILY' ? (
                     <span className="text-blue-600 dark:text-blue-400">
-                      ฿{item.unitPrice.toLocaleString('th-TH')} × {item.quantity} {item.unitName || item.product.unit || item.product.unit_name || 'ชิ้น'} × {item.billableDays} วัน
+                      {item.unitPrice.toLocaleString('th-TH')} บาท × {item.quantity} {item.unitName || item.product.unit || item.product.unit_name || 'ชิ้น'} × {item.billableDays} วัน
                     </span>
                   ) : item.rentalType === 'NORMAL' ? (
-                    <span className="text-emerald-600 dark:text-emerald-400">
-                      ฿{item.unitPrice.toLocaleString('th-TH')} × {item.quantity} {item.unitName || item.product.unit || item.product.unit_name || 'ชิ้น'} × {item.usageCount} รอบ
+                    <span className="text-emerald-700 dark:text-emerald-400">
+                      {item.unitPrice.toLocaleString('th-TH')} บาท × {item.quantity} {item.unitName || item.product.unit || item.product.unit_name || 'ชิ้น'} × {item.usageCount} รอบ
                     </span>
                   ) : (
                     <span className="text-purple-600 dark:text-purple-400 font-bold">
-                      ฿{item.unitPrice.toLocaleString('th-TH')} × {item.quantity} {item.unitName || item.product.unit || item.product.unit_name || 'ชิ้น'} (ขาย)
+                      {item.unitPrice.toLocaleString('th-TH')} บาท × {item.quantity} {item.unitName || item.product.unit || item.product.unit_name || 'ชิ้น'} (ขาย)
                     </span>
                   )}
                 </div>
@@ -355,7 +367,7 @@ export function CartPanel({
 
               <button
                 onClick={() => removeItem(item.id)}
-                className="text-slate-400 hover:text-red-500 p-1 transition-colors"
+                className="text-slate-600 dark:text-slate-400 hover:text-red-500 p-1 transition-colors"
                 title="ลบรายการ"
               >
                 <Trash2 className="w-4 h-4" />
@@ -372,7 +384,7 @@ export function CartPanel({
           {/* Quick Adjustments: Discount, Shipping, Deposit */}
           <div className="grid grid-cols-3 gap-2 text-xs">
             <div>
-              <span className="text-slate-500 block mb-0.5">ส่วนลด (บาท)</span>
+              <span className="text-slate-600 dark:text-slate-400 block mb-0.5">ส่วนลด (บาท)</span>
               <NumericInput
                 value={discount || ''}
                 onChange={(val) => {
@@ -389,7 +401,7 @@ export function CartPanel({
               />
             </div>
             <div>
-              <span className="text-slate-500 block mb-0.5">ค่าขนส่ง (บาท)</span>
+              <span className="text-slate-600 dark:text-slate-400 block mb-0.5">ค่าขนส่ง (บาท)</span>
               <NumericInput
                 value={shippingFee || ''}
                 onChange={(val) => setShippingFee(val === '' ? 0 : val)}
@@ -400,7 +412,7 @@ export function CartPanel({
               />
             </div>
             <div>
-              <span className="text-slate-500 block mb-0.5">เงินมัดจำ (บาท)</span>
+              <span className="text-slate-600 dark:text-slate-400 block mb-0.5">เงินมัดจำ (บาท)</span>
               <NumericInput
                 value={depositAmount || ''}
                 onChange={(val) => setDepositAmount(val === '' ? 0 : val)}
@@ -412,57 +424,50 @@ export function CartPanel({
             </div>
           </div>
 
-          {isQuotationMode ? (
-            <div className="flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-400">
-              <span>VAT ใบเสนอราคา</span>
-              <span>{vatOn ? 'เปิด' : 'ปิด'} (ตามค่าของร้าน)</span>
-            </div>
-          ) : (
             <label className={`flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-400 ${vatConfigured ? 'cursor-pointer' : 'opacity-60'}`}>
               <span>
-                VAT บิลนี้ {vatOn ? 'เปิด' : 'ปิด'}
+                VAT {isQuotationMode ? 'ใบเสนอราคานี้' : 'บิลนี้'} {vatOn ? 'เปิด' : 'ปิด'}
                 {!vatConfigured && <span className="block text-[11px]">เจ้าของร้านยังไม่ได้ตั้งอัตรา VAT</span>}
               </span>
               <input
                 type="checkbox"
                 role="switch"
-                aria-label="เปิด VAT สำหรับบิลนี้"
+                aria-label={isQuotationMode ? 'เปิด VAT สำหรับใบเสนอราคานี้' : 'เปิด VAT สำหรับบิลนี้'}
                 checked={vatOn}
                 disabled={!vatConfigured}
                 onChange={(e) => setBillVatEnabled(e.target.checked)}
-                className="w-4 h-4 text-emerald-600 rounded"
+                className="w-4 h-4 text-emerald-700 dark:text-emerald-400 rounded"
               />
             </label>
-          )}
 
           {/* Breakdown summary */}
           <div className="space-y-1.5 text-xs pt-2 border-t border-slate-200 dark:border-slate-700">
             <div className="flex justify-between text-slate-600 dark:text-slate-400">
               <span>ยอดสินค้าก่อนหักส่วนลด</span>
-              <span className="font-semibold">฿{subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+              <span className="font-semibold">{subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
             </div>
             {discount > 0 && (
-              <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
+              <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
                 <span>ส่วนลด</span>
-                <span>-฿{discount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+                <span>-{discount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
               </div>
             )}
             {shippingFee > 0 && (
               <div className="flex justify-between text-slate-600 dark:text-slate-400">
                 <span>ค่าขนส่ง</span>
-                <span>+฿{shippingFee.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+                <span>+{shippingFee.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
               </div>
             )}
             {taxRate > 0 && (
               <div className="flex justify-between text-slate-600 dark:text-slate-400">
                 <span>ภาษี VAT ({(taxRate * 100).toFixed(0)}%)</span>
-                <span>+฿{tax.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+                <span>+{tax.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
               </div>
             )}
             {depositAmount > 0 && (
-              <div className="flex justify-between text-amber-600 dark:text-amber-400 font-medium">
+              <div className="flex justify-between text-amber-700 dark:text-amber-400 font-medium">
                 <span>เงินมัดจำประกันความเสียหาย</span>
-                <span>฿{depositAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+                <span>{depositAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
               </div>
             )}
 
@@ -471,7 +476,7 @@ export function CartPanel({
                 {isQuotationMode ? 'ยอดรวมใบเสนอราคา' : 'ยอดสุทธิที่ต้องชำระ'}
               </span>
               <span className="font-black text-xl text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                ฿{grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                {grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
               </span>
             </div>
           </div>
@@ -495,6 +500,7 @@ export function CartPanel({
                     rentalStartDate: headerRentalDate ? getLocalDateString(headerRentalDate) : undefined,
                     rentalEndDate: headerReturnDate ? getLocalDateString(headerReturnDate) : undefined,
                     documentDate: documentDate ? getLocalDateString(documentDate) : undefined,
+                    vatEnabled: vatOn,
                   })
                 }}
                 disabled={items.length === 0}
@@ -527,7 +533,7 @@ export function CartPanel({
                     shippingAddress,
                     headerRentalDate: getLocalDateString(headerRentalDate ?? new Date()),
                     headerReturnDate: getLocalDateString(headerReturnDate ?? new Date()),
-                    documentType,
+                    documentType: documentType || defaultBillDocumentType(items),
                     documentDate: getLocalDateString(documentDate ?? new Date()),
                     subtotal,
                     tax,
@@ -539,7 +545,7 @@ export function CartPanel({
                   onCheckout()
                 }}
                 disabled={items.length === 0}
-                className="w-full col-span-2 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-xs shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                className="w-full col-span-2 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-xs shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
               >
                 <span>ชำระเงิน</span>
                 <ArrowRight className="w-4 h-4" />
@@ -555,34 +561,23 @@ export function CartPanel({
         isOpen={showAddCustomerModal}
         onClose={() => setShowAddCustomerModal(false)}
         onSave={(newC) => {
-          if (onAddCustomer) {
-            onAddCustomer(newC)
-          } else {
-            setCustomer(newC)
-          }
+          // The POS page saves the customer and shows the result itself (success or failure).
+          if (onAddCustomer) return onAddCustomer(newC)
+          setCustomer(newC)
           showToast('เพิ่มลูกค้าสำเร็จ', `เลือกลูกค้า ${newC.customerName} เข้าสู่ตะกร้าเรียบร้อยแล้ว`, 'SUCCESS')
         }}
       />
 
       {/* Sequential Date Picker Modal */}
-      {showDatePicker && (
-        <div
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowDatePicker(false)
-          }}
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in cursor-pointer"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white dark:bg-slate-900 rounded-3xl p-5 max-w-sm w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 cursor-default"
-          >
+      <AppModal isOpen={showDatePicker} onClose={() => setShowDatePicker(false)} size="sm">
+          <AppModalBody className="space-y-4">
             <div className="text-center space-y-1">
               <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">
                 {dateStep === 0 && '📝 เลือกวันที่ออกเอกสาร'}
                 {dateStep === 1 && '🟢 เลือกวันเริ่มเช่า'}
                 {dateStep === 2 && '🔴 เลือกวันที่กำหนดคืน'}
               </h3>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-600 dark:text-slate-400">
                 ขั้นตอนที่ {dateStep + 1} จาก 3
               </p>
             </div>
@@ -593,6 +588,10 @@ export function CartPanel({
                  onChange={(d) => {
                    if (!d) return
                    if (dateStep === 0) {
+                     if (getLocalDateString(d) > getLocalDateString(new Date())) {
+                       showToast('วันที่เอกสารไม่ถูกต้อง', 'วันที่ออกเอกสารต้องไม่อยู่ในอนาคต', 'ERROR')
+                       return
+                     }
                      setDocumentDate(d)
                      setHeaderRentalDate(null)
                      setHeaderReturnDate(null)
@@ -636,9 +635,8 @@ export function CartPanel({
                 ยกเลิก
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </AppModalBody>
+      </AppModal>
 
     </div>
   )

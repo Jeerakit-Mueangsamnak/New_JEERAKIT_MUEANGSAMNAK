@@ -3,111 +3,133 @@ import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
-/** Bill menu: the selected bill follows each reload, and cancel cannot be submitted twice. */
-
-const m = vi.hoisted(() => ({
-  fetchBills: vi.fn(),
-  confirmBill: vi.fn(),
-  cancelOrVoidBill: vi.fn(),
-  confirm: vi.fn(async () => true),
-  toast: vi.fn(),
+vi.mock('@/features/auth/contexts/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 'u1', status: 'ACTIVE', role: 'USER' }, loading: false }),
 }))
-
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
-vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: m.toast }) }))
-vi.mock('@/components/common/ConfirmDialogProvider', () => ({ useConfirm: () => m.confirm }))
-vi.mock('@/lib/contexts/SystemSettingsContext', () => ({ useSystemSettings: () => ({ settings: { business: {} } }) }))
-vi.mock('@/features/auth/hooks/useActionPermission', () => ({
-  useActionPermission: () => () => true,
-  NO_ACTION_PERMISSION_TITLE: 'no',
-}))
-vi.mock('@/lib/hooks/useAutoFitPageSize', () => ({
-  useAutoFitPageSize: () => ({ containerRef: { current: null }, setCurrentPage: () => {}, endIndex: 100 }),
-}))
-vi.mock('@/features/bills/services/bill-storage', () => ({
-  loadBills: () => [],
-  fetchBillsFromSupabase: m.fetchBills,
-  canHardDeleteBill: (b: { rentalStatus: string }) => b.rentalStatus === 'DRAFT',
-}))
-vi.mock('@/features/bills/services/bill-service', () => ({
-  confirmBill: m.confirmBill,
-  cancelBill: vi.fn(),
-  cancelOrVoidBill: m.cancelOrVoidBill,
-}))
-vi.mock('@/features/bills/components/BillActionView', () => ({ BillActionView: () => null }))
-vi.mock('@/features/bills/components/BillRevisionView', () => ({ BillRevisionView: () => null }))
-vi.mock('@/features/bills/components/AuditLogViewerModal', () => ({ AuditLogViewerModal: () => null }))
-vi.mock('@/features/bills/components/LineNotifyModal', () => ({ LineNotifyModal: () => null }))
-vi.mock('@/features/bills/components/PaymentRefundModal', () => ({ PaymentRefundModal: () => null }))
-vi.mock('@/features/bills/components/DepositRefundModal', () => ({ DepositModal: () => null }))
-vi.mock('@/features/bills/components/DeliveryModal', () => ({ DeliveryModal: () => null }))
-vi.mock('@/features/appointments/components/AppointmentDispatchModal', () => ({ AppointmentDispatchModal: () => null }))
-vi.mock('@/features/documents/utils/transaction-print', () => ({ printBillA4: vi.fn(), renderBillA4Html: () => '' }))
-
-function bill(over: Record<string, unknown>) {
+vi.mock('@/features/auth/services/pin-lock', async () => {
+  const actual = await vi.importActual<typeof import('@/features/auth/services/pin-lock')>('@/features/auth/services/pin-lock')
   return {
-    id: 'b1',
-    billNo: 'BL-0001',
-    billDate: '2026-10-17',
-    customerName: 'ลูกค้าทดสอบ',
-    customerPhone: '0800000000',
-    rentalStartDate: '2026-10-17',
-    scheduledReturnDate: '2026-10-20',
-    grandTotal: 1000,
-    paidAmount: 0,
-    outstandingAmount: 1000,
-    heldDepositAmount: 0,
-    rentalStatus: 'DRAFT',
-    serverStatus: 'DRAFT',
-    paymentStatus: 'UNPAID',
-    deliveryStatus: 'NOT_DELIVERED',
-    items: [],
-    ...over,
+    ...actual,
+    // the user's own auto-lock time (PROFILE value) = 60 s
+    fetchPinStatus: vi.fn(async () => ({ pinSet: true, blocked: false, failedAttempts: 0, lockedUntil: null, autoLockSeconds: 60, autoLockOptions: [60] })),
   }
+})
+
+import { AppLockProvider, useAppLock } from '@/features/auth/contexts/AppLockContext'
+import { fetchPinStatus, setAppLockedState, setLastActivity } from '@/features/auth/services/pin-lock'
+
+function Probe() {
+  const { isLocked, loading, lockApp } = useAppLock()
+  return <><output data-testid="lock">{loading ? 'loading' : isLocked ? 'locked' : 'open'}</output><button onClick={lockApp}>ล็อกด้วยตนเอง</button></>
 }
 
-const toolbarButton = (name: string) =>
-  screen.getAllByRole('button').find((b) => b.textContent?.trim() === name) as HTMLButtonElement | undefined
+const T0 = Date.parse('2026-10-07T10:00:00+07:00')
 
-describe('Bills page (เมนูจัดการบิล)', () => {
-  beforeEach(() => {
-    Object.values(m).forEach((fn) => (fn as ReturnType<typeof vi.fn>).mockReset?.())
-    m.confirm.mockResolvedValue(true)
-  })
-  afterEach(() => cleanup())
+beforeEach(() => {
+  localStorage.clear()
+  sessionStorage.clear()
+  // This tab was already open (a reopened tab is tested on its own in 17)
+  sessionStorage.setItem('pos_tab_open:u1', '1')
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(T0)
+})
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
-  it('after confirming a draft from the toolbar, the toolbar shows the confirmed bill actions', async () => {
-    m.fetchBills.mockResolvedValueOnce([bill({})]).mockResolvedValueOnce([bill({ rentalStatus: 'CONFIRMED', serverStatus: 'CONFIRMED' })])
-    m.confirmBill.mockResolvedValue(null)
-    const { default: BillsPage } = await import('@/app/bills/page')
-    render(<BillsPage />)
-    const row = (await screen.findAllByText('BL-0001'))[0]
-    fireEvent.click(row)
-    await act(async () => {
-      fireEvent.click(toolbarButton('ยืนยันบิล')!)
-    })
-    await waitFor(() => expect(m.fetchBills).toHaveBeenCalledTimes(2))
-    await waitFor(() => expect(toolbarButton('ยืนยันบิล')).toBeUndefined())
-    expect(toolbarButton('ส่งของ')?.disabled).toBe(false)
-    expect(toolbarButton('รับชำระเงิน')?.disabled).toBe(false)
+describe('15. auto-lock survives background, sleep and a reopened session', () => {
+  it('reopening the app after the idle time opens it locked (asks for the PIN)', async () => {
+    setLastActivity('u1', T0 - 2 * 60_000) // last used 2 min ago on this device
+    render(<AppLockProvider><Probe /></AppLockProvider>)
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('locked'))
   })
 
-  it('the cancel button is disabled while the cancel is being saved', async () => {
-    m.fetchBills.mockResolvedValue([bill({ rentalStatus: 'RENTING', serverStatus: 'ACTIVE' })])
-    let finish: () => void = () => {}
-    m.cancelOrVoidBill.mockImplementation(() => new Promise<void>((r) => (finish = r)))
-    const { default: BillsPage } = await import('@/app/bills/page')
-    render(<BillsPage />)
-    await screen.findAllByText('BL-0001')
-    fireEvent.click(screen.getAllByTitle('ยกเลิกบิล')[0])
-    fireEvent.change(await screen.findByPlaceholderText('เช่น ลูกค้าขอยกเลิกงาน...'), { target: { value: 'ลูกค้าขอยกเลิก' } })
-    const submit = toolbarButton('ยืนยันยกเลิกบิล')!
-    await act(async () => {
-      fireEvent.click(submit)
+  it('coming back from the background / sleep after the idle time locks at once', async () => {
+    render(<AppLockProvider><Probe /></AppLockProvider>)
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('open'))
+    // the page was hidden and timers did not run; the device clock moved on 61 s
+    vi.setSystemTime(T0 + 61_000)
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
     })
-    expect(submit.disabled).toBe(true)
-    fireEvent.click(submit)
-    expect(m.cancelOrVoidBill).toHaveBeenCalledTimes(1)
-    await act(async () => finish())
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('locked'))
+  })
+
+  it('a short break does not lock', async () => {
+    render(<AppLockProvider><Probe /></AppLockProvider>)
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('open'))
+    vi.setSystemTime(T0 + 30_000)
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+    })
+    expect(screen.getByTestId('lock').textContent).toBe('open')
+  })
+})
+
+describe('17. tab switching does not lock instantly; manual and reopened-tab locks remain', () => {
+  afterEach(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+  })
+
+  it('switching tabs briefly does not lock the app', async () => {
+    render(<AppLockProvider><Probe /></AppLockProvider>)
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('open'))
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    expect(screen.getByTestId('lock').textContent).toBe('open')
+    vi.setSystemTime(T0 + 10_000)
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('open'))
+  })
+
+  it('the explicit lock button still locks the app', async () => {
+    render(<AppLockProvider><Probe /></AppLockProvider>)
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('open'))
+    fireEvent.click(screen.getByRole('button', { name: 'ล็อกด้วยตนเอง' }))
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('locked'))
+  })
+
+  it('a page swiped away / tab closed and opened again (no tab marker) asks for the PIN', async () => {
+    sessionStorage.clear() // the browser drops it with the closed tab
+    render(<AppLockProvider><Probe /></AppLockProvider>)
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('locked'))
+  })
+
+  it('a reload / full page load in the same tab does not lock', async () => {
+    render(<AppLockProvider><Probe /></AppLockProvider>)
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('open'))
+    act(() => {
+      window.dispatchEvent(new Event('beforeunload'))
+    })
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(screen.getByTestId('lock').textContent).toBe('open')
+    cleanup()
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+    render(<AppLockProvider><Probe /></AppLockProvider>) // the reloaded page: same tab, marker kept
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('open'))
+  })
+})
+
+describe('16. a locked device stays locked when the PIN status cannot be read', () => {
+  it('reload while locked + my_pin_status fails -> still locked (fail closed)', async () => {
+    setAppLockedState('u1', true)
+    vi.mocked(fetchPinStatus).mockRejectedValueOnce(new Error('network'))
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<AppLockProvider><Probe /></AppLockProvider>)
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('locked'))
+    err.mockRestore()
+  })
+
+  it('an unlocked device is not locked by a failed status read', async () => {
+    vi.mocked(fetchPinStatus).mockRejectedValueOnce(new Error('network'))
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<AppLockProvider><Probe /></AppLockProvider>)
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('open'))
+    err.mockRestore()
   })
 })

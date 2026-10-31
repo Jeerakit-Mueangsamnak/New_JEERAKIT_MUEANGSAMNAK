@@ -12,6 +12,7 @@ import {
   fetchProductsFromSupabase,
   saveProductToSupabase,
   deleteProductFromSupabase,
+  reactivateProductInSupabase,
   confirmStockCount,
   adjustStock,
 } from '@/features/products/api/product-repository'
@@ -92,8 +93,13 @@ export async function updateProductAsync(updated: Product): Promise<Product[]> {
 }
 
 /** Products are never hard-deleted (history): this deactivates. */
-export async function deleteProductAsync(id: string): Promise<Product[]> {
-  await deleteProductFromSupabase(id)
+export async function deleteProductAsync(id: string, reason?: string): Promise<Product[]> {
+  await deleteProductFromSupabase(id, reason)
+  return syncProductsFromSupabase()
+}
+
+export async function reactivateProductAsync(id: string): Promise<Product[]> {
+  await reactivateProductInSupabase(id)
   return syncProductsFromSupabase()
 }
 

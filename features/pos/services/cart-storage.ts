@@ -120,3 +120,10 @@ export function validateCartCustomer(
     throw new Error('ลูกค้าต้องมี ชื่อ, เบอร์โทร, และที่อยู่')
   }
 }
+
+/** Bill title when the cashier did not pick a document type: from what is in the cart. */
+export function defaultBillDocumentType(items: Array<Parameters<typeof isSaleCartItem>[0]>): string {
+  if (items.length > 0 && items.every(isSaleCartItem)) return 'บิลขาย'
+  if (items.some(isSaleCartItem)) return 'บิลเช่า/ขาย'
+  return 'บิลเช่า'
+}

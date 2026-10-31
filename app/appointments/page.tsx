@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
+import { useAuth } from '@/features/auth/contexts/AuthContext'
 import React, { useState, useEffect, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { Plus, MapPin, Phone, User, Calendar, FileText, CheckSquare, Pencil, RefreshCw, Send } from 'lucide-react'
@@ -95,7 +95,7 @@ type Panel = { kind: 'form'; aptId?: string } | { kind: 'detail'; aptId: string 
 export default function AppointmentsPage() {
   const { showToast } = useToast()
   const router = useRouter()
-  const { settings: systemSettings } = useSystemSettings()
+  const { user } = useAuth()
 
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -271,7 +271,8 @@ export default function AppointmentsPage() {
   const todayStr = getLocalDateString()
 
   // KPI Calculations ("ใกล้ถึงกำหนด" window comes from Settings › นัดหมาย / แจ้งเตือน)
-  const nearDays = Math.max(0, Number(systemSettings.notifications?.appointmentReminder?.daysBefore ?? 3))
+  // "ใกล้ถึงกำหนด" window = the member's own appointment notice days (ตั้งค่าส่วนตัว › การแจ้งเตือน).
+  const nearDays = Math.max(0, Number(user?.notificationPrefs?.appointmentReminder?.daysBefore ?? 3))
   const todayTasksCount = appointments.filter(a => a.date === todayStr && !isAppointmentClosed(a.status)).length
   // เลยกำหนด = open jobs past their end time and not dispatched (same rule as the job status)
   const overdueTasksCount = appointments.filter((a) => jobStatusOf(a) === 'OVERDUE').length
@@ -298,7 +299,7 @@ export default function AppointmentsPage() {
         rowCount={rows.length}
         empty={rows.length === 0}
         emptyState={
-          <div className="h-full min-h-[160px] flex items-center justify-center text-center text-slate-400 font-bold text-xs">
+          <div className="h-full min-h-[160px] flex items-center justify-center text-center text-slate-600 dark:text-slate-400 font-bold text-xs">
             ไม่มีนัดหมายในวันนี้
           </div>
         }
@@ -327,17 +328,17 @@ export default function AppointmentsPage() {
                     panel?.aptId === apt.id ? 'bg-blue-50 dark:bg-blue-950/30' : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/50'
                   }`}
                 >
-                  <td className="px-2 text-center text-slate-500">{idx + 1}</td>
+                  <td className="px-2 text-center text-slate-600 dark:text-slate-400">{idx + 1}</td>
                   <td className="px-2 max-w-0">
                     <p className="font-bold text-slate-900 dark:text-slate-100 truncate" title={apt.title}>{apt.title}</p>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{apt.customerName || '-'}</p>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 truncate">{apt.customerName || '-'}</p>
                   </td>
                   <td className="px-2 whitespace-nowrap">{apt.driverName || '-'}</td>
                   <td className="px-2 text-center whitespace-nowrap">
                     <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] inline-block ${statusMeta.badge}`}>{statusMeta.label}</span>
                   </td>
                   <td className="px-2 whitespace-nowrap text-blue-700 dark:text-blue-300 font-semibold">
-                    {currentStage(apt)?.label ?? <span className="text-slate-400 font-normal">ยังไม่สั่งงาน</span>}
+                    {currentStage(apt)?.label ?? <span className="text-slate-600 dark:text-slate-400 font-normal">ยังไม่สั่งงาน</span>}
                   </td>
                   <td className="px-2 whitespace-nowrap font-mono">{apt.startTime} - {apt.endTime}</td>
                   <td className="px-2 min-w-[110px]">
@@ -345,7 +346,7 @@ export default function AppointmentsPage() {
                       <div className="flex-1 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
                         <div className="h-full bg-emerald-500" style={{ width: `${progress}%` }} />
                       </div>
-                      <span className="w-8 text-right text-[10px] text-slate-500">{progress}%</span>
+                      <span className="w-8 text-right text-[10px] text-slate-600 dark:text-slate-400">{progress}%</span>
                     </div>
                   </td>
                 </tr>
@@ -370,8 +371,8 @@ export default function AppointmentsPage() {
           // Products page card tones (light background, border, label and number in the card's colour)
           { label: 'งานวันนี้', value: todayTasksCount, box: 'bg-blue-50 dark:bg-blue-950/30 border-blue-200/60 dark:border-blue-900/40', title: 'text-blue-700 dark:text-blue-300', num: 'text-blue-600 dark:text-blue-400' },
           { label: `ใกล้ถึงกำหนด (${nearDays} วัน)`, value: nearTasksCount, box: 'bg-purple-50 dark:bg-purple-950/30 border-purple-200/60 dark:border-purple-900/40', title: 'text-purple-700 dark:text-purple-300', num: 'text-purple-600 dark:text-purple-400' },
-          { label: 'เลยกำหนด', value: overdueTasksCount, box: 'bg-orange-50 dark:bg-orange-950/30 border-orange-200/60 dark:border-orange-900/40', title: 'text-orange-700 dark:text-orange-300', num: 'text-orange-600 dark:text-orange-400' },
-          { label: 'งานเสร็จสิ้น', value: completedTasksCount, box: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200/60 dark:border-emerald-900/40', title: 'text-emerald-700 dark:text-emerald-300', num: 'text-emerald-600 dark:text-emerald-400' },
+          { label: 'เลยกำหนด', value: overdueTasksCount, box: 'bg-orange-50 dark:bg-orange-950/30 border-orange-200/60 dark:border-orange-900/40', title: 'text-orange-700 dark:text-orange-300', num: 'text-orange-700 dark:text-orange-400' },
+          { label: 'งานเสร็จสิ้น', value: completedTasksCount, box: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200/60 dark:border-emerald-900/40', title: 'text-emerald-700 dark:text-emerald-300', num: 'text-emerald-700 dark:text-emerald-400' },
         ].map((c) => (
           <div
             key={c.label}
@@ -388,8 +389,8 @@ export default function AppointmentsPage() {
       <div className="relative flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex overflow-hidden">
         <div className="flex-1 min-w-0 min-h-0 p-1 flex flex-col">
           {isLoading ? (
-            <div className="flex-1 min-h-0 p-6 flex flex-col items-center justify-center text-slate-400 gap-2">
-              <RefreshCw className="w-6 h-6 animate-spin text-emerald-600" />
+            <div className="flex-1 min-h-0 p-6 flex flex-col items-center justify-center text-slate-600 dark:text-slate-400 gap-2">
+              <RefreshCw className="w-6 h-6 animate-spin text-emerald-700 dark:text-emerald-400" />
               <span className="font-bold text-xs">กำลังโหลดข้อมูลนัดหมายจากฐานข้อมูล...</span>
             </div>
           ) : (
@@ -434,7 +435,7 @@ export default function AppointmentsPage() {
               <>
                 <AppModalHeader
                   onClose={closePanel}
-                  icon={formApt ? <Pencil className="w-5 h-5 text-blue-600" /> : <Calendar className="w-5 h-5 text-emerald-600" />}
+                  icon={formApt ? <Pencil className="w-5 h-5 text-blue-600 dark:text-blue-400" /> : <Calendar className="w-5 h-5 text-emerald-700 dark:text-emerald-400" />}
                   title={formApt ? 'แก้ไขงาน' : 'เพิ่มนัดหมายใหม่'}
                 />
                 <AppointmentForm
@@ -477,7 +478,7 @@ export default function AppointmentsPage() {
                         </span>
                       </div>
                       <p data-testid="job-schedule" className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
-                        <Calendar className="w-4 h-4 text-blue-500 shrink-0" />
+                        <Calendar className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
                         <span>
                           กำหนดการ {panelApt.startTime} - {panelApt.endTime} น. {thaiDate(panelApt.date)}
                         </span>
@@ -517,7 +518,7 @@ export default function AppointmentsPage() {
                           disabled={updatingStatusId === panelApt.id}
                           onClick={() => void handleConfirmReason()}
                           className={`h-8 px-3 rounded-xl text-white font-bold text-xs cursor-pointer disabled:opacity-50 ${
-                            reasonStatus === 'COMPLETED' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'
+                            reasonStatus === 'COMPLETED' ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-red-600 hover:bg-red-700'
                           }`}
                         >
                           {reasonStatus === 'DELETE' ? 'ยืนยันลบงาน' : reasonStatus === 'UNASSIGN' ? 'ยืนยันถอนงาน' : 'ยืนยันปิดงาน'}
@@ -536,7 +537,7 @@ export default function AppointmentsPage() {
                         setReasonText('')
                         setReasonStatus(kind)
                       }}
-                      className={`${btn} bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400 hover:bg-red-100 border-red-200 dark:border-red-900`}
+                      className={`${btn} bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400 hover:bg-red-100 border-red-200 dark:border-red-900`}
                     >
                       ยกเลิกงาน
                     </button>
@@ -552,7 +553,7 @@ export default function AppointmentsPage() {
                           <div className={`${box} !space-y-0 grid grid-cols-[2fr_3fr] gap-3`}>
                             <div className="min-w-0 space-y-1">
                               <div className={boxTitle}>
-                                <User className="w-4 h-4 text-emerald-600" />
+                                <User className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
                                 <span>ข้อมูลลูกค้า</span>
                               </div>
                               <p className="font-bold text-slate-900 dark:text-slate-100 break-words">{panelApt.customerName || '-'}</p>
@@ -565,10 +566,10 @@ export default function AppointmentsPage() {
                             </div>
                             <div className="min-w-0 space-y-1 border-l border-slate-200 dark:border-slate-700 pl-3">
                               <div className={boxTitle}>
-                                <MapPin className="w-4 h-4 text-red-500" />
+                                <MapPin className="w-4 h-4 text-red-700 dark:text-red-400" />
                                 <span>สถานที่จัดส่ง</span>
                               </div>
-                              <p className={panelApt.location ? 'text-slate-800 dark:text-slate-200 whitespace-pre-line break-words' : 'text-slate-400 italic'}>
+                              <p className={panelApt.location ? 'text-slate-800 dark:text-slate-200 whitespace-pre-line break-words' : 'text-slate-600 dark:text-slate-400 italic'}>
                                 {panelApt.location || 'ไม่ได้ระบุสถานที่'}
                               </p>
                             </div>
@@ -591,7 +592,7 @@ export default function AppointmentsPage() {
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                   {items.map((item, idx) => (
                                     <tr key={`${item.id}-${idx}`}>
-                                      <td className="px-2 text-center text-slate-500">{idx + 1}</td>
+                                      <td className="px-2 text-center text-slate-600 dark:text-slate-400">{idx + 1}</td>
                                       <td className="px-2 font-semibold text-slate-800 dark:text-slate-200">{item.name}</td>
                                       <td className="px-2 text-right font-mono">
                                         {item.quantity}
@@ -605,10 +606,10 @@ export default function AppointmentsPage() {
                           ) : (
                             <div className={box}>
                               <div className={boxTitle}>
-                                <CheckSquare className="w-4 h-4 text-blue-600" />
+                                <CheckSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                                 <span>รายละเอียดงานเพิ่มเติม / สิ่งที่ต้องทำ</span>
                               </div>
-                              <p className={`whitespace-pre-line ${panelApt.details ? 'text-slate-800 dark:text-slate-200' : 'text-slate-400 italic'}`}>
+                              <p className={`whitespace-pre-line ${panelApt.details ? 'text-slate-800 dark:text-slate-200' : 'text-slate-600 dark:text-slate-400 italic'}`}>
                                 {panelApt.details || 'ไม่มีรายละเอียดเพิ่มเติม'}
                               </p>
                             </div>
@@ -617,12 +618,12 @@ export default function AppointmentsPage() {
                           {(panelApt.billNo || panelApt.quotationNo) && (
                             <div className={box}>
                               <div className={boxTitle}>
-                                <FileText className="w-4 h-4 text-amber-500" />
+                                <FileText className="w-4 h-4 text-amber-700 dark:text-amber-400" />
                                 <span>เอกสารที่เกี่ยวข้อง</span>
                               </div>
                               {panelApt.billNo && (
                                 <div className="flex items-center justify-between gap-1">
-                                  <p className="font-mono font-bold text-emerald-600 dark:text-emerald-400 truncate">{panelApt.billNo}</p>
+                                  <p className="font-mono font-bold text-emerald-700 dark:text-emerald-400 truncate">{panelApt.billNo}</p>
                                   {panelApt.billId && (
                                     <ActionButton
                                       variant="outline"
@@ -684,7 +685,7 @@ export default function AppointmentsPage() {
                     <>
                       <AppModalBody className="space-y-3">
                         {panelApt.driverName && (
-                          <div className="px-1 text-slate-500 dark:text-slate-400 space-y-0.5">
+                          <div className="px-1 text-slate-600 dark:text-slate-400 space-y-0.5">
                             <p className="truncate">
                               ผู้รับผิดชอบ: {panelApt.driverName} ({panelApt.driverId})
                             </p>
@@ -697,7 +698,7 @@ export default function AppointmentsPage() {
                         )}
 
                         <div className="space-y-1.5">
-                          <div role="row" className={`${STAGE_GRID} px-2 text-[11px] font-bold text-slate-500 dark:text-slate-400`}>
+                          <div role="row" className={`${STAGE_GRID} px-2 text-[11px] font-bold text-slate-600 dark:text-slate-400`}>
                             <span role="columnheader">ขั้นตอนงาน</span>
                             <span role="columnheader" className="text-center">เวลา</span>
                             <span role="columnheader" className="text-right">สถานะ</span>
@@ -735,7 +736,7 @@ export default function AppointmentsPage() {
                                   </span>
                                   <span
                                     className={`text-right text-[11px] font-semibold ${
-                                      done ? 'text-emerald-700 dark:text-emerald-300' : ev ? 'text-amber-700 dark:text-amber-300' : 'text-slate-400 italic'
+                                      done ? 'text-emerald-700 dark:text-emerald-300' : ev ? 'text-amber-700 dark:text-amber-300' : 'text-slate-600 dark:text-slate-400 italic'
                                     }`}
                                   >
                                     {state}
@@ -746,7 +747,7 @@ export default function AppointmentsPage() {
                                     {ev.by && <p>โดย {ev.by}</p>}
                                     {ev.actualQuantity !== undefined && <p>จำนวนจริง: {ev.actualQuantity}</p>}
                                     {ev.note && <p>หมายเหตุ: {ev.note}</p>}
-                                    {ev.issues && <p className="text-red-600 dark:text-red-400">ปัญหา: {ev.issues}</p>}
+                                    {ev.issues && <p className="text-red-700 dark:text-red-400">ปัญหา: {ev.issues}</p>}
                                     {ev.images && ev.images.length > 0 && (
                                       <div className="flex gap-1.5 flex-wrap pt-0.5">
                                         {ev.images.map((imgUrl, imgIdx) => (
@@ -780,7 +781,7 @@ export default function AppointmentsPage() {
                               setReasonText('')
                               setReasonStatus('COMPLETED')
                             }}
-                            className={`${btn} bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600`}
+                            className={`${btn} bg-emerald-700 hover:bg-emerald-800 text-white border-emerald-600`}
                           >
                             ปิดงาน
                           </button>

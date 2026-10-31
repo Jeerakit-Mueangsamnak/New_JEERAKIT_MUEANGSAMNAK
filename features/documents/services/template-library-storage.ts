@@ -1,26 +1,18 @@
 import type { DocumentTemplate } from '@/lib/types/document'
-import { INITIAL_TEMPLATES } from '@/features/documents/constants/initialDocumentTemplates'
+import {
+  createDocumentTemplate,
+  deleteDocumentTemplates,
+  fetchDocumentTemplates,
+} from '@/features/documents/api/template-library-repository'
 
 const STORAGE_KEY = 'rental-pos:document-template-library:v1'
-export const CORE_TEMPLATE_IDS = [
-  'tpl_quotation',
-  'tpl_delivery_note',
-  'tpl_receipt',
-  'tpl_equipment_check',
-] as const
-
-const CORE_TEMPLATE_ID_SET = new Set<string>(CORE_TEMPLATE_IDS)
-const INITIAL_TEMPLATE_IDS = new Set(INITIAL_TEMPLATES.map((template) => template.id))
-
-export const isCoreTemplate = (id: string) => CORE_TEMPLATE_ID_SET.has(id)
 
 interface LibraryState {
   custom: DocumentTemplate[]
-  hiddenIds: string[]
 }
 
 function readState(): LibraryState {
-  if (typeof window === 'undefined') return { custom: [], hiddenIds: [] }
+  if (typeof window === 'undefined') return { custom: [] }
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     const parsed = raw ? (JSON.parse(raw) as Partial<LibraryState>) : {}
@@ -29,10 +21,9 @@ function readState(): LibraryState {
         ? parsed.custom.filter((item): item is DocumentTemplate =>
             Boolean(item && typeof item.id === 'string' && typeof item.name === 'string' && typeof item.templateSchema === 'string'))
         : [],
-      hiddenIds: Array.isArray(parsed.hiddenIds) ? parsed.hiddenIds.filter((id): id is string => typeof id === 'string' && !isCoreTemplate(id)) : [],
     }
   } catch {
-    return { custom: [], hiddenIds: [] }
+    return { custom: [] }
   }
 }
 
@@ -41,7 +32,7 @@ function writeState(state: LibraryState) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
 }
 
-/** Local-only state is retained only for hiding non-core built-in templates and legacy migration. */
+/** Local-only state is retained only to move forms older versions saved in this browser. */
 export function loadLegacyCustomTemplates(): DocumentTemplate[] {
   return readState().custom
 }
@@ -52,56 +43,67 @@ export function removeLegacyCustomTemplates(ids: string[]) {
   writeState({ ...state, custom: state.custom.filter((template) => !remove.has(template.id)) })
 }
 
+/** The shop's own forms from Supabase (document_templates): the same list on every device. */
+let sharedTemplates: DocumentTemplate[] = []
+
+/** Same limit as the database column document_templates.template_schema. */
+export const TEMPLATE_MAX_BYTES = 1048576
+export const templateBytes = (template: Pick<DocumentTemplate, 'templateSchema'>) =>
+  new TextEncoder().encode(template.templateSchema).length
+
+/**
+ * Reads the shop's forms from Supabase. Forms that older versions saved only in this browser are
+ * moved up once (each stays local until its upload succeeds, e.g. one above the size limit).
+ */
+export async function refreshSharedTemplates(): Promise<DocumentTemplate[]> {
+  let shared = await fetchDocumentTemplates()
+  const sharedIds = new Set(shared.map((template) => template.id))
+  const moved: string[] = []
+  for (const template of loadLegacyCustomTemplates()) {
+    if (sharedIds.has(template.id)) {
+      moved.push(template.id)
+      continue
+    }
+    if (templateBytes(template) > TEMPLATE_MAX_BYTES) continue
+    try {
+      await createDocumentTemplate(template.id, template)
+      moved.push(template.id)
+    } catch (err) {
+      console.error('Moving a browser-only form to the shop library failed:', template.id, err)
+    }
+  }
+  if (moved.length > 0) {
+    removeLegacyCustomTemplates(moved)
+    shared = await fetchDocumentTemplates()
+  }
+  sharedTemplates = shared
+  return loadTemplateLibrary()
+}
+
+/** Saves a new form for the whole shop; the list is read back from the server. */
+export async function saveSharedTemplate(template: DocumentTemplate): Promise<DocumentTemplate[]> {
+  await createDocumentTemplate(template.id, template)
+  return refreshSharedTemplates()
+}
+
+/** Deletes forms from the library for good: shop forms are deleted on the server (audited with the reason). */
+export async function removeTemplates(ids: string[], reason: string): Promise<DocumentTemplate[]> {
+  const sharedIds = ids.filter((id) => sharedTemplates.some((template) => template.id === id))
+  if (sharedIds.length > 0) await deleteDocumentTemplates(sharedIds, reason)
+  removeLegacyCustomTemplates(ids)
+  return refreshSharedTemplates()
+}
+
+/** The library is only the shop's own forms (no forms built into the code). */
 export function loadTemplateLibrary(
-  sharedCustom: DocumentTemplate[] = [],
+  sharedCustom: DocumentTemplate[] = sharedTemplates,
   legacyCustom?: DocumentTemplate[]
 ): DocumentTemplate[] {
-  const { hiddenIds, custom: storedCustom } = readState()
-  const effectiveLegacy = legacyCustom ?? storedCustom
-  const hidden = new Set(hiddenIds)
-  const templatesById = new Map(INITIAL_TEMPLATES.map((template) => [template.id, template]))
-  const coreTemplates = CORE_TEMPLATE_IDS
-    .map((id) => templatesById.get(id))
-    .filter((template): template is DocumentTemplate => Boolean(template))
   const uniqueCustom = new Map<string, DocumentTemplate>()
-  for (const template of [...sharedCustom, ...effectiveLegacy]) {
-    if (!INITIAL_TEMPLATE_IDS.has(template.id)) uniqueCustom.set(template.id, template)
+  for (const template of [...sharedCustom, ...(legacyCustom ?? readState().custom)]) {
+    uniqueCustom.set(template.id, template)
   }
-  const otherTemplates = [...uniqueCustom.values(), ...INITIAL_TEMPLATES]
-    .filter((template) => !isCoreTemplate(template.id) && !hidden.has(template.id))
-  return [...coreTemplates, ...otherTemplates]
-}
-
-/** Hiding a non-core built-in remains a local display preference; custom forms use Supabase. */
-export function hideBuiltInTemplates(ids: string[]) {
-  const state = readState()
-  const hiddenIds = Array.from(new Set([
-    ...state.hiddenIds,
-    ...ids.filter((id) => !isCoreTemplate(id) && INITIAL_TEMPLATE_IDS.has(id)),
-  ]))
-  writeState({ ...state, hiddenIds })
-}
-
-export function addLibraryTemplate(template: DocumentTemplate): DocumentTemplate[] {
-  const state = readState()
-  const custom = [template, ...state.custom.filter((t) => t.id !== template.id)]
-  const hiddenIds = state.hiddenIds.filter((id) => id !== template.id)
-  writeState({ custom, hiddenIds })
-  return loadTemplateLibrary([], custom)
-}
-
-export function removeLibraryTemplates(ids: string[]): DocumentTemplate[] {
-  const state = readState()
-  const toRemove = new Set(ids.filter((id) => !isCoreTemplate(id)))
-  const custom = state.custom.filter((t) => !toRemove.has(t.id))
-  const hiddenIds = Array.from(
-    new Set([
-      ...state.hiddenIds,
-      ...ids.filter((id) => !isCoreTemplate(id) && INITIAL_TEMPLATE_IDS.has(id)),
-    ])
-  )
-  writeState({ custom, hiddenIds })
-  return loadTemplateLibrary([], custom)
+  return [...uniqueCustom.values()]
 }
 
 export function getTemplateTarget(template: DocumentTemplate): 'CUSTOMER' | 'BILL' {
@@ -115,12 +117,5 @@ export function getTemplateTarget(template: DocumentTemplate): 'CUSTOMER' | 'BIL
     'แบบฟอร์มลูกค้าอื่น ๆ',
   ]
   if (customerCategories.includes(template.category)) return 'CUSTOMER'
-  if (
-    template.id === 'tpl_rental_contract' ||
-    template.id === 'tpl_power_of_attorney' ||
-    template.id === 'tpl_signature_confirmation'
-  ) {
-    return 'CUSTOMER'
-  }
   return 'BILL'
 }

@@ -57,13 +57,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               {t.type === 'INFO' && <Info className="w-4 h-4 sm:w-5 sm:h-5 text-blue-400 shrink-0" />}
               <div className="min-w-0">
                 <h4 className="font-bold text-xs">{t.title}</h4>
-                {t.message && <p className="text-[11px] text-slate-500 dark:text-slate-300 mt-0.5">{t.message}</p>}
+                {t.message && <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">{t.message}</p>}
               </div>
             </div>
 
             <button
               onClick={() => removeToast(t.id)}
-              className="text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-white p-0.5"
+              className="text-slate-600 dark:text-slate-400 hover:text-red-500 dark:hover:text-white p-0.5"
             >
               <X className="w-4 h-4" />
             </button>

@@ -14,6 +14,7 @@ const fake = vi.hoisted(() => ({
 vi.mock('@/features/finance/services/finance-storage', async (orig) => ({
   ...(await orig<object>()),
   loadTransactions: vi.fn(() => []),
+  fetchTransactionsFromSupabase: vi.fn(async () => []),
   // Each save stays pending until the test releases or fails it.
   addManualTransaction: vi.fn(
     () =>
@@ -26,6 +27,7 @@ vi.mock('@/features/finance/services/finance-storage', async (orig) => ({
 }))
 vi.mock('@/lib/db/policies', () => ({ getPolicy: (_k: string, d: unknown) => d, savePolicies: vi.fn(async () => {}) }))
 vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: vi.fn() }) }))
+vi.mock('@/components/common/ConfirmDialogProvider', () => ({ useAskText: () => vi.fn(async () => null), useConfirm: () => async () => false }))
 
 import StatementPage from '@/app/finance/statement/page'
 import { filterTransactionsByLocalDate, type StatementTransaction } from '@/features/finance/services/finance-storage'

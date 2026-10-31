@@ -30,7 +30,10 @@ vi.mock('@/lib/supabase/client', () => ({
 }))
 vi.mock('@/features/auth/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'o1', role: 'OWNER', status: 'ACTIVE', menus: [] } }) }))
 vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: mocks.toast }) }))
-vi.mock('@/components/common/ConfirmDialogProvider', () => ({ useAskText: () => mocks.ask }))
+vi.mock('@/components/common/ConfirmDialogProvider', () => ({
+  useAskText: () => mocks.ask,
+  useConfirm: () => async () => true,
+}))
 vi.mock('@/app/actions/system-secrets', () => ({
   getLineSecretStatus: mocks.status,
   saveLineSecrets: mocks.save,
@@ -59,7 +62,7 @@ beforeEach(() => {
 afterEach(cleanup)
 
 /** LINE tab → one of its sub-tabs. */
-async function openLineTab(view = 'ตั้งค่าการเชื่อมต่อ') {
+async function openLineTab(view = 'เชื่อมต่อ LINE OA') {
   await act(async () => {
     render(<SystemSettingsProvider><SettingsPage /></SystemSettingsProvider>)
   })
@@ -143,11 +146,14 @@ describe('Settings › LINE screen', () => {
 
   it('a staff notice switch and a message text save together with the section save', async () => {
     mocks.rpc.mockResolvedValue(row({ line: { notify: { APPOINTMENT_DUE: true }, templates: { TASK_NEW: 'มีงาน: {เรื่อง}' } } }))
-    await openLineTab('แจ้งเตือน')
+    await openLineTab('แจ้งเตือนพนักงานทาง LINE')
     expect(screen.queryByLabelText('สั่งงานใหม่')).toBeNull() // texts live in their own section
     fireEvent.click(screen.getByRole('switch', { name: 'นัดหมายใกล้ถึง' }))
-    await pickLineView('บล็อกข้อความ')
+    // the chat preview shows the staff notice the switch now sends
+    expect(screen.getByTestId('line-chat-preview').textContent).toContain('[นัดหมายใกล้ถึง]')
+    await pickLineView('ข้อความที่ส่งทาง LINE')
     expect(screen.queryByRole('switch', { name: 'นัดหมายใกล้ถึง' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /สั่งงานใหม่/ }))
     fireEvent.change(screen.getByLabelText('สั่งงานใหม่'), { target: { value: 'มีงาน: {เรื่อง}' } })
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }))
@@ -159,7 +165,8 @@ describe('Settings › LINE screen', () => {
   })
 
   it('a wrong placeholder is stopped before the server', async () => {
-    await openLineTab('บล็อกข้อความ')
+    await openLineTab('ข้อความที่ส่งทาง LINE')
+    fireEvent.click(screen.getByRole('button', { name: /สั่งงานใหม่/ }))
     fireEvent.change(screen.getByLabelText('สั่งงานใหม่'), { target: { value: 'งาน {ชื่อลูกค้า}' } })
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }))

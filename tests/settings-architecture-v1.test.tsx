@@ -50,21 +50,24 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-describe('PERMISSION: shop settings are OWNER only', () => {
+// Owner 2026-10-26 (Master §4.2): shop settings are open to every ACTIVE member.
+describe('PERMISSION: shop settings are open to every member', () => {
   const owner = { role: 'OWNER', status: 'ACTIVE', menus: [] } as never
-  const user = { role: 'USER', status: 'ACTIVE', menus: ['settings', 'pos'] } as never
+  const user = { role: 'USER', status: 'ACTIVE', menus: [] } as never
+  const pending = { role: 'USER', status: 'PENDING', menus: [] } as never
 
-  it('1. a USER cannot open /settings even with an old settings grant; settings is not grantable', () => {
+  it('1. an ACTIVE USER opens /settings without any grant; a member waiting for approval does not', () => {
     expect(menuForPath('/settings')).toBe('settings')
-    expect(hasMenu(user, 'settings')).toBe(false)
-    expect(GRANTABLE_MENUS.map((m) => m.code)).not.toContain('settings')
+    expect(hasMenu(user, 'settings')).toBe(true)
+    expect(hasMenu(pending, 'settings')).toBe(false)
+    expect(GRANTABLE_MENUS.map((m) => m.code)).toContain('settings')
   })
 
-  it('1. the page itself refuses a USER (not only the hidden menu)', () => {
-    mocks.user = { id: 'u1', role: 'USER', status: 'ACTIVE', menus: ['settings'] }
+  it('1. the page shows the settings to a USER too (no owner-only screen)', () => {
+    mocks.user = { id: 'u1', role: 'USER', status: 'ACTIVE', menus: [] }
     render(<SystemSettingsProvider><SettingsPage /></SystemSettingsProvider>)
-    expect(screen.getByText('ตั้งค่าระบบเปิดได้เฉพาะเจ้าของร้าน')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /บันทึก/ })).toBeNull()
+    expect(screen.queryByText('ตั้งค่าระบบเปิดได้เฉพาะเจ้าของร้าน')).toBeNull()
+    expect(screen.getAllByRole('button', { name: 'บันทึก' }).length).toBeGreaterThan(0)
   })
 
   it('2. the OWNER opens it and saves a section through settings_update', async () => {
@@ -161,7 +164,7 @@ describe('READ: one row, new source first, old app_config as fallback', () => {
     })
     const cfg = await fetchSharedSystemConfig()
     expect(cfg?.business).toMatchObject({ businessName: 'ร้านเอ', email: 'new@shop.th', bankName: 'ธนาคารเดิม' })
-    expect(cfg?.taxDiscount).toEqual({ vatRate: 7, vatMode: 'INCLUSIVE', discountLimitEnabled: true, discountLimitPercent: 15, quotationVatEnabled: true })
+    expect(cfg?.taxDiscount).toEqual({ vatRate: 7, vatMode: 'INCLUSIVE', discountLimitEnabled: true, discountLimitPercent: 15 })
     expect(cfg?.documentNumbering.BILL).toEqual({ prefix: 'ABC', digits: 3 })
     expect(cfg?.documentNumbering.QUOTATION).toEqual({ prefix: 'QT', digits: 3 })
     expect(cfg?.salesRental.allowBackorder).toBe(true)

@@ -5,8 +5,10 @@ import { assertValidMessages, LineMessageError } from '@/lib/line/messages'
 import { driverTaskMessages, taskMessages, textMessage } from '@/lib/line/templates'
 import { type LineMessage } from '@/lib/line/types'
 import { processOutbox } from '@/lib/line/outbox'
-import { lineOaMessageUrl } from '@/lib/line/oa-link'
+import { lineOaAddFriendUrl, lineOaMessageUrl } from '@/lib/line/oa-link'
 import { createLineProvider, lineDeliveryMode } from '@/lib/line/provider'
+import { formatThaiDate, reminderMessages, type CronShop, type ReminderRow } from '@/lib/line/cron'
+import { type LineInviteKind } from '@/lib/line/config'
 
 /**
  * LINE actions for screens. Every call runs with the signed-in user's own session, so the
@@ -47,6 +49,13 @@ const ERRORS: Array<[RegExp, string]> = [
   [/^APPOINTMENT_HAS_DELIVERY/, 'งานนี้มีใบส่งของของบิลผูกอยู่ จึงลบไม่ได้ (เก็บเป็นหลักฐานบิลและสต็อก)'],
   [/^IDEMPOTENCY_KEY_REQUIRED/, 'คำขอไม่สมบูรณ์ กรุณาลองใหม่'],
   [/^LINE_CODE_BUSY/, 'ระบบกำลังสร้างรหัส กรุณาลองใหม่'],
+  [/^LINE_MEMBER_ALREADY_LINKED/, 'พนักงานคนนี้ผูก LINE แล้ว'],
+  [/^LINE_REMINDER_NOT_DUE/, 'รายการนี้ไม่อยู่ในรายการที่ต้องเตือนแล้ว กรุณารีเฟรช'],
+  [/^LINE_DELIVERY_NOT_RETRYABLE/, 'ส่งใหม่ไม่ได้: รายการนี้ส่งแล้ว กำลังส่ง หรือผู้รับยกเลิก/บล็อก LINE ร้าน'],
+  [/^INVALID_KIND/, 'คำขอไม่สมบูรณ์ กรุณาลองใหม่'],
+  [/^LINE_CONTACT_NOT_PENDING/, 'รายชื่อนี้ไม่ได้รอร้านตรวจแล้ว กรุณารีเฟรช'],
+  [/^LINE_CONTACT_UNKNOWN/, 'ไม่พบรายชื่อนี้ใน LINE ร้าน'],
+  [/^LINE_REGISTER_NO_OWNER/, 'ยังไม่มีบัญชีเจ้าของร้านที่ใช้งานอยู่ จึงสร้างลูกค้าไม่ได้'],
   [/PGRST202|Could not find the function/, 'ระบบ LINE ยังไม่พร้อมในฐานข้อมูลนี้'],
 ]
 
@@ -310,15 +319,34 @@ export async function sendDispatchToDriver(input: {
   const supabase = await createServerSupabase()
   const { data: auth } = await supabase.auth.getUser()
   if (!auth.user) return bad('กรุณาเข้าสู่ระบบ')
-  const [{ data: me }, { data: shop }] = await Promise.all([
+  const [{ data: me }, { data: shop }, { data: apt }] = await Promise.all([
     supabase.from('profiles').select('display_name, username').eq('id', auth.user.id).maybeSingle(),
     supabase.from('store_settings').select('policies').eq('singleton', true).maybeSingle(),
+    supabase
+      .from('appointments')
+      .select('start_datetime, location, contact_name, contact_phone, description, customer:customers(name, phone, address)')
+      .eq('id', input.appointmentId)
+      .maybeSingle(),
   ])
   const templates = (shop?.policies as { line?: { templates?: Record<string, string> } } | null)?.line?.templates
+  const customer = (Array.isArray(apt?.customer) ? apt?.customer[0] : apt?.customer) as
+    | { name?: string; phone?: string; address?: string }
+    | null
+    | undefined
+  // The job card shows what the driver needs from the appointment (empty values are left out).
+  const details = apt
+    ? {
+        when: apt.start_datetime ? formatThaiDate(apt.start_datetime as string, true) : '',
+        customer: (apt.contact_name as string | null) || customer?.name || '',
+        phone: (apt.contact_phone as string | null) || customer?.phone || null,
+        place: (apt.location as string | null) || customer?.address || null,
+        detail: input.detail?.trim() || (apt.description as string | null) || null,
+      }
+    : undefined
   const taskId = crypto.randomUUID()
   let messages: LineMessage[]
   try {
-    messages = driverTaskMessages(taskId, { ผู้สั่ง: me?.display_name || me?.username || 'ร้าน', เรื่อง: title }, templates)
+    messages = driverTaskMessages(taskId, { ผู้สั่ง: me?.display_name || me?.username || 'ร้าน', เรื่อง: title }, templates, details)
   } catch (error) {
     return bad(error instanceof LineMessageError ? 'ข้อความไม่ถูกต้องหรือยาวเกินกำหนด' : 'ทำรายการ LINE ไม่สำเร็จ')
   }
@@ -439,8 +467,152 @@ export async function deleteAppointmentJob(input: { appointmentId: string; title
   return { success: true, data: { withdrawn: r.data.withdrawn, queued: r.data.queued, unreachable: r.data.unreachable, sent, mode: lineDeliveryMode() } }
 }
 
-export async function cancelLineTask(taskId: string, reason: string) {
+export async function cancelLineTask(taskId: string, reason?: string) {
   if (!UUID.test(taskId || '')) return bad('ไม่พบงานนี้')
-  if (!(reason || '').trim()) return bad('กรุณาระบุเหตุผล')
-  return callRpc('line_task_cancel', { p_task_id: taskId, p_reason: reason.trim() })
+  return callRpc('line_task_cancel', { p_task_id: taskId, p_reason: reason?.trim() || null })
+}
+
+// ── Invite link (LIFF) ───────────────────────────────────────────────────────
+
+export interface LineInviteResult {
+  code: string
+  expires_at: string
+  /** LIFF link to send to the person's own LINE (null until NEXT_PUBLIC_LIFF_ID is set). */
+  url: string | null
+  /** LINE "share" link that opens a chat picker with the invite text typed in. */
+  shareUrl: string | null
+  /** Fallback: the shop OA chat with the code typed in (works without LIFF). */
+  oaUrl: string | null
+}
+
+/**
+ * Invite link for one staff member (OWNER), driver (OWNER) or customer (members who serve
+ * customers). Single use; the database keeps only the hash and revokes an older open link.
+ */
+export async function createLineInviteLink(kind: LineInviteKind, target: string): Promise<LineActionResult<LineInviteResult>> {
+  if (!['STAFF', 'DRIVER', 'CUSTOMER'].includes(kind)) return bad('คำขอไม่สมบูรณ์ กรุณาลองใหม่')
+  if (kind === 'DRIVER' ? !DRIVER_CODE.test(target || '') : !UUID.test(target || '')) return bad('ไม่พบรายชื่อนี้')
+  const r = await callRpc<{ code: string; expires_at: string }>('line_invite_create', { p_kind: kind, p_target: target })
+  if (!r.success || !r.data) return r as LineActionResult<never>
+  const supabase = await createServerSupabase()
+  const { data: shop } = await supabase.from('store_settings').select('company_name, policies').eq('singleton', true).maybeSingle()
+  const lineId = (shop?.policies as { business_profile?: { lineId?: string } } | null)?.business_profile?.lineId
+  const liffId = process.env.NEXT_PUBLIC_LIFF_ID
+  const url = liffId ? `https://liff.line.me/${encodeURIComponent(liffId)}?t=${r.data.code}&k=${kind}` : null
+  const shopName = (shop?.company_name as string | null)?.trim() || 'ร้าน'
+  const shareText = url ? `${shopName}: กดลิงก์นี้เพื่อยืนยันตัวตนและผูก LINE (ใช้ได้ครั้งเดียว)\n${url}` : null
+  return {
+    success: true,
+    data: {
+      code: r.data.code,
+      expires_at: r.data.expires_at,
+      url,
+      shareUrl: shareText ? `https://line.me/R/share?text=${encodeURIComponent(shareText)}` : null,
+      oaUrl: lineOaMessageUrl(lineId, r.data.code),
+    },
+  }
+}
+
+/** The OWNER / LINE menu checked a flagged link (typed name / phone did not match). */
+export async function confirmLineContactReview(contactId: string) {
+  if (!UUID.test(contactId || '')) return bad('ไม่พบรายชื่อนี้')
+  return callRpc<{ contact_id: string }>('line_contact_review_ok', { p_contact_id: contactId })
+}
+
+// ── Customer reminders by hand + delivery retry (Settings › LINE) ─────────────
+
+export type ReminderCandidate = Omit<ReminderRow, 'contact_id' | 'dedupe_key'> & { last_queued_at: string | null; last_status: string | null }
+
+export async function getReminderCandidates() {
+  return callRpc<ReminderCandidate[]>('line_customer_reminder_candidates', {})
+}
+
+async function cronShop(): Promise<CronShop> {
+  const supabase = await createServerSupabase()
+  const { data } = await supabase.from('store_settings').select('company_name, phone, policies').eq('singleton', true).maybeSingle()
+  const policies = (data?.policies ?? {}) as { line?: { templates?: Record<string, unknown> }; business_profile?: { lineId?: string } }
+  return {
+    shopName: (data?.company_name as string | null)?.trim() || 'ร้าน',
+    templates: policies.line?.templates ?? {},
+    lineId: policies.business_profile?.lineId?.trim() || null,
+    phone: (data?.phone as string | null)?.trim() || null,
+  }
+}
+
+/**
+ * ส่งเตือนเอง: renders the reminder of one current candidate (same text as the schedule) and
+ * queues it for that bill's / appointment's own customer, then runs the outbox once.
+ */
+export async function sendCustomerReminder(input: {
+  rule: string
+  sourceId: string
+  idempotencyKey: string
+}): Promise<LineActionResult<{ delivery_id: string; duplicate: boolean; status: string | null; mode: 'mock' | 'live' }>> {
+  if (!input || !UUID.test(input.sourceId || '')) return bad('ไม่พบรายการนี้')
+  if (!KEY.test(input.idempotencyKey || '')) return bad('คำขอไม่สมบูรณ์ กรุณาลองใหม่')
+  const list = await getReminderCandidates()
+  if (!list.success || !list.data) return { success: false, error: list.error }
+  const row = list.data.find((c) => c.rule === input.rule && c.source_id === input.sourceId)
+  if (!row) return bad('รายการนี้ไม่อยู่ในรายการที่ต้องเตือนแล้ว กรุณารีเฟรช')
+  let built: { templateKey: string; messages: LineMessage[] }
+  try {
+    built = reminderMessages(row, await cronShop())
+  } catch {
+    return bad('ข้อความไม่ถูกต้องหรือยาวเกินกำหนด')
+  }
+  const queued = await callRpc<{ delivery_id: string; duplicate: boolean }>('line_customer_reminder_send', {
+    p_rule: input.rule,
+    p_source_id: input.sourceId,
+    p_template_key: built.templateKey,
+    p_messages: built.messages,
+    p_idempotency_key: input.idempotencyKey,
+  })
+  if (!queued.success || !queued.data) return { success: false, error: queued.error }
+  const status = await runOutboxOnce({ id: queued.data.delivery_id })
+  return { success: true, data: { ...queued.data, status, mode: lineDeliveryMode() } }
+}
+
+/** ประวัติการส่ง: send a failed / cancelled row again (same retry key, so LINE delivers it once). */
+export async function retryLineDelivery(deliveryId: string): Promise<LineActionResult<{ delivery_id: string; status: string; mode: 'mock' | 'live' }>> {
+  if (!UUID.test(deliveryId || '')) return bad('ไม่พบรายการนี้')
+  const r = await callRpc<{ delivery_id: string; status: string }>('line_delivery_retry', { p_delivery_id: deliveryId })
+  if (!r.success) return { success: false, error: r.error }
+  const status = await runOutboxOnce({ id: deliveryId })
+  return { success: true, data: { delivery_id: deliveryId, status: status ?? 'PENDING', mode: lineDeliveryMode() } }
+}
+
+// ── คนใน LINE: pending friends (self-registration) ────────────────────────────
+
+export type ShopRegisterResult =
+  | { result: 'LINKED_CUSTOMER'; name?: string; customer_id?: string; created?: boolean }
+  | { result: 'PHONE_TAKEN'; customer_id?: string }
+  | { result: 'DUPLICATE' | 'INVALID' | 'ALREADY_LINKED' }
+
+/**
+ * "ร้านกรอกให้": the shop types name + phone for a friend still waiting. The database applies the
+ * same rule as the chat (new phone = new customer, a known phone without LINE = that customer,
+ * never replaces another LINE). Nothing is sent to LINE.
+ */
+export async function registerLineContactByShop(contactId: string, name: string, phone: string) {
+  if (!UUID.test(contactId || '')) return bad('ไม่พบรายชื่อนี้')
+  const n = (name ?? '').trim()
+  const p = (phone ?? '').replace(/\D/g, '')
+  if (!n || n.length > 200) return bad('กรุณาใส่ชื่อ-นามสกุล')
+  if (!/^0\d{9}$/.test(p)) return bad('เบอร์โทรต้องเป็น 10 หลัก ขึ้นต้นด้วย 0')
+  return callRpc<ShopRegisterResult>('line_contact_register_by_shop', { p_contact_id: contactId, p_name: n, p_phone: p })
+}
+
+/** "ไม่รับ": leaves the list; that LINE stays a friend of the shop but is linked to no one. */
+export async function rejectLineContact(contactId: string, reason?: string) {
+  if (!UUID.test(contactId || '')) return bad('ไม่พบรายชื่อนี้')
+  return callRpc<{ contact_id: string }>('line_contact_reject', { p_contact_id: contactId, p_reason: reason?.trim() || null })
+}
+
+/** The shop OA's LINE ID (Settings › กิจการ) and its add-friend link, for the QR on คนใน LINE. */
+export async function getLineOaInfo(): Promise<LineActionResult<{ lineId: string | null; addFriendUrl: string | null }>> {
+  const supabase = await createServerSupabase()
+  const { data, error } = await supabase.from('store_settings').select('policies').eq('singleton', true).maybeSingle()
+  if (error) return bad('โหลดข้อมูลร้านไม่สำเร็จ')
+  const lineId = (data?.policies as { business_profile?: { lineId?: string } } | null)?.business_profile?.lineId?.trim() || null
+  return { success: true, data: { lineId, addFriendUrl: lineOaAddFriendUrl(lineId) } }
 }

@@ -101,7 +101,7 @@ describe('LINE actions: permission and invalid input', () => {
     expect((await queueLineMessage({ ...ok, idempotencyKey: 'short' })).success).toBe(false)
     expect((await createLineTask({ assigneeId: ok.contactId, title: ' ', idempotencyKey: 'click-00000002' })).success).toBe(false)
     expect((await createCustomerLineLinkCode('not-uuid')).success).toBe(false)
-    expect((await cancelLineTask(ok.contactId, '')).error).toBe('กรุณาระบุเหตุผล')
+    expect((await cancelLineTask('not-uuid')).error).toBe('ไม่พบงานนี้')
     expect(db.rpc).not.toHaveBeenCalled()
   })
 

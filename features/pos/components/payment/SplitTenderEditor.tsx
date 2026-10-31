@@ -3,6 +3,7 @@
 import React, { useMemo } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { NumericInput } from '@/components/common/NumericInput'
+import { CustomSelect } from '@/components/common/CustomSelect'
 
 export type SplitTenderMethod = 'CASH' | 'TRANSFER' | 'QR' | 'CHEQUE' | 'OTHER'
 
@@ -38,8 +39,9 @@ export function SplitTenderEditor({
   createTender,
   disabled = false,
 }: SplitTenderEditorProps) {
+  // No cheque option: the server stores CASH / TRANSFER / CARD / QR / OTHER only (owner 2026-10-18).
   const enabledMethods: SplitTenderMethod[] = useMemo(
-    () => ['CASH', 'TRANSFER', 'QR', 'CHEQUE', 'OTHER'],
+    () => ['CASH', 'TRANSFER', 'QR', 'OTHER'],
     []
   )
 
@@ -89,7 +91,7 @@ export function SplitTenderEditor({
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-xs font-extrabold text-slate-800 dark:text-slate-100">แบ่งชำระหลายช่องทาง</p>
-          <p className="text-[10px] text-slate-500 dark:text-slate-400">ยอดชำระรวมต้องไม่เกินยอดค้าง เงินสดยื่นเกินได้เพื่อคำนวณเงินทอน</p>
+          <p className="text-[10px] text-slate-600 dark:text-slate-400">ยอดชำระรวมต้องไม่เกินยอดค้าง เงินสดยื่นเกินได้เพื่อคำนวณเงินทอน</p>
         </div>
         <button
           type="button"
@@ -110,34 +112,32 @@ export function SplitTenderEditor({
             <div key={tender.id} className="rounded-lg border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
               <div className="grid grid-cols-[110px_minmax(0,1fr)_auto] items-end gap-1.5">
                 <div>
-                  <label className="mb-0.5 block text-[10px] font-bold text-slate-500">ช่องทาง</label>
-                  <select
+                  <label className="mb-0.5 block text-[10px] font-bold text-slate-600 dark:text-slate-400">ช่องทาง</label>
+                  <CustomSelect
+                    ariaLabel="ช่องทาง"
                     value={tender.paymentMethod}
                     disabled={disabled}
-                    onChange={(e) => {
-                      const method = e.target.value as SplitTenderMethod
+                    onChange={(value) => {
+                      const method = value as SplitTenderMethod
                       updateTender(tender.id, {
                         paymentMethod: method,
                         cashReceived: method === 'CASH' ? Math.max(tender.cashReceived || 0, tender.amount || 0) : 0,
                         referenceNo: method === 'CASH' ? '' : tender.referenceNo,
                       })
                     }}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-bold dark:border-slate-700 dark:bg-slate-800"
-                  >
-                    {enabledMethods.map((method) => (
-                      <option key={method} value={method}>{METHOD_LABELS[method]}</option>
-                    ))}
-                  </select>
+                    buttonClassName="h-[30px] px-2 py-0 rounded-lg"
+                    options={enabledMethods.map((method) => ({ value: method, label: METHOD_LABELS[method] }))}
+                  />
                 </div>
 
                 <div>
                   <div className="mb-0.5 flex items-center justify-between gap-1">
-                    <label className="text-[10px] font-bold text-slate-500">ยอดชำระ</label>
+                    <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400">ยอดชำระ</label>
                     <button
                       type="button"
                       onClick={() => fillRemaining(tender.id)}
                       disabled={disabled}
-                      className="text-[10px] font-bold text-blue-600 hover:underline disabled:opacity-50"
+                      className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
                     >
                       ใส่ยอดที่เหลือ
                     </button>
@@ -166,7 +166,7 @@ export function SplitTenderEditor({
                   aria-label={`ลบช่องทาง ${index + 1}`}
                   onClick={() => removeTender(tender.id)}
                   disabled={disabled || tenders.length <= 1}
-                  className="mb-0.5 rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30 dark:hover:bg-red-950/30"
+                  className="mb-0.5 rounded-lg p-1.5 text-slate-600 dark:text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30 dark:hover:bg-red-950/30"
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -175,7 +175,7 @@ export function SplitTenderEditor({
               {tender.paymentMethod === 'CASH' ? (
                 <div className="mt-1.5 grid grid-cols-2 gap-1.5">
                   <div>
-                    <label className="mb-0.5 block text-[10px] font-bold text-slate-500">เงินสดที่รับมา</label>
+                    <label className="mb-0.5 block text-[10px] font-bold text-slate-600 dark:text-slate-400">เงินสดที่รับมา</label>
                     <NumericInput
                       value={tender.cashReceived}
                       onChange={(value) => updateTender(tender.id, { cashReceived: value === '' ? 0 : value })}
@@ -186,13 +186,13 @@ export function SplitTenderEditor({
                     />
                   </div>
                   <div className="rounded-lg bg-emerald-50 px-2 py-1.5 dark:bg-emerald-950/30">
-                    <span className="block text-[10px] font-bold text-slate-500">เงินทอน</span>
-                    <span className="text-sm font-black text-emerald-600 tabular-nums">฿{change.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+                    <span className="block text-[10px] font-bold text-slate-600 dark:text-slate-400">เงินทอน</span>
+                    <span className="text-sm font-black text-emerald-700 dark:text-emerald-400 tabular-nums">{change.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
                   </div>
                 </div>
               ) : (
                 <div className="mt-1.5">
-                  <label className="mb-0.5 block text-[10px] font-bold text-slate-500">เลขอ้างอิง (ถ้ามี)</label>
+                  <label className="mb-0.5 block text-[10px] font-bold text-slate-600 dark:text-slate-400">เลขอ้างอิง (ถ้ามี)</label>
                   <input
                     value={tender.referenceNo}
                     onChange={(e) => updateTender(tender.id, { referenceNo: e.target.value })}
@@ -209,16 +209,16 @@ export function SplitTenderEditor({
 
       <div className={`grid grid-cols-3 gap-1.5 rounded-lg p-2 text-center ${overpayment || cashInvalid ? 'bg-red-50 dark:bg-red-950/30' : 'bg-slate-100 dark:bg-slate-800'}`}>
         <div>
-          <span className="block text-[10px] font-bold text-slate-500">ยอดค้าง</span>
-          <span className="text-xs font-black tabular-nums">฿{outstandingAmount.toLocaleString('th-TH')}</span>
+          <span className="block text-[10px] font-bold text-slate-600 dark:text-slate-400">ยอดค้าง</span>
+          <span className="text-xs font-black tabular-nums">{outstandingAmount.toLocaleString('th-TH')}</span>
         </div>
         <div>
-          <span className="block text-[10px] font-bold text-slate-500">ชำระครั้งนี้</span>
-          <span className={`text-xs font-black tabular-nums ${overpayment ? 'text-red-600' : 'text-blue-600'}`}>฿{total.toLocaleString('th-TH')}</span>
+          <span className="block text-[10px] font-bold text-slate-600 dark:text-slate-400">ชำระครั้งนี้</span>
+          <span className={`text-xs font-black tabular-nums ${overpayment ? 'text-red-700 dark:text-red-400' : 'text-blue-600 dark:text-blue-400'}`}>{total.toLocaleString('th-TH')}</span>
         </div>
         <div>
-          <span className="block text-[10px] font-bold text-slate-500">คงเหลือ</span>
-          <span className="text-xs font-black tabular-nums">฿{remaining.toLocaleString('th-TH')}</span>
+          <span className="block text-[10px] font-bold text-slate-600 dark:text-slate-400">คงเหลือ</span>
+          <span className="text-xs font-black tabular-nums">{remaining.toLocaleString('th-TH')}</span>
         </div>
       </div>
 

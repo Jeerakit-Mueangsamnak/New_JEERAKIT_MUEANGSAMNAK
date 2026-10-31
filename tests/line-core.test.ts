@@ -107,10 +107,14 @@ describe('secret redaction and public routes', () => {
     expect(out).not.toContain(token)
   })
 
-  it('only the LINE webhook is public under /api', () => {
+  it('only the LINE machine endpoints (each with its own proof) are public under /api', () => {
     expect(isPublicRoute('/api/line/webhook')).toBe(true)
     expect(isPublicRoute('/api/line/webhook/x')).toBe(false)
-    expect(isPublicRoute('/api/line/outbox')).toBe(false)
+    expect(isPublicRoute('/api/line/outbox')).toBe(true)
+    expect(isPublicRoute('/api/line/cron')).toBe(true)
+    expect(isPublicRoute('/api/line/liff-bind')).toBe(true)
+    expect(isPublicRoute('/api/line/other')).toBe(false)
+    expect(isPublicRoute('/line/bind')).toBe(true)
     expect(isPublicRoute('/api')).toBe(false)
     expect(isPublicRoute('/login')).toBe(true)
   })

@@ -2,7 +2,7 @@
 
 import { useActionPermission, NO_ACTION_PERMISSION_TITLE } from '@/features/auth/hooks/useActionPermission'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
-import { printBillA4, renderBillA4Html } from '@/features/documents/utils/transaction-print'
+import { printRentalBillA4 } from '@/features/documents/utils/rental-bill-print'
 import { BillPreviewOverlay } from '@/features/bills/components/BillPreviewOverlay'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import React, { useState } from 'react'
@@ -52,8 +52,11 @@ import {
 } from 'lucide-react'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { ActionButton } from '@/components/common/ActionButton'
-import { DATA_TABLE_THEAD_CLASSES, DATA_TABLE_TH_CLASSES } from '@/components/common/DataTableFrame'
+import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_THEAD_CLASSES, DATA_TABLE_TH_CLASSES } from '@/components/common/DataTableFrame'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
+
+// Only the Bills toolbar uses these compact dimensions; other ActionButton usages stay unchanged.
+const BILL_TOOLBAR_BUTTON_CLASSES = '!h-8 !px-2 !gap-1 !rounded-lg shrink-0 [&>svg]:!w-3.5 [&>svg]:!h-3.5'
 
 export default function BillsPage() {
   const router = useRouter()
@@ -82,6 +85,16 @@ export default function BillsPage() {
   
   // Workflow State
   const [selectedRowBill, setSelectedRowBill] = useState<FullBill | null>(null)
+
+  // A click on unused page space clears the current bill selection. Do not clear on rows,
+  // action buttons, fields, links, or dialogs; those controls may need the selected bill.
+  const handleOutsideBillClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target
+    if (!(target instanceof Element)) return
+    if (target.closest('[data-bill-selectable], button, a, input, select, textarea, label, [role="dialog"], [role="combobox"]')) return
+    setSelectedRowBill(null)
+  }
+
 
   const [activeWorkflow, setActiveWorkflow] = useState<'RETURN' | 'PAYMENT' | 'CORRECTION' | 'EXTENSION' | null>(null)
   const [showDepositRefund, setShowDepositRefund] = useState(false)
@@ -204,7 +217,7 @@ export default function BillsPage() {
 
   const handleConfirmCancelBill = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedBillForCancel || !cancelReason.trim() || isCancellingBill) return
+    if (!selectedBillForCancel || isCancellingBill) return
 
     const trimmedReason = cancelReason.trim()
     // A confirmed bill is cancelled / voided only by a member granted BILL_VOID (the server checks it too)
@@ -232,17 +245,16 @@ export default function BillsPage() {
   }
 
   // Double-click a bill row: real-size A4 preview of the bill (same template as print).
-  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
-  const closeBillPreview = React.useCallback(() => setPreviewHtml(null), [])
+  const [previewBill, setPreviewBill] = useState<FullBill | null>(null)
+  const closeBillPreview = React.useCallback(() => setPreviewBill(null), [])
   const openBillPreview = (e: React.MouseEvent, b: FullBill) => {
     if ((e.target as HTMLElement).closest('button, a, input, select, textarea')) return
     window.getSelection()?.removeAllRanges()
-    const html = renderBillA4Html(b, systemSettings.business)
-    if (html) setPreviewHtml(html)
+    setPreviewBill(b)
   }
 
   return (
-    <div className="h-full min-h-0 flex flex-col overflow-hidden p-2 gap-2 bg-slate-100 dark:bg-slate-900 text-xs">
+    <div onClick={handleOutsideBillClick} className="h-full min-h-0 flex flex-col overflow-hidden p-2 gap-2 bg-slate-100 dark:bg-slate-900 text-xs">
 
       {activeWorkflow ? (
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
@@ -291,9 +303,9 @@ export default function BillsPage() {
             <div className="bg-red-50/60 dark:bg-red-950/40 p-2 sm:p-2.5 rounded-xl border border-red-200 dark:border-red-800 flex items-center justify-between">
               <div>
                 <span className="text-[10px] sm:text-[11px] text-red-700 dark:text-red-300 font-semibold">เกินกำหนดคืน</span>
-                <h3 className="text-base sm:text-lg font-black text-red-600 dark:text-red-400 mt-0.5">{overdueCount} บิล</h3>
+                <h3 className="text-base sm:text-lg font-black text-red-700 dark:text-red-400 mt-0.5">{overdueCount} บิล</h3>
               </div>
-              <div className="p-1.5 bg-red-100 dark:bg-red-900/50 rounded-lg text-red-600 dark:text-red-300">
+              <div className="p-1.5 bg-red-100 dark:bg-red-900/50 rounded-lg text-red-700 dark:text-red-300">
                 <ShieldAlert className="w-3.5 h-3.5" />
               </div>
             </div>
@@ -301,9 +313,9 @@ export default function BillsPage() {
             <div className="bg-amber-50/60 dark:bg-amber-950/40 p-2 sm:p-2.5 rounded-xl border border-amber-200 dark:border-amber-800 flex items-center justify-between">
               <div>
                 <span className="text-[10px] sm:text-[11px] text-amber-700 dark:text-amber-300 font-semibold">ค้างชำระ</span>
-                <h3 className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400 mt-0.5">{unpaidCount} บิล</h3>
+                <h3 className="text-base sm:text-lg font-black text-amber-700 dark:text-amber-400 mt-0.5">{unpaidCount} บิล</h3>
               </div>
-              <div className="p-1.5 bg-amber-100 dark:bg-amber-900/50 rounded-lg text-amber-600 dark:text-amber-300">
+              <div className="p-1.5 bg-amber-100 dark:bg-amber-900/50 rounded-lg text-amber-700 dark:text-amber-300">
                 <AlertCircle className="w-3.5 h-3.5" />
               </div>
             </div>
@@ -311,9 +323,9 @@ export default function BillsPage() {
             <div className="bg-emerald-50/60 dark:bg-emerald-950/40 p-2 sm:p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800 flex items-center justify-between">
               <div>
                 <span className="text-[10px] sm:text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold">ปิดบิลแล้ว</span>
-                <h3 className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 mt-0.5">{closedCount} บิล</h3>
+                <h3 className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 mt-0.5">{closedCount} บิล</h3>
               </div>
-              <div className="p-1.5 bg-emerald-100 dark:bg-emerald-900/50 rounded-lg text-emerald-600 dark:text-emerald-300">
+              <div className="p-1.5 bg-emerald-100 dark:bg-emerald-900/50 rounded-lg text-emerald-700 dark:text-emerald-300">
                 <CheckCircle2 className="w-3.5 h-3.5" />
               </div>
             </div>
@@ -325,7 +337,7 @@ export default function BillsPage() {
             {/* Row 1: Search & Filter Dropdowns */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <div className="relative flex-1 min-w-0">
-                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400" />
                 <input
                   type="text"
                   placeholder="ค้นหาเลขบิล, ชื่อลูกค้า หรือ เบอร์โทรศัพท์..."
@@ -377,12 +389,14 @@ export default function BillsPage() {
               </div>
             </div>
 
-            {/* Row 2: Action Buttons (Responsive with smooth horizontal scroll) */}
-            <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-700/60 pt-2 gap-2 overflow-x-auto no-scrollbar">
-              <div className="flex items-center gap-1.5 shrink-0">
+            {/* Row 2: One toolbar row even after selecting a bill. On very narrow screens,
+                allow horizontal scrolling inside this row rather than wrapping controls. */}
+            <div className="border-t border-slate-100 dark:border-slate-700/60 pt-2 overflow-x-auto">
+              <div data-testid="bill-toolbar" className="flex w-max min-w-full flex-nowrap items-center gap-1 shrink-0">
                 {selectedRowBill?.rentalStatus === 'DRAFT' ? (
                   <>
                     <ActionButton
+                      className={BILL_TOOLBAR_BUTTON_CLASSES}
                       onClick={() => router.push(`/pos?draftBillId=${selectedRowBill.id}`)}
                       variant="info"
                       icon={<FileEdit className="w-3.5 h-3.5" />}
@@ -392,6 +406,7 @@ export default function BillsPage() {
                     </ActionButton>
 
                     <ActionButton
+                      className={BILL_TOOLBAR_BUTTON_CLASSES}
                       onClick={async () => {
                         if (await confirmDialog({ title: `ยืนยันการเปิดบิลจากแบบร่าง ${selectedRowBill.billNo} ใช่หรือไม่?` })) {
                           try {
@@ -412,6 +427,7 @@ export default function BillsPage() {
 
                     {canHardDeleteBill(selectedRowBill) && (
                       <ActionButton
+                        className={BILL_TOOLBAR_BUTTON_CLASSES}
                         onClick={async () => {
                           if (await confirmDialog({ title: `คุณต้องการลบแบบร่าง ${selectedRowBill.billNo} หรือไม่?` })) {
                             try {
@@ -437,6 +453,7 @@ export default function BillsPage() {
                     {/* Action Button 1: รับคืนสินค้า */}
                     {/* Cancelled / void bills hold no goods: no return from them (the server refuses too). */}
                     <ActionButton
+                      className={BILL_TOOLBAR_BUTTON_CLASSES}
                       disabled={!selectedRowBill || isCancelledOrVoidBill(selectedRowBill)}
                       onClick={() => setActiveWorkflow('RETURN')}
                       variant={selectedRowBill && !isCancelledOrVoidBill(selectedRowBill) ? 'primary' : 'neutral'}
@@ -452,6 +469,7 @@ export default function BillsPage() {
                     
                     {/* Action Button 2: รับชำระเงิน */}
                     <ActionButton
+                      className={BILL_TOOLBAR_BUTTON_CLASSES}
                       disabled={!selectedRowBill}
                       onClick={() => setActiveWorkflow('PAYMENT')}
                       variant={selectedRowBill ? 'info' : 'neutral'}
@@ -461,13 +479,12 @@ export default function BillsPage() {
                       รับชำระเงิน
                     </ActionButton>
 
-                    <div className="h-4 w-px bg-slate-200 dark:bg-slate-700 mx-0.5" />
 
                     <ActionButton
                       disabled={!selectedRowBill || !['RENTING', 'PARTIAL_RETURNED'].includes(selectedRowBill.rentalStatus)}
                       onClick={() => setActiveWorkflow('CORRECTION')}
                       variant={selectedRowBill && ['RENTING', 'PARTIAL_RETURNED'].includes(selectedRowBill.rentalStatus) ? 'outline' : 'neutral'}
-                      className={selectedRowBill && ['RENTING', 'PARTIAL_RETURNED'].includes(selectedRowBill.rentalStatus) ? '!bg-violet-600 hover:!bg-violet-700 !text-white !border-transparent' : ''}
+                      className={`${BILL_TOOLBAR_BUTTON_CLASSES} ${selectedRowBill && ['RENTING', 'PARTIAL_RETURNED'].includes(selectedRowBill.rentalStatus) ? '!bg-violet-600 hover:!bg-violet-700 !text-white !border-transparent' : ''}`}
                       icon={<Edit3 className="w-3.5 h-3.5" />}
                       title="แก้ไขรายการในบิล"
                     >
@@ -475,6 +492,7 @@ export default function BillsPage() {
                     </ActionButton>
 
                     <ActionButton
+                      className={BILL_TOOLBAR_BUTTON_CLASSES}
                       disabled={!selectedRowBill || selectedRowBill.deliveryStatus === 'DELIVERED' || !['CONFIRMED', 'ACTIVE'].includes(selectedRowBill.serverStatus || '')}
                       onClick={() => setShowDelivery(true)}
                       variant="outline"
@@ -488,20 +506,19 @@ export default function BillsPage() {
                       disabled={!selectedRowBill || !['RENTING', 'PARTIAL_RETURNED'].includes(selectedRowBill.rentalStatus)}
                       onClick={() => setActiveWorkflow('EXTENSION')}
                       variant={selectedRowBill && ['RENTING', 'PARTIAL_RETURNED'].includes(selectedRowBill.rentalStatus) ? 'outline' : 'neutral'}
-                      className={selectedRowBill && ['RENTING', 'PARTIAL_RETURNED'].includes(selectedRowBill.rentalStatus) ? '!bg-cyan-600 hover:!bg-cyan-700 !text-white !border-transparent' : ''}
+                      className={`${BILL_TOOLBAR_BUTTON_CLASSES} ${selectedRowBill && ['RENTING', 'PARTIAL_RETURNED'].includes(selectedRowBill.rentalStatus) ? '!bg-cyan-700 hover:!bg-cyan-800 !text-white !border-transparent' : ''}`}
                       icon={<CalendarPlus className="w-3.5 h-3.5" />}
                       title="ขยายเวลาเช่าต่อ"
                     >
                       เช่าต่อ
                     </ActionButton>
 
-                    <div className="h-4 w-px bg-slate-200 dark:bg-slate-700 mx-0.5" />
 
                     <ActionButton
                       disabled={!selectedRowBill}
                       onClick={() => setShowDepositRefund(true)}
                       variant={selectedRowBill && selectedRowBill.heldDepositAmount > 0 ? 'outline' : 'neutral'}
-                      className={selectedRowBill && selectedRowBill.heldDepositAmount > 0 ? '!bg-amber-600 hover:!bg-amber-700 !text-white !border-transparent' : ''}
+                      className={`${BILL_TOOLBAR_BUTTON_CLASSES} ${selectedRowBill && selectedRowBill.heldDepositAmount > 0 ? '!bg-amber-500 hover:!bg-amber-600 !text-slate-900 !border-transparent' : ''}`}
                       icon={<WalletCards className="w-3.5 h-3.5" />}
                       title="ดู/แก้ไขยอดมัดจำของบิล (ระบบไม่หักหรือคืนให้อัตโนมัติ)"
                     >
@@ -509,6 +526,7 @@ export default function BillsPage() {
                     </ActionButton>
 
                     <ActionButton
+                      className={BILL_TOOLBAR_BUTTON_CLASSES}
                       disabled={!selectedRowBill || selectedRowBill.paidAmount <= 0 || !canAction('REFUND')}
                       onClick={() => setShowPaymentRefund(true)}
                       variant={selectedRowBill && selectedRowBill.paidAmount > 0 ? 'danger' : 'neutral'}
@@ -518,6 +536,7 @@ export default function BillsPage() {
                       คืนเงินรับชำระ
                     </ActionButton>
                     <ActionButton
+                      className={BILL_TOOLBAR_BUTTON_CLASSES}
                       disabled={!selectedRowBill}
                       onClick={() => setSelectedBillForDispatch(selectedRowBill)}
                       variant={selectedRowBill ? 'outline' : 'neutral'}
@@ -530,13 +549,6 @@ export default function BillsPage() {
                 )}
               </div>
 
-              {selectedRowBill && (
-                <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] shrink-0 font-medium text-slate-600 dark:text-slate-300">
-                  <span className="text-slate-400">เลือกบิล:</span>
-                  <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{selectedRowBill.billNo}</span>
-                  <span className="truncate max-w-[120px]">({selectedRowBill.customerName})</span>
-                </div>
-              )}
             </div>
           </div>
 
@@ -561,7 +573,7 @@ export default function BillsPage() {
 
           {/* Loading State */}
           {isLoading && (
-            <div className="flex-1 min-h-0 flex flex-col items-center justify-center py-16 text-slate-400">
+            <div className="flex-1 min-h-0 flex flex-col items-center justify-center py-16 text-slate-600 dark:text-slate-400">
               <RefreshCw className="w-8 h-8 animate-spin mb-3" />
               <span className="text-sm font-semibold">กำลังโหลดข้อมูลบิล...</span>
             </div>
@@ -582,6 +594,7 @@ export default function BillsPage() {
               return (
                 <div
                   key={b.id}
+                  data-bill-selectable
                   onClick={() => setSelectedRowBill(b)}
                   onDoubleClick={(e) => openBillPreview(e, b)}
                   className={`p-3 rounded-2xl border shadow-sm space-y-2.5 cursor-pointer transition-all ${selectedRowBill?.id === b.id ? 'bg-emerald-50/50 dark:bg-emerald-900/20 border-emerald-500/50' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}
@@ -591,7 +604,7 @@ export default function BillsPage() {
                       <span className="font-mono font-bold text-sm text-blue-600 dark:text-blue-400 block">
                         {b.billNo}
                       </span>
-                      <span className="text-[11px] text-slate-400 block">วันที่ออกบิล: {b.billDate}</span>
+                      <span className="text-[11px] text-slate-600 dark:text-slate-400 block">วันที่ออกบิล: {b.billDate}</span>
                     </div>
                     <div className="flex flex-wrap gap-1 justify-end">
                       <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${rentalPresentation.className}`}>
@@ -606,19 +619,19 @@ export default function BillsPage() {
 
                   <div className="grid grid-cols-2 gap-2 text-xs py-2 border-y border-slate-100 dark:border-slate-700/80">
                     <div>
-                      <span className="text-slate-400 block text-[10px]">ลูกค้า:</span>
+                      <span className="text-slate-600 dark:text-slate-400 block text-[10px]">ลูกค้า:</span>
                       <span className="font-bold text-slate-800 dark:text-slate-200 block truncate">
                         {b.customerName}
                       </span>
-                      <span className="text-[11px] text-slate-500 font-mono">{b.customerPhone}</span>
+                      <span className="text-[11px] text-slate-600 dark:text-slate-400 font-mono">{b.customerPhone}</span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px]">กำหนดคืน:</span>
+                      <span className="text-slate-600 dark:text-slate-400 block text-[10px]">กำหนดคืน:</span>
                       <span className="font-bold text-slate-800 dark:text-slate-200 block">
                         {getBillListReturnDate(b)}
                       </span>
                       {overdueDays > 0 && (
-                        <span className="text-[10px] font-bold text-red-600 block">
+                        <span className="text-[10px] font-bold text-red-700 dark:text-red-400 block">
                           เกิน {overdueDays} วัน
                         </span>
                       )}
@@ -627,13 +640,13 @@ export default function BillsPage() {
 
                   <div className="flex justify-between items-center text-xs">
                     <div>
-                      <span className="text-[10px] text-slate-400 block">ยอดสุทธิ / ค้างชำระ:</span>
+                      <span className="text-[10px] text-slate-600 dark:text-slate-400 block">ยอดสุทธิ / ค้างชำระ:</span>
                       <span className="font-black text-slate-900 dark:text-slate-100">
-                        ฿{b.grandTotal.toLocaleString()}
+                        {b.grandTotal.toLocaleString()}
                       </span>
                       {b.outstandingAmount > 0 && (
-                        <span className="text-red-600 font-bold ml-1 text-[11px]">
-                          (คงค้าง ฿{b.outstandingAmount.toLocaleString()})
+                        <span className="text-red-700 dark:text-red-400 font-bold ml-1 text-[11px]">
+                          (คงค้าง {b.outstandingAmount.toLocaleString()})
                         </span>
                       )}
                     </div>
@@ -646,7 +659,7 @@ export default function BillsPage() {
                               e.stopPropagation()
                               router.push(`/pos?draftBillId=${b.id}`)
                             }}
-                            className="p-1.5 rounded-xl text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/60"
+                            className="p-1.5 rounded-xl text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/60"
                             title="แก้ไขแบบร่างใน POS"
                           >
                             <FileEdit className="w-4 h-4" />
@@ -664,7 +677,7 @@ export default function BillsPage() {
                                 }
                               }
                             }}
-                            className="p-1.5 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-950/60"
+                            className="p-1.5 rounded-xl text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60"
                             title="ลบแบบร่าง"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -677,18 +690,18 @@ export default function BillsPage() {
                               e.stopPropagation()
                               setSelectedBillForLog(b)
                             }}
-                            className="p-1.5 rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
+                            className="p-1.5 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
                             title="ประวัติ"
                           >
-                            <History className="w-4 h-4 text-blue-500" />
+                            <History className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                           </button>
 
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
-                              printBillA4(b, systemSettings.business)
+                              printRentalBillA4(b, systemSettings.business)
                             }}
-                            className="p-1.5 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer"
+                            className="p-1.5 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer"
                             title="พิมพ์บิล (A4)"
                           >
                             <Printer className="w-4 h-4" />
@@ -699,7 +712,7 @@ export default function BillsPage() {
                               e.stopPropagation()
                               setSelectedBillForLine(b)
                             }}
-                            className="p-1.5 rounded-xl text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/60"
+                            className="p-1.5 rounded-xl text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60"
                             title="ส่งการแจ้งเตือน LINE"
                           >
                             <MessageSquare className="w-4 h-4" />
@@ -712,7 +725,7 @@ export default function BillsPage() {
                                 openCancelBill(b)
                               }}
                               disabled={b.serverStatus !== 'DRAFT' && !canAction('BILL_VOID')}
-                              className="p-1.5 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-950/60 disabled:opacity-40 disabled:cursor-not-allowed"
+                              className="p-1.5 rounded-xl text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60 disabled:opacity-40 disabled:cursor-not-allowed"
                               title={b.serverStatus !== 'DRAFT' && !canAction('BILL_VOID') ? NO_ACTION_PERMISSION_TITLE : 'ยกเลิกบิล'}
                             >
                               <XCircle className="w-4 h-4" />
@@ -726,36 +739,32 @@ export default function BillsPage() {
               )
             })}
             {filteredBills.length === 0 && (
-              <div className="flex-1 flex flex-col items-center justify-center py-12 text-slate-400">
+              <div className="flex-1 flex flex-col items-center justify-center py-12 text-slate-600 dark:text-slate-400">
                 <Receipt className="w-8 h-8 opacity-40 mb-1" />
                 <span className="text-xs font-semibold">ไม่พบรายการบิล</span>
-                <span className="text-[10px] mt-1 text-slate-500">ลองปรับตัวกรองหรือเพิ่มบิลใหม่จาก POS</span>
+                <span className="text-[10px] mt-1 text-slate-600 dark:text-slate-400">ลองปรับตัวกรองหรือเพิ่มบิลใหม่จาก POS</span>
               </div>
             )}
             </div>
 
-            <div className="shrink-0 pt-2 border-t border-slate-200 dark:border-slate-700 text-xs text-slate-500">
+            <div className="shrink-0 pt-2 border-t border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-400">
               ทั้งหมด {filteredBills.length} รายการ
             </div>
           </div>
 
           {/* 2. Compact Table View (>= md screens) */}
           <div className="hidden md:flex flex-1 min-h-0 overflow-hidden flex-col justify-between">
-            <div ref={billsTableContainerRef} className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
-              <table className="w-full text-left border-collapse text-[10px] leading-tight table-fixed">
-                <colgroup>
-                  <col className="w-[88px] sm:w-[96px] lg:w-[108px]" />
-                  <col className="w-auto" />
-                  <col className="w-[74px] sm:w-[82px] lg:w-[90px]" />
-                  <col className="w-[48px] sm:w-[54px] lg:w-[60px]" />
-                  <col className="w-[68px] sm:w-[78px] lg:w-[86px]" />
-                  <col className="w-[68px] sm:w-[78px] lg:w-[86px]" />
-                  <col className="w-[68px] sm:w-[78px] lg:w-[86px]" />
-                  <col className="w-[64px] sm:w-[72px] lg:w-[80px]" />
-                  <col className="w-[64px] sm:w-[72px] lg:w-[80px]" />
-                  <col className="w-[58px] sm:w-[76px] lg:w-[104px]" />
-                </colgroup>
-                <thead className={`${DATA_TABLE_THEAD_CLASSES} text-slate-500 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 shadow-xs text-xs`}>
+            <DataTableFrame
+              fill
+              bodyClassName="bill-table-x-scroll"
+              scrollRef={billsTableContainerRef}
+              rowCount={filteredBills.length}
+              shownCount={billsEndIndex}
+              className="flex-1 min-h-0 min-w-0 rounded-none bg-transparent"
+            >
+              {/* Shared table layout: like other menus; thead stays sticky inside DataTableFrame. */}
+              <table className={`${DATA_TABLE_CLASSES} text-[10px] leading-tight`}>
+                <thead className={`${DATA_TABLE_THEAD_CLASSES} text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 shadow-sm text-xs`}>
                   <tr className="uppercase tracking-wider text-xs">
                     <th className={`px-1 ${DATA_TABLE_TH_CLASSES}`}>เลขที่บิล</th>
                     <th className={`px-1 ${DATA_TABLE_TH_CLASSES}`}>ลูกค้า / เบอร์</th>
@@ -764,7 +773,7 @@ export default function BillsPage() {
                     <th className={`px-1 text-right ${DATA_TABLE_TH_CLASSES}`}>ยอดสุทธิ</th>
                     <th className={`px-1 text-right ${DATA_TABLE_TH_CLASSES}`}>ชำระแล้ว</th>
                     <th className={`px-1 text-right ${DATA_TABLE_TH_CLASSES}`}>คงค้าง</th>
-                    <th className={`px-1 text-center ${DATA_TABLE_TH_CLASSES}`}>สถานะเช่า</th>
+                    <th className={`pl-3 pr-1 text-center ${DATA_TABLE_TH_CLASSES}`}>สถานะเช่า</th>
                     <th className={`px-1 text-center ${DATA_TABLE_TH_CLASSES}`}>การชำระ</th>
                     <th className={`px-1 text-center ${DATA_TABLE_TH_CLASSES}`}>จัดการ</th>
                   </tr>
@@ -780,19 +789,20 @@ export default function BillsPage() {
                     return (
                       <tr
                         key={b.id}
+                        data-bill-selectable
                         onClick={() => setSelectedRowBill(b)}
                         onDoubleClick={(e) => openBillPreview(e, b)}
                         className={`transition-colors cursor-pointer ${selectedRowBill?.id === b.id ? 'bg-emerald-50/50 dark:bg-emerald-900/20 ring-1 ring-inset ring-emerald-500/30' : 'hover:bg-slate-50/80 dark:hover:bg-slate-700/30'}`}
                       >
-                        <td className="px-1 py-1.5 font-bold font-mono text-blue-600 dark:text-blue-400 truncate text-[10px]">
-                          {b.billNo}
+                        <td className="px-1 py-1.5 font-bold font-mono text-blue-600 dark:text-blue-400 text-[10px]">
+                          <span className="block w-full min-w-0 truncate" title={b.billNo}>{b.billNo}</span>
                         </td>
                         <td className="px-1 py-1.5 space-y-px overflow-hidden">
-                          <div className="font-bold text-slate-900 dark:text-slate-100 truncate text-[10px]">
+                          <div className="w-full min-w-0 font-bold text-slate-900 dark:text-slate-100 truncate text-[10px]" title={b.customerName}>
                             {b.customerName}
                           </div>
-                          <div className="text-slate-500 text-[10px] flex items-center gap-0.5 font-mono truncate">
-                            <Phone className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+                          <div className="w-full min-w-0 text-slate-600 dark:text-slate-400 text-[10px] flex items-center gap-0.5 font-mono truncate">
+                            <Phone className="w-2.5 h-2.5 text-slate-600 dark:text-slate-400 shrink-0" />
                             <span className="truncate">{b.customerPhone}</span>
                           </div>
                         </td>
@@ -801,23 +811,23 @@ export default function BillsPage() {
                         </td>
                         <td className="px-1 py-1.5 text-center truncate">
                           {overdue ? (
-                            <span className="px-1 py-0.5 rounded-full bg-red-100 text-red-700 font-black text-[10px] whitespace-nowrap">
+                            <span className="px-1 py-0.5 rounded-full bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-400 font-black text-[10px] whitespace-nowrap">
                               +{overdueDays} วัน
                             </span>
                           ) : (
-                            <span className="text-slate-400 font-mono text-[10px]">-</span>
+                            <span className="text-slate-600 dark:text-slate-400 font-mono text-[10px]">-</span>
                           )}
                         </td>
                         <td className="px-1 py-1.5 text-right font-extrabold text-slate-900 dark:text-slate-100 tabular-nums whitespace-nowrap text-[10px]">
-                          ฿{b.grandTotal.toLocaleString('th-TH')}
+                          {b.grandTotal.toLocaleString('th-TH')}
                         </td>
-                        <td className="px-1 py-1.5 text-right text-emerald-600 font-semibold tabular-nums whitespace-nowrap text-[10px]">
-                          ฿{b.paidAmount.toLocaleString('th-TH')}
+                        <td className="px-1 py-1.5 text-right text-emerald-700 dark:text-emerald-400 font-semibold tabular-nums whitespace-nowrap text-[10px]">
+                          {b.paidAmount.toLocaleString('th-TH')}
                         </td>
-                        <td className="px-1 py-1.5 text-right font-bold text-red-600 tabular-nums whitespace-nowrap text-[10px]">
-                          ฿{b.outstandingAmount.toLocaleString('th-TH')}
+                        <td className="px-1 py-1.5 text-right font-bold text-red-700 dark:text-red-400 tabular-nums whitespace-nowrap text-[10px]">
+                          {b.outstandingAmount.toLocaleString('th-TH')}
                         </td>
-                        <td className="px-1 py-1.5 text-center truncate">
+                        <td className="pl-3 pr-1 py-1.5 text-center truncate">
                           <span className={`inline-flex px-1 sm:px-1.5 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap ${rentalPresentation.className}`}>
                             {overdue ? 'เกินกำหนด' : rentalPresentation.label}
                           </span>
@@ -829,13 +839,13 @@ export default function BillsPage() {
                         </td>
                         <td className="px-0.5 sm:px-1 py-1 text-center">
                           {b.rentalStatus === 'DRAFT' ? (
-                            <div className="grid grid-cols-3 sm:flex sm:flex-row items-center justify-center gap-0.5 sm:gap-1">
+                            <div className="grid grid-cols-3 sm:flex sm:flex-row items-center justify-center gap-0.5">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   router.push(`/pos?draftBillId=${b.id}`)
                                 }}
-                                className="inline-flex h-5.5 w-5.5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/60 transition-colors cursor-pointer"
+                                className="inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/60 transition-colors cursor-pointer"
                                 title="แก้ไขแบบร่างใน POS"
                               >
                                 <FileEdit className="w-3.5 h-3.5" />
@@ -855,7 +865,7 @@ export default function BillsPage() {
                                     }
                                   }
                                 }}
-                                className="inline-flex h-5.5 w-5.5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 transition-colors cursor-pointer"
+                                className="inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 transition-colors cursor-pointer"
                                 title="ยืนยันเปิดบิลจริง"
                               >
                                 <CheckCircle2 className="w-3.5 h-3.5" />
@@ -873,23 +883,23 @@ export default function BillsPage() {
                                     }
                                   }
                                 }}
-                                className="inline-flex h-5.5 w-5.5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-950/60 transition-colors cursor-pointer"
+                                className="inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60 transition-colors cursor-pointer"
                                 title="ลบแบบร่าง"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           ) : (
-                            <div className="grid grid-cols-2 sm:flex sm:flex-row items-center justify-center gap-0.5 sm:gap-1">
+                            <div className="grid grid-cols-2 sm:flex sm:flex-row items-center justify-center gap-0.5">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   setSelectedBillForLog(b)
                                 }}
-                                className="inline-flex h-5.5 w-5.5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                                className="inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
                                 title="ดูประวัติ"
                               >
-                                <History className="w-3.5 h-3.5 text-blue-500" />
+                                <History className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                               </button>
 
                               <button
@@ -897,18 +907,18 @@ export default function BillsPage() {
                                   e.stopPropagation()
                                   setSelectedBillForLine(b as any)
                                 }}
-                                className="inline-flex h-5.5 w-5.5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 transition-colors cursor-pointer"
+                                className="inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 transition-colors cursor-pointer"
                                 title="ส่งการแจ้งเตือน LINE"
                               >
-                                <MessageSquare className="w-3.5 h-3.5 text-emerald-500" />
+                                <MessageSquare className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
                               </button>
 
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  printBillA4(b, systemSettings.business)
+                                  printRentalBillA4(b, systemSettings.business)
                                 }}
-                                className="inline-flex h-5.5 w-5.5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer transition-colors"
+                                className="inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer transition-colors"
                                 title="พิมพ์บิล (A4)"
                               >
                                 <Printer className="w-3.5 h-3.5" />
@@ -921,13 +931,13 @@ export default function BillsPage() {
                                     openCancelBill(b)
                                   }}
                                   disabled={b.serverStatus !== 'DRAFT' && !canAction('BILL_VOID')}
-                                  className="inline-flex h-5.5 w-5.5 sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                  className="inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                   title={b.serverStatus !== 'DRAFT' && !canAction('BILL_VOID') ? NO_ACTION_PERMISSION_TITLE : 'ยกเลิกบิล'}
                                 >
                                   <XCircle className="w-3.5 h-3.5" />
                                 </button>
                               ) : (
-                                <div className="h-5.5 w-5.5 sm:hidden" />
+                                <div className="h-[22px] w-[22px] sm:hidden" />
                               )}
                             </div>
                           )}
@@ -937,22 +947,18 @@ export default function BillsPage() {
                   })}
                   {paginatedBills.length === 0 && (
                     <tr data-empty-row="true">
-                      <td colSpan={10} className="py-12 text-center text-slate-400 dark:text-slate-500 text-xs">
+                      <td colSpan={10} className="py-12 text-center text-slate-600 dark:text-slate-400 text-xs">
                         <div className="flex flex-col items-center justify-center gap-1.5">
                           <Receipt className="w-8 h-8 opacity-40 mb-1" />
                           <span className="font-semibold">ยังไม่มีรายการบิล</span>
-                          <span className="text-[11px] text-slate-400">ลองปรับตัวกรองหรือเพิ่มบิลใหม่จาก POS</span>
+                          <span className="text-[11px] text-slate-600 dark:text-slate-400">ลองปรับตัวกรองหรือเพิ่มบิลใหม่จาก POS</span>
                         </div>
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
-            </div>
-
-            <div className="shrink-0 p-2 sm:p-2.5 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-700 text-[11px] text-slate-500">
-              แสดง {Math.min(billsEndIndex, filteredBills.length)} จากทั้งหมด {filteredBills.length} รายการ
-            </div>
+            </DataTableFrame>
           </div>
         </>
       )}
@@ -1007,7 +1013,7 @@ export default function BillsPage() {
           <>
             <AppModalHeader
               onClose={closeCancelBill}
-              icon={<XCircle className="w-5 h-5 text-red-500" />}
+              icon={<XCircle className="w-5 h-5 text-red-700 dark:text-red-400" />}
               title={`ยกเลิกบิลเช่า (${selectedBillForCancel.billNo})`}
             />
 
@@ -1019,7 +1025,7 @@ export default function BillsPage() {
 
                 <div>
                   <label className="block font-semibold mb-1 text-slate-700 dark:text-slate-200">
-                    ระบุเหตุผลในการยกเลิกบิล <span className="text-red-500">*</span>
+                    ระบุเหตุผลในการยกเลิกบิล (ไม่บังคับ)
                   </label>
                   <textarea
                     rows={3}
@@ -1027,7 +1033,6 @@ export default function BillsPage() {
                     onChange={(e) => setCancelReason(e.target.value)}
                     placeholder="เช่น ลูกค้าขอยกเลิกงาน..."
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-red-500 focus:outline-none"
-                    required
                   />
                 </div>
               </AppModalBody>
@@ -1073,7 +1078,7 @@ export default function BillsPage() {
         }
       />
 
-      <BillPreviewOverlay html={previewHtml} onClose={closeBillPreview} />
+      <BillPreviewOverlay bill={previewBill} business={systemSettings.business} onClose={closeBillPreview} />
       {selectedBillForDispatch && (
         <AppointmentDispatchModal
           sourceBill={selectedBillForDispatch}

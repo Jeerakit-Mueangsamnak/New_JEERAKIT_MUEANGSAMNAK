@@ -125,6 +125,16 @@ export function setLastActivity(userId: string, at: number): void {
   }
 }
 
+/**
+ * The auto-lock time this device must use. The member's own choice counts only while it is one of
+ * the times the OWNER allows (Settings › ความปลอดภัยร้าน); otherwise the shop default applies, so a
+ * personal choice made earlier can never outlast the OWNER removing that option.
+ */
+export function effectiveAutoLockSeconds(chosen: number, options: readonly number[], shopDefault: number): number {
+  if (options.length === 0 || options.includes(chosen)) return chosen
+  return options.includes(shopDefault) ? shopDefault : options[0]
+}
+
 /** True when the idle time since the last activity reached the user's auto-lock time (0 = never). */
 export function isIdleExpired(lastActivityMs: number | null, nowMs: number, autoLockSeconds: number): boolean {
   if (!autoLockSeconds || autoLockSeconds <= 0 || lastActivityMs === null) return false

@@ -3,22 +3,22 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Copy, Link2Off, RefreshCw, UserRound } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
-import { useAskText } from '@/components/common/ConfirmDialogProvider'
 import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { createMyLineLinkCode, unlinkLineContact } from '@/app/actions/line'
+import { createMyLineLinkCode } from '@/app/actions/line'
 import { SETTINGS_HELPER, SETTINGS_SECTION, SETTINGS_SECTION_TITLE } from '@/features/settings/components/settings-ui'
+import { StatusPill } from '@/features/settings/components/StatusPill'
+import { LineContactInfo, LineInviteButton, type LineReviewContact } from '@/features/settings/components/LineInviteButton'
+import { useUnlinkLineContact } from '@/features/settings/hooks/useUnlinkLineContact'
 
 /**
- * Settings › LINE › เพิ่มข้อมูล: which staff (app users) have linked LINE. A staff code is only for
- * oneself (the database refuses a code for another member); unlink: oneself or the OWNER.
- * Customers link from the customer form (CustomerLineLink).
+ * Settings › LINE › เพิ่มข้อมูล: which staff (app users) have linked LINE. The OWNER sends an invite
+ * link to a member's own LINE; a member may also issue a typed code for oneself. Unlink: oneself
+ * or the OWNER. A link whose typed name did not match is flagged until someone checks it.
  */
 
-interface Contact {
-  id: string
-  display_name: string | null
+interface Contact extends LineReviewContact {
   profile_id: string | null
   customer_id: string | null
 }
@@ -38,13 +38,9 @@ const TD = 'px-2'
 
 function LinkCell({ contact }: { contact?: Contact }) {
   return contact ? (
-    <span className="inline-flex items-center h-6 px-2 rounded-lg text-[11px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-      เชื่อมแล้ว{contact.display_name ? ` · ${contact.display_name}` : ''}
-    </span>
+    <StatusPill ok okText={`เชื่อมแล้ว${contact.display_name ? ` · ${contact.display_name}` : ''}`} noText="" />
   ) : (
-    <span className="inline-flex items-center h-6 px-2 rounded-lg text-[11px] font-bold bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-      ยังไม่เชื่อม
-    </span>
+    <StatusPill ok={false} okText="" noText="ยังไม่เชื่อม" />
   )
 }
 
@@ -54,10 +50,10 @@ function CodeCell({ code, onCopy }: { code: IssuedCode; onCopy: (code: string) =
       <span className="font-mono font-extrabold tracking-wider text-slate-900 dark:text-slate-100" data-testid="line-code">
         {code.code}
       </span>
-      <button type="button" onClick={() => onCopy(code.code)} aria-label="คัดลอกรหัส" className="p-1 rounded-lg text-slate-400 hover:text-blue-600 cursor-pointer">
+      <button type="button" onClick={() => onCopy(code.code)} aria-label="คัดลอกรหัส" className="p-1 rounded-lg text-slate-600 dark:text-slate-400 hover:text-blue-600 cursor-pointer">
         <Copy className="w-3.5 h-3.5" />
       </button>
-      <span className="text-[10px] text-slate-500">
+      <span className="text-[10px] text-slate-600 dark:text-slate-400">
         หมดอายุ {new Date(code.expiresAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
       </span>
     </span>
@@ -66,7 +62,6 @@ function CodeCell({ code, onCopy }: { code: IssuedCode; onCopy: (code: string) =
 
 export function LineMembersPanel() {
   const { showToast } = useToast()
-  const askText = useAskText()
   const { user } = useAuth()
   const [contacts, setContacts] = useState<Contact[]>([])
   const [staff, setStaff] = useState<Staff[]>([])
@@ -78,15 +73,37 @@ export function LineMembersPanel() {
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
-    const supabase = createClient()
-    const [c, p] = await Promise.all([
-      supabase.from('line_contacts').select('id, display_name, profile_id, customer_id').eq('status', 'LINKED'),
-      supabase.from('profiles').select('id, display_name, username').order('display_name'),
-    ])
-    if (c.error) setLoadError('ระบบ LINE ยังไม่พร้อมในฐานข้อมูลนี้ จึงยังไม่เห็นสถานะการเชื่อม')
-    setContacts((c.data as Contact[] | null) ?? [])
-    setStaff((p.data as Staff[] | null) ?? [])
-    setLoading(false)
+    try {
+      const supabase = createClient()
+      const [c, p] = await Promise.all([
+        supabase
+          .from('line_contacts')
+          .select('id, display_name, profile_id, customer_id, typed_name, typed_phone, line_handle, needs_review')
+          .eq('status', 'LINKED'),
+        // Every member opens this tab (owner 2026-10-26): names only, through member_directory().
+        supabase.rpc('member_directory'),
+      ])
+      // Report the first failure with its own message; never keep the old rows on a failed read.
+      if (c.error) {
+        setLoadError('ระบบ LINE ยังไม่พร้อมในฐานข้อมูลนี้ จึงยังไม่เห็นสถานะการเชื่อม')
+        setContacts([])
+      } else {
+        setContacts((c.data as Contact[] | null) ?? [])
+      }
+      if (p.error) {
+        setLoadError((prev) => prev ?? p.error.message ?? 'โหลดรายชื่อพนักงานไม่สำเร็จ')
+        setStaff([])
+      } else {
+        setStaff((p.data as Staff[] | null) ?? [])
+      }
+    } catch (e: unknown) {
+      // A rejected client / network call must not leave the panel spinning forever.
+      setLoadError(e instanceof Error ? e.message : 'โหลดรายชื่อพนักงานไม่สำเร็จ')
+      setContacts([])
+      setStaff([])
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -118,35 +135,27 @@ export function LineMembersPanel() {
     }
   }
 
-  const unlink = async (rowKey: string, contact: Contact, name: string, self: boolean) => {
-    const reason = await askText({
-      title: `ยกเลิกการเชื่อม LINE: ${name}`,
-      message: 'ข้อความที่ยังไม่ส่งถึงคนนี้จะถูกยกเลิก และต้องออกรหัสใหม่เพื่อเชื่อมอีกครั้ง',
-      placeholder: self ? 'เหตุผล (ไม่บังคับ)' : 'เหตุผล เช่น ผูกผิดคน',
-      confirmLabel: 'ยกเลิกการเชื่อม',
-      danger: true,
-    })
-    if (reason === null || (!self && !reason.trim())) return
+  const unlinkContact = useUnlinkLineContact(() => load())
+
+  const unlink = async (rowKey: string, contact: Contact, name: string) => {
     setBusyId(rowKey)
     try {
-      const r = await unlinkLineContact(contact.id, reason)
-      if (!r.success) {
-        showToast('ยกเลิกไม่สำเร็จ', r.error || 'เกิดข้อผิดพลาด', 'ERROR')
-        return
-      }
-      showToast('ยกเลิกการเชื่อมแล้ว', name, 'SUCCESS')
-      await load()
+      await unlinkContact(
+        contact.id,
+        name,
+        'ข้อความที่ยังไม่ส่งถึงคนนี้จะถูกยกเลิก และต้องออกรหัสใหม่เพื่อเชื่อมอีกครั้ง'
+      )
     } finally {
       setBusyId(null)
     }
   }
 
-  const unlinkButton = (rowKey: string, contact: Contact, name: string, self: boolean) => (
+  const unlinkButton = (rowKey: string, contact: Contact, name: string) => (
     <button
       type="button"
       disabled={busyId === rowKey}
-      onClick={() => void unlink(rowKey, contact, name, self)}
-      className={`${BTN} text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 inline-flex items-center gap-1`}
+      onClick={() => void unlink(rowKey, contact, name)}
+      className={`${BTN} text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 inline-flex items-center gap-1`}
     >
       <Link2Off className="w-3.5 h-3.5" />
       ยกเลิกการเชื่อม
@@ -157,14 +166,14 @@ export function LineMembersPanel() {
     <div className={SETTINGS_SECTION}>
       <div className="flex items-center justify-between gap-2">
         <p className={SETTINGS_HELPER}>
-          พนักงานแต่ละคนกดออกรหัสของตัวเอง แล้วส่งรหัสในแชตส่วนตัวกับ LINE ร้าน · รหัสใช้ได้ครั้งเดียวและหมดอายุ · ลูกค้าเชื่อม LINE ได้ที่ฟอร์มข้อมูลลูกค้า
+          เจ้าของร้านกด &quot;ส่งลิงก์ผูก LINE&quot; แล้วส่งเข้า LINE ส่วนตัวของพนักงาน · หรือพนักงานออกรหัสของตัวเองแล้วพิมพ์ในแชต LINE ร้าน · ลิงก์และรหัสใช้ได้ครั้งเดียว
         </p>
         <button
           type="button"
           onClick={() => void load()}
           disabled={loading}
           aria-label="รีเฟรชสถานะ LINE"
-          className="h-8 w-8 shrink-0 rounded-xl border border-slate-200 dark:border-slate-700 inline-flex items-center justify-center text-slate-500 cursor-pointer"
+          className="h-8 w-8 shrink-0 rounded-xl border border-slate-200 dark:border-slate-700 inline-flex items-center justify-center text-slate-600 dark:text-slate-400 cursor-pointer"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
@@ -172,13 +181,13 @@ export function LineMembersPanel() {
       {loadError && <p className="text-[11px] text-amber-700 dark:text-amber-300">{loadError}</p>}
 
       <h4 className={SETTINGS_SECTION_TITLE}>
-        <UserRound className="w-3.5 h-3.5 text-blue-600" />
+        <UserRound className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
         <span>พนักงานที่ใช้ระบบ</span>
       </h4>
       <DataTableFrame
         rowCount={staff.length}
         empty={staff.length === 0}
-        emptyState={<p className="py-6 text-center text-slate-400">{loading ? 'กำลังโหลด…' : 'ไม่พบรายชื่อพนักงาน'}</p>}
+        emptyState={<p className="py-6 text-center text-slate-600 dark:text-slate-400">{loading ? 'กำลังโหลด…' : 'ไม่พบรายชื่อพนักงาน'}</p>}
       >
         <table className="w-full text-left border-collapse table-auto text-xs" aria-label="ตารางพนักงาน LINE">
           <thead>
@@ -198,18 +207,21 @@ export function LineMembersPanel() {
               const name = s.display_name || s.username || '-'
               return (
                 <tr key={s.id}>
-                  <td className={`${TD} text-center text-slate-500`}>{idx + 1}</td>
+                  <td className={`${TD} text-center text-slate-600 dark:text-slate-400`}>{idx + 1}</td>
                   <td className={`${TD} font-semibold text-slate-800 dark:text-slate-200`}>
                     {name}
-                    {self && <span className="ml-1 text-[10px] text-blue-600">(คุณ)</span>}
+                    {self && <span className="ml-1 text-[10px] text-blue-600 dark:text-blue-400">(คุณ)</span>}
                   </td>
-                  <td className={`${TD} font-mono text-slate-500`}>{s.username || '-'}</td>
+                  <td className={`${TD} font-mono text-slate-600 dark:text-slate-400`}>{s.username || '-'}</td>
                   <td className={TD}>
-                    <LinkCell contact={contact} />
+                    <span className="inline-flex flex-wrap items-center gap-1.5">
+                      <LinkCell contact={contact} />
+                      {contact && <LineContactInfo contact={contact} onChanged={() => void load()} />}
+                    </span>
                   </td>
                   <td className={`${TD} text-right`}>
                     {contact ? (
-                      (self || user?.role === 'OWNER') && unlinkButton(key, contact, name, self)
+                      unlinkButton(key, contact, name)
                     ) : codes[key] ? (
                       <CodeCell code={codes[key]} onCopy={copy} />
                     ) : self ? (
@@ -217,12 +229,12 @@ export function LineMembersPanel() {
                         type="button"
                         disabled={busyId === key || Boolean(loadError)}
                         onClick={() => void issue(key, () => createMyLineLinkCode())}
-                        className={`${BTN} text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40`}
+                        className={`${BTN} text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40`}
                       >
                         ออกรหัสของฉัน
                       </button>
                     ) : (
-                      <span className="text-[11px] text-slate-400">ให้พนักงานออกรหัสเอง</span>
+                      <LineInviteButton kind="STAFF" target={s.id} name={name} disabled={Boolean(loadError)} />
                     )}
                   </td>
                 </tr>

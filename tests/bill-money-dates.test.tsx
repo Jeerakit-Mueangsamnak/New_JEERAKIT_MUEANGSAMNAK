@@ -135,7 +135,7 @@ describe('P1-B4 checkout shows the discount the server charges', () => {
 })
 
 describe('P1-B7 a correction that changes nothing keeps the total', () => {
-  // 2 boards × 3 days × ฿20 = 120, 1 sale ฿100, discount 20, delivery 50 → base 250, VAT 7% → 267.50; deposit 500 held apart
+  // 2 boards × 3 days × 20 = 120, 1 sale 100, discount 20, delivery 50 → base 250, VAT 7% → 267.50; deposit 500 held apart
   const bill = {
     billAmount: 267.5,
     grandTotal: 267.5,

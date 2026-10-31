@@ -27,12 +27,12 @@ export function ReportAreaTrendChart({
   xKey = 'label',
   series,
   height = 175,
-  valuePrefix = '฿',
+  valuePrefix = '',
   valueSuffix = '',
 }: ReportAreaTrendChartProps) {
   if (!data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-32 text-xs text-slate-500">
+      <div className="flex items-center justify-center h-32 text-xs text-slate-600 dark:text-slate-400">
         ยังไม่มีข้อมูลแนวโน้ม
       </div>
     )
@@ -66,7 +66,7 @@ export function ReportAreaTrendChart({
       {/* Legend */}
       <div className="flex items-center justify-end gap-3 text-[10.5px] mb-1 font-bold flex-wrap">
         {series.map((s) => (
-          <span key={s.key} className="flex items-center gap-1.5" style={{ color: s.color }}>
+          <span key={s.key} className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
             <span className="w-2.5 h-2.5 rounded-full inline-block shrink-0" style={{ backgroundColor: s.color }} />
             {s.name}
           </span>
@@ -197,11 +197,11 @@ export function ReportBarChart({
   xKey = 'label',
   series,
   height = 175,
-  valuePrefix = '฿',
+  valuePrefix = '',
 }: ReportBarChartProps) {
   if (!data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-32 text-xs text-slate-500">
+      <div className="flex items-center justify-center h-32 text-xs text-slate-600 dark:text-slate-400">
         ยังไม่มีข้อมูลเปรียบเทียบ
       </div>
     )
@@ -239,7 +239,7 @@ export function ReportBarChart({
       {/* Legend */}
       <div className="flex items-center justify-end gap-3 text-[10.5px] mb-1 font-bold flex-wrap">
         {series.map((s) => (
-          <span key={s.key} className="flex items-center gap-1.5" style={{ color: s.color }}>
+          <span key={s.key} className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
             <span className="w-2.5 h-2.5 rounded-xs inline-block shrink-0" style={{ backgroundColor: s.color }} />
             {s.name}
           </span>
@@ -405,14 +405,14 @@ export function ReportDonutChart({
 
         {/* Center Text */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center px-1">
-          <span className="text-[8.5px] text-slate-400 font-bold uppercase">{centerTitle}</span>
+          <span className="text-[8.5px] text-slate-600 dark:text-slate-400 font-bold uppercase">{centerTitle}</span>
           <span className="text-[12px] font-black text-slate-800 dark:text-slate-100 font-mono leading-tight truncate max-w-full">
             {centerValue !== undefined
               ? centerValue
               : `${valuePrefix}${total.toLocaleString()}`}
           </span>
           {centerSuffix && (
-            <span className="text-[8px] text-slate-400 font-medium">{centerSuffix}</span>
+            <span className="text-[8px] text-slate-600 dark:text-slate-400 font-medium">{centerSuffix}</span>
           )}
         </div>
       </div>
@@ -443,7 +443,7 @@ export function ReportDonutChart({
                   {valuePrefix}
                   {(item.value || 0).toLocaleString()}
                 </span>
-                <span className="text-[9.5px] text-slate-400 w-7 text-right font-sans">
+                <span className="text-[9.5px] text-slate-600 dark:text-slate-400 w-7 text-right font-sans">
                   {pct}%
                 </span>
               </div>
@@ -483,7 +483,7 @@ export function ReportFunnel({ steps }: { steps: FunnelStep[] }) {
           />
 
           <div className="flex items-center justify-between gap-1 mb-1">
-            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 truncate">
+            <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400 truncate">
               {st.label}
             </span>
             <span
@@ -500,10 +500,10 @@ export function ReportFunnel({ steps }: { steps: FunnelStep[] }) {
           <div className="my-0.5">
             <div className="text-base sm:text-lg font-black font-mono text-slate-900 dark:text-slate-100">
               {st.count.toLocaleString()}{' '}
-              <span className="text-[10px] font-normal text-slate-400">ใบ</span>
+              <span className="text-[10px] font-normal text-slate-600 dark:text-slate-400">ใบ</span>
             </div>
             <div className="text-[10.5px] font-bold font-mono text-slate-600 dark:text-slate-300 truncate">
-              ฿{st.value.toLocaleString()}
+              {st.value.toLocaleString()}
             </div>
           </div>
 

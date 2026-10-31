@@ -165,7 +165,7 @@ export function CalendarPanel({
               className="px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 flex items-center gap-1 transition-colors cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-600"
             >
               <span>{THAI_MONTHS[viewMonth]}</span>
-              <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${isMonthDropdownOpen ? 'rotate-180 text-blue-500' : ''}`} />
+              <ChevronDown className={`w-3 h-3 text-slate-600 dark:text-slate-400 transition-transform ${isMonthDropdownOpen ? 'rotate-180 text-blue-600 dark:text-blue-400' : ''}`} />
             </button>
 
             {isMonthDropdownOpen && (
@@ -206,7 +206,7 @@ export function CalendarPanel({
               className="px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-mono flex items-center gap-1 transition-colors cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-600"
             >
               <span>{viewYear + 543}</span>
-              <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${isYearDropdownOpen ? 'rotate-180 text-blue-500' : ''}`} />
+              <ChevronDown className={`w-3 h-3 text-slate-600 dark:text-slate-400 transition-transform ${isYearDropdownOpen ? 'rotate-180 text-blue-600 dark:text-blue-400' : ''}`} />
             </button>
 
             {isYearDropdownOpen && (
@@ -253,7 +253,7 @@ export function CalendarPanel({
           <span
             key={day}
             className={`text-[11px] font-bold ${
-              idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-slate-400'
+              idx === 0 ? 'text-red-700 dark:text-red-400' : idx === 6 ? 'text-blue-600 dark:text-blue-400' : 'text-slate-600 dark:text-slate-400'
             }`}
           >
             {day}
@@ -309,7 +309,7 @@ export function CalendarPanel({
             <button
               type="button"
               onClick={handleClear}
-              className="text-slate-400 hover:text-red-500 font-semibold transition-colors cursor-pointer"
+              className="text-slate-600 dark:text-slate-400 hover:text-red-500 font-semibold transition-colors cursor-pointer"
             >
               ล้างข้อมูล
             </button>
@@ -407,7 +407,7 @@ export function CustomDatePicker({
           disabled ? 'opacity-60 cursor-not-allowed bg-slate-100 dark:bg-slate-900' : ''
         }`}
       >
-        <span className={`truncate flex-1 min-w-0 ${value ? 'text-slate-900 dark:text-slate-100 font-bold' : 'text-slate-400 font-normal'}`}>
+        <span className={`truncate flex-1 min-w-0 ${value ? 'text-slate-900 dark:text-slate-100 font-bold' : 'text-slate-600 dark:text-slate-400 font-normal'}`}>
           {value ? formatDateDisplay(value) : placeholder}
         </span>
         <div className="flex items-center gap-1 shrink-0">
@@ -417,13 +417,13 @@ export function CustomDatePicker({
                 e.stopPropagation()
                 onChange(null)
               }}
-              className="p-0.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
+              className="p-0.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
               title="ล้างวันที่"
             >
               <X className="w-3 h-3" />
             </span>
           )}
-          <CalendarIcon className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+          <CalendarIcon className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
         </div>
       </button>
 

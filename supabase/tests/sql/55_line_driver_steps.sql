@@ -97,7 +97,7 @@ SELECT t.check('DRV-MOVE', 'withdrawing again sends nothing more',
         $q$select public.line_driver_tasks_withdraw(%L::uuid, 'REASSIGN', '[{"type":"text","text":"ถอนงาน"}]'::jsonb)$q$,
         t.v('drv_apt')))) ->> 'withdrawn' = '0'
     AND (SELECT count(*) FROM public.line_deliveries WHERE dedupe_key LIKE 'W:%' AND task_id = t.v('task1')::uuid) = 1);
-SELECT t.err('DRV-MOVE', 'a member without the appointments menu cannot withdraw', 'nomenu',
+SELECT t.err('DRV-MOVE', 'withdrawing needs an ACTIVE member (owner 2026-10-26: every ACTIVE member may; one waiting for approval may not)', 'pending',
     format($q$select public.line_driver_tasks_withdraw(%L::uuid, 'REASSIGN', '[{"type":"text","text":"x"}]'::jsonb)$q$, t.v('drv_apt')),
     'FORBIDDEN');
 

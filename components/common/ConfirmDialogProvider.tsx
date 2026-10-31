@@ -112,7 +112,7 @@ export function ConfirmDialogProvider({ children }: { children: React.ReactNode 
             <div className="flex items-start gap-3">
               <Icon
                 className={`w-5 h-5 shrink-0 mt-0.5 ${
-                  o.danger ? 'text-red-600' : pending.alertOnly ? 'text-blue-600' : 'text-amber-500'
+                  o.danger ? 'text-red-700 dark:text-red-400' : pending.alertOnly ? 'text-blue-600 dark:text-blue-400' : 'text-amber-700 dark:text-amber-400'
                 }`}
               />
               <div className="min-w-0">

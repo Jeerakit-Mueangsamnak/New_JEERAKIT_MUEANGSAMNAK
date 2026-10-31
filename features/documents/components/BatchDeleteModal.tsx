@@ -38,14 +38,14 @@ export function BatchDeleteModal({
     <AppModal isOpen={isOpen} onClose={onClose} size="sm">
       <AppModalHeader
         onClose={onClose}
-        icon={<AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400" />}
+        icon={<AlertTriangle className="w-5 h-5 text-red-700 dark:text-red-400" />}
         title="ยืนยันการลบข้อมูล"
       />
 
       <AppModalBody className="space-y-3 text-xs">
         <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-slate-800 dark:text-slate-200 leading-relaxed font-bold text-xs">
-          ต้องการลบ{itemTypeLabel}ที่เลือกจำนวน <span className="text-red-600 dark:text-red-400 text-sm font-black">{count}</span> รายการหรือไม่?
-          <p className="text-[11px] font-normal text-slate-500 dark:text-slate-400 mt-1">
+          ต้องการลบ{itemTypeLabel}ที่เลือกจำนวน <span className="text-red-700 dark:text-red-400 text-sm font-black">{count}</span> รายการหรือไม่?
+          <p className="text-[11px] font-normal text-slate-600 dark:text-slate-400 mt-1">
             การดำเนินการนี้ไม่สามารถยกเลิกได้ รายการทั้งหมดจะถูกลบออกจากฐานข้อมูลถาวร
           </p>
         </div>
@@ -53,7 +53,7 @@ export function BatchDeleteModal({
         <div className="space-y-1">
           <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
             <span>เหตุผลในการลบ (จำเป็น)</span>
-            <span className="text-red-500">*</span>
+            <span className="text-red-700 dark:text-red-400">*</span>
           </label>
           <input
             type="text"

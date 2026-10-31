@@ -124,13 +124,13 @@ export function DamagedTransformModal({
     <AppModal isOpen={isOpen} onClose={onClose} size="md">
       <AppModalHeader
         onClose={onClose}
-        icon={<Shuffle className="w-5 h-5 text-amber-600" />}
+        icon={<Shuffle className="w-5 h-5 text-amber-700 dark:text-amber-400" />}
       >
         <div>
           <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
             ดัดแปลงสินค้าชำรุดเป็นสินค้าอื่น
           </h3>
-          <p className="text-xs text-slate-500 font-medium">
+          <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">
             สินค้าต้นทาง: {sourceProduct.name}
           </p>
         </div>
@@ -151,13 +151,13 @@ export function DamagedTransformModal({
                   ชำรุด: {sourceProduct.damagedQuantity} {sourceProduct.unit}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 font-medium">หมวดหมู่: {sourceProduct.category}</p>
+              <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">หมวดหมู่: {sourceProduct.category}</p>
             </div>
 
             {/* Target Product Selection */}
             <div className="space-y-1.5">
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-200">
-                เลือกสินค้าปลายทาง (Target Product) <span className="text-red-500">*</span>
+                เลือกสินค้าปลายทาง (Target Product) <span className="text-red-700 dark:text-red-400">*</span>
               </label>
               <CustomSelect
                 value={targetProductId}
@@ -166,7 +166,7 @@ export function DamagedTransformModal({
                 placeholder="-- เลือกสินค้าที่ต้องการดัดแปลงเป็น --"
               />
               {!targetProductId && (
-                <p className="text-[11px] text-red-500 font-medium flex items-center gap-1">
+                <p className="text-[11px] text-red-700 dark:text-red-400 font-medium flex items-center gap-1">
                   <AlertTriangle className="w-3.5 h-3.5" />
                   <span>กรุณาเลือกสินค้าปลายทาง</span>
                 </p>
@@ -176,7 +176,7 @@ export function DamagedTransformModal({
             {/* Quantity Input */}
             <div className="space-y-1.5">
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-200">
-                จำนวนที่ต้องการดัดแปลง ({sourceProduct.unit}) <span className="text-red-500">*</span>
+                จำนวนที่ต้องการดัดแปลง ({sourceProduct.unit}) <span className="text-red-700 dark:text-red-400">*</span>
               </label>
               <div className="flex items-center gap-2">
                 <NumericInput
@@ -197,7 +197,7 @@ export function DamagedTransformModal({
                 </button>
               </div>
               {!isQtyValid && (
-                <p className="text-[11px] text-red-500 font-medium flex items-center gap-1">
+                <p className="text-[11px] text-red-700 dark:text-red-400 font-medium flex items-center gap-1">
                   <AlertTriangle className="w-3.5 h-3.5" />
                   <span>ต้องระบุจำนวนระหว่าง 1 ถึง {maxTransform}</span>
                 </p>
@@ -227,25 +227,25 @@ export function DamagedTransformModal({
                 
                 {/* Source Product Impact */}
                 <div className="p-2.5 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 space-y-1">
-                  <div className="flex justify-between items-center text-slate-500 text-[11px]">
-                    <span className="font-semibold text-amber-600 dark:text-amber-400">1. สินค้าต้นทาง ({sourceProduct.name})</span>
+                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-400 text-[11px]">
+                    <span className="font-semibold text-amber-700 dark:text-amber-400">1. สินค้าต้นทาง ({sourceProduct.name})</span>
                     <span>ตัดออกจากชำรุด</span>
                   </div>
                   <div className="flex justify-between items-center text-xs font-mono">
-                    <span>ยอดชำรุด: <span className="line-through text-slate-400">{sourceProduct.damagedQuantity}</span> → <span className="font-bold text-amber-600 dark:text-amber-400">{sourceTargetDamaged}</span></span>
-                    <span>ยอดทั้งหมด: <span className="line-through text-slate-400">{sourceProduct.totalQuantity}</span> → <span className="font-bold text-slate-700 dark:text-slate-300">{sourceTargetTotal}</span></span>
+                    <span>ยอดชำรุด: <span className="line-through text-slate-600 dark:text-slate-400">{sourceProduct.damagedQuantity}</span> → <span className="font-bold text-amber-700 dark:text-amber-400">{sourceTargetDamaged}</span></span>
+                    <span>ยอดทั้งหมด: <span className="line-through text-slate-600 dark:text-slate-400">{sourceProduct.totalQuantity}</span> → <span className="font-bold text-slate-700 dark:text-slate-300">{sourceTargetTotal}</span></span>
                   </div>
                 </div>
 
                 {/* Target Product Impact */}
                 <div className="p-2.5 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 space-y-1">
-                  <div className="flex justify-between items-center text-slate-500 text-[11px]">
-                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">2. สินค้าปลายทาง ({targetProduct.name})</span>
+                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-400 text-[11px]">
+                    <span className="font-semibold text-emerald-700 dark:text-emerald-400">2. สินค้าปลายทาง ({targetProduct.name})</span>
                     <span>เพิ่มเข้าสต็อกพร้อมใช้</span>
                   </div>
                   <div className="flex justify-between items-center text-xs font-mono">
-                    <span>พร้อมใช้: <span className="text-slate-400">{targetProduct.availableQuantity}</span> → <span className="font-bold text-emerald-600 dark:text-emerald-400">{targetNewAvailable}</span></span>
-                    <span>ยอดทั้งหมด: <span className="text-slate-400">{targetProduct.totalQuantity}</span> → <span className="font-bold text-slate-700 dark:text-slate-300">{targetNewTotal}</span></span>
+                    <span>พร้อมใช้: <span className="text-slate-600 dark:text-slate-400">{targetProduct.availableQuantity}</span> → <span className="font-bold text-emerald-700 dark:text-emerald-400">{targetNewAvailable}</span></span>
+                    <span>ยอดทั้งหมด: <span className="text-slate-600 dark:text-slate-400">{targetProduct.totalQuantity}</span> → <span className="font-bold text-slate-700 dark:text-slate-300">{targetNewTotal}</span></span>
                   </div>
                 </div>
               </div>
@@ -266,10 +266,10 @@ export function DamagedTransformModal({
             <button
               type="submit"
               disabled={!isQtyValid || !isTargetValid || isSubmitting}
-              className={`px-5 py-2 rounded-xl font-bold text-xs text-white transition-all flex items-center gap-1.5 shadow-sm cursor-pointer ${
+              className={`px-5 py-2 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 shadow-sm cursor-pointer ${
                 !isQtyValid || !isTargetValid || isSubmitting
-                  ? 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed text-slate-400'
-                  : 'bg-amber-600 hover:bg-amber-700 active:scale-98'
+                  ? 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed text-slate-600 dark:text-slate-400'
+                  : 'bg-amber-500 hover:bg-amber-600 text-slate-900 active:scale-98'
               }`}
             >
               <Shuffle className="w-3.5 h-3.5" />

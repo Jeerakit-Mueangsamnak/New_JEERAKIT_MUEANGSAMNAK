@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { buildCurrentUser } from '@/features/auth/services/auth-utils'
 import { hasMenu as userHasMenu, type MenuCode } from '@/features/auth/services/permissions'
 import { logout } from '@/app/actions/auth'
+import { clearFinanceCache } from '@/features/finance/services/finance-storage'
 import type { CurrentUser, UserRole } from '@/lib/types/rental-pos'
 
 export interface AuthContextType {
@@ -267,10 +268,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Ignore server action error
     }
     try {
-      await supabase.auth.signOut()
+      // This device only; "ออกจากระบบทุกอุปกรณ์" in MyAccountPanel does the global sign-out.
+      await supabase.auth.signOut({ scope: 'local' })
     } catch {
       // Ignore network errors during signout
     } finally {
+      clearFinanceCache()
       clearAuthState()
       window.location.href = '/login'
     }

@@ -128,7 +128,8 @@ export function calculateDiscountSatang(
     maxDiscountPercent?: number
   }
 ): DiscountCalculationSatangResult {
-  const maxPercent = options?.maxDiscountPercent ?? 50
+  // No option = no limit (100%), never an invented ceiling. Callers pass the owner's percent when set.
+  const maxPercent = options?.maxDiscountPercent ?? 100
   const maxAllowedSatang = Math.round((subtotalSatang * maxPercent) / 100)
 
   let requestedSatang = 0

@@ -271,10 +271,6 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
 
   const handleSave = async () => {
     if (!bill) return
-    if (!reason.trim()) {
-      showToast('กรุณาระบุเหตุผล', 'ต้องบันทึกเหตุผลทุกครั้งเพื่อใช้ตรวจสอบย้อนหลัง', 'ERROR')
-      return
-    }
     if (!headerReturnDate) {
       showToast('กรุณาระบุวันกำหนดคืน', 'ไม่พบวันกำหนดคืนที่ต้องการบันทึก', 'ERROR')
       return
@@ -385,7 +381,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           <div className="flex items-center gap-2 min-w-0">
             <div
               className={`p-2 rounded-xl text-white shrink-0 ${
-                mode === 'EXTENSION' ? 'bg-cyan-600' : 'bg-violet-600'
+                mode === 'EXTENSION' ? 'bg-cyan-700' : 'bg-violet-600'
               }`}
             >
               {mode === 'EXTENSION' ? <CalendarPlus className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
@@ -395,7 +391,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                 <span>{mode === 'EXTENSION' ? 'เช่าต่อ / เพิ่มสินค้า' : 'แก้ไขบิลเช่า'}</span>
                 <span className="font-mono text-blue-600 dark:text-blue-400 font-black">{bill.billNo}</span>
               </h2>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+              <p className="text-[11px] text-slate-600 dark:text-slate-400 truncate">
                 ลูกค้า: <strong className="text-slate-800 dark:text-slate-200">{bill.customerName}</strong> {bill.customerPhone ? `(${bill.customerPhone})` : ''}
               </p>
             </div>
@@ -412,12 +408,12 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           </button>
           <button
             type="button"
-            disabled={isSaving || !reason.trim()}
+            disabled={isSaving}
             onClick={() => void handleSave()}
             className={`px-4 py-1.5 rounded-xl font-extrabold text-xs text-white shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
               mode === 'EXTENSION'
-                ? 'bg-cyan-600 hover:bg-cyan-700 shadow-cyan-600/25'
-                : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/25'
+                ? 'bg-cyan-700 hover:bg-cyan-800 shadow-cyan-600/25'
+                : 'bg-emerald-700 hover:bg-emerald-800 shadow-emerald-600/25'
             }`}
           >
             <Save className="w-3.5 h-3.5" />
@@ -434,7 +430,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
             {/* Header Rental Date (Calendar Popover) */}
             <div className="space-y-1 min-w-0">
               <label className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 truncate">
-                <Calendar className="w-3 h-3 text-blue-500 shrink-0" />
+                <Calendar className="w-3 h-3 text-blue-600 dark:text-blue-400 shrink-0" />
                 <span className="truncate">วันที่เริ่มเช่า</span>
               </label>
               <CustomDatePicker
@@ -442,13 +438,13 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                 onChange={(val) => setHeaderRentalDate(val ? getLocalDateString(val) : '')}
                 className="w-full text-xs"
               />
-              <span className="text-[10px] text-slate-400 block truncate">* ไม่นำไปคำนวณเงิน</span>
+              <span className="text-[10px] text-slate-600 dark:text-slate-400 block truncate">* ไม่นำไปคำนวณเงิน</span>
             </div>
 
             {/* Header Return Date (Calendar Popover) */}
             <div className="space-y-1 min-w-0">
               <label className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 truncate">
-                <Clock className="w-3 h-3 text-amber-500 shrink-0" />
+                <Clock className="w-3 h-3 text-amber-700 dark:text-amber-400 shrink-0" />
                 <span className="truncate">กำหนดคืน</span>
               </label>
               <CustomDatePicker
@@ -456,13 +452,13 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                 onChange={(val) => setHeaderReturnDate(val ? getLocalDateString(val) : '')}
                 className="w-full text-xs"
               />
-              <span className="text-[10px] text-slate-400 block truncate">* ไม่นำไปคำนวณเงิน</span>
+              <span className="text-[10px] text-slate-600 dark:text-slate-400 block truncate">* ไม่นำไปคำนวณเงิน</span>
             </div>
 
             {/* Discount Amount */}
             <div className="space-y-1 min-w-0">
               <label className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 truncate">
-                <DollarSign className="w-3 h-3 text-emerald-500 shrink-0" />
+                <DollarSign className="w-3 h-3 text-emerald-700 dark:text-emerald-400 shrink-0" />
                 <span className="truncate">ส่วนลด (บาท)</span>
               </label>
               <NumericInput
@@ -479,7 +475,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
             {/* Shipping Fee */}
             <div className="space-y-1 min-w-0">
               <label className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 truncate">
-                <Package className="w-3 h-3 text-cyan-500 shrink-0" />
+                <Package className="w-3 h-3 text-cyan-700 dark:text-cyan-400 shrink-0" />
                 <span className="truncate">ค่าขนส่ง (บาท)</span>
               </label>
               <NumericInput
@@ -534,7 +530,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                 <col className="w-[40px] sm:w-[48px]" />
                 <col className="w-[38px] sm:w-[44px]" />
               </colgroup>
-              <thead className="bg-[#E3E3E3] dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 text-slate-500 font-bold uppercase tracking-wider text-xs">
+              <thead className="bg-[#E3E3E3] dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-xs">
                 <tr>
                   <th className="px-1.5 py-2 whitespace-nowrap">รายการสินค้า</th>
                   <th className="px-1 py-2 text-right whitespace-nowrap">คืนแล้ว</th>
@@ -567,7 +563,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                       {/* Product Name */}
                       <td className="px-1.5 py-1 font-bold text-slate-900 dark:text-slate-100 overflow-hidden">
                         <div className="truncate">{item.productName}</div>
-                        <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1 mt-0.5 truncate">
+                        <div className="text-[10px] text-slate-600 dark:text-slate-400 font-mono flex items-center gap-1 mt-0.5 truncate">
                           <span
                             className={`px-1 py-0.2 rounded font-bold text-[10px] shrink-0 ${
                               isDaily
@@ -656,7 +652,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                             className="w-full text-xs"
                           />
                         ) : (
-                          <span className="text-slate-400 font-mono text-center block">-</span>
+                          <span className="text-slate-600 dark:text-slate-400 font-mono text-center block">-</span>
                         )}
                       </td>
 
@@ -674,7 +670,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                             className="w-full text-xs"
                           />
                         ) : (
-                          <span className="text-slate-400 font-mono text-center block">-</span>
+                          <span className="text-slate-600 dark:text-slate-400 font-mono text-center block">-</span>
                         )}
                       </td>
 
@@ -695,7 +691,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                             className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-1 py-1 text-center font-mono font-bold text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none min-w-0"
                           />
                         ) : (
-                          <span className="text-slate-400 font-mono">-</span>
+                          <span className="text-slate-600 dark:text-slate-400 font-mono">-</span>
                         )}
                       </td>
 
@@ -705,7 +701,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                           <button
                             type="button"
                             onClick={() => setItems((prev) => prev.filter((_, i) => i !== index))}
-                            className="p-1 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer"
+                            className="p-1 rounded-lg text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer"
                             title="ลบรายการที่เพิ่ม"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -718,8 +714,8 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                             }
                             className={`p-1 rounded-lg cursor-pointer ${
                               isRemoved
-                                ? 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
-                                : 'text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40'
+                                ? 'text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+                                : 'text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40'
                             }`}
                             title={isRemoved ? 'นำรายการกลับมา' : 'ทำเครื่องหมายลบรายการ'}
                           >
@@ -740,8 +736,8 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           {/* Reason Input */}
           <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-1.5">
             <label className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-              <AlertCircle className="w-4 h-4 text-amber-500" />
-              <span>เหตุผล / บันทึกการแก้ไขบิล *</span>
+              <AlertCircle className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+              <span>เหตุผล / บันทึกการแก้ไขบิล (ไม่บังคับ)</span>
             </label>
             <textarea
               value={reason}
@@ -759,22 +755,22 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           {/* Financial Recalculation Summary */}
           <div className="bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between gap-2">
             <div className="space-y-1 text-xs">
-              <div className="flex justify-between text-slate-500 dark:text-slate-400">
+              <div className="flex justify-between text-slate-600 dark:text-slate-400">
                 <span>ค่าเช่าคำนวณใหม่:</span>
                 <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                  ฿{calculatedSubtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                  {calculatedSubtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                 </span>
               </div>
-              <div className="flex justify-between text-slate-500 dark:text-slate-400">
+              <div className="flex justify-between text-slate-600 dark:text-slate-400">
                 <span>ส่วนลด:</span>
-                <span className="font-mono font-bold text-red-500">
-                  -฿{(discountAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                <span className="font-mono font-bold text-red-700 dark:text-red-400">
+                  -{(discountAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                 </span>
               </div>
-              <div className="flex justify-between text-slate-500 dark:text-slate-400">
+              <div className="flex justify-between text-slate-600 dark:text-slate-400">
                 <span>ค่าขนส่ง:</span>
                 <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                  +฿{(shippingFee || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                  +{(shippingFee || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                 </span>
               </div>
             </div>
@@ -782,28 +778,28 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
             <div className="border-t border-slate-100 dark:border-slate-700/60 pt-2 space-y-1">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">ยอดรวมสุทธิใหม่:</span>
-                <span className="text-base font-black text-emerald-600 dark:text-emerald-400 font-mono">
-                  ฿{calculatedGrandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                <span className="text-base font-black text-emerald-700 dark:text-emerald-400 font-mono">
+                  {calculatedGrandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                 </span>
               </div>
-              <div className="flex justify-between text-[11px] text-slate-500 dark:text-slate-400">
+              <div className="flex justify-between text-[11px] text-slate-600 dark:text-slate-400">
                 <span>ชำระแล้วเดิม:</span>
-                <span className="font-mono font-bold text-emerald-600">
-                  ฿{(bill.paidAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                  {(bill.paidAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                 </span>
               </div>
               {calculatedGrandTotal < (bill.paidAmount || 0) ? (
-                <div className="flex justify-between text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded">
+                <div className="flex justify-between text-[11px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded">
                   <span>ต้องคืนเงินลูกค้า:</span>
                   <span className="font-mono font-black">
-                    ฿{((bill.paidAmount || 0) - calculatedGrandTotal).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                    {((bill.paidAmount || 0) - calculatedGrandTotal).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                   </span>
                 </div>
               ) : (
-                <div className="flex justify-between text-[11px] font-bold text-red-600 dark:text-red-400">
+                <div className="flex justify-between text-[11px] font-bold text-red-700 dark:text-red-400">
                   <span>ยอดค้างชำระใหม่:</span>
                   <span className="font-mono font-black">
-                    ฿{Math.max(0, calculatedGrandTotal - (bill.paidAmount || 0)).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                    {Math.max(0, calculatedGrandTotal - (bill.paidAmount || 0)).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                   </span>
                 </div>
               )}

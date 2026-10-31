@@ -27,6 +27,9 @@ const T0 = Date.parse('2026-10-07T10:00:00+07:00')
 
 beforeEach(() => {
   localStorage.clear()
+  sessionStorage.clear()
+  // This tab was already open (a reopened tab is tested on its own in 17)
+  sessionStorage.setItem('pos_tab_open:u1', '1')
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(T0)
 })
@@ -61,6 +64,45 @@ describe('15. auto-lock survives background, sleep and a reopened session', () =
       window.dispatchEvent(new Event('focus'))
     })
     expect(screen.getByTestId('lock').textContent).toBe('open')
+  })
+})
+
+describe('17. leaving the page asks for the PIN at once (owner 2026-10-26)', () => {
+  afterEach(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+  })
+
+  it('switching app / tab or the screen locking (page hidden) locks right away', async () => {
+    render(<AppLockProvider><Probe /></AppLockProvider>)
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('open'))
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('locked'))
+  })
+
+  it('a page swiped away / tab closed and opened again (no tab marker) asks for the PIN', async () => {
+    sessionStorage.clear() // the browser drops it with the closed tab
+    render(<AppLockProvider><Probe /></AppLockProvider>)
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('locked'))
+  })
+
+  it('a reload / full page load in the same tab does not lock', async () => {
+    render(<AppLockProvider><Probe /></AppLockProvider>)
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('open'))
+    act(() => {
+      window.dispatchEvent(new Event('beforeunload'))
+    })
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(screen.getByTestId('lock').textContent).toBe('open')
+    cleanup()
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+    render(<AppLockProvider><Probe /></AppLockProvider>) // the reloaded page: same tab, marker kept
+    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('open'))
   })
 })
 

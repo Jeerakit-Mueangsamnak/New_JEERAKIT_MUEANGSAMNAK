@@ -136,6 +136,36 @@ describe('customer linking (OA 1:1 chat code), staff linking hardened', () => {
     expect(res.status).toBe(200)
     expect(JSON.stringify(provider.replied)).toContain(LINE_TEMPLATES.LINK_EXPIRED.text)
   })
+
+  it('a store error on one event does not drop the rest of the batch', async () => {
+    const userId = 'U' + '4'.repeat(32)
+    const store: WebhookStore = {
+      recordEvent: vi.fn(async () => ({ duplicate: false, status: 'LINKED' as const })),
+      consumeLinkCode: vi.fn(),
+      taskPostback: vi.fn(async () => ({ result: 'ACCEPTED' as const, title: 'งานที่ 2' })),
+      // the first task (STEP) blows up, the second one (ACCEPT) must still be handled
+      taskStep: vi.fn(async () => {
+        throw new Error('database is down')
+      }),
+    }
+    const provider = new MockLineProvider()
+    const task1 = '11111111-1111-1111-1111-111111111111'
+    const task2 = '22222222-2222-2222-2222-222222222222'
+    const rawBody = JSON.stringify({
+      events: [
+        { type: 'postback', webhookEventId: 'e1', timestamp: 1791475200000, replyToken: 'rt1', source: { type: 'user', userId }, postback: { data: `kind=task&task=${task1}&action=STEP&stage=ACCEPT` } },
+        { type: 'postback', webhookEventId: 'e2', timestamp: 1791475200001, replyToken: 'rt2', source: { type: 'user', userId }, postback: { data: `kind=task&task=${task2}&action=ACCEPT` } },
+      ],
+    })
+    const res = await handleLineWebhook({ rawBody, signature: await signLineBody(SECRET, rawBody), channelSecret: SECRET, store, provider, shopName: 'ร้านเอ' })
+
+    expect(res.status).toBe(200)
+    expect(res.body.ok).toBe(true)
+    expect(store.taskStep).toHaveBeenCalledTimes(1)
+    // the second event was still processed and answered
+    expect(store.taskPostback).toHaveBeenCalledWith(userId, task2, 'ACCEPT')
+    expect(JSON.stringify(provider.replied)).toContain('งานที่ 2')
+  })
 })
 
 describe('bill over LINE: recipient comes from the bill', () => {
@@ -189,8 +219,8 @@ describe('policies.line validation (TS and SQL agree)', () => {
   })
 
   it('SQL template placeholders match LINE_TEMPLATES exactly', () => {
-    // the newest definition counts (20261015090000 adds the driver step / withdraw texts)
-    const latest = readFileSync(join(process.cwd(), 'supabase/migrations/20261015090000_driver_line_steps_v1.sql'), 'utf8')
+    // the newest definition counts (20261031090000 adds the self-registration texts)
+    const latest = readFileSync(join(process.cwd(), 'supabase/migrations/20261031090000_line_self_register_v1.sql'), 'utf8')
     const at = latest.indexOf('CREATE OR REPLACE FUNCTION public._line_template_vars(')
     const body = latest.slice(at, latest.indexOf('$$', latest.indexOf('$$', at) + 2) + 2)
     const sqlMap: Record<string, string[]> = {}
@@ -202,7 +232,10 @@ describe('policies.line validation (TS and SQL agree)', () => {
   })
 
   it('SQL integer ranges match LINE_POLICY_INT_RANGES exactly', () => {
-    const json = fnBody('_line_policy_check').match(/v_ints\s+jsonb := '([\s\S]*?)';/)![1]
+    // the newest definition counts (20261022090000 adds the schedule / invite options)
+    const latest = readFileSync(join(process.cwd(), 'supabase/migrations/20261022090000_line_full_v1.sql'), 'utf8')
+    const at = latest.indexOf('CREATE OR REPLACE FUNCTION public._line_policy_check(')
+    const json = latest.slice(at).match(/v_ints\s+jsonb := '([\s\S]*?)'(::jsonb)?;/)![1]
     expect(JSON.parse(json)).toEqual(LINE_POLICY_INT_RANGES)
   })
 
@@ -241,11 +274,11 @@ describe('Vault set / change / clear', () => {
     expect(db.rpc).toHaveBeenCalledWith('line_channel_set', { p_channel_secret: SECRET, p_access_token: null })
   })
 
-  it('clear needs a reason before the database is called', async () => {
+  it('clear works with or without a reason (owner decision 2026-10-22: reason optional)', async () => {
     const { clearLineSecrets } = await import('@/app/actions/system-secrets')
-    await expect(clearLineSecrets('   ')).rejects.toThrow('กรุณาระบุเหตุผล')
-    expect(db.rpc).not.toHaveBeenCalled()
     db.rpc.mockResolvedValue({ data: { vault: true, secret_configured: false, token_configured: false }, error: null })
+    await clearLineSecrets('   ')
+    expect(db.rpc).toHaveBeenCalledWith('line_channel_clear', { p_reason: null })
     expect(await clearLineSecrets('เปลี่ยน OA')).toEqual({ available: true, lineSecretConfigured: false, lineTokenConfigured: false, liveDelivery: false })
     expect(db.rpc).toHaveBeenCalledWith('line_channel_clear', { p_reason: 'เปลี่ยน OA' })
   })

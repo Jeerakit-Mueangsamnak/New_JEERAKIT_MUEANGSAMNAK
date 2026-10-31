@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, Suspense, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { loadAllBusinessData } from '@/components/common/MasterDataProvider'
 import { ReportFilter } from '@/features/reports/components/ReportFilter'
 import { FinanceReportView } from '@/features/reports/components/FinanceReportView'
 import { SalesRentalReportView } from '@/features/reports/components/SalesRentalReportView'
@@ -98,12 +99,15 @@ function ReportsWorkspace() {
     }
   }, [])
 
+  // รีเฟรช = reload the latest data from the server, then recompute the reports.
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true)
-    setRefreshKey((k) => k + 1)
-    setTimeout(() => {
-      setIsRefreshing(false)
-    }, 400)
+    void loadAllBusinessData()
+      .catch((err: unknown) => console.error('Report refresh failed:', err))
+      .finally(() => {
+        setRefreshKey((k) => k + 1)
+        setIsRefreshing(false)
+      })
   }, [])
 
   // Filter Object
@@ -188,7 +192,7 @@ export default function ReportsPage() {
   return (
     <Suspense
       fallback={
-        <div className="p-4 text-xs text-slate-400 flex items-center justify-center min-h-[200px]">
+        <div className="p-4 text-xs text-slate-600 dark:text-slate-400 flex items-center justify-center min-h-[200px]">
           กำลังโหลดข้อมูลรายงานสรุป...
         </div>
       }

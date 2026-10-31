@@ -1,17 +1,44 @@
+import type { ThaiProvince } from '@/lib/thai-address-data'
+
+/**
+ * Turns OCR lines read from the front of a Thai ID card into form values.
+ *
+ * Rule: a field is filled only when the text proves it; anything unclear stays empty.
+ * - ID number: 13 digits that pass the Mod-11 check digit (one distinct number only).
+ * - Name / address: the line must be read with enough confidence and carry its label/prefix.
+ * - Province / district / sub-district: must exist in the address list and belong together.
+ * - Postal code is never filled from the card (it is not printed on it).
+ * - Dates must be real calendar dates; the expiry needs both card dates to tell them apart.
+ */
+export interface OcrLine {
+  text: string
+  /** 0–100 as reported by the OCR engine. */
+  confidence: number
+}
+
 export interface ParsedThaiIdCard {
   name: string
   idCardNumber: string
+  birthDate: string
   idCardExpiry: string
   houseNo: string
-  moo?: string
-  soi?: string
-  road?: string
+  moo: string
+  soi: string
+  road: string
   subDistrict: string
   district: string
   province: string
-  postalCode: string
-  rawText?: string
 }
+
+export type ParsedThaiIdField = keyof ParsedThaiIdCard
+
+export const EMPTY_PARSED_ID_CARD: ParsedThaiIdCard = {
+  name: '', idCardNumber: '', birthDate: '', idCardExpiry: '', houseNo: '', moo: '', soi: '', road: '',
+  subDistrict: '', district: '', province: '',
+}
+
+/** Below this the engine itself is unsure of the line: leave its fields empty. */
+export const MIN_TEXT_CONFIDENCE = 70
 
 /**
  * Validates 13-digit Thai National Identification Number using Mod 11 Checksum.
@@ -41,258 +68,155 @@ export function formatThaiNationalId(id: string): string {
   return `${digits.slice(0, 1)}-${digits.slice(1, 5)}-${digits.slice(5, 10)}-${digits.slice(10, 12)}-${digits.slice(12, 13)}`
 }
 
-/**
- * Clean OCR noise characters
- */
-function cleanOcrText(text: string): string {
-  return text
-    .replace(/[\r\n]+/g, ' ')
-    .replace(/[|—_~`•*]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-/**
- * Extract 13-digit ID Card Number from OCR text
- */
+/** One distinct 13-digit number with a valid check digit, else ''. */
 export function extractIdCardNumber(text: string): string {
-  // Try finding standard separated pattern: x xxxx xxxxx xx x or x-xxxx-xxxxx-xx-x
-  const matchFormatted = text.match(/([0-9])\s*[-– ]?\s*([0-9]{4})\s*[-– ]?\s*([0-9]{5})\s*[-– ]?\s*([0-9]{2})\s*[-– ]?\s*([0-9])/)
-  if (matchFormatted) {
-    const raw = `${matchFormatted[1]}${matchFormatted[2]}${matchFormatted[3]}${matchFormatted[4]}${matchFormatted[5]}`
-    return formatThaiNationalId(raw)
+  const found = new Set<string>()
+  // Groups as printed (1 4 5 2 1) with spaces / dashes, or 13 digits in a row.
+  for (const m of text.matchAll(/(?<!\d)(\d)[\s-]*(\d{4})[\s-]*(\d{5})[\s-]*(\d{2})[\s-]*(\d)(?!\d)/g)) {
+    const digits = m.slice(1, 6).join('')
+    if (validateThaiNationalId(digits)) found.add(digits)
   }
-
-  // Fallback: search for any sequence of 13 digits
-  const allDigits = text.replace(/[^0-9]/g, '')
-  if (allDigits.length >= 13) {
-    // Look for valid checksum among 13-digit windows
-    for (let i = 0; i <= allDigits.length - 13; i++) {
-      const window = allDigits.slice(i, i + 13)
-      if (validateThaiNationalId(window)) {
-        return formatThaiNationalId(window)
-      }
-    }
-    return ''
-  }
-
-  return ''
-}
-
-/**
- * Extract Thai Full Name from OCR text
- */
-export function extractThaiName(text: string): string {
-  // Match prefix: นาย / นาง / นางสาว / เด็กชาย / เด็กหญิง / นายแพทย์ / ฯลฯ
-  const prefixRegex = /(?:นาย|นางสาว|นาง|น\.ส\.|ด\.ช\.|ด\.ญ\.)\s*([ก-๙]+)\s+([ก-๙]+)/
-  const match = text.match(prefixRegex)
-  if (match) {
-    return `${match[0]}`.trim()
-  }
-
-  // Fallback: look for lines after "ชื่อตัวและชื่อสกุล" or "Name"
-  const nameLabelMatch = text.match(/(?:ชื่อตัวและชื่อสกุล|ชื่อ|Name)\s*([ก-๙]+(?:\s+[ก-๙]+)+)/i)
-  if (nameLabelMatch && nameLabelMatch[1]) {
-    return nameLabelMatch[1].trim()
-  }
-
-  return ''
-}
-
-/**
- * Match province, district, subdistrict against Thailand Master Database
- */
-export async function matchThaiAddress(text: string): Promise<{
-  province: string
-  district: string
-  subDistrict: string
-  postalCode: string
-  houseNo: string
-  moo?: string
-  soi?: string
-  road?: string
-}> {
-  const { THAI_ADDRESS_DATA, ALL_THAI_PROVINCES } = await import('@/lib/thai-address-data')
-  let matchedProvince = ''
-  let matchedDistrict = ''
-  let matchedSubDistrict = ''
-  let matchedPostalCode = ''
-
-  // 1. Match Province
-  for (const prov of ALL_THAI_PROVINCES) {
-    if (text.includes(prov) || text.includes(`จ.${prov}`) || text.includes(`จังหวัด${prov}`)) {
-      matchedProvince = prov
-      break
-    }
-  }
-
-  // 2. Match District from the selected province
-  const provObj = THAI_ADDRESS_DATA.find((p) => p.name === matchedProvince)
-  if (provObj && provObj.districts.length > 0) {
-    for (const dist of provObj.districts) {
-      if (
-        text.includes(`อ.${dist.name}`) ||
-        text.includes(`อำเภอ${dist.name}`) ||
-        text.includes(`เขต${dist.name}`) ||
-        text.includes(dist.name)
-      ) {
-        matchedDistrict = dist.name
-
-        // 3. Match Subdistrict from the selected district
-        // Pass A: Exact match with prefix (ต. / ตำบล / แขวง)
-        let foundSub = false
-        for (const sub of dist.subDistricts) {
-          if (
-            text.includes(`ต.${sub.name}`) ||
-            text.includes(`ตำบล${sub.name}`) ||
-            text.includes(`แขวง${sub.name}`)
-          ) {
-            matchedSubDistrict = sub.name
-            matchedPostalCode = sub.postalCode
-            foundSub = true
-            break
-          }
-        }
-
-        // Pass B: Match bare subdistrict name if not identical to district name
-        if (!foundSub) {
-          for (const sub of dist.subDistricts) {
-            if (sub.name !== dist.name && text.includes(sub.name)) {
-              matchedSubDistrict = sub.name
-              matchedPostalCode = sub.postalCode
-              break
-            }
-          }
-        }
-        break
-      }
-    }
-  }
-
-  // 4. Extract House No
-  let houseNo = ''
-  const houseMatch = text.match(/(?:ที่อยู่|บ้านเลขที่|เลขที่)\s*([0-9]+\/[0-9]+|[0-9]+)/)
-  if (houseMatch) {
-    houseNo = houseMatch[1]
-  } else {
-    const slashMatch = text.match(/\b([0-9]+\/[0-9]+)\b/)
-    if (slashMatch) {
-      houseNo = slashMatch[1]
-    }
-  }
-
-  // 5. Extract Moo
-  let moo = ''
-  const mooMatch = text.match(/หมู่(?:ที่)?\s*([0-9]+)/)
-  if (mooMatch) {
-    moo = mooMatch[1]
-  }
-
-  // 6. Extract Soi
-  let soi = ''
-  const soiMatch = text.match(/ซอย\s*([ก-๙0-9/ ]+?)(?=\s+(?:ถนน|ต\.|ตำบล|แขวง|อ\.|อำเภอ|เขต|จ\.|จังหวัด|$))/)
-  if (soiMatch) {
-    soi = soiMatch[1].trim()
-  }
-
-  // 7. Extract Road
-  let road = ''
-  const roadMatch = text.match(/ถนน\s*([ก-๙0-9 ]+?)(?=\s+(?:ต\.|ตำบล|แขวง|อ\.|อำเภอ|เขต|จ\.|จังหวัด|$))/)
-  if (roadMatch) {
-    road = roadMatch[1].trim()
-  }
-
-  return {
-    province: matchedProvince,
-    district: matchedDistrict,
-    subDistrict: matchedSubDistrict,
-    postalCode: matchedPostalCode,
-    houseNo,
-    moo: moo || undefined,
-    soi: soi || undefined,
-    road: road || undefined,
-  }
+  return found.size === 1 ? formatThaiNationalId([...found][0]) : ''
 }
 
 const THAI_MONTHS: Record<string, number> = {
-  'ม.ค.': 1, 'มกราคม': 1, 'ก.พ.': 2, 'กุมภาพันธ์': 2,
-  'มี.ค.': 3, 'มีนาคม': 3, 'เม.ย.': 4, 'เมษายน': 4,
-  'พ.ค.': 5, 'พฤษภาคม': 5, 'มิ.ย.': 6, 'มิถุนายน': 6,
-  'ก.ค.': 7, 'กรกฎาคม': 7, 'ส.ค.': 8, 'สิงหาคม': 8,
-  'ก.ย.': 9, 'กันยายน': 9, 'ต.ค.': 10, 'ตุลาคม': 10,
-  'พ.ย.': 11, 'พฤศจิกายน': 11, 'ธ.ค.': 12, 'ธันวาคม': 12,
+  'ม.ค.': 1, 'มกราคม': 1, 'ก.พ.': 2, 'กุมภาพันธ์': 2, 'มี.ค.': 3, 'มีนาคม': 3, 'เม.ย.': 4, 'เมษายน': 4,
+  'พ.ค.': 5, 'พฤษภาคม': 5, 'มิ.ย.': 6, 'มิถุนายน': 6, 'ก.ค.': 7, 'กรกฎาคม': 7, 'ส.ค.': 8, 'สิงหาคม': 8,
+  'ก.ย.': 9, 'กันยายน': 9, 'ต.ค.': 10, 'ตุลาคม': 10, 'พ.ย.': 11, 'พฤศจิกายน': 11, 'ธ.ค.': 12, 'ธันวาคม': 12,
+}
+const EN_MONTHS: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12,
+}
+const escape = (s: string) => s.replace(/[.]/g, '\\.')
+const THAI_DATE = new RegExp(`(\\d{1,2})\\s*(${Object.keys(THAI_MONTHS).map(escape).join('|')})\\s*(25\\d{2})`, 'g')
+const EN_DATE = new RegExp(`(\\d{1,2})\\s*(${Object.keys(EN_MONTHS).join('|')})\\.?\\s*((?:19|20)\\d{2})`, 'gi')
+
+function isoDate(year: number, month: number, day: number): string {
+  const d = new Date(Date.UTC(year, month - 1, day))
+  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) return ''
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
+/** Every real date in a line (Thai Buddhist-era or English), as YYYY-MM-DD. */
+export function datesInText(text: string): string[] {
+  const out: string[] = []
+  for (const m of text.matchAll(THAI_DATE)) {
+    const iso = isoDate(Number(m[3]) - 543, THAI_MONTHS[m[2]], Number(m[1]))
+    if (iso) out.push(iso)
+  }
+  for (const m of text.matchAll(EN_DATE)) {
+    const iso = isoDate(Number(m[3]), EN_MONTHS[m[2].toLowerCase()], Number(m[1]))
+    if (iso) out.push(iso)
+  }
+  return out
+}
+
+/** A Thai ID card date, kept for callers that format one value (e.g. an expiry typed as text). */
 export function normalizeThaiIdExpiryDate(value: string): string {
-  const text = value.trim()
-  if (!text) return ''
-
-  const isoMatch = text.match(/\b(20\d{2})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])\b/)
-  if (isoMatch) return isoMatch[0]
-
-  const thaiMatch = text.match(/(?:วันหมดอายุ\s*)?(\d{1,2})\s*(ม\.ค\.|มกราคม|ก\.พ\.|กุมภาพันธ์|มี\.ค\.|มีนาคม|เม\.ย\.|เมษายน|พ\.ค\.|พฤษภาคม|มิ\.ย\.|มิถุนายน|ก\.ค\.|กรกฎาคม|ส\.ค\.|สิงหาคม|ก\.ย\.|กันยายน|ต\.ค\.|ตุลาคม|พ\.ย\.|พฤศจิกายน|ธ\.ค\.|ธันวาคม)\s*(25\d{2}|20\d{2})/)
-  if (!thaiMatch) return ''
-
-  const day = Number(thaiMatch[1])
-  const month = THAI_MONTHS[thaiMatch[2]]
-  const rawYear = Number(thaiMatch[3])
-  const year = rawYear > 2400 ? rawYear - 543 : rawYear
-  if (!month || day < 1 || day > 31 || year < 2000 || year > 2200) return ''
-  return `${year.toString().padStart(4, '0')}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
+  const iso = value.match(/\b(20\d{2})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])\b/)
+  if (iso) return isoDate(Number(iso[1]), Number(iso[2]), Number(iso[3]))
+  return datesInText(value)[0] || ''
 }
 
-/**
- * Main parser that parses full OCR text into structured Thai ID Card data
- */
-export async function parseThaiIdCardText(rawText: string): Promise<ParsedThaiIdCard> {
-  const cleaned = cleanOcrText(rawText)
-  const idCardNumber = extractIdCardNumber(cleaned)
-  const name = extractThaiName(cleaned)
-  const address = await matchThaiAddress(cleaned)
+const NAME_PREFIX = '(?:นางสาว|นาย|นาง|เด็กชาย|เด็กหญิง|ด\\.ช\\.|ด\\.ญ\\.|น\\.ส\\.)'
+const NAME_PATTERN = new RegExp(`(${NAME_PREFIX})\\s*([ก-ฮ][ก-๙]+)\\s+([ก-ฮ][ก-๙]+)\\s*$`)
 
-  const expiryLabelMatch = cleaned.match(/วันหมดอายุ\s*\d{1,2}\s*(?:ม\.ค\.|มกราคม|ก\.พ\.|กุมภาพันธ์|มี\.ค\.|มีนาคม|เม\.ย\.|เมษายน|พ\.ค\.|พฤษภาคม|มิ\.ย\.|มิถุนายน|ก\.ค\.|กรกฎาคม|ส\.ค\.|สิงหาคม|ก\.ย\.|กันยายน|ต\.ค\.|ตุลาคม|พ\.ย\.|พฤศจิกายน|ธ\.ค\.|ธันวาคม)\s*(?:25\d{2}|20\d{2})/)
-  const expiryDate = normalizeThaiIdExpiryDate(expiryLabelMatch?.[0] || '')
+function extractName(lines: OcrLine[]): string {
+  for (const line of lines) {
+    if (line.confidence < MIN_TEXT_CONFIDENCE) continue
+    const text = line.text.replace(/\s+/g, ' ').trim()
+    // The label is "ชื่อตัวและชื่อสกุล"; read what follows it on the same line.
+    const labelled = text.match(/ชื่อตัว.*?สกุล\s*(.*)$/)
+    const candidate = labelled ? labelled[1] : text
+    const m = candidate.match(NAME_PATTERN)
+    if (m && (labelled || m.index === 0)) return `${m[1]} ${m[2]} ${m[3]}`
+  }
+  return ''
+}
 
+const ADDRESS_STOP = /วันออกบัตร|หมดอายุ|Date of|เจ้าพนักงาน/i
+
+function addressText(lines: OcrLine[]): string {
+  const start = lines.findIndex((l) => /^\s*ที่อยู่/.test(l.text))
+  if (start < 0) return ''
+  const parts: string[] = []
+  for (let i = start; i < lines.length && parts.length < 3; i++) {
+    const line = lines[i]
+    if (i > start && (ADDRESS_STOP.test(line.text) || datesInText(line.text).length > 0)) break
+    // Lines with no Thai letter (the height ruler beside the photo: "150", "_ 150") sit between
+    // the address lines; they are not part of the address.
+    if (i > start && !/[ก-ฮ]/.test(line.text)) continue
+    // One unsure line makes the whole address unsure: do not guess from it.
+    if (line.confidence < MIN_TEXT_CONFIDENCE) return ''
+    parts.push(line.text)
+  }
+  return parts.join(' ').replace(/^\s*ที่อยู่\s*/, '').replace(/\s+/g, ' ').trim()
+}
+
+function afterPrefix(text: string, prefixes: string): string {
+  const m = text.match(new RegExp(`(?:^|\\s)(?:${prefixes})\\s*([ก-๙0-9]+)`))
+  return m ? m[1] : ''
+}
+
+function extractAddress(text: string, addressData: ThaiProvince[]) {
+  const result = { houseNo: '', moo: '', soi: '', road: '', subDistrict: '', district: '', province: '' }
+  if (!text) return result
+
+  const house = text.match(/^(\d{1,5}(?:\/\d{1,4})?)(?=\s|$)/)
+  if (house) result.houseNo = house[1]
+  const moo = text.match(/(?:หมู่ที่|หมู่|ม\.)\s*(\d{1,3})(?=\s|$)/)
+  if (moo) result.moo = moo[1]
+  const soi = text.match(/(?:ซอย|ซ\.)\s*([ก-๙0-9/]+(?:\s\d+)?)/)
+  if (soi) result.soi = soi[1]
+  const road = text.match(/(?:ถนน|ถ\.)\s*([ก-๙0-9]+)/)
+  if (road) result.road = road[1]
+
+  const provinceName = text.includes('กรุงเทพมหานคร') ? 'กรุงเทพมหานคร' : afterPrefix(text, 'จังหวัด|จ\\.')
+  const province = addressData.find((p) => p.name === provinceName)
+  if (!province) return result // cannot check district / sub-district without a known province
+  result.province = province.name
+
+  const district = province.districts.find((d) => d.name === afterPrefix(text, 'อำเภอ|อ\\.|เขต'))
+  if (!district) return result
+  result.district = district.name
+
+  const sub = district.subDistricts.find((s) => s.name === afterPrefix(text, 'ตำบล|ต\\.|แขวง'))
+  if (sub) result.subDistrict = sub.name
+  return result
+}
+
+function extractDates(lines: OcrLine[]) {
+  const birthDates = new Set<string>()
+  let birthLines = 0
+  const cardDates = new Set<string>()
+  for (const line of lines) {
+    if (/เกิด|Birth/i.test(line.text)) {
+      // Thai and English birth lines must agree; a line that does not read as one date counts as a disagreement.
+      birthLines++
+      const dates = datesInText(line.text)
+      birthDates.add(dates.length === 1 ? dates[0] : 'unreadable')
+    } else {
+      datesInText(line.text).forEach((d) => cardDates.add(d))
+    }
+  }
+  const today = new Date().toISOString().slice(0, 10)
+  let birthDate = birthLines > 0 && birthDates.size === 1 ? [...birthDates][0] : ''
+  if (birthDate === 'unreadable' || birthDate >= today) birthDate = ''
+  // Issue and expiry dates are printed side by side; only with exactly both read is the later one the expiry.
+  const sorted = [...cardDates].sort()
+  const idCardExpiry = sorted.length === 2 ? sorted[1] : ''
+  return { birthDate, idCardExpiry }
+}
+
+export function parseThaiIdCardLines(lines: OcrLine[], addressData: ThaiProvince[]): ParsedThaiIdCard {
+  const clean = lines
+    .map((l) => ({ text: l.text.replace(/[|—_~`•*]/g, ' ').replace(/\s+/g, ' ').trim(), confidence: l.confidence }))
+    .filter((l) => l.text)
   return {
-    name: name || '',
-    idCardNumber: idCardNumber,
-    idCardExpiry: expiryDate,
-    houseNo: address.houseNo,
-    moo: address.moo,
-    soi: address.soi,
-    road: address.road,
-    subDistrict: address.subDistrict,
-    district: address.district,
-    province: address.province,
-    postalCode: address.postalCode,
+    ...EMPTY_PARSED_ID_CARD,
+    idCardNumber: extractIdCardNumber(clean.map((l) => l.text).join('\n')),
+    name: extractName(clean),
+    ...extractDates(clean),
+    ...extractAddress(addressText(clean), addressData),
   }
-}
-
-/**
- * Detects if the current execution environment is production.
- */
-export function isProduction(env: Record<string, string | undefined> = process.env): boolean {
-  return env.NODE_ENV === 'production'
-}
-
-/**
- * Resolves external OCR service URL.
- * Defaults to http://127.0.0.1:8000 in local development.
- */
-export function getOcrServiceUrl(env: Record<string, string | undefined> = process.env): string | null {
-  const envUrl = env.OCR_SERVICE_URL?.trim()
-  if (envUrl) return envUrl
-
-  if (isProduction(env)) {
-    return null
-  }
-
-  return 'http://127.0.0.1:8000'
-}
-
-/**
- * Determines whether local Tesseract.js fallback is permitted.
- */
-export function shouldAllowTesseractFallback(env: Record<string, string | undefined> = process.env): boolean {
-  return !isProduction(env)
 }

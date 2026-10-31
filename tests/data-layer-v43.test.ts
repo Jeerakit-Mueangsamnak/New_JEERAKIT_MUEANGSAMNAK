@@ -41,39 +41,34 @@ describe('server errors are shown in plain Thai', () => {
 describe('risky action PIN flow (Master §4.4: confirm → PIN → do it once)', () => {
   beforeEach(() => registerPinConfirmer(null))
 
-  it('withPin asks the PIN first and passes the single-use token', async () => {
+  it('risky actions run straight away with no PIN dialog (owner decision 2026-10-22)', async () => {
     const confirmer = vi.fn(async () => ({ token: 'tok-1' }))
     registerPinConfirmer(confirmer)
     const run = vi.fn(async (t: string) => `done ${t}`)
-    await expect(withPin({ action: 'REFUND', title: 'x' }, run)).resolves.toBe('done tok-1')
-    expect(confirmer).toHaveBeenCalledWith(expect.objectContaining({ action: 'REFUND' }))
-  })
-
-  it('withPinIfRequired runs plainly and only asks when the server says PIN_REQUIRED', async () => {
-    const confirmer = vi.fn(async () => ({ token: 'tok-2', reason: 'ลูกค้าประจำ' }))
-    registerPinConfirmer(confirmer)
-    const plain = vi.fn(async () => 'ok')
-    await expect(withPinIfRequired({ action: 'PRICE_OVERRIDE', title: 'x' }, plain)).resolves.toBe('ok')
+    await expect(withPin({ action: 'REFUND', title: 'x' }, run)).resolves.toBe('done null')
     expect(confirmer).not.toHaveBeenCalled()
-
-    const guarded = vi.fn(async (token?: string, reason?: string) => {
-      if (!token) throw new DbError('PIN_REQUIRED: PRICE_OVERRIDE')
-      return `${token}/${reason}`
-    })
-    await expect(withPinIfRequired({ action: 'PRICE_OVERRIDE', title: 'x', askReason: true }, guarded)).resolves.toBe('tok-2/ลูกค้าประจำ')
   })
 
-  it('a stale token is retried once with a fresh PIN; cancelling stops the action', async () => {
+  it('withPinIfRequired never opens the dialog; a server refusal reaches the caller', async () => {
+    const confirmer = vi.fn(async () => ({ token: 'tok-2' }))
+    registerPinConfirmer(confirmer)
+    await expect(withPinIfRequired({ action: 'PRICE_OVERRIDE', title: 'x' }, vi.fn(async () => 'ok'))).resolves.toBe('ok')
+    const refused = vi.fn(async () => { throw new DbError('PIN_REQUIRED: PRICE_OVERRIDE') })
+    await expect(withPinIfRequired({ action: 'PRICE_OVERRIDE', title: 'x' }, refused)).rejects.toBeInstanceOf(DbError)
+    expect(confirmer).not.toHaveBeenCalled()
+  })
+
+  it('PIN_CHANGE still asks; a stale token is retried once with a fresh PIN; cancelling stops it', async () => {
     const confirmer = vi.fn().mockResolvedValueOnce({ token: 'old' }).mockResolvedValueOnce({ token: 'new' })
     registerPinConfirmer(confirmer)
     const run = vi.fn(async (t: string) => {
       if (t === 'old') throw new DbError('PIN_CONFIRMATION_INVALID: verify the PIN again')
       return t
     })
-    await expect(withPin({ action: 'STOCK_ADJUST', title: 'x' }, run)).resolves.toBe('new')
+    await expect(withPin({ action: 'PIN_CHANGE', title: 'x' }, run)).resolves.toBe('new')
 
     registerPinConfirmer(async () => null)
-    const err = await withPin({ action: 'REFUND', title: 'x' }, vi.fn()).catch((e) => e)
+    const err = await withPin({ action: 'PIN_CHANGE', title: 'x' }, vi.fn()).catch((e) => e)
     expect(isPinCancelled(err)).toBe(true)
   })
 
@@ -182,10 +177,12 @@ describe('customers', () => {
 describe('menu access (Master §4.2)', () => {
   const user = (role: 'OWNER' | 'USER', menus: string[], status: 'ACTIVE' | 'PENDING' = 'ACTIVE') =>
     ({ role, status, menus } as unknown as CurrentUser)
-  it('OWNER opens everything; USER only granted menus; members is owner-only', () => {
+  // Owner 2026-10-26: every ACTIVE member holds every menu; only member management stays OWNER-only.
+  it('OWNER opens everything; an ACTIVE USER opens every menu but member management', () => {
     expect(hasMenu(user('OWNER', []), 'members')).toBe(true)
-    expect(hasMenu(user('USER', ['pos']), 'pos')).toBe(true)
-    expect(hasMenu(user('USER', ['pos']), 'finance')).toBe(false)
+    expect(hasMenu(user('USER', []), 'pos')).toBe(true)
+    expect(hasMenu(user('USER', []), 'finance')).toBe(true)
+    expect(hasMenu(user('USER', []), 'settings')).toBe(true)
     expect(hasMenu(user('USER', ['members']), 'members')).toBe(false)
     expect(hasMenu(user('USER', ['pos'], 'PENDING'), 'pos')).toBe(false)
     expect(GRANTABLE_MENUS.map((m) => m.code)).not.toContain('members')
@@ -198,7 +195,7 @@ describe('menu access (Master §4.2)', () => {
     // Settings → Security (own PIN) is open to every member, the rest of Settings is not
     expect(menuForPath('/settings/security')).toBeNull()
     expect(menuForPath('/settings')).toBe('settings')
-    expect(firstAllowedHref(user('USER', ['customers', 'bills']))).toBe('/bills')
+    expect(firstAllowedHref(user('USER', []))).toBe('/dashboard')
   })
 })
 

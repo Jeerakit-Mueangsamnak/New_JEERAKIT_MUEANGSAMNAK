@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx'
 import { PaperSize, Orientation } from '@/lib/types/document'
+import { escapeDocumentHtml, sanitizeDocumentHtml } from '@/features/documents/utils/document-html'
 
 export interface ConversionResult {
   success: boolean
@@ -12,10 +13,18 @@ export interface ConversionResult {
 }
 
 const SUPPORTED_EXTENSIONS = [
-  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'html', 'txt', 'rtf', 'csv'
+  'pdf', 'docx', 'xls', 'xlsx', 'csv', 'html', 'htm', 'txt'
 ]
+// Old binary Word / RTF cannot be read reliably in the browser; ask for .docx or PDF instead.
+const LEGACY_EXTENSIONS = ['doc', 'rtf']
+
+/** File-picker accept list, kept next to the converter so both stay in sync. */
+export const TEMPLATE_UPLOAD_ACCEPT = '.pdf,.docx,.xlsx,.xls,.csv,.html,.htm,.txt'
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB
+const MAX_PDF_PAGES = 30
+
+const PAGE_BREAK_HTML = '<div class="doc-page-break" style="break-after:page;page-break-after:always;height:0"></div>'
 
 /**
  * Standard placeholders recognized by the template rendering engine
@@ -68,269 +77,132 @@ export const AVAILABLE_PLACEHOLDERS = [
   '{{items.rows_statement_20}}',
 ]
 
-/**
- * Parses XLSX / XLS files into semantic HTML tables and template schema
- */
-function parseExcelToSchema(buffer: ArrayBuffer, templateName: string, category: string): ConversionResult {
-  try {
-    const workbook = XLSX.read(buffer, { type: 'array' })
-    if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
-      return { success: false, error: 'ไม่พบ Sheet ในไฟล์ Excel' }
-    }
-
-    const firstSheetName = workbook.SheetNames[0]
-    const worksheet = workbook.Sheets[firstSheetName]
-    const jsonData = XLSX.utils.sheet_to_json<string[]>(worksheet, { header: 1, defval: '' })
-
-    if (!jsonData || jsonData.length === 0) {
-      return { success: false, error: 'ไฟล์ Excel ว่างเปล่า ไม่มีข้อมูล' }
-    }
-
-    let tableHtml = '<table class="w-full border-collapse border border-slate-300 text-[11px] my-3">'
-    let isHeader = true
-    const detectedFields: string[] = []
-
-    for (const row of jsonData) {
-      if (!Array.isArray(row) || row.every((c) => String(c).trim() === '')) continue
-
-      tableHtml += '<tr>'
-      for (const cell of row) {
-        const text = String(cell || '').trim()
-        const cellTag = isHeader ? 'th' : 'td'
-        const cellClass = isHeader
-          ? 'border border-slate-300 bg-slate-100 p-2 font-bold text-slate-800 text-left'
-          : 'border border-slate-300 p-2 text-slate-700'
-
-        // Detect placeholders in cell content
-        for (const ph of AVAILABLE_PLACEHOLDERS) {
-          if (text.includes(ph) && !detectedFields.includes(ph)) {
-            detectedFields.push(ph)
-          }
-        }
-
-        tableHtml += `<${cellTag} class="${cellClass}">${text || '&nbsp;'}</${cellTag}>`
-      }
-      tableHtml += '</tr>'
-      isHeader = false
-    }
-    tableHtml += '</table>'
-
-    const templateSchema = `
-<div class="template-document font-sans text-slate-900 leading-relaxed text-xs p-6 space-y-4">
-  <div class="flex justify-between items-start border-b-2 border-slate-900 pb-4">
-    <div>
-      <h1 class="text-xl font-black text-slate-900">${templateName}</h1>
-      <p class="text-slate-700 font-bold text-[11px] mt-1">{{business.name}}</p>
-      <p class="text-slate-500 text-[10px]">{{business.address}} | โทรศัพท์: {{business.phone}} | เลขผู้เสียภาษี: {{business.tax_id}}</p>
-    </div>
-    <div class="text-right font-mono">
-      <p class="text-xs font-bold text-slate-400">เลขที่เอกสาร</p>
-      <p class="font-extrabold text-blue-600 text-sm">{{document.number}}</p>
-      <p class="text-slate-500 text-[10px] mt-1">วันที่สร้าง: {{document.date}}</p>
-    </div>
-  </div>
-
-  <div class="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200 text-[11px]">
-    <div class="space-y-1">
-      <p class="font-extrabold text-slate-800 text-xs border-b pb-1 mb-2">ข้อมูลลูกค้า / คู่สัญญา</p>
-      <p><span class="font-bold text-slate-700">รหัสลูกค้า:</span> {{customer.code}}</p>
-      <p><span class="font-bold text-slate-700">ชื่อลูกค้า/บริษัท:</span> {{customer.name}}</p>
-      <p><span class="font-bold text-slate-700">โทรศัพท์:</span> {{customer.phone}}</p>
-      <p><span class="font-bold text-slate-700">อีเมล:</span> {{customer.email}}</p>
-      <p><span class="font-bold text-slate-700">เลขผู้เสียภาษี:</span> {{customer.tax_id}}</p>
-    </div>
-    <div class="space-y-1">
-      <p class="font-extrabold text-slate-800 text-xs border-b pb-1 mb-2">ที่อยู่ / ไซต์งาน</p>
-      <p class="text-slate-700 leading-snug">{{customer.address}}</p>
-      <div class="pt-2 border-t mt-2">
-        <p class="font-bold text-slate-800">หมวดหมู่เอกสาร: ${category}</p>
-      </div>
-    </div>
-  </div>
-
-  <div class="overflow-x-auto">
-    ${tableHtml}
-  </div>
-
-  <div class="space-y-2">
-    <p class="font-extrabold text-slate-900 text-xs">ข้อกำหนดและเงื่อนไข</p>
-    <div class="p-3 bg-white rounded-lg border border-slate-300 text-[11px] space-y-1 text-slate-700">
-      <p>1. เอกสารนี้จัดทำขึ้นระหว่าง {{business.name}} กับ {{customer.name}}</p>
-      <p>2. คู่สัญญาตกลงปฏิบัติตามข้อกำหนดและระเบียบการให้บริการตามที่ระบุไว้ในเอกสารนี้</p>
-      <p class="pt-1 text-slate-600 italic font-serif">{{document.custom_terms}}</p>
-    </div>
-  </div>
-
-  <div class="pt-8 grid grid-cols-2 gap-8 text-center text-[11px]">
-    <div>
-      <div class="border-b border-slate-400 w-48 mx-auto mb-1"></div>
-      <p class="font-bold text-slate-900">ลงชื่อ ( {{customer.name}} )</p>
-      <p class="text-[10px] text-slate-500">ผู้ขอรับบริการ / คู่สัญญา</p>
-    </div>
-    <div>
-      <div class="border-b border-slate-400 w-48 mx-auto mb-1"></div>
-      <p class="font-bold text-slate-900">ลงชื่อ ( ผู้มีอำนาจลงนาม )</p>
-      <p class="text-[10px] text-slate-500">{{business.name}}</p>
-    </div>
-  </div>
-</div>`
-
-    return {
-      success: true,
-      templateSchema: templateSchema.trim(),
-      paperSize: 'A4',
-      orientation: 'PORTRAIT',
-      pageCount: 1,
-      detectedFields,
-    }
-  } catch (err: any) {
-    return {
-      success: false,
-      error: `ไม่สามารถประมวลผลไฟล์ Excel ได้: ${err?.message || 'รูปแบบไฟล์ไม่ถูกต้อง'}`,
-    }
-  }
+export interface ConversionDeps {
+  /** Injected in tests; the browser build loads pdf.js on demand. */
+  renderPdfPages?: (buffer: ArrayBuffer, maxPages: number, totalBudgetChars?: number) => Promise<string[]>
 }
 
 /**
- * Simple binary string extractor for text-based formats (TXT, HTML, PDF text streams, DOCX XML text)
+ * Room for the page images of one imported PDF: the shop library keeps a form in one database
+ * field of at most 1 MB (document_templates.template_schema), with some left for the page HTML.
  */
-function extractTextFromBinary(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  const decoder = new TextDecoder('utf-8', { fatal: false })
-  const decoded = decoder.decode(bytes)
-  
-  // Clean null bytes and control chars while keeping Thai/Unicode and newlines
-  return decoded.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ' ')
+export const PDF_IMAGES_BUDGET_CHARS = 1_000_000
+
+function detectPlaceholders(text: string): string[] {
+  return AVAILABLE_PLACEHOLDERS.filter((ph) => text.includes(ph))
 }
 
-/**
- * Parses DOCX / DOC / Text / PDF buffer into structured paragraphs and template schema
- */
-function parseTextDocumentToSchema(
-  rawText: string,
-  templateName: string,
-  category: string,
-  fileExtension: string
-): ConversionResult {
-  // Extract meaningful lines
-  let lines: string[] = []
-
-  if (fileExtension === 'html' || fileExtension === 'htm') {
-    // Basic tag stripping while keeping text content
-    const textOnly = rawText.replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<\/?[^>]+(>|$)/g, '\n')
-    lines = textOnly.split('\n').map((l) => l.trim()).filter((l) => l.length > 0)
-  } else if (fileExtension === 'docx') {
-    // Extract text chunks from XML tags <w:t>...</w:t>
-    const matches = rawText.match(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)
-    if (matches && matches.length > 0) {
-      const extracted = matches.map((m) => m.replace(/<\/?[^>]+(>|$)/g, '').trim()).filter((t) => t.length > 0)
-      lines = extracted
-    } else {
-      lines = rawText.split('\n').map((l) => l.trim()).filter((l) => l.length > 2 && /[\u0E00-\u0E7Fa-zA-Z0-9]/.test(l))
-    }
-  } else {
-    lines = rawText.split('\n').map((l) => l.trim()).filter((l) => l.length > 0 && /[\u0E00-\u0E7Fa-zA-Z0-9]/.test(l))
-  }
-
-  // Filter out binary garbage lines
-  const cleanLines = lines.filter((l) => {
-    const printableRatio = (l.match(/[\u0E00-\u0E7Fa-zA-Z0-9\s.,!?:;()[\]{}/\-+=%฿]/g) || []).length / l.length
-    return printableRatio > 0.6 && l.length < 500
-  }).slice(0, 30) // Take top paragraphs
-
-  const detectedFields: string[] = []
-  for (const ph of AVAILABLE_PLACEHOLDERS) {
-    if (rawText.includes(ph) && !detectedFields.includes(ph)) {
-      detectedFields.push(ph)
-    }
-  }
-
-  let bodyContentHtml = ''
-  if (cleanLines.length > 0) {
-    bodyContentHtml = cleanLines.map((line) => `<p class="text-slate-700 leading-relaxed">${line}</p>`).join('\n    ')
-  } else {
-    bodyContentHtml = `
-    <p class="text-slate-700 leading-relaxed">1. ข้อกำหนดและเงื่อนไขการให้บริการตามแบบฟอร์ม ${templateName}</p>
-    <p class="text-slate-700 leading-relaxed">2. ผู้ขอรับบริการตกลงและยอมรับตามเงื่อนไขที่ระบุไว้ในสัญญาทุกประการ</p>
-    <p class="text-slate-600 italic font-serif pt-2">{{document.custom_terms}}</p>
-    `
-  }
-
-  const templateSchema = `
-<div class="template-document font-sans text-slate-900 leading-relaxed text-xs p-6 space-y-5">
-  <div class="flex justify-between items-start border-b-2 border-slate-900 pb-4">
-    <div>
-      <h1 class="text-xl font-black text-slate-900">${templateName}</h1>
-      <p class="text-slate-700 font-bold text-[11px] mt-1">{{business.name}}</p>
-      <p class="text-slate-500 text-[10px]">{{business.address}} | โทรศัพท์: {{business.phone}} | เลขผู้เสียภาษี: {{business.tax_id}}</p>
-    </div>
-    <div class="text-right font-mono">
-      <p class="text-xs font-bold text-slate-400">เลขที่เอกสาร</p>
-      <p class="font-extrabold text-blue-600 text-sm">{{document.number}}</p>
-      <p class="text-slate-500 text-[10px] mt-1">วันที่สร้าง: {{document.date}}</p>
-    </div>
-  </div>
-
-  <div class="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200 text-[11px]">
-    <div class="space-y-1">
-      <p class="font-extrabold text-slate-800 text-xs border-b pb-1 mb-2">ข้อมูลลูกค้า / คู่สัญญา</p>
-      <p><span class="font-bold text-slate-700">รหัสลูกค้า:</span> {{customer.code}}</p>
-      <p><span class="font-bold text-slate-700">ชื่อลูกค้า/บริษัท:</span> {{customer.name}}</p>
-      <p><span class="font-bold text-slate-700">โทรศัพท์:</span> {{customer.phone}}</p>
-      <p><span class="font-bold text-slate-700">อีเมล:</span> {{customer.email}}</p>
-      <p><span class="font-bold text-slate-700">เลขผู้เสียภาษี:</span> {{customer.tax_id}}</p>
-    </div>
-    <div class="space-y-1">
-      <p class="font-extrabold text-slate-800 text-xs border-b pb-1 mb-2">ที่อยู่ / ไซต์งาน</p>
-      <p class="text-slate-700 leading-snug">{{customer.address}}</p>
-      <div class="pt-2 border-t mt-2">
-        <p class="font-bold text-slate-800">หมวดหมู่เอกสาร: ${category}</p>
-        <p class="text-slate-500 text-[10px]">ประเภทไฟล์ต้นฉบับ: .${fileExtension.toUpperCase()}</p>
-      </div>
-    </div>
-  </div>
-
-  <div class="space-y-3 p-4 bg-white rounded-lg border border-slate-300">
-    <p class="font-extrabold text-slate-900 text-xs border-b pb-2">เนื้อหาและข้อกำหนดตามแบบฟอร์ม</p>
-    <div class="space-y-2 text-[11px]">
-      ${bodyContentHtml}
-    </div>
-  </div>
-
-  <div class="pt-8 grid grid-cols-2 gap-8 text-center text-[11px]">
-    <div>
-      <div class="border-b border-slate-400 w-48 mx-auto mb-1"></div>
-      <p class="font-bold text-slate-900">ลงชื่อ ( {{customer.name}} )</p>
-      <p class="text-[10px] text-slate-500">ผู้ขอรับบริการ / คู่สัญญา</p>
-    </div>
-    <div>
-      <div class="border-b border-slate-400 w-48 mx-auto mb-1"></div>
-      <p class="font-bold text-slate-900">ลงชื่อ ( ผู้มีอำนาจลงนาม )</p>
-      <p class="text-[10px] text-slate-500">{{business.name}}</p>
-    </div>
-  </div>
-</div>`
-
+/** Converted files keep their own content only; the shop header is not injected. */
+function wrapConverted(bodyHtml: string, pageCount: number, detectedFields: string[]): ConversionResult {
   return {
     success: true,
-    templateSchema: templateSchema.trim(),
+    templateSchema: `<div class="template-document imported-document font-sans text-slate-900 text-[12px] leading-relaxed">${bodyHtml}</div>`,
     paperSize: 'A4',
     orientation: 'PORTRAIT',
-    pageCount: 1,
+    pageCount,
     detectedFields,
   }
 }
 
+/** Every sheet becomes one table; each sheet after the first starts on a new page. */
+function parseExcel(buffer: ArrayBuffer): ConversionResult {
+  const workbook = XLSX.read(buffer, { type: 'array' })
+  if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+    return { success: false, error: 'ไม่พบ Sheet ในไฟล์ Excel' }
+  }
+
+  const sections: string[] = []
+  let allText = ''
+  for (const sheetName of workbook.SheetNames) {
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], { header: 1, defval: '' })
+      .filter((row) => Array.isArray(row) && row.some((cell) => String(cell ?? '').trim() !== ''))
+    if (rows.length === 0) continue
+
+    const body = rows.map((row, rowIndex) => {
+      const tag = rowIndex === 0 ? 'th' : 'td'
+      const cellClass = rowIndex === 0
+        ? 'border border-slate-400 bg-slate-100 p-1.5 font-bold text-left'
+        : 'border border-slate-400 p-1.5'
+      return `<tr>${row.map((cell) => {
+        const text = String(cell ?? '').trim()
+        allText += `${text}\n`
+        return `<${tag} class="${cellClass}">${text ? escapeDocumentHtml(text) : '&nbsp;'}</${tag}>`
+      }).join('')}</tr>`
+    }).join('')
+
+    const heading = workbook.SheetNames.length > 1 ? `<h2 class="text-sm font-bold mb-2">${escapeDocumentHtml(sheetName)}</h2>` : ''
+    sections.push(`${heading}<table class="w-full border-collapse text-[11px]">${body}</table>`)
+  }
+
+  if (sections.length === 0) return { success: false, error: 'ไฟล์ Excel ว่างเปล่า ไม่มีข้อมูล' }
+  return wrapConverted(sections.join(PAGE_BREAK_HTML), sections.length, detectPlaceholders(allText))
+}
+
+/** Word → HTML with headings, lists, tables and images; Word page breaks become print page breaks. */
+async function parseDocx(buffer: ArrayBuffer): Promise<ConversionResult> {
+  const mammoth = await import('mammoth')
+  const options = { styleMap: ["br[type='page'] => hr.doc-page-break"] }
+  // Browser build reads `arrayBuffer`, Node (tests) reads `buffer`.
+  const input = { arrayBuffer: buffer, buffer } as unknown as { arrayBuffer: ArrayBuffer }
+  const { value } = await mammoth.convertToHtml(input, options)
+
+  const html = value
+    .replace(/<hr class="doc-page-break"\s*\/?>/g, PAGE_BREAK_HTML)
+    .replace(/<h1>/g, '<h1 class="text-lg font-bold my-2">')
+    .replace(/<h2>/g, '<h2 class="text-base font-bold my-2">')
+    .replace(/<h3>/g, '<h3 class="text-sm font-bold my-1.5">')
+    .replace(/<p>/g, '<p class="my-1">')
+    .replace(/<ul>/g, '<ul class="list-disc pl-6 my-1">')
+    .replace(/<ol>/g, '<ol class="list-decimal pl-6 my-1">')
+    .replace(/<table>/g, '<table class="w-full border-collapse my-2">')
+    .replace(/<td>/g, '<td class="border border-slate-400 p-1.5 align-top">')
+    .replace(/<th>/g, '<th class="border border-slate-400 p-1.5 font-bold">')
+    .replace(/<img /g, '<img class="max-w-full" ')
+
+  const text = html.replace(/<[^>]+>/g, ' ')
+  if (!text.trim() && !html.includes('<img')) {
+    return { success: false, error: 'ไม่พบเนื้อหาในไฟล์ Word' }
+  }
+  const pageCount = (html.match(/doc-page-break/g) || []).length + 1
+  return wrapConverted(html, pageCount, detectPlaceholders(text))
+}
+
+/** One image per PDF page, each on its own printed page. */
+async function parsePdf(buffer: ArrayBuffer, deps: ConversionDeps): Promise<ConversionResult> {
+  const render = deps.renderPdfPages
+    ?? (await import('@/features/documents/utils/pdf-pages')).renderPdfPagesToImages
+  const images = await render(buffer, MAX_PDF_PAGES, PDF_IMAGES_BUDGET_CHARS)
+  if (images.length === 0) return { success: false, error: 'ไม่พบหน้าในไฟล์ PDF' }
+
+  const pages = images.map((src, index) =>
+    `<div class="imported-pdf-page"><img src="${src}" alt="หน้า ${index + 1}" style="width:100%;display:block" /></div>`
+  )
+  return wrapConverted(pages.join(PAGE_BREAK_HTML), images.length, [])
+}
+
+function parseText(raw: string, extension: string): ConversionResult {
+  const text = raw.replace(/^﻿/, '')
+  if (extension === 'html' || extension === 'htm') {
+    const body = text.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? text
+    const safe = sanitizeDocumentHtml(body)
+    if (!safe.replace(/<[^>]+>/g, '').trim()) return { success: false, error: 'ไม่พบเนื้อหาในไฟล์ HTML' }
+    return wrapConverted(safe, 1, detectPlaceholders(safe))
+  }
+
+  if (!text.trim()) return { success: false, error: 'ไฟล์ว่างเปล่า ไม่มีข้อความ' }
+  const paragraphs = text.split(/\r?\n/).map((line) =>
+    line.trim() ? `<p class="my-0.5 whitespace-pre-wrap">${escapeDocumentHtml(line)}</p>` : '<p class="my-0.5">&nbsp;</p>'
+  ).join('')
+  return wrapConverted(paragraphs, 1, detectPlaceholders(text))
+}
+
 /**
- * Real document conversion workflow:
- * Reads source file arrayBuffer -> parses actual format structure -> converts to internal HTML/CSS template schema -> releases buffer
+ * Reads the uploaded file in the browser and converts it to the internal HTML template.
+ * Nothing is uploaded; the source buffer is dropped after conversion.
  */
 export async function convertFileToInternalTemplate(
   file: File | { name: string; size: number; arrayBuffer: () => Promise<ArrayBuffer> },
-  templateName: string,
-  category: string
+  deps: ConversionDeps = {}
 ): Promise<ConversionResult> {
   if (!file || !file.name) {
     return { success: false, error: 'กรุณาเลือกไฟล์ที่ต้องการแปลง' }
@@ -345,26 +217,30 @@ export async function convertFileToInternalTemplate(
   }
 
   const extension = file.name.split('.').pop()?.toLowerCase() || ''
+  if (LEGACY_EXTENSIONS.includes(extension)) {
+    return {
+      success: false,
+      error: `ไฟล์ .${extension} รุ่นเก่าแปลงไม่ได้ กรุณาเปิดใน Word แล้วบันทึกเป็น .docx หรือ PDF ก่อน`,
+    }
+  }
   if (!SUPPORTED_EXTENSIONS.includes(extension)) {
     return {
       success: false,
-      error: `ไม่รองรับไฟล์สกุล .${extension} (รองรับ: PDF, DOCX, XLSX, XLS, HTML, TXT, CSV)`,
+      error: `ไม่รองรับไฟล์สกุล .${extension} (รองรับ: PDF, DOCX, XLSX, XLS, CSV, HTML, TXT)`,
     }
   }
 
   try {
     const buffer = await file.arrayBuffer()
-
-    if (extension === 'xlsx' || extension === 'xls' || extension === 'csv') {
-      return parseExcelToSchema(buffer, templateName || file.name, category)
-    }
-
-    const textContent = extractTextFromBinary(buffer)
-    return parseTextDocumentToSchema(textContent, templateName || file.name, category, extension)
-  } catch (err: any) {
+    if (extension === 'xlsx' || extension === 'xls' || extension === 'csv') return parseExcel(buffer)
+    if (extension === 'docx') return await parseDocx(buffer)
+    if (extension === 'pdf') return await parsePdf(buffer, deps)
+    return parseText(new TextDecoder('utf-8').decode(buffer), extension)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : ''
     return {
       success: false,
-      error: `เกิดข้อผิดพลาดในการประมวลผลไฟล์: ${err?.message || 'ไม่สามารถอ่านไฟล์ได้'}`,
+      error: `แปลงไฟล์ไม่สำเร็จ: ${message || 'ไฟล์อาจเสียหรือมีรหัสผ่าน'}`,
     }
   }
 }

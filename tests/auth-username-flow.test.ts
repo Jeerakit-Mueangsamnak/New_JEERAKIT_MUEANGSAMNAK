@@ -8,7 +8,6 @@ import {
 import {
   normalizeUsername,
   resolveUsernameToEmail,
-  resetAllRateLimits,
 } from '@/lib/supabase/username-auth'
 import { validateSupabaseAdminConfig, createAdminClient } from '@/lib/supabase/admin'
 import * as serverSupabase from '@/lib/supabase/server'
@@ -147,7 +146,6 @@ describe('Supabase Username Auth Flow (Mock / Isolated Test Environment)', () =>
   })
 
   afterEach(async () => {
-    await resetAllRateLimits()
     vi.restoreAllMocks()
     vi.unstubAllEnvs()
   })
@@ -340,20 +338,18 @@ describe('Supabase Username Auth Flow (Mock / Isolated Test Environment)', () =>
       expect(result.data).toEqual({ userId: 'd0b9738f-49e9-4a55-8a1e-8c2ddf905f4b' })
     })
 
-    it('enforces brute-force rate limiting: locks out after 5 consecutive failed login attempts', async () => {
+    // Owner 2026-10-26 (Master §4.1): a wrong password is only refused — no count, no lock.
+    // A forgotten password is reset with the e-mail link; the wait/lock ladder is for the PIN.
+    it('never locks the account after wrong passwords: the right password still works', async () => {
       const username = 'shop_user'
 
-      // Attempt 5 failed logins
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < 12; i++) {
         const res = await loginWithUsername({ username, password: 'WrongPassword!' })
-        expect(res.success).toBe(false)
-        expect(res.error).toBe('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง')
+        expect(res).toEqual({ success: false, error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' })
       }
 
-      // 6th attempt should be blocked by rate limiter
-      const blockedRes = await loginWithUsername({ username, password: 'ValidPassword123!' })
-      expect(blockedRes.success).toBe(false)
-      expect(blockedRes.error).toContain('มีการพยายามเข้าสู่ระบบหลายครั้งเกินไป')
+      const ok = await loginWithUsername({ username, password: 'ValidPassword123!' })
+      expect(ok).toEqual({ success: true, data: { userId: 'user-underscore' } })
     })
   })
 
@@ -407,7 +403,7 @@ describe('Supabase Username Auth Flow (Mock / Isolated Test Environment)', () =>
         'utf-8'
       )
       expect(authActions).not.toMatch(/export\s+async\s+function\s+resolveUsernameToEmail/)
-      expect(authActions).not.toMatch(/export\s+async\s+function\s+resetAllRateLimits/)
+      expect(authActions).not.toMatch(/export\s+async\s+function\s+normalizeUsername/)
     })
   })
 
