@@ -137,17 +137,17 @@ describe('ฟอร์มนัดหมาย (ข้อ 1–7)', () => {
     expect(screen.getByText('ยังไม่ได้เลือกสินค้า')).toBeDefined() // no sample rows
 
     fireEvent.click(screen.getByRole('button', { name: 'ทุกหมวดหมู่' }))
-    fireEvent.click(screen.getByRole('button', { name: 'นั่งร้าน' }))
+    fireEvent.click(screen.getByRole('option', { name: 'นั่งร้าน' }))
     fireEvent.click(screen.getByRole('button', { name: 'เลือกสินค้า...' }))
-    expect(screen.queryByRole('button', { name: /^แผ่นแบบเหล็ก/ })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: /^ขาตั้งนั่งร้าน/ }))
+    expect(screen.queryByRole('option', { name: /^แผ่นแบบเหล็ก/ })).toBeNull()
+    fireEvent.click(screen.getByRole('option', { name: /^ขาตั้งนั่งร้าน/ }))
 
     fireEvent.click(screen.getByRole('button', { name: 'นั่งร้าน' }))
-    fireEvent.click(screen.getByRole('button', { name: 'ทุกหมวดหมู่' }))
+    fireEvent.click(screen.getByRole('option', { name: 'ทุกหมวดหมู่' }))
     fireEvent.click(screen.getByRole('button', { name: 'เลือกสินค้า...' }))
-    fireEvent.click(screen.getByRole('button', { name: /^แผ่นแบบเหล็ก/ }))
+    fireEvent.click(screen.getByRole('option', { name: /^แผ่นแบบเหล็ก/ }))
     fireEvent.click(screen.getByRole('button', { name: 'เลือกสินค้า...' }))
-    fireEvent.click(screen.getByRole('button', { name: /^ขาตั้งนั่งร้าน/ }))
+    fireEvent.click(screen.getByRole('option', { name: /^ขาตั้งนั่งร้าน/ }))
     expect(mockToast).toHaveBeenCalledWith('มีสินค้านี้ในรายการแล้ว', expect.any(String), 'INFO')
 
     fireEvent.change(screen.getByLabelText('จำนวน ขาตั้งนั่งร้าน 1.7 ม.'), { target: { value: '50' } })

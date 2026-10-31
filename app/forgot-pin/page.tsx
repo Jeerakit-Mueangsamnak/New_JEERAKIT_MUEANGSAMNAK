@@ -17,7 +17,7 @@ import { recoverOwnerPin, validatePinFormat } from '@/features/auth/services/pin
  */
 export default function ForgotPinPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<div className="fixed inset-0 bg-slate-100 dark:bg-slate-950 flex items-center justify-center text-slate-700 dark:text-slate-300 text-xs font-semibold">กำลังโหลด...</div>}>
       <ForgotPin />
     </Suspense>
   )

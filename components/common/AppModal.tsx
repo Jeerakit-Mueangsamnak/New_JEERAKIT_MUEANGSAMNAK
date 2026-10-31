@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useEffect, useCallback, useRef } from 'react'
+import React, { createContext, useContext, useEffect, useCallback, useId, useRef } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { ModalPortal } from '@/components/common/ModalPortal'
 
@@ -25,6 +25,20 @@ export interface AppModalProps {
 }
 
 const AppModalVariantContext = createContext<'dialog' | 'workspace'>('dialog')
+/** id of the header title: the window's name for screen readers (aria-labelledby). */
+const AppModalTitleIdContext = createContext<string | undefined>(undefined)
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]'
+
+/** Things inside `root` that Tab can reach, in order (hidden ones skipped where the browser can tell). */
+function focusableIn(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => {
+    if (el.closest('[aria-hidden="true"], [hidden], [inert]')) return false
+    const check = (el as HTMLElement & { checkVisibility?: () => boolean }).checkVisibility
+    return typeof check === 'function' ? check.call(el) : true
+  })
+}
 
 /** Open modals, oldest first: Escape closes only the newest one. */
 const openModalStack: symbol[] = []
@@ -51,17 +65,67 @@ export function AppModal({
   variant = 'dialog',
 }: AppModalProps) {
   const modalId = useRef(Symbol('app-modal')).current
+  const titleId = useId()
+  const contentRef = useRef<HTMLDivElement | null>(null)
+
+  // Tab / Shift+Tab stay inside the newest window (dialog only: a workspace leaves the sidebar
+  // usable). Focus that is somewhere else (a confirm or PIN pad on top) is left alone.
+  const keepTabInside = useCallback(
+    (e: KeyboardEvent) => {
+      const root = contentRef.current
+      if (!root || variant !== 'dialog') return
+      const active = document.activeElement as HTMLElement | null
+      const outside = !active || active === document.body
+      if (!outside && !root.contains(active)) return
+      const items = focusableIn(root)
+      if (items.length === 0) {
+        e.preventDefault()
+        root.focus()
+        return
+      }
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (outside || (e.shiftKey && (active === first || active === root)) || (!e.shiftKey && active === last)) {
+        e.preventDefault()
+        ;(e.shiftKey ? last : first).focus()
+      }
+    },
+    [variant]
+  )
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
+      if (e.key !== 'Escape' && e.key !== 'Tab') return
       // A dropdown / date picker / confirm / PIN pad above this modal already used the key
       if (e.defaultPrevented) return
       if (openModalStack[openModalStack.length - 1] !== modalId) return
+      if (e.key === 'Tab') {
+        keepTabInside(e)
+        return
+      }
       e.preventDefault()
       if (closeOnEsc) onClose()
     },
-    [closeOnEsc, onClose, modalId]
+    [closeOnEsc, onClose, modalId, keepTabInside]
   )
+
+  // Opening moves the keyboard focus into the window (unless a field in it already took it) as
+  // soon as the window is on screen (the portal draws it one render later); closing gives the
+  // focus back to where it was.
+  const setContentRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      contentRef.current = node
+      if (node && variant === 'dialog' && !node.contains(document.activeElement)) node.focus({ preventScroll: true })
+    },
+    [variant]
+  )
+  useEffect(() => {
+    if (!isOpen || variant !== 'dialog') return
+    const before = document.activeElement as HTMLElement | null
+    return () => {
+      if (before && before !== document.body && before.isConnected) before.focus({ preventScroll: true })
+    }
+  }, [isOpen, variant])
 
   useEffect(() => {
     if (!isOpen) return
@@ -91,9 +155,11 @@ export function AppModal({
   if (variant === 'workspace') {
     return (
       <AppModalVariantContext.Provider value="workspace">
+        <AppModalTitleIdContext.Provider value={titleId}>
         <div
           role="dialog"
           aria-modal="true"
+          aria-labelledby={titleId}
           className={`absolute inset-0 z-40 flex flex-col overflow-hidden bg-white dark:bg-slate-900 animate-in fade-in duration-150 ${contentClassName}`}
         >
           {isLoading && (
@@ -104,15 +170,18 @@ export function AppModal({
           )}
           {children}
         </div>
+        </AppModalTitleIdContext.Provider>
       </AppModalVariantContext.Provider>
     )
   }
 
   return (
     <ModalPortal>
+      <AppModalTitleIdContext.Provider value={titleId}>
       <div
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
         onClick={(e) => {
           if (closeOnBackdropClick && e.target === e.currentTarget) {
             onClose()
@@ -121,8 +190,11 @@ export function AppModal({
         className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-2 sm:p-4 md:p-6 animate-in fade-in duration-200 ${className}`}
       >
         <div
+          ref={setContentRef}
+          tabIndex={-1}
           onClick={(e) => e.stopPropagation()}
           className={`
+            outline-none
             bg-white dark:bg-slate-900
             rounded-2xl sm:rounded-3xl shadow-2xl
             w-full ${sizeClasses[size]}
@@ -143,6 +215,7 @@ export function AppModal({
           {children}
         </div>
       </div>
+      </AppModalTitleIdContext.Provider>
     </ModalPortal>
   )
 }
@@ -165,6 +238,7 @@ export function AppModalHeader({
   className = '',
 }: AppModalHeaderProps) {
   const variant = useContext(AppModalVariantContext)
+  const titleId = useContext(AppModalTitleIdContext)
   return (
     <div
       className={`
@@ -178,10 +252,10 @@ export function AppModalHeader({
         ${className}
       `}
     >
-      <div className="min-w-0 flex-1 flex items-center gap-2">
+      <div className="min-w-0 flex-1 flex items-center gap-2" id={title ? undefined : titleId}>
         {icon && <span className="shrink-0 text-slate-600 dark:text-slate-300">{icon}</span>}
         {title ? (
-          <h3 className="font-bold text-sm sm:text-base text-slate-900 dark:text-slate-100 truncate">
+          <h3 id={titleId} className="font-bold text-sm sm:text-base text-slate-900 dark:text-slate-100 truncate">
             {title}
           </h3>
         ) : (

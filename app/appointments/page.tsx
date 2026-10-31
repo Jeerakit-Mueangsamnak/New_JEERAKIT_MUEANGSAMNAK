@@ -323,8 +323,15 @@ export default function AppointmentsPage() {
               return (
                 <tr
                   key={apt.id}
+                  tabIndex={0}
                   onClick={() => openDetail(apt.id)}
-                  className={`cursor-pointer transition-colors ${
+                  // Keyboard: Enter / Space opens the job, like a click
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return
+                    e.preventDefault()
+                    openDetail(apt.id)
+                  }}
+                  className={`cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${
                     panel?.aptId === apt.id ? 'bg-blue-50 dark:bg-blue-950/30' : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/50'
                   }`}
                 >

@@ -156,7 +156,7 @@ export function ProductListView({
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder={activeViewTab === 'DAMAGED' ? 'ค้นหาชื่อสินค้าชำรุด...' : 'ค้นหาชื่อสินค้า...'}
+              placeholder={activeViewTab === 'DAMAGED' ? 'ค้นหาชื่อหรือรหัสสินค้าชำรุด...' : 'ค้นหาชื่อหรือรหัสสินค้า...'}
               className="w-full h-9 pl-9 pr-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
             />
           </div>

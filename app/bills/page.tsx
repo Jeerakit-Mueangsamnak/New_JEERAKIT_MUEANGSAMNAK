@@ -247,10 +247,22 @@ export default function BillsPage() {
   // Double-click a bill row: real-size A4 preview of the bill (same template as print).
   const [previewBill, setPreviewBill] = useState<FullBill | null>(null)
   const closeBillPreview = React.useCallback(() => setPreviewBill(null), [])
-  const openBillPreview = (e: React.MouseEvent, b: FullBill) => {
+  const openBillPreview = (e: React.MouseEvent | React.KeyboardEvent, b: FullBill) => {
     if ((e.target as HTMLElement).closest('button, a, input, select, textarea')) return
     window.getSelection()?.removeAllRanges()
     setPreviewBill(b)
+  }
+  // Keyboard on a bill row/card: Space selects it (like a click), Enter opens it (like a double-click).
+  const handleBillRowKey = (e: React.KeyboardEvent, b: FullBill) => {
+    if (e.target !== e.currentTarget) return
+    if (e.key === ' ') {
+      e.preventDefault()
+      setSelectedRowBill(b)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      setSelectedRowBill(b)
+      openBillPreview(e, b)
+    }
   }
 
   return (
@@ -595,9 +607,11 @@ export default function BillsPage() {
                 <div
                   key={b.id}
                   data-bill-selectable
+                  tabIndex={0}
                   onClick={() => setSelectedRowBill(b)}
                   onDoubleClick={(e) => openBillPreview(e, b)}
-                  className={`p-3 rounded-2xl border shadow-sm space-y-2.5 cursor-pointer transition-all ${selectedRowBill?.id === b.id ? 'bg-emerald-50/50 dark:bg-emerald-900/20 border-emerald-500/50' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}
+                  onKeyDown={(e) => handleBillRowKey(e, b)}
+                  className={`p-3 rounded-2xl border shadow-sm space-y-2.5 cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${selectedRowBill?.id === b.id ? 'bg-emerald-50/50 dark:bg-emerald-900/20 border-emerald-500/50' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}
                 >
                   <div className="flex justify-between items-start">
                     <div>
@@ -790,9 +804,11 @@ export default function BillsPage() {
                       <tr
                         key={b.id}
                         data-bill-selectable
+                        tabIndex={0}
                         onClick={() => setSelectedRowBill(b)}
                         onDoubleClick={(e) => openBillPreview(e, b)}
-                        className={`transition-colors cursor-pointer ${selectedRowBill?.id === b.id ? 'bg-emerald-50/50 dark:bg-emerald-900/20 ring-1 ring-inset ring-emerald-500/30' : 'hover:bg-slate-50/80 dark:hover:bg-slate-700/30'}`}
+                        onKeyDown={(e) => handleBillRowKey(e, b)}
+                        className={`transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${selectedRowBill?.id === b.id ? 'bg-emerald-50/50 dark:bg-emerald-900/20 ring-1 ring-inset ring-emerald-500/30' : 'hover:bg-slate-50/80 dark:hover:bg-slate-700/30'}`}
                       >
                         <td className="px-1 py-1.5 font-bold font-mono text-blue-600 dark:text-blue-400 text-[10px]">
                           <span className="block w-full min-w-0 truncate" title={b.billNo}>{b.billNo}</span>

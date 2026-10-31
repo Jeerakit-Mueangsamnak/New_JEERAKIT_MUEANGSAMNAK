@@ -528,12 +528,14 @@ function ProductsContent() {
     }
   }
 
-  // Filtered Products (Search by product name only, no product code)
+  // Filtered Products (search by product name or product code, like the POS)
   const filteredProducts = products.filter((p) => {
     if (activeViewTab === 'DAMAGED' && p.damagedQuantity <= 0) {
       return false
     }
-    const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase())
+    const term = searchTerm.trim().toLowerCase()
+    const matchesSearch =
+      (p.name || '').toLowerCase().includes(term) || (p.code || p.product_code || '').toLowerCase().includes(term)
     const matchesCat = categoryFilter === 'ALL' || p.category === categoryFilter
     const matchesStatus =
       statusFilter === 'ALL' ||
@@ -709,8 +711,16 @@ function ProductsContent() {
         {/* Stock Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
           <div
+            role="button"
+            tabIndex={0}
+            aria-pressed={activeViewTab === 'ALL'}
             onClick={() => setActiveViewTab('ALL')}
-            className={`p-2.5 sm:p-3 bg-slate-100/70 dark:bg-slate-800/70 rounded-2xl border shadow-xs cursor-pointer transition-all ${
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' && e.key !== ' ') return
+              e.preventDefault()
+              setActiveViewTab('ALL')
+            }}
+            className={`focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 p-2.5 sm:p-3 bg-slate-100/70 dark:bg-slate-800/70 rounded-2xl border shadow-xs cursor-pointer transition-all ${
               activeViewTab === 'ALL'
                 ? 'border-slate-400 ring-2 ring-slate-400/20'
                 : 'border-slate-200 dark:border-slate-800 hover:border-slate-400'
@@ -732,8 +742,16 @@ function ProductsContent() {
             <span className="text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5 block">{cardRented.toLocaleString()}</span>
           </div>
           <div
+            role="button"
+            tabIndex={0}
+            aria-pressed={activeViewTab === 'DAMAGED'}
             onClick={() => setActiveViewTab('DAMAGED')}
-            className={`p-2.5 sm:p-3 bg-amber-50 dark:bg-amber-950/30 rounded-2xl border shadow-xs cursor-pointer transition-all ${
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' && e.key !== ' ') return
+              e.preventDefault()
+              setActiveViewTab('DAMAGED')
+            }}
+            className={`focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 p-2.5 sm:p-3 bg-amber-50 dark:bg-amber-950/30 rounded-2xl border shadow-xs cursor-pointer transition-all ${
               activeViewTab === 'DAMAGED'
                 ? 'border-amber-500 ring-2 ring-amber-500/30'
                 : 'border-amber-200/60 dark:border-amber-900/40 hover:border-amber-400'
@@ -1597,7 +1615,13 @@ function ProductsContent() {
 
 export default function ProductsPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense
+      fallback={
+        <div className="p-4 text-xs text-slate-600 dark:text-slate-400 flex items-center justify-center min-h-[200px]">
+          กำลังโหลดข้อมูลสินค้า...
+        </div>
+      }
+    >
       <ProductsContent />
     </Suspense>
   )

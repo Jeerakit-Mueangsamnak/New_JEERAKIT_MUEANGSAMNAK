@@ -45,7 +45,7 @@ test('ปิดใช้งานสินค้า (ไม่ลบ) แล้�
   const active = () => sql(`select active from public.products where name = ${lit(productName)}`)[0]?.[0];
   try {
     await page.goto('/products');
-    await page.getByPlaceholder('ค้นหาชื่อสินค้า...').fill(productName);
+    await page.getByPlaceholder('ค้นหาชื่อหรือรหัสสินค้า...').fill(productName);
     const row = page.locator('tr', { hasText: productName }).first();
     await row.getByRole('button', { name: 'ปิดใช้งานสินค้า' }).click();
     await expect(page.getByText('ไม่สามารถเรียกคืน')).toHaveCount(0);

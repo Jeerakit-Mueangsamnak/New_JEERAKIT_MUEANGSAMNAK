@@ -14,7 +14,13 @@ function AccountPageContent() {
 /** ตั้งค่าส่วนตัว — every active member's own profile / password / PIN / notifications / look (no menu needed). */
 export default function AccountPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense
+      fallback={
+        <div className="p-4 text-xs text-slate-600 dark:text-slate-400 flex items-center justify-center min-h-[200px]">
+          กำลังโหลดบัญชีของฉัน...
+        </div>
+      }
+    >
       <AccountPageContent />
     </Suspense>
   )

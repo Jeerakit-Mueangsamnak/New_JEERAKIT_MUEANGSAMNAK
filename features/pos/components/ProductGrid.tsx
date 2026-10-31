@@ -26,13 +26,15 @@ export function ProductGrid({
   const [internalMode, setInternalMode] = useState<'RENT' | 'SALE'>('RENT')
   const posMode = currentMode ?? internalMode
 
-  const handleSetMode = (m: 'RENT' | 'SALE') => {
-    setInternalMode(m)
-    if (onModeChange) onModeChange(m)
-  }
-
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL')
+
+  // Switching เช่า/ขาย starts again from every category (the old one may not exist in the other mode).
+  const handleSetMode = (m: 'RENT' | 'SALE') => {
+    setInternalMode(m)
+    setSelectedCategory('ALL')
+    if (onModeChange) onModeChange(m)
+  }
 
   // Filter products by mode: RENT shows RENT + BOTH; SALE shows SALE + BOTH
   const modeProducts = useMemo(() => {
@@ -57,6 +59,8 @@ export function ProductGrid({
     const cats = Array.from(new Set(modeProducts.map((p) => p.category).filter(Boolean)))
     return cats.map((c) => ({ label: c as string, value: c as string }))
   }, [modeProducts])
+  // A category the current mode has no products in counts as "every category".
+  const activeCategory = categories.some((c) => c.value === selectedCategory) ? selectedCategory : 'ALL'
 
   const categoryOptions = useMemo(() => [
     { value: 'ALL', label: `ทุกหมวดหมู่ (${modeProducts.length})` },
@@ -78,12 +82,12 @@ export function ProductGrid({
         code.toLowerCase().includes(searchTerm.toLowerCase())
 
       const matchesCategory =
-        selectedCategory === 'ALL' ||
-        p.category === selectedCategory
+        activeCategory === 'ALL' ||
+        p.category === activeCategory
 
       return matchesSearch && matchesCategory
     })
-  }, [modeProducts, searchTerm, selectedCategory])
+  }, [modeProducts, searchTerm, activeCategory])
 
   return (
     <div className="flex flex-col h-full min-h-0 min-w-0 max-w-full space-y-2 overflow-hidden">
@@ -132,7 +136,7 @@ export function ProductGrid({
         {/* Category Dropdown */}
         <div className="w-28 sm:w-36 md:w-40 lg:w-44 shrink-0 min-w-0">
           <CustomSelect
-            value={selectedCategory}
+            value={activeCategory}
             onChange={(val) => setSelectedCategory(String(val))}
             options={categoryOptions}
             placeholder="ทุกหมวดหมู่"

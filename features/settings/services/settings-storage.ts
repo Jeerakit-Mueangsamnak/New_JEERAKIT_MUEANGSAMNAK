@@ -2,8 +2,7 @@
  * Shop (SYSTEM) settings for the UI. The single source of truth is the public.store_settings
  * row (features/settings/api/settings-repository.ts), written section by section through
  * settings_update (OWNER only, audited on the server). This module keeps the in-memory copy
- * the screens read — no browser storage. Only values with a real consumer live here
- * (features/settings/settings-registry.ts lists each key, its scope and consumer).
+ * the screens read — no browser storage. Only values with a real consumer live here.
  *
  * PROFILE values (name, avatar, PIN, auto-lock choice) live on the user's own profile rows;
  * DEVICE values (theme) live in this browser only (lib/contexts/ThemeContext).

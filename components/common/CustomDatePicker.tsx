@@ -399,6 +399,14 @@ export function CustomDatePicker({
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setIsOpen((prev) => !prev)}
+        // Keyboard: Delete / Backspace clears the date (the ✕ is for mouse and touch)
+        aria-keyshortcuts={value && showClear && !disabled ? 'Delete Backspace' : undefined}
+        onKeyDown={(e) => {
+          if ((e.key === 'Delete' || e.key === 'Backspace') && value && showClear && !disabled) {
+            e.preventDefault()
+            onChange(null)
+          }
+        }}
         className={`w-full min-w-0 flex items-center justify-between gap-1 focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-xs transition-all text-left cursor-pointer ${
           buttonClassName
             ? buttonClassName
@@ -413,6 +421,7 @@ export function CustomDatePicker({
         <div className="flex items-center gap-1 shrink-0">
           {value && showClear && !disabled && (
             <span
+              aria-hidden="true"
               onClick={(e) => {
                 e.stopPropagation()
                 onChange(null)

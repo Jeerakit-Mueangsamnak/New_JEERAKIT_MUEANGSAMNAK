@@ -42,8 +42,10 @@ import {
   initSectionDrafts,
   isSectionDirty,
   resetSection,
+  SETTINGS_SECTIONS,
   type SectionDrafts,
 } from '@/features/settings/utils/section-drafts'
+import { useLeaveGuard } from '@/features/settings/hooks/useLeaveGuard'
 import { autoLockLabel, validateSection } from '@/features/settings/utils/settings-validation'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { CustomSelect } from '@/components/common/CustomSelect'
@@ -445,6 +447,8 @@ export default function SettingsPage() {
 
   const section = drafts[activeTab]
   const dirty = isSectionDirty(section, activeTab)
+  // Unsaved edits in any section: ask before the page is left (they would be lost).
+  useLeaveGuard(SETTINGS_SECTIONS.some((s) => isSectionDirty(drafts[s], s)))
   const setDraft: SetDraft = (action) => setDrafts((d) => {
     const prev = d[activeTab].draft
     const next = typeof action === 'function' ? action(prev) : action

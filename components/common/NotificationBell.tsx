@@ -27,6 +27,7 @@ import {
   NOTIFICATION_GROUPS,
   notificationGroup,
 } from '@/features/notifications/services/notification-storage'
+import { useToast } from '@/components/common/Toast'
 
 interface NotificationBellProps {
   className?: string
@@ -34,8 +35,10 @@ interface NotificationBellProps {
 
 export function NotificationBell({ className = '' }: NotificationBellProps) {
   const router = useRouter()
+  const { showToast } = useToast()
 
   const [isOpen, setIsOpen] = useState(false)
+  const [markingAll, setMarkingAll] = useState(false)
   const [notifications, setNotifications] = useState<ActionableNotification[]>([])
   const [group, setGroup] = useState<NotificationGroup | 'ALL'>('ALL')
   const containerRef = useRef<HTMLDivElement>(null)
@@ -102,9 +105,14 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
     }
   }, [isOpen])
 
+  // A mark the server refused: say so (the notice keeps its old state on screen).
+  const markFailed = useCallback(() => {
+    showToast('บันทึกสถานะแจ้งเตือนไม่สำเร็จ', 'ระบบยังไม่ได้บันทึกว่าอ่านหรือจัดการแล้ว กรุณาลองใหม่อีกครั้ง', 'ERROR')
+  }, [showToast])
+
   const handleItemClick = (item: ActionableNotification) => {
     if (item.status === 'UNREAD') {
-      void markNotificationStatus(item.id, 'READ').then(setNotifications).catch(() => undefined)
+      void markNotificationStatus(item.id, 'READ').then(setNotifications).catch(markFailed)
     }
     setIsOpen(false)
     if (item.data?.sourceType === 'BILL' && item.data?.sourceId) {
@@ -126,7 +134,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
   const handleSendBill = (e: React.MouseEvent, item: ActionableNotification) => {
     e.stopPropagation()
     if (item.status === 'UNREAD') {
-      void markNotificationStatus(item.id, 'READ').then(setNotifications).catch(() => undefined)
+      void markNotificationStatus(item.id, 'READ').then(setNotifications).catch(markFailed)
     }
     setIsOpen(false)
     router.push(`/bills?id=${encodeURIComponent(item.data.sourceId as string)}&send=line`)
@@ -134,12 +142,20 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
 
   const handleMarkHandled = (e: React.MouseEvent, item: ActionableNotification) => {
     e.stopPropagation()
-    void markNotificationStatus(item.id, 'HANDLED').then(setNotifications).catch(() => undefined)
+    void markNotificationStatus(item.id, 'HANDLED').then(setNotifications).catch(markFailed)
   }
 
   const handleMarkAllRead = (e: React.MouseEvent) => {
     e.stopPropagation()
-    void markAllNotificationsRead().then(setNotifications).catch(() => undefined)
+    if (markingAll) return
+    setMarkingAll(true)
+    void markAllNotificationsRead()
+      .then(setNotifications)
+      .catch(() => {
+        refreshNotifications() // the ones already marked show as read
+        markFailed()
+      })
+      .finally(() => setMarkingAll(false))
   }
 
   const getIconForType = (type: NotificationType) => {
@@ -242,11 +258,13 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
                 <button
                   type="button"
                   onClick={handleMarkAllRead}
-                  className="text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                  disabled={markingAll}
+                  aria-busy={markingAll}
+                  className="text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-bold flex items-center gap-1 cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-wait"
                   title="ทำเครื่องหมายว่าอ่านแล้วทั้งหมด"
                 >
                   <CheckCheck className="w-3.5 h-3.5" />
-                  <span>อ่านทั้งหมด</span>
+                  <span>{markingAll ? 'กำลังทำเครื่องหมาย…' : 'อ่านทั้งหมด'}</span>
                 </button>
               )}
             </div>
@@ -296,8 +314,15 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
                   return (
                     <div
                       key={item.id}
+                      tabIndex={0}
                       onClick={() => handleItemClick(item)}
-                      className={`p-3 transition-colors cursor-pointer flex items-start gap-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
+                      // Keyboard: Enter / Space opens the notice, like a click (not when on its own buttons)
+                      onKeyDown={(e) => {
+                        if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return
+                        e.preventDefault()
+                        handleItemClick(item)
+                      }}
+                      className={`p-3 transition-colors cursor-pointer flex items-start gap-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${
                         isUnread
                           ? 'bg-blue-50/40 dark:bg-blue-950/20'
                           : isActioned

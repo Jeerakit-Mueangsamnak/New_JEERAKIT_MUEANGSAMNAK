@@ -122,7 +122,13 @@ function DashboardContent() {
 
 export default function DashboardPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense
+      fallback={
+        <div className="p-4 text-xs text-slate-600 dark:text-slate-400 flex items-center justify-center min-h-[200px]">
+          กำลังโหลดแดชบอร์ด...
+        </div>
+      }
+    >
       <DashboardContent />
     </Suspense>
   )

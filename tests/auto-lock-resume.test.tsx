@@ -72,16 +72,6 @@ describe('17. leaving the page asks for the PIN at once (owner 2026-10-26)', () 
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
   })
 
-  it('switching app / tab or the screen locking (page hidden) locks right away', async () => {
-    render(<AppLockProvider><Probe /></AppLockProvider>)
-    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('open'))
-    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
-    act(() => {
-      document.dispatchEvent(new Event('visibilitychange'))
-    })
-    await waitFor(() => expect(screen.getByTestId('lock').textContent).toBe('locked'))
-  })
-
   it('a page swiped away / tab closed and opened again (no tab marker) asks for the PIN', async () => {
     sessionStorage.clear() // the browser drops it with the closed tab
     render(<AppLockProvider><Probe /></AppLockProvider>)

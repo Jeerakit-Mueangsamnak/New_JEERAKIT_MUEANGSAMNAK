@@ -1,0 +1,78 @@
+// @vitest-environment jsdom
+import React, { useState } from 'react'
+import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { CustomSelect } from '@/components/common/CustomSelect'
+
+afterEach(cleanup)
+
+const OPTIONS = [
+  { value: 'a', label: 'เช่ารายวัน' },
+  { value: 'b', label: 'เช่ารายเดือน' },
+  { value: 'c', label: 'ขาย' },
+]
+
+function Field({ searchable = false }: { searchable?: boolean }) {
+  const [value, setValue] = useState('a')
+  return (
+    <>
+      <CustomSelect value={value} onChange={setValue} options={OPTIONS} ariaLabel="ประเภท" searchable={searchable} />
+      <output data-testid="value">{value}</output>
+    </>
+  )
+}
+
+const trigger = () => screen.getByRole('button', { name: 'ประเภท' })
+const key = (el: Element, k: string) => fireEvent.keyDown(el, { key: k })
+
+describe('CustomSelect with the keyboard (audit UX-23)', () => {
+  it('↓ opens the list on the chosen option; ↓ ↓ Enter picks the third', () => {
+    render(<Field />)
+    key(trigger(), 'ArrowDown')
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    expect(trigger().getAttribute('aria-activedescendant')).toBe(screen.getAllByRole('option')[0].id)
+    key(trigger(), 'ArrowDown')
+    key(trigger(), 'ArrowDown')
+    key(trigger(), 'ArrowDown') // stays on the last one
+    key(trigger(), 'Enter')
+    expect(screen.getByTestId('value').textContent).toBe('c')
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
+  it('↑, Home and End move too; Space picks', () => {
+    render(<Field />)
+    key(trigger(), 'ArrowUp')
+    key(trigger(), 'End')
+    key(trigger(), 'ArrowUp')
+    key(trigger(), ' ')
+    expect(screen.getByTestId('value').textContent).toBe('b')
+    key(trigger(), 'ArrowDown')
+    key(trigger(), 'Home')
+    key(trigger(), 'Enter')
+    expect(screen.getByTestId('value').textContent).toBe('a')
+  })
+
+  it('the chosen option is marked for screen readers', () => {
+    render(<Field />)
+    key(trigger(), 'ArrowDown')
+    expect(screen.getByRole('option', { name: 'เช่ารายวัน' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('option', { name: 'ขาย' }).getAttribute('aria-selected')).toBe('false')
+  })
+
+  it('in a searchable list, typing then ↓ Enter picks from the matches', () => {
+    render(<Field searchable />)
+    fireEvent.click(trigger())
+    const search = screen.getByPlaceholderText('พิมพ์ค้นหา...')
+    fireEvent.change(search, { target: { value: 'เช่า' } })
+    key(search, 'ArrowDown')
+    key(search, 'Enter')
+    expect(screen.getByTestId('value').textContent).toBe('b')
+  })
+
+  it('a mouse click still picks an option', () => {
+    render(<Field />)
+    fireEvent.click(trigger())
+    fireEvent.click(screen.getByRole('option', { name: 'ขาย' }))
+    expect(screen.getByTestId('value').textContent).toBe('c')
+  })
+})

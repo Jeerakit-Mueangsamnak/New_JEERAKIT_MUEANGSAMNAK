@@ -50,7 +50,7 @@ describe('เพิ่มลูกค้าใหม่: ฟอร์มซ้�
     const pick = (label: string, option: string) => {
       fireEvent.click(screen.getByRole('button', { name: label }))
       fireEvent.change(screen.getByPlaceholderText('พิมพ์ค้นหา...'), { target: { value: option } })
-      const button = screen.getAllByRole('button').find((b) => b.textContent?.startsWith(option))!
+      const button = screen.getAllByRole('option').find((b) => b.textContent?.startsWith(option))!
       fireEvent.click(button)
     }
     pick('จังหวัด', 'กาญจนบุรี')

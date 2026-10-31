@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useId } from 'react'
 import { ChevronDown, Check, Search } from 'lucide-react'
 import { useClickOutside } from '@/lib/hooks/useClickOutside'
 import { useFloatingPlacement } from '@/lib/hooks/useFloatingPlacement'
@@ -47,6 +47,9 @@ export function CustomSelect({
   const [searchTerm, setSearchTerm] = useState('')
   const triggerRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
+  /** Option the arrow keys are on (index in the shown list), -1 = none. */
+  const [highlight, setHighlight] = useState(-1)
+  const listId = useId()
 
   const { coords, placement } = useFloatingPlacement(triggerRef, isOpen, {
     align,
@@ -86,6 +89,48 @@ export function CustomSelect({
       })
     : options
 
+  // Opening starts on the chosen option (or the first); typing a search starts on the first match.
+  const selectedIndex = filteredOptions.findIndex((opt) => String(opt.value) === String(value))
+  useEffect(() => {
+    if (isOpen) setHighlight(searchTerm.trim() ? 0 : Math.max(0, selectedIndex))
+    else setHighlight(-1)
+    // selectedIndex is read only when the list opens or the search changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, searchTerm])
+
+  useEffect(() => {
+    if (!isOpen || highlight < 0) return
+    const el = document.getElementById(`${listId}-${highlight}`)
+    if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' })
+  }, [isOpen, highlight, listId])
+
+  // Keyboard: ↓/↑ open the list and move, Home/End jump, Enter/Space pick, Tab closes.
+  const handleListKeys = (e: React.KeyboardEvent) => {
+    if (disabled) return
+    const count = filteredOptions.length
+    if (!isOpen) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSearchTerm('')
+        setIsOpen(true)
+      }
+      return
+    }
+    const move = (to: number) => {
+      e.preventDefault()
+      if (count > 0) setHighlight(Math.min(count - 1, Math.max(0, to)))
+    }
+    if (e.key === 'ArrowDown') move(highlight + 1)
+    else if (e.key === 'ArrowUp') move(highlight - 1)
+    else if (e.key === 'Home') move(0)
+    else if (e.key === 'End') move(count - 1)
+    else if (e.key === 'Enter' || (e.key === ' ' && e.target === triggerRef.current)) {
+      e.preventDefault()
+      const opt = filteredOptions[highlight]
+      if (opt) handleSelect(opt.value)
+    } else if (e.key === 'Tab') setIsOpen(false)
+  }
+
   return (
     <div className={`relative inline-block min-w-0 w-full ${className}`}>
       {/* Trigger Button */}
@@ -96,6 +141,11 @@ export function CustomSelect({
         aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
+        aria-controls={isOpen ? listId : undefined}
+        aria-activedescendant={isOpen && highlight >= 0 && filteredOptions[highlight] ? `${listId}-${highlight}` : undefined}
+        onKeyDown={handleListKeys}
+        // Space on an open list picks on keydown; stop the button's own click on keyup
+        onKeyUp={(e) => { if (e.key === ' ' && isOpen) e.preventDefault() }}
         onClick={() => !disabled && setIsOpen((prev) => {
           if (!prev) setSearchTerm('')
           return !prev
@@ -134,6 +184,8 @@ export function CustomSelect({
         <ModalPortal>
           <div
             ref={popoverRef}
+            id={listId}
+            role="listbox"
             style={{
               position: 'fixed',
               top: coords.top !== undefined ? `${coords.top}px` : undefined,
@@ -154,6 +206,7 @@ export function CustomSelect({
                     type="search"
                     value={searchTerm}
                     onChange={(event) => setSearchTerm(event.target.value)}
+                    onKeyDown={handleListKeys}
                     placeholder="พิมพ์ค้นหา..."
                     className="w-full pl-7 pr-2 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs outline-none focus:ring-2 focus:ring-emerald-500"
                   />
@@ -165,18 +218,24 @@ export function CustomSelect({
                 {searchTerm ? 'ไม่พบรายการที่ตรงกับคำค้นหา' : emptyText}
               </div>
             ) : (
-              filteredOptions.map((opt) => {
+              filteredOptions.map((opt, index) => {
                 const isSelected = String(opt.value) === String(value)
+                const isHighlighted = index === highlight
                 return (
                   <button
                     key={String(opt.value)}
+                    id={`${listId}-${index}`}
                     type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    tabIndex={-1}
                     onClick={() => handleSelect(opt.value)}
+                    onMouseEnter={() => setHighlight(index)}
                     className={`w-full text-left px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-between gap-2 cursor-pointer ${
                       isSelected
                         ? 'bg-slate-100 dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-xs'
                         : 'text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/80'
-                    }`}
+                    } ${isHighlighted ? 'ring-2 ring-inset ring-emerald-500' : ''}`}
                   >
                     <span className="truncate flex-1">{opt.label}</span>
                     {opt.sublabel && (

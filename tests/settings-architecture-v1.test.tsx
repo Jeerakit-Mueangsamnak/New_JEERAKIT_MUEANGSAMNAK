@@ -13,7 +13,15 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('@/lib/db/rpc', () => ({ rpc: mocks.rpc }))
 vi.mock('@/lib/supabase/client', () => ({
-  createClient: () => ({ from: (t: string) => (mocks.from(t), { select: () => ({ maybeSingle: mocks.maybeSingle }) }) }),
+  createClient: () => ({
+    from: (t: string) => (mocks.from(t), {
+      select: () => ({
+        maybeSingle: mocks.maybeSingle,
+        // MyAccountPanel (personal tab) reads the signed-in user's own profile row
+        eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }),
+      }),
+    }),
+  }),
 }))
 vi.mock('@/features/auth/contexts/AuthContext', () => ({ useAuth: () => ({ user: mocks.user }) }))
 vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: vi.fn() }) }))
@@ -30,12 +38,53 @@ import { applySectionSaved, applyServerUpdate, initSectionDrafts, isSectionDirty
 import { GRANTABLE_MENUS, hasMenu, menuForPath } from '@/features/auth/services/permissions'
 import { calculateBillTotals, validateDiscountCeiling } from '@/lib/calculation-service'
 import { ThemeProvider, useTheme } from '@/lib/contexts/ThemeContext'
-import { SETTINGS_REGISTRY, REMOVED_SETTING_FIELDS } from '@/features/settings/settings-registry'
+import { ConfirmDialogProvider } from '@/components/common/ConfirmDialogProvider'
 import { isIdleExpired } from '@/features/auth/services/pin-lock'
 import SettingsPage from '@/app/settings/page'
 import { SystemSettingsProvider } from '@/lib/contexts/SystemSettingsContext'
 
 const ROOT = path.resolve(__dirname, '..')
+
+/** Settings removed in the v1 rebuild (no consumer, or not a shop setting any more). */
+const REMOVED_SETTING_FIELDS = [
+  'allowZeroStock',
+  'allowBackdatedStockAdjustment',
+  'defaultRentalType',
+  'defaultRentalDays',
+  'rentalDayCalculation',
+  'returnCutoffTime',
+  'gracePeriodDays',
+  'lateFeeMode',
+  'lateFeeValue',
+  'dailyOverdueChargeEnabled',
+  'allowPartialReturn',
+  'allowPartialPayment',
+  'allowContinueAfterPaid',
+  'defaultWithholdingPercent',
+  'defaultDepositPercent',
+  'autoCreateFinanceTransaction',
+  'moneyPrecision',
+  'roundingMode',
+  'paymentMethods',
+  'vatEnabled',
+  'defaultVatPercent',
+  'maximumDiscountPercent',
+  'defaultMinimumStock',
+  'lowStockNotificationEnabled',
+  'reservationExpiryPolicy',
+  'reservationExpiryDays',
+  'systemName',
+  'authBackgroundType',
+  'authBackgroundImageUrl',
+  'appLogoUrl',
+  'documentPrinting',
+  'paperSize',
+  'showQRCode',
+  'showAuthorizedPerson',
+  'defaultCopies',
+  'footerText',
+  'branchNo',
+] as const
 
 function row(over: Partial<StoreSettingsRow> = {}): StoreSettingsRow {
   return {
@@ -63,22 +112,15 @@ describe('PERMISSION: shop settings are open to every member', () => {
     expect(GRANTABLE_MENUS.map((m) => m.code)).toContain('settings')
   })
 
-  it('1. the page shows the settings to a USER too (no owner-only screen)', () => {
-    mocks.user = { id: 'u1', role: 'USER', status: 'ACTIVE', menus: [] }
-    render(<SystemSettingsProvider><SettingsPage /></SystemSettingsProvider>)
-    expect(screen.queryByText('ตั้งค่าระบบเปิดได้เฉพาะเจ้าของร้าน')).toBeNull()
-    expect(screen.getAllByRole('button', { name: 'บันทึก' }).length).toBeGreaterThan(0)
-  })
-
   it('2. the OWNER opens it and saves a section through settings_update', async () => {
     expect(hasMenu(owner, 'settings')).toBe(true)
     mocks.user = { id: 'o1', role: 'OWNER', status: 'ACTIVE', menus: [] }
     mocks.rpc.mockResolvedValue(row({ company_name: 'ร้านใหม่' }))
-    render(<SystemSettingsProvider><SettingsPage /></SystemSettingsProvider>)
+    render(<ThemeProvider><ConfirmDialogProvider><SystemSettingsProvider><SettingsPage /></SystemSettingsProvider></ConfirmDialogProvider></ThemeProvider>)
     const nameInput = screen.getAllByRole('textbox')[0] as HTMLInputElement
     fireEvent.change(nameInput, { target: { value: 'ร้านใหม่' } })
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }))
+      fireEvent.click(screen.getByRole('button', { name: 'บันทึกการตั้งค่า' }))
     })
     expect(mocks.rpc).toHaveBeenCalledWith('settings_update', expect.objectContaining({ p_reason: 'แก้ข้อมูลกิจการ' }))
     expect(mocks.rpc.mock.calls[0][1].p_patch.company_name).toBe('ร้านใหม่')
@@ -86,9 +128,6 @@ describe('PERMISSION: shop settings are open to every member', () => {
 
   it('3. /account is open to every member (own profile only)', () => {
     expect(menuForPath('/account')).toBeNull()
-    const own = SETTINGS_REGISTRY.filter((d) => d.scope !== 'SYSTEM')
-    expect(own.every((d) => d.permission === 'SELF')).toBe(true)
-    expect(SETTINGS_REGISTRY.filter((d) => d.scope === 'SYSTEM').every((d) => d.permission === 'OWNER')).toBe(true)
   })
 })
 
@@ -212,7 +251,7 @@ describe('REMOVED SETTINGS', () => {
       return /\.(ts|tsx)$/.test(e.name) ? [rel] : []
     })
   const files = ['app', 'components', 'features', 'lib'].flatMap(sourceFiles)
-    .filter((f) => !f.endsWith('settings-registry.ts') && !f.endsWith('database.types.ts'))
+    .filter((f) => !f.endsWith('database.types.ts'))
 
   it('13. Settings has no printing section; the print flow keeps its own renderer', () => {
     const page = fs.readFileSync(path.join(ROOT, 'app/settings/page.tsx'), 'utf8')

@@ -59,8 +59,17 @@ export function ProductCard({ product, mode = 'RENT', onClick, allowOutOfStock =
 
   return (
     <div
+      role="button"
+      tabIndex={allowOutOfStock || !isOutOfStock ? 0 : -1}
+      aria-disabled={!(allowOutOfStock || !isOutOfStock)}
       onClick={() => (allowOutOfStock || !isOutOfStock) && onClick(product)}
-      className={`relative group min-h-[132px] rounded-xl p-2.5 md:p-3 border transition-all duration-200 cursor-pointer flex flex-col justify-between ${borderStyle}`}
+      // Keyboard: Enter / Space picks the product, like a tap
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return
+        e.preventDefault()
+        if (allowOutOfStock || !isOutOfStock) onClick(product)
+      }}
+      className={`relative group min-h-[132px] rounded-xl p-2.5 md:p-3 border transition-all duration-200 cursor-pointer flex flex-col justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${borderStyle}`}
     >
       <div>
         <div className="flex items-center justify-between gap-1.5 mb-1.5">

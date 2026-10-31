@@ -3,6 +3,7 @@
 import React, { useState, useMemo, Suspense, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { loadAllBusinessData } from '@/components/common/MasterDataProvider'
+import { useToast } from '@/components/common/Toast'
 import { ReportFilter } from '@/features/reports/components/ReportFilter'
 import { FinanceReportView } from '@/features/reports/components/FinanceReportView'
 import { SalesRentalReportView } from '@/features/reports/components/SalesRentalReportView'
@@ -18,6 +19,9 @@ import {
   getBusinessReportData,
 } from '@/features/reports/services/report-data'
 
+/** The report views the menu offers (?view=…). */
+const REPORT_VIEWS = ['finance', 'sales-rental', 'operations', 'stock', 'business'] as const
+
 function getInitialDates(): { start: Date; end: Date } {
   const now = new Date()
   const start = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -28,6 +32,8 @@ function getInitialDates(): { start: Date; end: Date } {
 function ReportsWorkspace() {
   const searchParams = useSearchParams()
   const currentView = searchParams.get('view') || 'finance'
+  const knownView = (REPORT_VIEWS as readonly string[]).includes(currentView)
+  const { showToast } = useToast()
 
   // Date filter state
   const initial = useMemo(() => getInitialDates(), [])
@@ -103,12 +109,15 @@ function ReportsWorkspace() {
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true)
     void loadAllBusinessData()
-      .catch((err: unknown) => console.error('Report refresh failed:', err))
+      .catch((err: unknown) => {
+        console.error('Report refresh failed:', err)
+        showToast('รีเฟรชรายงานไม่สำเร็จ', 'โหลดข้อมูลล่าสุดไม่ได้ หน้าจอยังแสดงข้อมูลชุดเดิม กรุณาลองกดรีเฟรชอีกครั้ง', 'ERROR')
+      })
       .finally(() => {
         setRefreshKey((k) => k + 1)
         setIsRefreshing(false)
       })
-  }, [])
+  }, [showToast])
 
   // Filter Object
   const filter: ReportDateFilter = useMemo(
@@ -183,6 +192,12 @@ function ReportsWorkspace() {
 
       {currentView === 'business' && businessData && (
         <BusinessReportView data={businessData} />
+      )}
+
+      {!knownView && (
+        <div role="alert" className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-center text-sm font-bold text-slate-600 dark:text-slate-400">
+          ไม่พบรายงานที่เลือก กรุณาเลือกรายงานจากเมนูด้านซ้าย
+        </div>
       )}
     </div>
   )
