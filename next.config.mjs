@@ -12,15 +12,8 @@ const nextConfig = {
   // Playwright starts its own dev server with NEXT_DIST_DIR=.next-e2e so it never
   // shares .next with the normal dev server on port 3000.
   distDir: process.env.NEXT_DIST_DIR || '.next',
-  transpilePackages: [
-    '@fullcalendar/react',
-    '@fullcalendar/core',
-    '@fullcalendar/daygrid',
-    '@fullcalendar/timegrid',
-    '@fullcalendar/interaction',
-  ],
   experimental: {
-    optimizePackageImports: ['lucide-react', '@fullcalendar/react', '@fullcalendar/core'],
+    optimizePackageImports: ['lucide-react'],
   },
 };
 
