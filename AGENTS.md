@@ -70,7 +70,7 @@ docs/                   Master และเอกสารอ้างอิง
 **ต้องขออนุญาตก่อนแก้** (ชี้ไฟล์ เหตุผล ผลกระทบ แล้วรอคำสั่ง):
 
 - `middleware.ts`, `app/layout.tsx`, `instrumentation*.ts`
-- `next.config.mjs`, `tsconfig.json`, `tailwind.config.ts`, `postcss.config.mjs`, `.eslintrc.json`, `vitest.config.mjs`, `playwright.config.ts`
+- `next.config.mjs`, `tsconfig.json`, `tailwind.config.ts`, `postcss.config.mjs`, `eslint.config.mjs`, `vitest.config.mjs`, `playwright.config.ts`
 - `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`
 - migration ที่มีอยู่แล้ว (ห้ามแก้ย้อนหลัง); migration ใหม่ต้องมีคำสั่งชัดเจน
 - `.env*`, `.mcp.json`, `.claude/`, `.agents/`
