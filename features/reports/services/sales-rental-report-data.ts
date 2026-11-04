@@ -29,13 +29,13 @@ export interface SalesRentalReportData {
   // Topic 10: Quotations Funnel
   totalQuotationsCount: number
   totalQuotationsValue: number
-  quotationConversionRate: number
+  /** Quotations in the range that became a bill (shown as a plain count on the card). */
+  quotationsConvertedCount: number
   quotationFunnel: Array<{
     stage: 'draft' | 'sent' | 'accepted' | 'converted'
     label: string
     count: number
     value: number
-    percentage: number
     color: string
   }>
   // Topic 11: Active Rentals
@@ -198,7 +198,6 @@ export function getSalesRentalReportData(filter: ReportDateFilter): SalesRentalR
   }
 
   const totalQuotes = inRangeQuotes.length
-  const quotationConversionRate = totalQuotes > 0 ? Math.round((quoteConverted / totalQuotes) * 100) : 0
 
   const quotationFunnel = [
     {
@@ -206,7 +205,6 @@ export function getSalesRentalReportData(filter: ReportDateFilter): SalesRentalR
       label: '1. ร่างใบเสนอราคา',
       count: quoteDraft,
       value: inRangeQuotes.filter((q) => q.status === 'DRAFT').reduce((s, q) => s + (q.grandTotal || 0), 0),
-      percentage: totalQuotes > 0 ? Math.round((quoteDraft / totalQuotes) * 100) : 0,
       color: '#64748b', // slate
     },
     {
@@ -216,7 +214,6 @@ export function getSalesRentalReportData(filter: ReportDateFilter): SalesRentalR
       value: inRangeQuotes
         .filter((q) => q.status === 'SENT' || q.status === 'WAITING')
         .reduce((s, q) => s + (q.grandTotal || 0), 0),
-      percentage: totalQuotes > 0 ? Math.round((quoteSent / totalQuotes) * 100) : 0,
       color: '#3b82f6', // blue
     },
     {
@@ -224,7 +221,6 @@ export function getSalesRentalReportData(filter: ReportDateFilter): SalesRentalR
       label: '3. ยืนยัน / อนุมัติ',
       count: quoteAccepted,
       value: inRangeQuotes.filter((q) => q.status === 'ACCEPTED').reduce((s, q) => s + (q.grandTotal || 0), 0),
-      percentage: totalQuotes > 0 ? Math.round((quoteAccepted / totalQuotes) * 100) : 0,
       color: '#8b5cf6', // purple
     },
     {
@@ -232,7 +228,6 @@ export function getSalesRentalReportData(filter: ReportDateFilter): SalesRentalR
       label: '4. แปลงเป็นบิลแล้ว',
       count: quoteConverted,
       value: inRangeQuotes.filter((q) => q.status === 'CONVERTED').reduce((s, q) => s + (q.grandTotal || 0), 0),
-      percentage: totalQuotes > 0 ? Math.round((quoteConverted / totalQuotes) * 100) : 0,
       color: '#10b981', // green
     },
   ]
@@ -362,7 +357,7 @@ export function getSalesRentalReportData(filter: ReportDateFilter): SalesRentalR
     billStatusList,
     totalQuotationsCount: totalQuotes,
     totalQuotationsValue: totalQuoteValue,
-    quotationConversionRate,
+    quotationsConvertedCount: quoteConverted,
     quotationFunnel,
     activeRentalsCount: activeRentals.length,
     overdueRentalsCount,

@@ -340,6 +340,8 @@ export interface CustomDatePickerProps {
   buttonClassName?: string
   disabled?: boolean
   showClear?: boolean
+  /** Hide the calendar icon (compact use inside tables). */
+  hideIcon?: boolean
 }
 
 /**
@@ -356,6 +358,7 @@ export function CustomDatePicker({
   buttonClassName = '',
   disabled = false,
   showClear = true,
+  hideIcon = false,
 }: CustomDatePickerProps) {
   const [isOpen, setIsOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -418,6 +421,8 @@ export function CustomDatePicker({
         <span className={`truncate flex-1 min-w-0 ${value ? 'text-slate-900 dark:text-slate-100 font-bold' : 'text-slate-600 dark:text-slate-400 font-normal'}`}>
           {value ? formatDateDisplay(value) : placeholder}
         </span>
+        {/* Nothing to show on the right (no ✕, icon hidden): leave no empty gap behind the date */}
+        {(!hideIcon || (value && showClear && !disabled)) && (
         <div className="flex items-center gap-1 shrink-0">
           {value && showClear && !disabled && (
             <span
@@ -432,8 +437,9 @@ export function CustomDatePicker({
               <X className="w-3 h-3" />
             </span>
           )}
-          <CalendarIcon className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+          {!hideIcon && <CalendarIcon className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />}
         </div>
+        )}
       </button>
 
       {/* Popover Calendar Window */}

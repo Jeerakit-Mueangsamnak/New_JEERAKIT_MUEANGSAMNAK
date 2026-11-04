@@ -139,12 +139,11 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
     printDocuments(checked.map((t) => wrapPage(renderLibraryTemplate(t, business))), checked.length === 1 ? checked[0].name : `แบบฟอร์ม ${checked.length} รายการ`)
   }
 
-  const handleDelete = async (reason: string) => {
-    if (!reason.trim()) return showToast('กรุณาระบุเหตุผล', 'จำเป็นต้องระบุเหตุผลในการลบแบบฟอร์ม', 'ERROR')
+  const handleDelete = async () => {
     const ids = checked.map((template) => template.id)
     if (ids.length === 0) return showToast('เลือกแบบฟอร์ม', 'ติ๊กเลือกแบบฟอร์มที่ต้องการลบก่อน', 'INFO')
     try {
-      const next = await removeTemplates(ids, reason.trim())
+      const next = await removeTemplates(ids, '')
       setTemplates(next)
       setCheckedIds([])
       if (previewId && ids.includes(previewId)) setPreviewId(next[0]?.id ?? null)

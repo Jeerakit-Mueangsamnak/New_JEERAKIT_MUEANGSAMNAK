@@ -16,7 +16,7 @@ const mockLine = vi.hoisted(() => ({
   contacts: vi.fn(async () => ({ data: [] as unknown[], error: null as unknown })),
   createDriverLineLinkCode: vi.fn(),
   unlinkLineContact: vi.fn(),
-  ask: vi.fn(),
+  confirm: vi.fn(async () => true),
 }))
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({ from: () => ({ select: () => ({ eq: () => ({ not: () => mockLine.contacts() }) }) }) }),
@@ -25,7 +25,7 @@ vi.mock('@/app/actions/line', () => ({
   createDriverLineLinkCode: mockLine.createDriverLineLinkCode,
   unlinkLineContact: mockLine.unlinkLineContact,
 }))
-vi.mock('@/components/common/ConfirmDialogProvider', () => ({ useAskText: () => mockLine.ask, useConfirm: () => async () => true }))
+vi.mock('@/components/common/ConfirmDialogProvider', () => ({ useConfirm: () => mockLine.confirm }))
 
 describe('Settings › LINE › ทะเบียนคนขับ', () => {
   afterEach(cleanup)
@@ -94,19 +94,19 @@ describe('Settings › LINE › ทะเบียนคนขับ', () => {
     expect(screen.queryByRole('button', { name: 'สร้างลิงก์' })).toBeNull()
   })
 
-  it('ยกเลิกการผูก ต้องมีเหตุผล', async () => {
+  it('ยกเลิกการผูก ต้องยืนยันก่อน (ไม่ต้องพิมพ์เหตุผล)', async () => {
     setCachedPolicies({ delivery_drivers: [{ id: 'D001', name: 'สมชาย', active: true }] })
     mockLine.contacts.mockResolvedValue({ data: [{ id: 'k-1', display_name: 'Somchai', driver_code: 'D001' }], error: null })
     mockLine.unlinkLineContact.mockResolvedValue({ success: true })
     render(<DeliveryDriversPanel />)
     const button = await screen.findByRole('button', { name: /ยกเลิกการผูก/ })
-    mockLine.ask.mockResolvedValueOnce('')
+    mockLine.confirm.mockResolvedValueOnce(false)
     fireEvent.click(button)
-    await waitFor(() => expect(mockLine.ask).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(mockLine.confirm).toHaveBeenCalledTimes(1))
     expect(mockLine.unlinkLineContact).not.toHaveBeenCalled()
-    mockLine.ask.mockResolvedValueOnce('เปลี่ยน LINE')
+    mockLine.confirm.mockResolvedValueOnce(true)
     fireEvent.click(button)
-    await waitFor(() => expect(mockLine.unlinkLineContact).toHaveBeenCalledWith('k-1', 'เปลี่ยน LINE'))
+    await waitFor(() => expect(mockLine.unlinkLineContact).toHaveBeenCalledWith('k-1'))
     mockLine.contacts.mockReset()
     mockLine.contacts.mockResolvedValue({ data: [], error: null })
   })

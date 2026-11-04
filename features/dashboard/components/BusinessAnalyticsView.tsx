@@ -27,6 +27,9 @@ interface ViewProps {
 
 export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
   const maxRevenue = Math.max(...metrics.topRevenueProducts.map((p) => p.revenue), 1)
+  // Plain difference in baht, this month minus last month (no percentages)
+  const monthDiff = metrics.currentMonthRevenue - metrics.previousMonthRevenue
+  const monthDiffText = `${monthDiff > 0 ? '+' : ''}${monthDiff.toLocaleString()}`
 
   return (
     <div className="space-y-2">
@@ -42,11 +45,11 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
           </div>
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
-              <span className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 font-mono">
-                {metrics.growthRate === null ? '—' : metrics.growthRate >= 0 ? `+${metrics.growthRate}%` : `${metrics.growthRate}%`}
+              <span className={`text-base sm:text-lg font-black font-mono ${monthDiff < 0 ? 'text-rose-700 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
+                {monthDiffText}
               </span>
             </div>
-            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ยอดบิลไม่รวม VAT เทียบเดือนก่อน</span>
+            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">เดือนก่อน {metrics.previousMonthRevenue.toLocaleString()} ไม่รวม VAT</span>
           </div>
         </div>
 
@@ -62,9 +65,6 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 font-mono">
                 {metrics.currentMonthRevenue.toLocaleString()}
-              </span>
-              <span className="text-[9px] font-bold text-emerald-700 dark:text-emerald-400">
-                {metrics.growthRate === null ? '—' : `${metrics.growthRate >= 0 ? '+' : ''}${metrics.growthRate}%`}
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ยอดบิลเดือนนี้ ไม่รวม VAT</span>
@@ -107,7 +107,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
               <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">ราย</span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">
-              สัดส่วนยอดบิลของลูกค้าหลัก {metrics.topCustomerMetric.percentage}%
+              ยอดบิลรวม {metrics.topCustomerMetric.totalBilled.toLocaleString()} ไม่รวม VAT
             </span>
           </div>
         </div>
@@ -140,7 +140,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">
-              รับผ่าน{metrics.topChannelMetric.name} {metrics.topChannelMetric.percentage}% ของยอดรับชำระจากบิล
+              ช่องทางที่รับมากที่สุด: {metrics.topChannelMetric.name}
             </span>
           </div>
         </div>
@@ -189,8 +189,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
               <div className="grid grid-cols-12 text-[10px] font-bold text-slate-600 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800 pb-1">
                 <span className="col-span-1 text-center">#</span>
                 <span className="col-span-6">สินค้า</span>
-                <span className="col-span-3 text-right">                มูลค่าบิล (ไม่รวม VAT)</span>
-                <span className="col-span-2 text-right">สัดส่วน</span>
+                <span className="col-span-5 text-right">มูลค่าบิล (ไม่รวม VAT)</span>
               </div>
 
               {metrics.topRevenueProducts.map((p, idx) => {
@@ -214,11 +213,8 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
                         />
                       </div>
                     </div>
-                    <span className="col-span-3 text-right font-mono font-bold text-slate-800 dark:text-slate-100 text-[11px]">
+                    <span className="col-span-5 text-right font-mono font-bold text-slate-800 dark:text-slate-100 text-[11px]">
                       {p.revenue.toLocaleString()}
-                    </span>
-                    <span className="col-span-2 text-right font-mono text-[10px] text-slate-600 dark:text-slate-400">
-                      {p.percentage}%
                     </span>
                   </div>
                 )
@@ -261,13 +257,12 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
                 <th className="px-2 text-right">VAT</th>
                 <th className="px-2 text-right">รับเงินจริงสุทธิ</th>
                 <th className="px-2 text-right">ยอดค้าง</th>
-                <th className="px-2 text-right">สัดส่วนยอดบิล</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
               {metrics.topCustomers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-xs text-slate-600 dark:text-slate-400">
+                  <td colSpan={7} className="py-8 text-center text-xs text-slate-600 dark:text-slate-400">
                     ยังไม่มีข้อมูลลูกค้า
                   </td>
                 </tr>
@@ -297,9 +292,6 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
                     <td className="px-2 text-right font-mono text-amber-700 dark:text-amber-300 whitespace-nowrap">
                       {cust.outstandingAmount.toLocaleString()}
                     </td>
-                    <td className="px-2 text-right font-mono text-[10.5px] text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                      {cust.percentage}%
-                    </td>
                   </tr>
                 ))
               )}
@@ -323,7 +315,6 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
                 label: c.label,
                 value: c.amount,
                 color: c.color,
-                percentage: c.percentage,
               }))}
               size={120}
               centerTitle="รวมทั้งสิ้น"
@@ -354,7 +345,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
                 ยอดบิลเดือนนี้เทียบเดือนก่อน
               </h4>
               <p className="text-[10px] text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
-                ยอดบิลไม่รวม VAT เดือนนี้ {metrics.currentMonthRevenue.toLocaleString()} เปลี่ยนแปลง {metrics.growthRate === null ? 'ไม่มีฐานเปรียบเทียบ' : `${metrics.growthRate}%`} จากเดือนก่อน
+                ยอดบิลไม่รวม VAT เดือนนี้ {metrics.currentMonthRevenue.toLocaleString()} เดือนก่อน {metrics.previousMonthRevenue.toLocaleString()} ต่างกัน {monthDiffText}
               </p>
             </div>
           </div>
@@ -369,8 +360,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
                 ยอดบิลตามลูกค้าที่ระบุในระบบ
               </h4>
               <p className="text-[10px] text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
-                ลูกค้า {metrics.topCustomerMetric.count} อันดับแรกมียอดบิลไม่รวม VAT {metrics.topCustomerMetric.totalBilled.toLocaleString()}{' '}
-                คิดเป็น {metrics.topCustomerMetric.percentage}% ของยอดบิลของลูกค้าที่ระบุ
+                ลูกค้า {metrics.topCustomerMetric.count} อันดับแรกมียอดบิลไม่รวม VAT {metrics.topCustomerMetric.totalBilled.toLocaleString()}
               </p>
             </div>
           </div>
@@ -406,7 +396,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
                 ช่องทางรับชำระจากบิล (ก่อนคืนเงิน)
               </h4>
               <p className="text-[10px] text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
-                รับชำระผ่าน{metrics.topChannelMetric.name} {metrics.topChannelMetric.percentage}% ของยอดชำระจากบิลในข้อมูลปัจจุบัน
+                รับชำระผ่าน{metrics.topChannelMetric.name}มากที่สุด {metrics.topChannelMetric.amount.toLocaleString()} จากยอดชำระบิลในข้อมูลปัจจุบัน
               </p>
             </div>
           </div>

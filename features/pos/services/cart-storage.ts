@@ -42,6 +42,8 @@ export interface ActiveCartData {
   /** VAT ON/OFF chosen at the POS for this bill (transaction state, not a shop setting). */
   vatEnabled?: boolean
   shippingAddress: string
+  /** Contact phone of this bill (typed at the POS, kept in the bill's note). */
+  contactPhone?: string
   headerRentalDate: string // ISO string or YYYY-MM-DD
   headerReturnDate: string // ISO string or YYYY-MM-DD
   documentType: string

@@ -37,9 +37,19 @@ interface QuantityModalProps {
   onClose: () => void
   /** Quotation mode: more than the free stock may be quoted (warning only). */
   allowOverStock?: boolean
+  /** Editing a cart line: open with its values (dates as YYYY-MM-DD). */
+  initial?: {
+    quantity: number
+    unitPrice: number
+    usageCount?: number
+    dailyStartDate?: string
+    dailyEndDate?: string
+  }
+  /** Text of the confirm button (default: เพิ่มลงตะกร้า). */
+  submitLabel?: string
 }
 
-export function QuantityModal({ product, mode = 'RENT', onAdd, onClose, allowOverStock = false }: QuantityModalProps) {
+export function QuantityModal({ product, mode = 'RENT', onAdd, onClose, allowOverStock = false, initial, submitLabel = 'เพิ่มลงตะกร้า' }: QuantityModalProps) {
   const defaultDays = 1
   const calculationMode = 'START_DATE_IS_DAY_ONE'
 
@@ -61,18 +71,18 @@ export function QuantityModal({ product, mode = 'RENT', onAdd, onClose, allowOve
   const productCode = product.product_code || product.code || ''
   const unitName = product.unit_name || product.unit || 'ชิ้น'
 
-  const [selectedQty, setSelectedQty] = useState<number | null>(1)
+  const [selectedQty, setSelectedQty] = useState<number | null>(initial ? (initial.quantity <= 50 ? initial.quantity : null) : 1)
   const [pendingConfirm, setPendingConfirm] = useState<boolean>(false)
-  const [inputQty, setInputQty] = useState<number | ''>(1)
-  const [unitPrice, setUnitPrice] = useState<number | ''>(initialUnitPrice)
-  const [usageCount, setUsageCount] = useState<number | ''>(1)
+  const [inputQty, setInputQty] = useState<number | ''>(initial ? initial.quantity : 1)
+  const [unitPrice, setUnitPrice] = useState<number | ''>(initial ? initial.unitPrice : initialUnitPrice)
+  const [usageCount, setUsageCount] = useState<number | ''>(initial?.usageCount ?? 1)
 
   const today = new Date()
   const defaultEnd = new Date()
   defaultEnd.setDate(today.getDate() + Math.max(0, defaultDays - 1))
 
-  const [startDate, setStartDate] = useState<string>(getLocalDateString(today))
-  const [endDate, setEndDate] = useState<string>(getLocalDateString(defaultEnd))
+  const [startDate, setStartDate] = useState<string>(initial?.dailyStartDate || getLocalDateString(today))
+  const [endDate, setEndDate] = useState<string>(initial?.dailyEndDate || getLocalDateString(defaultEnd))
 
   const billableDays = rentalType === 'DAILY'
     ? calculateBillableDays(startDate, endDate, calculationMode)
@@ -323,7 +333,7 @@ export function QuantityModal({ product, mode = 'RENT', onAdd, onClose, allowOve
               disabled={Boolean(dailyDateError) || (isOverAvailable && !allowOverStock)}
               className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-lg shadow-emerald-500/30 transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
-              เพิ่มลงตะกร้า
+              {submitLabel}
             </button>
           </div>
         </div>

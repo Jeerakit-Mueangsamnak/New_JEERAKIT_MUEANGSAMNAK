@@ -29,9 +29,18 @@ export async function savePolicies(patch: Policies, reason: string): Promise<Pol
   return cached
 }
 
+/** One รายการ of a category (owner 2026-11-02) with its optional add-product defaults. */
+export interface CategoryListItem {
+  name: string
+  calculationType?: string
+  unitId?: string
+}
+
 export interface CategoryDefault {
   calculationType?: string
   unitId?: string
+  /** รายการ of this category, in the order they were added (ตั้งค่าเสริม › ตารางเพิ่มรายการ). */
+  items?: CategoryListItem[]
 }
 
 /** Category → default pricing type and unit for new products (UI defaults only). */
@@ -41,7 +50,8 @@ export function getCategoryDefaults(): Record<string, CategoryDefault> {
 
 export async function saveCategoryDefault(categoryId: string, value: CategoryDefault | null): Promise<void> {
   const next = { ...getCategoryDefaults() }
-  if (value) next[categoryId] = value
+  // Merge: saving the pricing type / unit keeps the category's รายการ and the other way round.
+  if (value) next[categoryId] = { ...next[categoryId], ...value }
   else delete next[categoryId]
   await savePolicies({ category_defaults: next }, 'ตั้งค่าเริ่มต้นของหมวดหมู่สินค้า')
 }

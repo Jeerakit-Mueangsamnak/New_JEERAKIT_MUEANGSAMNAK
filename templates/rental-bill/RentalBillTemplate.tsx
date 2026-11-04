@@ -52,6 +52,10 @@ export interface BillTemplateData {
   discount: number
   shippingFee: number
   taxAmount: number
+  /** VAT rate of this bill in percent (e.g. 7); unknown = no rate shown. */
+  vatRatePercent?: number
+  /** VAT already inside the prices: shown without "+". */
+  vatInclusive?: boolean
   depositAmount: number
   grandTotal: number
   paidAmount: number
@@ -82,6 +86,14 @@ export function RentalBillTemplate({ data }: { data: BillTemplateData }) {
   const TOTAL_ROWS = 20
   const items = data.items || []
   const paddedItems = Array.from({ length: TOTAL_ROWS }, (_, i) => items[i] || null)
+
+  // Owner 2026-11-02: the printed total is what the customer pays = bill + deposit.
+  // The deposit counts as paid with the first payment (or when nothing is owed).
+  const printDeposit = Math.max(0, data.depositAmount || 0)
+  const printTotal = (data.grandTotal || 0) + printDeposit
+  const printDepositPaid = (data.paidAmount || 0) > 0 || (data.outstandingAmount || 0) <= 0 ? printDeposit : 0
+  const printPaid = (data.paidAmount || 0) + printDepositPaid
+  const printOutstanding = Math.max(0, (data.outstandingAmount || 0) + printDeposit - printDepositPaid)
 
   const fmt = (val?: number | null) =>
     (typeof val === 'number' && !isNaN(val) ? val : 0).toLocaleString('th-TH', {
@@ -279,8 +291,10 @@ export function RentalBillTemplate({ data }: { data: BillTemplateData }) {
           )}
           {data.taxAmount > 0 && (
             <div className="flex justify-between border-b border-slate-200 py-0.5 text-slate-700">
-              <span>ภาษีมูลค่าเพิ่ม (7%):</span>
-              <span className="font-mono font-semibold">+{fmt(data.taxAmount)}</span>
+              <span>
+                ภาษีมูลค่าเพิ่ม{data.vatRatePercent ? ` (${data.vatRatePercent}%)` : ''}{data.vatInclusive ? ' รวมในราคาแล้ว' : ''}:
+              </span>
+              <span className="font-mono font-semibold">{data.vatInclusive ? '' : '+'}{fmt(data.taxAmount)}</span>
             </div>
           )}
           {data.depositAmount > 0 && (
@@ -291,18 +305,18 @@ export function RentalBillTemplate({ data }: { data: BillTemplateData }) {
           )}
           <div className="flex justify-between rounded bg-red-700 p-1.5 text-white font-extrabold text-[9.5px] mt-1 shadow-xs">
             <span>ยอดสุทธิรวมทั้งสิ้น:</span>
-            <span className="font-mono">{fmt(data.grandTotal)}</span>
+            <span className="font-mono">{fmt(printTotal)}</span>
           </div>
           {data.showPaymentSummary !== false && (
             <>
           <div className="flex justify-between py-0.5 text-slate-700 font-semibold pt-1">
             <span>ชำระแล้ว:</span>
-            <span className="font-mono text-emerald-700 font-bold">{fmt(data.paidAmount)}</span>
+            <span className="font-mono text-emerald-700 font-bold">{fmt(printPaid)}</span>
           </div>
-          {(data.outstandingAmount || 0) > 0 && (
+          {printOutstanding > 0 && (
             <div className="flex justify-between border-t border-slate-200 py-0.5 text-red-700 font-black">
               <span>ยอดคงค้างชำระ:</span>
-              <span className="font-mono">{fmt(data.outstandingAmount)}</span>
+              <span className="font-mono">{fmt(printOutstanding)}</span>
             </div>
           )}
             </>

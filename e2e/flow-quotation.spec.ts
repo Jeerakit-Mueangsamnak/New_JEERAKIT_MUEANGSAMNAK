@@ -67,12 +67,13 @@ test('เปิดบิลจากใบเสนอราคา: จ่าย
   expect(sql(`select quotation_id is not null from public.bills where bill_no = '${billNo}'`)[0][0]).toBe('t');
 });
 
-test('ยกเลิกใบเสนอราคา: ต้องใส่เหตุผล และเปิดบิลต่อไม่ได้', async ({ page }) => {
+test('ยกเลิกใบเสนอราคา: เลือกสาเหตุแล้วยืนยันได้เลย ไม่ต้องพิมพ์เหตุผล และเปิดบิลต่อไม่ได้', async ({ page }) => {
   const no = await createQuotation(page);
   await quotationRow(page, no).getByRole('button', { name: 'ยกเลิก' }).click();
   const confirm = page.getByRole('button', { name: 'ยืนยันยกเลิก' });
-  await expect(confirm).toBeDisabled();
-  await page.getByPlaceholder(/กรุณาระบุเหตุผล/).fill('ลูกค้าไม่สนใจ E2E');
+  // The reason is a ready-made choice now (no text box, no PIN), so the button is usable at once.
+  await expect(confirm).toBeEnabled();
+  await expect(page.getByPlaceholder(/กรุณาระบุเหตุผล/)).toHaveCount(0);
   await confirm.click();
   await expect.poll(() => quotationStatus(no), { timeout: 20000 }).toMatch(/^(REJECTED|EXPIRED)$/);
   await expect(quotationRow(page, no).getByRole('button', { name: /^(ตอบรับ|เปิดบิล)$/ })).toHaveCount(0);

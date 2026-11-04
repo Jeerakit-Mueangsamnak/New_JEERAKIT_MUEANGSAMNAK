@@ -1,13 +1,15 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Customer, Product } from '@/lib/types/rental-pos'
 import {
   Trash2,
+  Pencil,
   UserPlus,
   ShoppingBag,
   ArrowRight,
   MapPin,
+  Phone,
   Calendar,
   FileText
 } from 'lucide-react'
@@ -55,6 +57,8 @@ interface CartPanelProps {
   quotationId?: string
   quotationNo?: string
   draftBillId?: string
+  /** Pencil icon on a cart line: reopen the quantity screen for that line. */
+  onEditItem?: (item: CartItem) => void
   initialDiscount?: number
   initialShippingFee?: number
   initialDepositAmount?: number
@@ -66,6 +70,10 @@ interface CartPanelProps {
   initialVatEnabled?: boolean
   /** Document date (yyyy-mm-dd) of a quotation being edited. */
   initialDocumentDate?: string
+  /** Opened from checkout because the customer was missing: the customer field starts blinking. */
+  initialCustomerAttention?: boolean
+  /** Contact phone of this bill (restored when coming back from checkout). */
+  initialContactPhone?: string
 }
 
 export function CartPanel({
@@ -81,6 +89,7 @@ export function CartPanel({
   quotationId,
   quotationNo,
   draftBillId,
+  onEditItem,
   initialDiscount,
   initialShippingFee,
   initialDepositAmount,
@@ -90,6 +99,8 @@ export function CartPanel({
   initialRentalEndDate,
   initialVatEnabled,
   initialDocumentDate,
+  initialCustomerAttention = false,
+  initialContactPhone,
 }: CartPanelProps) {
   const { showToast } = useToast()
   const { settings } = useSystemSettings()
@@ -97,6 +108,8 @@ export function CartPanel({
   // off for every new cart. Rate + mode come from the shop settings, the same for both.
   const vatConfigured = isVatConfigured(settings)
   const [billVatEnabled, setBillVatEnabled] = useState<boolean>(Boolean(initialVatEnabled))
+  // Missing / incomplete customer: the customer field blinks red until it is clicked (no pop-up message).
+  const [customerAttention, setCustomerAttention] = useState<boolean>(initialCustomerAttention)
   useEffect(() => {
     if (initialVatEnabled !== undefined) setBillVatEnabled(initialVatEnabled)
   }, [initialVatEnabled])
@@ -115,6 +128,17 @@ export function CartPanel({
   const [shippingFee, setShippingFee] = useState<number>(0)
   const [depositAmount, setDepositAmount] = useState<number>(0)
   const [shippingAddress, setShippingAddress] = useState<string>('')
+  // Contact phone of this bill: starts as the customer's phone, can be typed over; saved with the bill.
+  const [contactPhone, setContactPhone] = useState<string>(initialContactPhone ?? '')
+  const phoneFirstRun = useRef(true)
+  useEffect(() => {
+    if (phoneFirstRun.current) {
+      phoneFirstRun.current = false
+      if (initialContactPhone) return
+    }
+    setContactPhone(customer?.phone || '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customer?.id, customer?.phone])
   const [headerRentalDate, setHeaderRentalDate] = useState<Date | null>(new Date())
   const [headerReturnDate, setHeaderReturnDate] = useState<Date | null>(new Date())
   // Empty = not picked: the bill title then follows the cart (บิลขาย / บิลเช่า / บิลเช่า/ขาย).
@@ -251,6 +275,8 @@ export function CartPanel({
             <CustomerUnifiedSelector
               selectedCustomer={customer}
               customers={customerList}
+              attention={customerAttention}
+              onAttentionDismiss={() => setCustomerAttention(false)}
               onSelectCustomer={(cust) => {
                 if (cust?.isSuspended) {
                   showToast('ลูกค้าถูกระงับสิทธิ์', `ลูกค้า ${cust.customerName} ถูกระงับสิทธิ์ ไม่สามารถทำรายการได้`, 'ERROR')
@@ -273,6 +299,23 @@ export function CartPanel({
               className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
             />
           </div>
+
+          {/* Contact phone of the bill (a bill only: a quotation does not keep it) */}
+          {!isQuotationMode && (
+            <div className="relative">
+              <Phone className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="tel"
+                inputMode="tel"
+                maxLength={20}
+                aria-label="เบอร์โทรติดต่อ"
+                placeholder="เบอร์โทรติดต่อ..."
+                value={contactPhone}
+                onChange={(e) => setContactPhone(e.target.value.replace(/[^0-9+\-\s()]/g, ''))}
+                className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+              />
+            </div>
+          )}
 
           {/* Row 3: Document Type (Left) + Add Customer Button (Right) */}
           <div className="flex items-center gap-1.5">
@@ -335,7 +378,7 @@ export function CartPanel({
           items.map((item) => (
             <div
               key={item.id}
-              className="p-2.5 rounded-xl border border-slate-100 dark:border-slate-700/80 bg-slate-50/50 dark:bg-slate-900/30 flex items-start justify-between gap-2 group"
+              className="px-2.5 py-1.5 rounded-xl border border-slate-100 dark:border-slate-700/80 bg-slate-50/50 dark:bg-slate-900/30 flex items-start justify-between gap-2 group"
             >
               <div className="flex-1 space-y-1">
                 <div className="flex items-center justify-between">
@@ -365,13 +408,30 @@ export function CartPanel({
                 </div>
               </div>
 
-              <button
-                onClick={() => removeItem(item.id)}
-                className="text-slate-600 dark:text-slate-400 hover:text-red-500 p-1 transition-colors"
-                title="ลบรายการ"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+              {/* One icon per text line (each h-4 = one text-xs line, gap-1 = space-y-1),
+                  so the icons never reach below the 2 lines of text. */}
+              <div className="flex flex-col items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => removeItem(item.id)}
+                  className="flex h-4 w-4 items-center justify-center text-slate-600 dark:text-slate-400 hover:text-red-500 transition-colors"
+                  title="ลบรายการ"
+                  aria-label="ลบรายการ"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+                {onEditItem && (
+                  <button
+                    type="button"
+                    onClick={() => onEditItem(item)}
+                    className="flex h-4 w-4 items-center justify-center text-slate-600 dark:text-slate-400 hover:text-blue-600 transition-colors"
+                    title="แก้ไขจำนวน"
+                    aria-label="แก้ไขจำนวน"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
           ))
         )}
@@ -381,7 +441,8 @@ export function CartPanel({
       {items.length > 0 && (
         <div className="p-2 border-t border-slate-100 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/80 space-y-2">
           
-          {/* Quick Adjustments: Discount, Shipping, Deposit */}
+          {/* Quick Adjustments: Discount, Shipping, Deposit — a bill sets them on the payment page; a quotation has none */}
+          {isQuotationMode && (
           <div className="grid grid-cols-3 gap-2 text-xs">
             <div>
               <span className="text-slate-600 dark:text-slate-400 block mb-0.5">ส่วนลด (บาท)</span>
@@ -423,7 +484,10 @@ export function CartPanel({
               />
             </div>
           </div>
+          )}
 
+
+            {isQuotationMode && (
             <label className={`flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-400 ${vatConfigured ? 'cursor-pointer' : 'opacity-60'}`}>
               <span>
                 VAT {isQuotationMode ? 'ใบเสนอราคานี้' : 'บิลนี้'} {vatOn ? 'เปิด' : 'ปิด'}
@@ -439,8 +503,20 @@ export function CartPanel({
                 className="w-4 h-4 text-emerald-700 dark:text-emerald-400 rounded"
               />
             </label>
+            )}
 
-          {/* Breakdown summary */}
+          {/* A bill's cart only shows what is in the cart; discount, shipping, deposit and the net amount are on the payment page */}
+          {!isQuotationMode && (
+            <div className="flex justify-between items-baseline pt-2 border-t border-slate-200 dark:border-slate-700">
+              <span className="font-bold text-sm text-slate-900 dark:text-slate-100">ยอดสินค้ารวม</span>
+              <span className="font-black text-xl text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                {subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          )}
+
+          {/* Breakdown summary (quotation) */}
+          {isQuotationMode && (
           <div className="space-y-1.5 text-xs pt-2 border-t border-slate-200 dark:border-slate-700">
             <div className="flex justify-between text-slate-600 dark:text-slate-400">
               <span>ยอดสินค้าก่อนหักส่วนลด</span>
@@ -460,8 +536,14 @@ export function CartPanel({
             )}
             {taxRate > 0 && (
               <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                <span>ภาษี VAT ({(taxRate * 100).toFixed(0)}%)</span>
-                <span>+{tax.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+                <span>
+                  ภาษี VAT ({(taxRate * 100).toFixed(0)}%)
+                  {settings.taxDiscount?.vatMode === 'INCLUSIVE' && ' รวมในราคาแล้ว'}
+                </span>
+                <span>
+                  {settings.taxDiscount?.vatMode === 'INCLUSIVE' ? '' : '+'}
+                  {tax.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                </span>
               </div>
             )}
             {depositAmount > 0 && (
@@ -475,11 +557,13 @@ export function CartPanel({
               <span className="font-bold text-sm text-slate-900 dark:text-slate-100">
                 {isQuotationMode ? 'ยอดรวมใบเสนอราคา' : 'ยอดสุทธิที่ต้องชำระ'}
               </span>
+              {/* Same amount as the checkout page: the bill plus its deposit (owner 2026-11-02). */}
               <span className="font-black text-xl text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                {grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                {(isQuotationMode ? grandTotal : totals.totalPayableWithDeposit).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
               </span>
             </div>
           </div>
+          )}
 
           {/* Action buttons */}
           <div className="pt-1 grid grid-cols-2 gap-2">
@@ -517,8 +601,8 @@ export function CartPanel({
                   if (!validateRentalPeriods()) return
                   try {
                     validateCartCustomer(items, customer)
-                  } catch (error) {
-                    showToast('ข้อมูลลูกค้าไม่ครบถ้วน', (error as Error).message, 'ERROR')
+                  } catch {
+                    setCustomerAttention(true)
                     return
                   }
 
@@ -531,6 +615,7 @@ export function CartPanel({
                     taxRate: taxRate,
                     vatEnabled: vatOn,
                     shippingAddress,
+                    contactPhone: contactPhone.trim() || undefined,
                     headerRentalDate: getLocalDateString(headerRentalDate ?? new Date()),
                     headerReturnDate: getLocalDateString(headerReturnDate ?? new Date()),
                     documentType: documentType || defaultBillDocumentType(items),

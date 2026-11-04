@@ -63,34 +63,32 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('VAT ON/OFF is the state of the current bill, not a shop setting', () => {
-  it('a new cart starts with VAT off; switching it on changes only this bill (settings untouched)', async () => {
+  it('a new bill starts with VAT off; the switch on the payment page turns it on for this bill only (settings untouched)', async () => {
     const before = JSON.stringify(loadSystemSettings())
-    render(<SystemSettingsProvider><CartPanel onCheckout={vi.fn()} items={[saleItem]} /></SystemSettingsProvider>)
-    const toggle = screen.getByRole('switch', { name: 'เปิด VAT สำหรับบิลนี้' }) as HTMLInputElement
-    expect(toggle.checked).toBe(false)
+    mountCheckout(undefined)
+    const toggle = screen.getByRole('switch', { name: 'เปิด VAT สำหรับบิลนี้' })
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+    expect(screen.getByTestId('preview-tax').textContent).toBe('0')
     fireEvent.click(toggle)
-    await waitFor(() => expect(toggle.checked).toBe(true))
-    expect(screen.getByText('ภาษี VAT (7%)')).toBeTruthy()
+    await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'))
+    expect(screen.getByTestId('preview-tax').textContent).toBe('7')
+    expect(loadActiveCart()?.vatEnabled).toBe(true)
     expect(mocks.saveSection).not.toHaveBeenCalled()
     expect(JSON.stringify(loadSystemSettings())).toBe(before)
   })
 
-  it('VAT chosen for one bill does not leak into the next bill', async () => {
-    const first = render(<SystemSettingsProvider><CartPanel onCheckout={vi.fn()} items={[saleItem]} /></SystemSettingsProvider>)
-    fireEvent.click(screen.getByRole('switch', { name: 'เปิด VAT สำหรับบิลนี้' }))
-    fireEvent.click(screen.getByRole('button', { name: /ชำระเงิน/ }))
-    expect(loadActiveCart()?.vatEnabled).toBe(true)
-    first.unmount()
-    // next bill = a fresh cart
+  it('the bill cart in the POS has no VAT switch any more, and a fresh bill starts with VAT off', () => {
     render(<SystemSettingsProvider><CartPanel onCheckout={vi.fn()} items={[saleItem]} /></SystemSettingsProvider>)
-    expect((screen.getByRole('switch', { name: 'เปิด VAT สำหรับบิลนี้' }) as HTMLInputElement).checked).toBe(false)
+    expect(screen.queryByRole('switch', { name: 'เปิด VAT สำหรับบิลนี้' })).toBeNull()
+    expect(screen.queryByText(/VAT บิลนี้/)).toBeNull()
   })
 
   it('VAT cannot be switched on before the OWNER sets the rate and mode (no 7% fallback)', () => {
     setCachedSystemSettings(DEFAULT_SYSTEM_CONFIG)
-    render(<SystemSettingsProvider><CartPanel onCheckout={vi.fn()} items={[saleItem]} /></SystemSettingsProvider>)
-    const toggle = screen.getByRole('switch', { name: 'เปิด VAT สำหรับบิลนี้' }) as HTMLInputElement
+    mountCheckout(true)
+    const toggle = screen.getByRole('switch', { name: 'เปิด VAT สำหรับบิลนี้' }) as HTMLButtonElement
     expect(toggle.disabled).toBe(true)
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
     expect(screen.getByText('เจ้าของร้านยังไม่ได้ตั้งอัตรา VAT')).toBeTruthy()
   })
 

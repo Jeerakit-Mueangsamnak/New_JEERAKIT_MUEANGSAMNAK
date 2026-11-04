@@ -266,7 +266,7 @@ export function DonutChart({
   centerPrefix = '',
   centerSuffix = '',
 }: {
-  data: Array<{ label: string; value: number; color: string; percentage: number }>
+  data: Array<{ label: string; value: number; color: string }>
   size?: number
   centerTitle?: string
   centerPrefix?: string
@@ -346,9 +346,6 @@ export function DonutChart({
             <div className="flex items-center gap-1 font-mono shrink-0 ml-1">
               <span className="font-bold text-slate-800 dark:text-slate-200">
                 {centerPrefix ? `${item.value.toLocaleString()}` : item.value.toLocaleString()}
-              </span>
-              <span className="text-[9.5px] text-slate-600 dark:text-slate-400 w-8 text-right font-sans">
-                {item.percentage}%
               </span>
             </div>
           </div>

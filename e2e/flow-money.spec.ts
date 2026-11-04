@@ -18,7 +18,8 @@ let creditBill = '';
 
 test('แก้ราคาขายและรับเข้าสต็อก: บันทึกทันที ไม่ถาม PIN ไม่ถามเหตุผล', async ({ page }) => {
   // Alternate 50 / 55 so every run really changes the price.
-  const [[current]] = sql(`select coalesce(sale_price::text, '') from public.products where sku = '${SALE_SKU}'`);
+  // A freshly rebuilt local database has no sale price yet: the helper returns no row for ''.
+  const [[current] = ['']] = sql(`select coalesce(sale_price::text, '') from public.products where sku = '${SALE_SKU}'`);
   const next = current === '50.00' ? '55' : '50';
   const availableBefore = stockBySku(SALE_SKU).AVAILABLE ?? 0;
   await page.goto('/products');
@@ -73,9 +74,10 @@ test('เช่าแบบค้างชำระ + มัดจำ 500 (ม�
   await add.getByRole('button', { name: 'เพิ่มลงตะกร้า' }).click();
   await page.getByPlaceholder('ค้นหาชื่อ / เบอร์โทร หรือพิมพ์ชื่อลูกค้าทั่วไป...').fill('ลูกค้า E2E');
   await page.getByRole('button', { name: /ลูกค้า E2E \d+/ }).first().click();
-  await amountBox(page, 'เงินมัดจำ (บาท)').fill('500');
   await page.getByRole('button', { name: 'ชำระเงิน' }).click();
   await page.waitForURL('**/pos/checkout');
+  // The deposit is typed on the payment page now (moved from the cart).
+  await amountBox(page, 'เงินมัดจำ (บาท)').fill('500');
   await page.getByRole('button', { name: 'ค้างชำระ' }).click();
   await page.getByRole('button', { name: 'ออกบิล' }).click();
 
@@ -87,42 +89,34 @@ test('เช่าแบบค้างชำระ + มัดจำ 500 (ม�
 async function openReceive(page: Page) {
   await page.goto('/bills');
   await page.getByRole('row', { name: new RegExp(creditBill) }).click();
-  await page.getByRole('button', { name: 'รับชำระเงิน', exact: true }).click();
-  await page.getByRole('checkbox', { name: 'เลือก/ยกเลิกทั้งหมด' }).check();
+  await page.getByRole('button', { name: 'จัดการบิล' }).click();
+  // Nothing to return: "ถัดไป" opens the payment page for the debt only.
   await page.getByRole('button', { name: 'ถัดไป' }).click();
-  await expect(page.getByRole('heading', { name: 'ระบุยอดที่ต้องการชำระ' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'สรุปยอดและรับชำระเงิน' })).toBeVisible();
 }
 
-test('รับชำระบางส่วน 10 บาท: ยอดที่กรอกคือยอดที่บันทึก', async ({ page }) => {
+// The payment page has three buttons (เงินสด / QR Code / ค้างชำระ); the amount paid follows the cash handed over.
+test('รับเงินสดไม่ครบ 10 บาท: รับตามที่ให้ ส่วนที่เหลือค้างชำระ', async ({ page }) => {
   test.skip(!creditBill, 'needs the credit bill');
   await openReceive(page);
-  await amountBox(page, 'ระบุยอดรับชำระเงิน (บาท)').fill('10');
-  await expect(page.getByRole('main')).toContainText(/ชำระครั้งนี้\s*10\s*คงเหลือ\s*20/);
-  await page.getByRole('button', { name: 'บันทึกและออกบิล' }).click();
-  await expect(page.getByRole('heading', { name: 'บันทึกรับชำระเงินสำเร็จ' }).first()).toBeVisible({ timeout: 20000 });
+  await expect(page.getByRole('button', { name: 'โอนเงินธนาคาร' })).toHaveCount(0);
+  await amountBox(page, 'เงินสดที่รับมา (บาท)').fill('10');
+  await page.getByRole('button', { name: 'ออกบิล', exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'บันทึกรับชำระเงินสำเร็จ' })).toBeVisible({ timeout: 20000 });
+  await page.getByRole('dialog').getByRole('button', { name: 'ออก' }).click();
   expect(billByNo(creditBill)).toMatchObject({ paymentStatus: 'PARTIALLY_PAID', paid: 10, balance: 20 });
 });
 
-test('รับส่วนที่เหลือแบบแบ่ง 2 ช่องทาง: เงินสด 5 + เงินโอน 15', async ({ page }) => {
+test('รับส่วนที่เหลือ 20 บาทเป็นเงินสด: ชำระครบ', async ({ page }) => {
   test.skip(!creditBill, 'needs the credit bill');
   await openReceive(page);
-  await page.getByRole('button', { name: 'เพิ่มช่องทาง' }).click();
-  const channels = page.getByRole('button', { name: 'ช่องทาง', exact: true });
-  await expect(channels).toHaveCount(2);
-  // A second row starts as a transfer.
-  await expect(channels.nth(1)).toContainText('โอนเงิน');
-  const amounts = page.getByRole('button', { name: 'ใส่ยอดที่เหลือ' });
-  // The amount box comes right after each row's "ใส่ยอดที่เหลือ" button.
-  const rowOf = (i: number) => amounts.nth(i).locator('xpath=following::input[1]');
-  await rowOf(0).fill('5');
-  await rowOf(1).fill('15');
-  await expect(page.getByRole('main')).toContainText(/ชำระครั้งนี้\s*20\s*คงเหลือ\s*0/);
-  await page.getByRole('button', { name: 'บันทึกและออกบิล' }).click();
-  await expect(page.getByRole('heading', { name: 'บันทึกรับชำระเงินสำเร็จ' }).first()).toBeVisible({ timeout: 20000 });
+  await page.getByRole('button', { name: 'ออกบิล', exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'บันทึกรับชำระเงินสำเร็จ' })).toBeVisible({ timeout: 20000 });
+  await page.getByRole('dialog').getByRole('button', { name: 'ออก' }).click();
   expect(billByNo(creditBill)).toMatchObject({ paymentStatus: 'PAID', paid: 30, balance: 0 });
   const methods = sql(`select p.method, p.amount from public.payments p join public.bills b on b.id = p.bill_id
     where b.bill_no = '${creditBill}' order by p.created_at, p.amount`).map(([m, a]) => `${m}:${Number(a)}`);
-  expect(methods).toEqual(['CASH:10', 'CASH:5', 'TRANSFER:15']);
+  expect(methods).toEqual(['CASH:10', 'CASH:20']);
 });
 
 test('คืนเงินรับชำระ 10 บาท (เหตุผลไม่บังคับ ไม่ถาม PIN)', async ({ page }) => {
@@ -132,23 +126,10 @@ test('คืนเงินรับชำระ 10 บาท (เหตุผ�
   await page.getByRole('button', { name: 'คืนเงินรับชำระ', exact: true }).click();
   const dlg = page.getByRole('dialog').filter({ hasText: 'คืนเงินจากรายการรับชำระ' });
   await dlg.getByRole('textbox').first().fill('10');
-  await dlg.getByPlaceholder('ระบุเหตุผล (บันทึกในประวัติการทำรายการ)').fill('คืนเงิน E2E');
   await dlg.getByRole('button', { name: 'ยืนยันคืนเงิน', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'คืนเงินสำเร็จ' }).first()).toBeVisible({ timeout: 20000 });
   expect(sql(`select refunded_amount from public.bills where bill_no = '${creditBill}'`)[0][0]).toBe('10.00');
 });
 
-test('เช่าต่อ: สร้างบิลใหม่ผูกกับบิลเดิม โดยไม่นับสต็อกซ้ำ', async ({ page }) => {
-  test.skip(!creditBill, 'needs the credit bill');
-  const rentedBefore = stockBySku('NR-001').RENTED_OUT;
-  await page.goto('/bills');
-  await page.getByRole('row', { name: new RegExp(creditBill) }).click();
-  await page.getByRole('button', { name: 'เช่าต่อ', exact: true }).click();
-  await page.getByPlaceholder(/ระบุเหตุผล เช่น ลูกค้าโทรแจ้งขอเช่าต่อ/).fill('ลูกค้าขอเช่าต่อ E2E');
-  await page.getByRole('button', { name: 'ยืนยันเช่าต่อ' }).click();
-  await expect(page.getByRole('heading', { name: 'บันทึกการเช่าต่อสำเร็จ' }).first()).toBeVisible({ timeout: 20000 });
-  const [child] = sql(`select c.bill_no, c.payment_status from public.bills c join public.bills p on p.id = c.parent_bill_id
-    where p.bill_no = '${creditBill}'`);
-  expect(child?.[1]).toBe('UNPAID');
-  expect(stockBySku('NR-001').RENTED_OUT).toBe(rentedBefore);
-});
+// เช่าต่อ is no longer a button on the bills list (owner, 2026-11-04): it happens in จัดการบิล › รับคืน,
+// and that flow is tested in flow-continuation.spec.ts.

@@ -1,7 +1,7 @@
 import { loadBills } from '@/features/bills/services/bill-storage'
 import { getBillRevenueAmount } from '@/features/bills/services/bill-reporting'
 import { loadCustomers } from '@/features/customers/services/customer-storage'
-import { calculateGrowth, generateTimeBuckets, getPreviousPeriod, isDateInRange, type ReportDateFilter } from './report-data-common'
+import { generateTimeBuckets, getPreviousPeriod, isDateInRange, type ReportDateFilter } from './report-data-common'
 
 // 5. BUSINESS ANALYTICS REPORT DATA (Topics 4, 17, 19)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -10,19 +10,15 @@ export interface BusinessReportData {
   // Topic 4: Growth
   currentRevenue: number
   previousRevenue: number
-  revenueGrowth: number | null
 
   currentOrders: number
   previousOrders: number
-  orderGrowth: number | null
 
   currentAvgTicket: number
   previousAvgTicket: number
-  avgTicketGrowth: number | null
 
   currentActiveCustomers: number
   previousActiveCustomers: number
-  customerGrowth: number | null
 
   // Topic 17: Top Customers
   topCustomers: Array<{
@@ -95,11 +91,6 @@ export function getBusinessReportData(filter: ReportDateFilter): BusinessReportD
   const prevCustomerIds = new Set(prevBills.map((b) => b.customerId || b.customerName).filter(Boolean))
   const previousActiveCustomers = prevCustomerIds.size
 
-  // Growth percentages
-  const revenueGrowth = calculateGrowth(currentRevenue, previousRevenue)
-  const orderGrowth = calculateGrowth(currentOrders, previousOrders)
-  const avgTicketGrowth = calculateGrowth(currentAvgTicket, previousAvgTicket)
-  const customerGrowth = calculateGrowth(currentActiveCustomers, previousActiveCustomers)
 
   // Topic 17: Customer Aggregation
   const customerStatsMap = new Map<
@@ -217,16 +208,12 @@ export function getBusinessReportData(filter: ReportDateFilter): BusinessReportD
   return {
     currentRevenue,
     previousRevenue,
-    revenueGrowth,
     currentOrders,
     previousOrders,
-    orderGrowth,
     currentAvgTicket,
     previousAvgTicket,
-    avgTicketGrowth,
     currentActiveCustomers,
     previousActiveCustomers,
-    customerGrowth,
     topCustomers,
     revenueTrend,
     customerRankings,

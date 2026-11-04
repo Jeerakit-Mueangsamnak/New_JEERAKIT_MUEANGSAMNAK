@@ -20,20 +20,18 @@ interface DepositModalProps {
  * Deposit of a rental bill (Master v4.3.1 §18): the system only records and shows it.
  * It never deducts it, refunds it, or uses it against damage/lost fees — returning or keeping
  * the deposit at the counter is the staff's own job. A wrongly typed amount can be corrected
- * (PIN + reason, audited).
+ * (audited, no PIN or typed reason).
  */
 export function DepositModal({ isOpen, bill, onClose, onSaved }: DepositModalProps) {
   const { showToast } = useToast()
   const [amount, setAmount] = useState(0)
   const [note, setNote] = useState('')
-  const [reason, setReason] = useState('')
   const [isSaving, setIsSaving] = useState(false)
 
   useEffect(() => {
     if (!isOpen || !bill) return
     setAmount(bill.heldDepositAmount || 0)
     setNote(bill.depositNote || '')
-    setReason('')
   }, [isOpen, bill])
 
   if (!bill) return null
@@ -43,7 +41,7 @@ export function DepositModal({ isOpen, bill, onClose, onSaved }: DepositModalPro
     if (!changed) return onClose()
     setIsSaving(true)
     try {
-      await correctBill(bill.id, { depositAmount: amount, depositNote: note || null }, reason.trim())
+      await correctBill(bill.id, { depositAmount: amount, depositNote: note || null }, '')
       showToast('แก้ไขมัดจำแล้ว', `บิล ${bill.billNo}`, 'SUCCESS')
       await onSaved()
       onClose()
@@ -71,12 +69,6 @@ export function DepositModal({ isOpen, bill, onClose, onSaved }: DepositModalPro
             หมายเหตุมัดจำ
             <input value={note} onChange={(e) => setNote(e.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2" placeholder="เช่น รับเงินสด 1,000 / บัตรประชาชนตัวจริง" />
           </label>
-          {changed && (
-            <label className="block text-xs font-semibold">
-              เหตุผลที่แก้ไข (ไม่บังคับ)
-              <input value={reason} onChange={(e) => setReason(e.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2" placeholder="เช่น พิมพ์ยอดผิด" />
-            </label>
-          )}
         </div>
       </AppModalBody>
       <AppModalFooter>

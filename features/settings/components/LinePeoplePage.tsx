@@ -17,7 +17,7 @@ import QRCode from 'qrcode'
 import { CheckCircle2, Copy, Link2Off, MessageCircle, QrCode, RefreshCw, UserPlus, Users } from 'lucide-react'
 import { ActionButton } from '@/components/common/ActionButton'
 import { useToast } from '@/components/common/Toast'
-import { useAskText, useConfirm } from '@/components/common/ConfirmDialogProvider'
+import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { createClient } from '@/lib/supabase/client'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { LINE_TEMPLATES, type LineTemplateKey } from '@/lib/line/templates'
@@ -69,7 +69,6 @@ const phoneText = (p: string | null) => (p && /^\d{10}$/.test(p) ? `${p.slice(0,
 export function LinePeoplePage() {
   const { showToast } = useToast()
   const confirm = useConfirm()
-  const askText = useAskText()
   const { settings } = useSystemSettings()
   const [pending, setPending] = useState<PendingContact[]>([])
   const [linked, setLinked] = useState<LinkedContact[]>([])
@@ -212,17 +211,16 @@ export function LinePeoplePage() {
 
   const unlink = async (c: LinkedContact) => {
     const name = customers[c.customer_id]?.name || 'ลูกค้า'
-    const reason = await askText({
+    const ok = await confirm({
       title: `ยกเลิกการผูก LINE: ${name}`,
       message: 'ข้อความที่ยังไม่ส่งถึงลูกค้าคนนี้จะถูกยกเลิก',
-      placeholder: 'เหตุผล เช่น ผูกผิดคน',
       confirmLabel: 'ยกเลิกการผูก',
       danger: true,
     })
-    if (!reason?.trim()) return
+    if (!ok) return
     setBusy(c.id)
     try {
-      const r = await unlinkLineContact(c.id, reason)
+      const r = await unlinkLineContact(c.id)
       if (!r.success) {
         showToast('ยกเลิกไม่สำเร็จ', r.error || 'เกิดข้อผิดพลาด', 'ERROR')
         return

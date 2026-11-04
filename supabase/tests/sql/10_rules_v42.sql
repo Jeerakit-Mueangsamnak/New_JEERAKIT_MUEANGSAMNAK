@@ -448,6 +448,15 @@ SELECT public.rental_overdue_scan();
 SELECT t.check('LATE', 'overdue notice only; no charge created by the system',
     EXISTS (SELECT 1 FROM public.notifications WHERE event_type = 'RENTAL_OVERDUE' AND entity_id = t.v('b4')::uuid)
     AND NOT EXISTS (SELECT 1 FROM public.charges WHERE bill_id = t.v('b4')::uuid));
+-- Owner 2026-11-02: everything back + everything paid = the bill closes, even when returned late.
+SELECT t.ok('LATE', 'late return of the 1 item', 'cashier',
+    format($q$select public.return_receive(%L::uuid, jsonb_build_array(jsonb_build_object('bill_line_id', %L, 'quantity', 1,
+        'condition', 'NORMAL')), 'key-rt-4')$q$, t.v('b4'), t.v('l4')));
+SELECT t.ok('LATE', 'pay the whole balance', 'cashier',
+    format($q$select public.payment_receive(%L::uuid, jsonb_build_array(jsonb_build_object('method', 'CASH', 'amount', %s)), 'key-pay-4', current_date)$q$,
+           t.v('b4'), (SELECT balance_due FROM public.bills WHERE id = t.v('b4')::uuid)));
+SELECT t.check('LATE', 'returned late + paid in full: the bill closes by itself (no separate overdue review)',
+    (SELECT status FROM public.bills WHERE id = t.v('b4')::uuid) = 'CLOSED', (SELECT status FROM public.bills WHERE id = t.v('b4')::uuid));
 
 -- ===================================================================== RESERVATIONS (no preset expiry)
 SELECT t.check('RESV', 'reservation expiry is optional',

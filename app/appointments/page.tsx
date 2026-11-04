@@ -30,7 +30,7 @@ const isStageDone = (apt: Appointment, key: string) => runEvents(apt).some((e) =
 const currentStage = (apt: Appointment) => [...stagesFor(apt)].reverse().find((st) => isStageDone(apt, st.key))
 const stageProgress = (apt: Appointment) => {
   const stages = stagesFor(apt)
-  return Math.round((stages.filter((st) => isStageDone(apt, st.key)).length / stages.length) * 100)
+  return { done: stages.filter((st) => isStageDone(apt, st.key)).length, total: stages.length }
 }
 
 /** Status column of a step that happened (สั่งงาน = the job is now in progress). */
@@ -350,10 +350,12 @@ export default function AppointmentsPage() {
                   <td className="px-2 whitespace-nowrap font-mono">{apt.startTime} - {apt.endTime}</td>
                   <td className="px-2 min-w-[110px]">
                     <div className="flex items-center gap-1.5">
-                      <div className="flex-1 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                        <div className="h-full bg-emerald-500" style={{ width: `${progress}%` }} />
+                      <div className="flex-1 flex gap-0.5">
+                        {Array.from({ length: progress.total }, (_, i) => (
+                          <div key={i} className={`h-1.5 flex-1 rounded-full ${i < progress.done ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-slate-700'}`} />
+                        ))}
                       </div>
-                      <span className="w-8 text-right text-[10px] text-slate-600 dark:text-slate-400">{progress}%</span>
+                      <span className="w-8 text-right text-[10px] text-slate-600 dark:text-slate-400">{progress.done}/{progress.total}</span>
                     </div>
                   </td>
                 </tr>

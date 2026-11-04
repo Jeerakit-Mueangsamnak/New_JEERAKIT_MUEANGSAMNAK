@@ -74,16 +74,14 @@ export default function QuotationsPage() {
   const [actionError, setActionError] = useState('')
   const [reservationResult, setReservationResult] = useState<ReservationFulfillmentResult | null>(null)
 
-  // Quotation Release Reservation with Mandatory User Reason
+  // Quotation Release Reservation
   const [quotationForRelease, setQuotationForRelease] = useState<Quotation | null>(null)
-  const [releaseReason, setReleaseReason] = useState('')
   const [releaseTargetStatus, setReleaseTargetStatus] = useState<'CANCELLED' | 'WAITING' | 'REJECTED'>('CANCELLED')
   const [releaseError, setReleaseError] = useState('')
   const [isReleasing, setIsReleasing] = useState(false)
 
   const handleOpenReleaseModal = (quotation: Quotation) => {
     setQuotationForRelease(quotation)
-    setReleaseReason('')
     setReleaseTargetStatus('CANCELLED')
     setReleaseError('')
     setIsReleasing(false)
@@ -92,14 +90,11 @@ export default function QuotationsPage() {
   const handleCloseReleaseModal = () => {
     if (isReleasing) return
     setQuotationForRelease(null)
-    setReleaseReason('')
     setReleaseError('')
   }
 
   const handleConfirmRelease = async () => {
     if (!quotationForRelease || isReleasing) return
-    const trimmedReason = releaseReason.trim()
-
     setIsReleasing(true)
     setReleaseError('')
     try {
@@ -107,11 +102,10 @@ export default function QuotationsPage() {
         userId: user?.userId || 'system',
         displayName: user?.displayName || 'ระบบ',
       }
-      await cancelQuotationWorkflow(quotationForRelease.id, trimmedReason, actor)
+      await cancelQuotationWorkflow(quotationForRelease.id, '', actor)
       const updatedList = loadQuotationsFromStorage()
       setQuotations(updatedList)
       setQuotationForRelease(null)
-      setReleaseReason('')
       if (selectedQuotationForConversion?.id === quotationForRelease.id) {
         closeActionModal()
       }
@@ -790,21 +784,6 @@ export default function QuotationsPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                  เหตุผลในการยกเลิก (ไม่บังคับ)
-                </label>
-                <textarea
-                  rows={3}
-                  value={releaseReason}
-                  onChange={(e) => {
-                    setReleaseReason(e.target.value)
-                    if (releaseError) setReleaseError('')
-                  }}
-                  placeholder="กรุณาระบุเหตุผล เช่น ลูกค้าไม่สนใจ, ราคาไม่ตรงงบ, เปลี่ยนแผนงาน ฯลฯ"
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none resize-none"
-                />
-              </div>
 
               {releaseError && (
                 <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 text-xs">
@@ -825,7 +804,7 @@ export default function QuotationsPage() {
 
               <button
                 type="button"
-                disabled={isReleasing || !releaseReason.trim()}
+                disabled={isReleasing}
                 onClick={handleConfirmRelease}
                 className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold shadow-lg shadow-rose-500/30 flex items-center gap-2 disabled:opacity-50 cursor-pointer"
               >

@@ -106,7 +106,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
               ใบเสนอราคา
             </span>
             <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400">
-              {data.quotationConversionRate}% แปลงบิล
+              เป็นบิลแล้ว {formatNumber(data.quotationsConvertedCount)} ใบ
             </span>
           </div>
           <div className="my-1">
@@ -118,7 +118,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
             </div>
           </div>
           <div className="text-[9.5px] text-purple-600/80 dark:text-purple-400/80 font-bold">
-            อัตราความสำเร็จ (Conversion)
+            ใบเสนอราคาที่ออกในช่วงนี้
           </div>
         </div>
 
@@ -215,12 +215,6 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
                   <div className="text-xs font-black font-mono text-slate-800 dark:text-slate-100">
                     {formatCurrency(st.amount)}
                   </div>
-                  <div className="text-[9px] text-slate-600 dark:text-slate-400">
-                    {data.totalBillsValue > 0
-                      ? Math.round((st.amount / data.totalBillsValue) * 100)
-                      : 0}
-                    %
-                  </div>
                 </div>
               </div>
             ))}
@@ -243,7 +237,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
             </h3>
           </div>
           <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400 font-mono">
-            อัตราความสำเร็จรวม: {data.quotationConversionRate}%
+            เป็นบิลแล้ว: {formatNumber(data.quotationsConvertedCount)} ใบ
           </span>
         </div>
 

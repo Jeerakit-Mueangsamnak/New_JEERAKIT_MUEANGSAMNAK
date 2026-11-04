@@ -1,8 +1,9 @@
 'use client'
 
 import React, { useEffect, useMemo } from 'react'
-import { Banknote, CreditCard, QrCode, ShieldAlert } from 'lucide-react'
+import { Banknote, QrCode, ShieldAlert } from 'lucide-react'
 
+// The screens offer three buttons: เงินสด, QR Code, ค้างชำระ ('TRANSFER' stays in the type for saved bills).
 export type PaymentMethodType = 'CASH' | 'TRANSFER' | 'QR' | 'UNPAID'
 
 interface PaymentMethodSelectorProps {
@@ -33,7 +34,6 @@ export function PaymentMethodSelector({
 }: PaymentMethodSelectorProps) {
   const methods = {
     cash: true,
-    bankTransfer: true,
     promptPay: showPromptPay,
     credit: true,
   }
@@ -48,18 +48,10 @@ export function PaymentMethodSelector({
         activeClass: 'border-blue-600 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 shadow-sm',
       })
     }
-    if (methods.bankTransfer) {
-      list.push({
-        key: 'TRANSFER',
-        label: 'โอนเงินธนาคาร',
-        icon: <CreditCard className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-blue-600 dark:text-blue-400 shrink-0" />,
-        activeClass: 'border-blue-600 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 shadow-sm',
-      })
-    }
     if (methods.promptPay) {
       list.push({
         key: 'QR',
-        label: 'PromptPay QR',
+        label: 'QR Code',
         icon: <QrCode className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-purple-600 dark:text-purple-400 shrink-0" />,
         activeClass: 'border-blue-600 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 shadow-sm',
       })
@@ -73,7 +65,7 @@ export function PaymentMethodSelector({
       })
     }
     return list
-  }, [methods.cash, methods.bankTransfer, methods.promptPay, methods.credit])
+  }, [methods.cash, methods.promptPay, methods.credit])
 
   const shownList = useMemo(
     () => enabledList.map((item) => ({ ...item, label: labels?.[item.key] ?? item.label })),

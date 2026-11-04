@@ -25,7 +25,6 @@ import {
   getBillPaymentPresentation,
   getRentalStatusPresentation,
   isCancelledOrVoidBill,
-  isExtensionBill,
   isOwingBill,
 } from '@/features/bills/utils/bill-list-presentation'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
@@ -67,17 +66,9 @@ export default function BillsPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [billLoadError, setBillLoadError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [rentalFilter, setRentalFilter] = useState<string>('ALL')
-  const [paymentFilter, setPaymentFilter] = useState<string>('ALL')
-
-  React.useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const statusParam = new URLSearchParams(window.location.search).get('status')
-      if (statusParam === 'DRAFT') {
-        setRentalFilter('DRAFT')
-      }
-    }
-  }, [])
+  // Owner 2026-11-02: one dropdown for bills still in work + one "บิลทั้งหมด" button that shows closed bills only.
+  const [statusFilter, setStatusFilter] = useState<string>('ALL')
+  const [showClosedBills, setShowClosedBills] = useState(false)
 
   // Modals State
   const [selectedBillForLog, setSelectedBillForLog] = useState<FullBill | null>(null)
@@ -89,6 +80,8 @@ export default function BillsPage() {
   // A click on unused page space clears the current bill selection. Do not clear on rows,
   // action buttons, fields, links, or dialogs; those controls may need the selected bill.
   const handleOutsideBillClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    // A workflow screen (edit / extend / return / pay) needs the selected bill; a click on its blank area must not clear it.
+    if (activeWorkflow) return
     const target = event.target
     if (!(target instanceof Element)) return
     if (target.closest('[data-bill-selectable], button, a, input, select, textarea, label, [role="dialog"], [role="combobox"]')) return
@@ -96,7 +89,7 @@ export default function BillsPage() {
   }
 
 
-  const [activeWorkflow, setActiveWorkflow] = useState<'RETURN' | 'PAYMENT' | 'CORRECTION' | 'EXTENSION' | null>(null)
+  const [activeWorkflow, setActiveWorkflow] = useState<'RETURN' | 'DOCS' | 'CORRECTION' | 'EXTENSION' | null>(null)
   const [showDepositRefund, setShowDepositRefund] = useState(false)
   const [showPaymentRefund, setShowPaymentRefund] = useState(false)
   const [showDelivery, setShowDelivery] = useState(false)
@@ -106,15 +99,12 @@ export default function BillsPage() {
   const [selectedBillForCancel, setSelectedBillForCancel] = useState<FullBill | null>(null)
   // UI hint only; the server checks menu -> OWNER grant -> PIN on every call.
   const canAction = useActionPermission()
-  const [cancelReason, setCancelReason] = useState<string>('')
   const [isCancellingBill, setIsCancellingBill] = useState(false)
   const openCancelBill = (bill: FullBill) => {
-    setCancelReason('')
     setSelectedBillForCancel(bill)
   }
   const closeCancelBill = () => {
     setSelectedBillForCancel(null)
-    setCancelReason('')
   }
 
   // Link from a notice: /bills?id=<bill> opens that bill; &send=line opens the LINE send window.
@@ -168,26 +158,18 @@ export default function BillsPage() {
       b.customerName.toLowerCase().includes(term) ||
       b.customerPhone.toLowerCase().includes(term)
 
-    let matchesRental = true
-    if (rentalFilter === 'RENTING') matchesRental = b.rentalStatus === 'RENTING'
-    else if (rentalFilter === 'CONFIRMED') matchesRental = b.rentalStatus === 'CONFIRMED'
-    else if (rentalFilter === 'EXTENDED') matchesRental = isExtensionBill(b)
-    else if (rentalFilter === 'OVERDUE') matchesRental = isOverdueBill(b)
-    else if (rentalFilter === 'PARTIAL_RETURNED') matchesRental = b.rentalStatus === 'PARTIAL_RETURNED'
-    else if (rentalFilter === 'RETURNED') matchesRental = b.rentalStatus === 'RETURNED'
-    else if (rentalFilter === 'CLOSED') matchesRental = b.rentalStatus === 'CLOSED'
-    else if (rentalFilter === 'DRAFT') matchesRental = b.rentalStatus === 'DRAFT'
-    else if (rentalFilter === 'CANCELLED') matchesRental = b.rentalStatus === 'CANCELLED'
-    else if (rentalFilter === 'VOID') matchesRental = b.rentalStatus === 'VOID'
+    // "บิลทั้งหมด" button: closed bills only. Otherwise only bills still in work
+    // (not closed / cancelled / void), narrowed by the status dropdown.
+    if (showClosedBills) return matchesSearch && b.rentalStatus === 'CLOSED'
+    if (['CLOSED', 'CANCELLED', 'VOID'].includes(b.rentalStatus)) return false
 
-    let matchesPayment = true
-    if (paymentFilter === 'PAID') matchesPayment = b.paymentStatus === 'PAID'
-    else if (paymentFilter === 'PARTIAL') matchesPayment = b.paymentStatus === 'PARTIAL'
-    else if (paymentFilter === 'UNPAID') matchesPayment = isOwingBill(b) && b.paymentStatus === 'UNPAID'
-    else if (paymentFilter === 'REFUND_PARTIAL') matchesPayment = b.paymentStatus === 'REFUND_PARTIAL'
-    else if (paymentFilter === 'REFUNDED') matchesPayment = b.paymentStatus === 'REFUNDED'
+    let matchesStatus = true
+    if (statusFilter === 'PAID') matchesStatus = b.paymentStatus === 'PAID'
+    else if (statusFilter === 'UNPAID') matchesStatus = b.rentalStatus !== 'DRAFT' && ['UNPAID', 'PARTIAL'].includes(b.paymentStatus)
+    else if (statusFilter === 'RETURNED') matchesStatus = b.rentalStatus === 'RETURNED'
+    else if (statusFilter === 'NOT_RETURNED') matchesStatus = ['RENTING', 'PARTIAL_RETURNED'].includes(b.rentalStatus)
 
-    return matchesSearch && matchesRental && matchesPayment
+    return matchesSearch && matchesStatus
   })
 
   // Bills table: scrolls inside its area, more rows load near the bottom
@@ -204,7 +186,7 @@ export default function BillsPage() {
   // Reset page when search or filters change
   React.useEffect(() => {
     setBillsCurrentPage(1)
-  }, [searchTerm, rentalFilter, paymentFilter, setBillsCurrentPage])
+  }, [searchTerm, statusFilter, showClosedBills, setBillsCurrentPage])
 
   const paginatedBills = filteredBills.slice(0, billsEndIndex)
 
@@ -213,13 +195,11 @@ export default function BillsPage() {
   const overdueCount = bills.filter((b) => isOverdueBill(b)).length
   const unpaidCount = bills.filter((b) => isOwingBill(b) && b.paymentStatus !== 'PAID').length
   const closedCount = bills.filter((b) => b.rentalStatus === 'CLOSED').length
-  const draftCount = bills.filter((b) => b.rentalStatus === 'DRAFT').length
 
   const handleConfirmCancelBill = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedBillForCancel || isCancellingBill) return
 
-    const trimmedReason = cancelReason.trim()
     // A confirmed bill is cancelled / voided only by a member granted BILL_VOID (the server checks it too)
     if (selectedBillForCancel.serverStatus !== 'DRAFT' && !canAction('BILL_VOID')) {
       showToast('ไม่มีสิทธิ์ยกเลิกบิลนี้', NO_ACTION_PERMISSION_TITLE, 'ERROR')
@@ -227,14 +207,13 @@ export default function BillsPage() {
     }
     setIsCancellingBill(true)
     try {
-      await cancelOrVoidBill(selectedBillForCancel, trimmedReason)
+      await cancelOrVoidBill(selectedBillForCancel, '')
 
       const updatedBills = fetchBills()
       setBills(updatedBills)
 
       showToast('ยกเลิกบิลสำเร็จ', `ยกเลิกบิล ${selectedBillForCancel.billNo} เรียบร้อยแล้ว`, 'SUCCESS')
       setSelectedBillForCancel(null)
-      setCancelReason('')
       setSelectedRowBill(null)
     } catch (err: any) {
       if (isPinCancelled(err)) return
@@ -289,7 +268,7 @@ export default function BillsPage() {
               customerName={selectedRowBill?.customerName || ''}
               bills={bills}
               setBills={setBills}
-              initialMode={activeWorkflow}
+              initialTab={activeWorkflow}
               initialBillId={selectedRowBill?.id}
               onClose={() => {
                 setActiveWorkflow(null)
@@ -362,42 +341,31 @@ export default function BillsPage() {
               <div className="flex items-center gap-2 shrink-0">
                 <div className="w-36 sm:w-44">
                   <CustomSelect
-                    value={rentalFilter}
-                    onChange={(val) => setRentalFilter(String(val))}
+                    value={statusFilter}
+                    onChange={(val) => setStatusFilter(String(val))}
+                    disabled={showClosedBills}
                     options={[
-                      { value: 'ALL', label: 'สถานะเช่า: ทั้งหมด' },
-                      { value: 'DRAFT', label: `แบบร่าง (${draftCount})` },
-                      { value: 'CONFIRMED', label: 'ยืนยันแล้ว / รอส่งของ' },
-                      { value: 'RENTING', label: 'เปิดอยู่ / กำลังเช่า' },
-                      { value: 'EXTENDED', label: 'เช่าต่อ' },
-                      { value: 'OVERDUE', label: 'เกินกำหนดคืน' },
-                      { value: 'PARTIAL_RETURNED', label: 'คืนบางส่วน' },
-                      { value: 'RETURNED', label: 'คืนครบแล้ว' },
-                      { value: 'CLOSED', label: 'ปิดบิลแล้ว' },
-                      { value: 'CANCELLED', label: 'ยกเลิกบิล' },
-                      { value: 'VOID', label: 'โมฆะ (VOID)' },
+                      { value: 'ALL', label: 'ทั้งหมด' },
+                      { value: 'PAID', label: 'ชำระแล้ว' },
+                      { value: 'UNPAID', label: 'ค้างชำระ' },
+                      { value: 'RETURNED', label: 'คืนครบ' },
+                      { value: 'NOT_RETURNED', label: 'ค้างคืน' },
                     ]}
                     align="left"
                     direction="down"
                   />
                 </div>
 
-                <div className="w-36 sm:w-44">
-                  <CustomSelect
-                    value={paymentFilter}
-                    onChange={(val) => setPaymentFilter(String(val))}
-                    options={[
-                      { value: 'ALL', label: 'การชำระ: ทั้งหมด' },
-                      { value: 'PAID', label: 'ชำระแล้ว' },
-                      { value: 'PARTIAL', label: 'ชำระบางส่วน' },
-                      { value: 'UNPAID', label: 'ค้างชำระ' },
-                      { value: 'REFUND_PARTIAL', label: 'คืนเงินบางส่วน' },
-                      { value: 'REFUNDED', label: 'คืนเงินแล้ว' },
-                    ]}
-                    align="left"
-                    direction="down"
-                  />
-                </div>
+                <ActionButton
+                  type="button"
+                  className="w-36 sm:w-44 justify-center"
+                  variant={showClosedBills ? 'active' : 'neutral'}
+                  aria-pressed={showClosedBills}
+                  onClick={() => setShowClosedBills((v) => !v)}
+                  title={showClosedBills ? 'กลับไปดูบิลที่กำลังทำงานอยู่' : 'ดูบิลที่ปิดไปแล้ว'}
+                >
+                  บิลทั้งหมด
+                </ActionButton>
               </div>
             </div>
 
@@ -462,33 +430,19 @@ export default function BillsPage() {
                   </>
                 ) : (
                   <>
-                    {/* Action Button 1: รับคืนสินค้า */}
-                    {/* Cancelled / void bills hold no goods: no return from them (the server refuses too). */}
-                    <ActionButton
-                      className={BILL_TOOLBAR_BUTTON_CLASSES}
-                      disabled={!selectedRowBill || isCancelledOrVoidBill(selectedRowBill)}
-                      onClick={() => setActiveWorkflow('RETURN')}
-                      variant={selectedRowBill && !isCancelledOrVoidBill(selectedRowBill) ? 'primary' : 'neutral'}
-                      icon={<RefreshCw className="w-3.5 h-3.5" />}
-                      title={
-                        selectedRowBill && isCancelledOrVoidBill(selectedRowBill)
-                          ? 'บิลยกเลิก/โมฆะ รับคืนสินค้าไม่ได้'
-                          : 'รับคืนสินค้าจากลูกค้า'
-                      }
-                    >
-                      รับคืนสินค้า
-                    </ActionButton>
-                    
-                    {/* Action Button 2: รับชำระเงิน */}
+                    {/* จัดการบิล: one workspace for return / payment / documents / history of the selected bill.
+                        A cancelled / void bill holds no goods, so it opens on the documents tab. */}
                     <ActionButton
                       className={BILL_TOOLBAR_BUTTON_CLASSES}
                       disabled={!selectedRowBill}
-                      onClick={() => setActiveWorkflow('PAYMENT')}
-                      variant={selectedRowBill ? 'info' : 'neutral'}
-                      icon={<AlertCircle className="w-3.5 h-3.5" />}
-                      title="บันทึกรับชำระเงิน"
+                      onClick={() =>
+                        setActiveWorkflow(selectedRowBill && isCancelledOrVoidBill(selectedRowBill) ? 'DOCS' : 'RETURN')
+                      }
+                      variant={selectedRowBill ? 'primary' : 'neutral'}
+                      icon={<RefreshCw className="w-3.5 h-3.5" />}
+                      title="รับคืนสินค้า รับชำระเงิน เอกสาร และประวัติของบิลที่เลือก"
                     >
-                      รับชำระเงิน
+                      จัดการบิล
                     </ActionButton>
 
 
@@ -514,28 +468,8 @@ export default function BillsPage() {
                       ส่งของ
                     </ActionButton>
 
-                    <ActionButton
-                      disabled={!selectedRowBill || !['RENTING', 'PARTIAL_RETURNED'].includes(selectedRowBill.rentalStatus)}
-                      onClick={() => setActiveWorkflow('EXTENSION')}
-                      variant={selectedRowBill && ['RENTING', 'PARTIAL_RETURNED'].includes(selectedRowBill.rentalStatus) ? 'outline' : 'neutral'}
-                      className={`${BILL_TOOLBAR_BUTTON_CLASSES} ${selectedRowBill && ['RENTING', 'PARTIAL_RETURNED'].includes(selectedRowBill.rentalStatus) ? '!bg-cyan-700 hover:!bg-cyan-800 !text-white !border-transparent' : ''}`}
-                      icon={<CalendarPlus className="w-3.5 h-3.5" />}
-                      title="ขยายเวลาเช่าต่อ"
-                    >
-                      เช่าต่อ
-                    </ActionButton>
 
 
-                    <ActionButton
-                      disabled={!selectedRowBill}
-                      onClick={() => setShowDepositRefund(true)}
-                      variant={selectedRowBill && selectedRowBill.heldDepositAmount > 0 ? 'outline' : 'neutral'}
-                      className={`${BILL_TOOLBAR_BUTTON_CLASSES} ${selectedRowBill && selectedRowBill.heldDepositAmount > 0 ? '!bg-amber-500 hover:!bg-amber-600 !text-slate-900 !border-transparent' : ''}`}
-                      icon={<WalletCards className="w-3.5 h-3.5" />}
-                      title="ดู/แก้ไขยอดมัดจำของบิล (ระบบไม่หักหรือคืนให้อัตโนมัติ)"
-                    >
-                      มัดจำ
-                    </ActionButton>
 
                     <ActionButton
                       className={BILL_TOOLBAR_BUTTON_CLASSES}
@@ -1039,18 +973,6 @@ export default function BillsPage() {
                   คุณกำลังจะยกเลิกบิลเช่าของ <strong className="text-slate-900 dark:text-slate-100">{selectedBillForCancel.customerName}</strong>
                 </p>
 
-                <div>
-                  <label className="block font-semibold mb-1 text-slate-700 dark:text-slate-200">
-                    ระบุเหตุผลในการยกเลิกบิล (ไม่บังคับ)
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={cancelReason}
-                    onChange={(e) => setCancelReason(e.target.value)}
-                    placeholder="เช่น ลูกค้าขอยกเลิกงาน..."
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-red-500 focus:outline-none"
-                  />
-                </div>
               </AppModalBody>
 
               <AppModalFooter>

@@ -25,6 +25,8 @@ interface CustomSelectProps {
   searchable?: boolean
   emptyText?: string
   hideChevron?: boolean
+  /** Weight of the placeholder text; default is normal. Use font-bold when the placeholder is the field's name. */
+  placeholderClassName?: string
   /** Accessible name when no visible <label> names the field. */
   ariaLabel?: string
 }
@@ -41,6 +43,7 @@ export function CustomSelect({
   searchable = false,
   emptyText = 'ยังไม่มีรายการ',
   hideChevron = false,
+  placeholderClassName = 'font-normal',
   ariaLabel,
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
@@ -165,7 +168,7 @@ export function CustomSelect({
               )}
             </span>
           ) : (
-            <span className="text-slate-600 dark:text-slate-400 font-normal">
+            <span className={`text-slate-600 dark:text-slate-400 ${placeholderClassName}`}>
               {options.length === 0 && placeholder === '-- เลือกรายการ --' ? emptyText : placeholder || '\u00A0'}
             </span>
           )}

@@ -151,6 +151,8 @@ export interface Product {
   name: string
   category: string
   categoryId?: string
+  /** รายการ inside the category (owner 2026-11-02), e.g. แบบคาน40. */
+  listItem?: string
   unit: string
   unitId?: string
   rentalType: RentalType
@@ -552,5 +554,4 @@ export interface CustomerOutstandingItemRecord {
 export interface CustomerReturnStats {
   totalReturnedItemsWithDates: number
   onTimeReturnedItems: number
-  onTimeRatePercent: number | null
 }

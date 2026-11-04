@@ -9,6 +9,9 @@ export interface ReturnInspectionItem {
   normalQty: number      // returned and ready to rent
   damagedQty: number     // returned and awaiting repair
   lostQty: number        // confirmed lost / removed from stock
+  continueQty?: number   // stays with the customer: continued on a new (เช่าต่อ) bill
+  continueEndDate?: string // daily goods: the day the new round ends
+  continueRounds?: number  // per-round goods: how many more rounds
   dailyRate: number
   repairFeePerUnit: number
   replacementFeePerUnit: number
@@ -171,6 +174,8 @@ export interface FullBill {
   shippingFee?: number
   taxAmount?: number
   vatMode?: 'INCLUSIVE' | 'EXCLUSIVE'
+  /** VAT rate (percent) snapshotted on the bill when VAT was on. */
+  vatRatePercent?: number
   billAmount?: number
   confirmedAt?: string
   grandTotal: number

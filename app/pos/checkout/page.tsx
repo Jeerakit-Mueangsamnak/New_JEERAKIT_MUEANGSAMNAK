@@ -18,8 +18,11 @@ import { RentalBill, Customer, Product } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
 import { PostSavePrintModal } from '@/components/common/PostSavePrintModal'
 import { getLocalDateString } from '@/components/common/CustomDatePicker'
+import { isVatConfigured } from '@/features/settings/services/settings-storage'
+import { NumericInput } from '@/components/common/NumericInput'
 import {
   loadActiveCart,
+  saveActiveCart,
   clearActiveCart,
   isSaleCartItem,
   defaultBillDocumentType,
@@ -74,6 +77,8 @@ export default function CheckoutPage() {
   const [documentType, setDocumentType] = useState<string>('')
   const [shippingAddress, setShippingAddress] = useState<string>('')
   const [remark, setRemark] = useState<string>('')
+  const [contactPhone, setContactPhone] = useState<string>('')
+  const cartLoadedRef = useRef(false)
   const [quotationId, setQuotationId] = useState<string | null>(null)
   const [quotationNo, setQuotationNo] = useState<string | null>(null)
   const [draftBillId, setDraftBillId] = useState<string | null>(null)
@@ -96,6 +101,7 @@ export default function CheckoutPage() {
       if (cart.documentType) setDocumentType(cart.documentType)
       if (cart.shippingAddress) setShippingAddress(cart.shippingAddress)
       if (cart.remark) setRemark(cart.remark)
+      if (cart.contactPhone) setContactPhone(cart.contactPhone)
       if (cart.headerRentalDate) setHeaderRentalDate(new Date(cart.headerRentalDate))
       if (cart.headerReturnDate) setHeaderReturnDate(new Date(cart.headerReturnDate))
       if (cart.quotationId) setQuotationId(cart.quotationId)
@@ -103,19 +109,35 @@ export default function CheckoutPage() {
       if (cart.draftBillId) setDraftBillId(cart.draftBillId)
       setVatEnabled(cart.vatEnabled === true)
     }
+    cartLoadedRef.current = true
   }, [])
 
+  // Discount / shipping / deposit are typed here: keep them in the saved cart so going back to the POS and
+  // forward again does not lose them.
+  useEffect(() => {
+    if (!cartLoadedRef.current) return
+    const cart = loadActiveCart()
+    if (cart) saveActiveCart({ ...cart, discount, shippingFee, depositAmount, vatEnabled })
+  }, [discount, shippingFee, depositAmount, vatEnabled])
+
+  // VAT of this bill: chosen here with the switch, only when the owner has set the rate and mode.
+  const vatConfigured = isVatConfigured(settings)
+  const vatOn = vatEnabled && vatConfigured
   const totals = calculateBillTotals({
     settings,
     items,
     discount,
     shippingFee,
     depositAmount,
-    enableVat: vatEnabled,
+    enableVat: vatOn,
   })
   const tax = totals.vatAmount
   const subtotal = totals.subtotal
   const grandTotal = totals.grandTotal
+  // Owner 2026-11-02: the customer pays the bill and the deposit together at the counter.
+  // The payment record stays the bill total; the deposit is kept on the bill itself.
+  const depositToCollect = Math.max(0, Number(depositAmount) || 0)
+  const amountToCollect = totals.totalPayableWithDeposit
 
   const clearCart = () => {
     clearActiveCart()
@@ -145,8 +167,8 @@ export default function CheckoutPage() {
 
   const [mobileTab, setMobileTab] = useState<'PAYMENT' | 'PREVIEW'>('PAYMENT')
 
-  const receivedCash = receivedCashInput === '' ? grandTotal : (parseFloat(receivedCashInput) || 0)
-  const changeAmount = paymentMethod === 'CASH' ? Math.max(0, receivedCash - grandTotal) : 0
+  const receivedCash = receivedCashInput === '' ? amountToCollect : (parseFloat(receivedCashInput) || 0)
+  const changeAmount = paymentMethod === 'CASH' ? Math.max(0, receivedCash - amountToCollect) : 0
 
   // Format template data for live preview
   const billData: BillTemplateData = {
@@ -158,7 +180,7 @@ export default function CheckoutPage() {
     ...billBusinessFields(settings.business),
     customerName: customer?.customerName || 'ลูกค้าทั่วไป',
     customerAddress: customer?.address,
-    customerPhone: customer?.phone,
+    customerPhone: contactPhone.trim() || customer?.phone,
     customerTaxId: customer?.taxId,
     billNo: `BILL-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-DRAFT`,
     billDate: safeFormatDateStr(billDate),
@@ -183,6 +205,8 @@ export default function CheckoutPage() {
     discount: discount || 0,
     shippingFee: shippingFee || 0,
     taxAmount: tax,
+    vatRatePercent: tax > 0 ? Math.round(totals.vatRate * 10000) / 100 : undefined,
+    vatInclusive: tax > 0 && settings.taxDiscount?.vatMode === 'INCLUSIVE',
     depositAmount: depositAmount || 0,
     grandTotal,
     paidAmount: paymentMethod && paymentMethod !== 'UNPAID' ? grandTotal : 0,
@@ -234,7 +258,11 @@ export default function CheckoutPage() {
       }
     })
 
-    const note = [remark?.trim(), shippingAddress?.trim() ? `ส่งที่: ${shippingAddress.trim()}` : '']
+    const note = [
+      remark?.trim(),
+      shippingAddress?.trim() ? `ส่งที่: ${shippingAddress.trim()}` : '',
+      contactPhone.trim() ? `โทร: ${contactPhone.trim()}` : '',
+    ]
       .filter(Boolean)
       .join('\n')
 
@@ -244,7 +272,7 @@ export default function CheckoutPage() {
         (draftBillId && loadBillById(draftBillId)?.rentalStatus === 'DRAFT' ? draftBillId : null),
       customerId: customer?.id || null,
       quotationId: quotationId || null,
-      vatEnabled,
+      vatEnabled: vatOn,
       note: note || undefined,
       discountAmount: discount || 0,
       deliveryFee: shippingFee || 0,
@@ -263,11 +291,12 @@ export default function CheckoutPage() {
     }
     try {
       validateCartCustomer(items, customer)
-    } catch (error: unknown) {
-      showToast('ข้อมูลลูกค้าไม่ครบถ้วน', error instanceof Error ? error.message : String(error), 'ERROR')
+    } catch {
+      // No pop-up: back to the cart, where the customer field blinks until it is clicked.
+      router.push(`${backToPosHref}&customerRequired=1`)
       return false
     }
-    if (isCashShort(selectedPaymentMethod, receivedCash, grandTotal)) {
+    if (isCashShort(selectedPaymentMethod, receivedCash, amountToCollect)) {
       showToast('เงินสดไม่ถูกต้อง', 'เงินสดที่รับมาต้องไม่น้อยกว่ายอดชำระ', 'ERROR')
       return false
     }
@@ -288,10 +317,10 @@ export default function CheckoutPage() {
     const draft = await fetchBillByIdFromSupabase(billId)
     const total = draft?.grandTotal ?? grandTotal
     // The server's total can differ from the screen's; the cash typed in must still cover it
-    if (!isUnpaid && receivedCashInput !== '' && isCashShort(selectedPaymentMethod, receivedCash, total)) {
+    if (!isUnpaid && receivedCashInput !== '' && isCashShort(selectedPaymentMethod, receivedCash, total + depositToCollect)) {
       return {
         ok: false,
-        message: `ยอดสุทธิจากระบบ ${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })} มากกว่าเงินสดที่รับมา — บิลบันทึกเป็นแบบร่างไว้แล้ว`,
+        message: `ยอดสุทธิจากระบบ (รวมมัดจำ) ${(total + depositToCollect).toLocaleString('th-TH', { minimumFractionDigits: 2 })} มากกว่าเงินสดที่รับมา — บิลบันทึกเป็นแบบร่างไว้แล้ว`,
       }
     }
     const confirmed = await confirmBill(
@@ -376,8 +405,8 @@ export default function CheckoutPage() {
 
     try {
       validateCartCustomer(items, customer)
-    } catch (error: unknown) {
-      showToast('ข้อมูลลูกค้าไม่ครบถ้วน', error instanceof Error ? error.message : String(error), 'ERROR')
+    } catch {
+      router.push(`${backToPosHref}&customerRequired=1`)
       return
     }
 
@@ -396,8 +425,15 @@ export default function CheckoutPage() {
     }
   }
 
+  // Back to the cart without losing it: the POS reloads the cart saved before checkout
+  // (and keeps the quotation / draft this bill comes from).
+  const backToPosParams = new URLSearchParams({ resume: '1' })
+  if (quotationId) backToPosParams.set('quotationId', quotationId)
+  if (draftBillId) backToPosParams.set('draftBillId', draftBillId)
+  const backToPosHref = `/pos?${backToPosParams.toString()}`
+
   const handleCancel = () => {
-    router.push('/pos')
+    router.push(backToPosHref)
   }
 
   return (
@@ -454,7 +490,7 @@ export default function CheckoutPage() {
           {/* Header */}
           <div className="flex shrink-0 min-w-0 items-center justify-between gap-2 border-b border-slate-100 pb-2 dark:border-slate-700">
             <Link
-              href="/pos"
+              href={backToPosHref}
               className="flex shrink-0 items-center gap-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-semibold"
             >
               <ArrowLeft className="w-4 h-4 shrink-0" />
@@ -465,35 +501,132 @@ export default function CheckoutPage() {
             </h3>
           </div>
 
-          {/* Amount Due Card */}
-          <div className="flex shrink-0 items-center justify-between gap-2 rounded-2xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 p-2.5 sm:p-3 text-white shadow-lg lg:p-3.5">
-            <span className="text-[11px] sm:text-xs text-blue-100 font-medium">ยอดสุทธิ</span>
-            <span className="whitespace-nowrap text-2xl sm:text-3xl font-black tracking-tight tabular-nums">
-              {grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+          {/* ส่วนลด / ค่าขนส่ง / เงินมัดจำ (moved here from the POS cart) */}
+          <div className="grid shrink-0 grid-cols-3 gap-2 text-xs">
+            <div>
+              <span className="text-slate-600 dark:text-slate-400 block mb-0.5">ส่วนลด (บาท)</span>
+              <NumericInput
+                value={discount || ''}
+                onChange={(val) => setDiscount(val === '' ? 0 : val)}
+                defaultValueOnBlur={0}
+                min={0}
+                placeholder="0"
+                disabled={isSubmitting}
+                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
+              <span className="text-slate-600 dark:text-slate-400 block mb-0.5">ค่าขนส่ง (บาท)</span>
+              <NumericInput
+                value={shippingFee || ''}
+                onChange={(val) => setShippingFee(val === '' ? 0 : val)}
+                defaultValueOnBlur={0}
+                min={0}
+                placeholder="0"
+                disabled={isSubmitting}
+                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
+              <span className="text-slate-600 dark:text-slate-400 block mb-0.5">เงินมัดจำ (บาท)</span>
+              <NumericInput
+                value={depositAmount || ''}
+                onChange={(val) => setDepositAmount(val === '' ? 0 : val)}
+                defaultValueOnBlur={0}
+                min={0}
+                placeholder="0"
+                disabled={isSubmitting}
+                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
+
+          {/* VAT of this bill */}
+          <div className={`flex shrink-0 items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-400 ${vatConfigured ? '' : 'opacity-60'}`}>
+            <span>
+              VAT บิลนี้ {vatOn ? 'เปิด' : 'ปิด'}
+              {!vatConfigured && <span className="block text-[11px]">เจ้าของร้านยังไม่ได้ตั้งอัตรา VAT</span>}
             </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={vatOn}
+              aria-label="เปิด VAT สำหรับบิลนี้"
+              disabled={!vatConfigured || isSubmitting}
+              onClick={() => setVatEnabled((on) => !on)}
+              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 disabled:cursor-not-allowed ${
+                vatOn ? 'bg-emerald-700' : 'bg-slate-300 dark:bg-slate-600'
+              } ${vatConfigured ? 'cursor-pointer' : ''}`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                  vatOn ? 'translate-x-[18px]' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Amount Due Card */}
+          <div className="flex shrink-0 flex-col rounded-2xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 px-3 py-1.5 text-white shadow-lg">
+            {/* Bill amounts that are in use on this bill (owner 2026-11-02): shown only when not 0 */}
+            {(() => {
+              const money = (v: number) => v.toLocaleString('th-TH', { minimumFractionDigits: 2 })
+              const rows: Array<[string, string]> = []
+              if (totals.discountAmount > 0) rows.push(['ส่วนลด', `-${money(totals.discountAmount)}`])
+              if (totals.shippingFee > 0) rows.push(['ค่าขนส่ง', `+${money(totals.shippingFee)}`])
+              // VAT of this bill with its rate; inclusive VAT is already inside the prices (no "+").
+              if (tax > 0) {
+                const vatLabel = `ภาษีมูลค่าเพิ่ม ${(totals.vatRate * 100).toFixed(0)}%`
+                rows.push(settings.taxDiscount?.vatMode === 'INCLUSIVE'
+                  ? [`${vatLabel} (รวมในราคาแล้ว)`, money(tax)]
+                  : [vatLabel, `+${money(tax)}`])
+              }
+              if (depositToCollect > 0) rows.push(['เงินมัดจำ', `+${money(depositToCollect)}`])
+              if (rows.length === 0) return null
+              return (
+                <div className="space-y-0.5 border-b border-white/20 pb-1 mb-0.5 text-[11px] sm:text-xs text-blue-100 font-medium tabular-nums">
+                  <div className="flex justify-between gap-2">
+                    <span>ยอดก่อนส่วนลด</span>
+                    <span>{money(subtotal)}</span>
+                  </div>
+                  {rows.map(([label, value]) => (
+                    <div key={label} className="flex justify-between gap-2">
+                      <span>{label}</span>
+                      <span>{value}</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] sm:text-xs text-blue-100 font-medium">ยอดสุทธิ</span>
+              <span className="whitespace-nowrap text-2xl sm:text-3xl font-black leading-tight tracking-tight tabular-nums">
+                {amountToCollect.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
           </div>
 
           {/* Payment Method Selector — one row, equal-size buttons */}
           <PaymentMethodSelector
             selectedMethod={paymentMethod}
             onSelectMethod={setPaymentMethod}
-            showPromptPay={false}
             autoSelectFirst={false}
             showLabel={false}
             itemsPerRow={3}
-            labels={{ TRANSFER: 'เงินโอน' }}
           />
 
           {/* Dynamic Inputs per Method */}
           {paymentMethod ? (
             <PaymentDynamicContent
               paymentMethod={paymentMethod}
-              targetAmount={grandTotal}
+              targetAmount={amountToCollect}
               receivedCashInput={receivedCashInput}
               onReceivedCashInputChange={setReceivedCashInput}
               changeAmount={changeAmount}
               bankRef={bankRef}
               onBankRefChange={setBankRef}
+              bankQrUrl={settings.business?.bankQrDataUrl}
+              promptPayId={settings.business?.promptPayValue}
             />
           ) : null}
         </div>

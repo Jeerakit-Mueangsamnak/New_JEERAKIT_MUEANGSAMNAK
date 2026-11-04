@@ -11,6 +11,9 @@ interface CustomerUnifiedSelectorProps {
   onSelectCustomer: (customer: Customer | null) => void
   onOpenNewCustomerModal?: () => void
   disabled?: boolean
+  /** The customer is missing or incomplete: the field blinks red until it is clicked. */
+  attention?: boolean
+  onAttentionDismiss?: () => void
 }
 
 export function CustomerUnifiedSelector({
@@ -18,6 +21,8 @@ export function CustomerUnifiedSelector({
   customers,
   onSelectCustomer,
   disabled = false,
+  attention = false,
+  onAttentionDismiss,
 }: CustomerUnifiedSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -70,7 +75,10 @@ export function CustomerUnifiedSelector({
   return (
     <div ref={containerRef} className="relative w-full">
       {selectedCustomer ? (
-        <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50/70 dark:bg-emerald-950/40 text-slate-900 dark:text-slate-100 text-xs shadow-xs">
+        <div
+          onClick={() => attention && onAttentionDismiss?.()}
+          className={`flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50/70 dark:bg-emerald-950/40 text-slate-900 dark:text-slate-100 text-xs shadow-xs ${attention ? 'field-attention' : ''}`}
+        >
           <div className="flex items-center gap-2 min-w-0 flex-1">
             {selectedCustomer.id ? (
               <UserCheck className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
@@ -112,8 +120,12 @@ export function CustomerUnifiedSelector({
               setSearchTerm(e.target.value)
               if (!isOpen) setIsOpen(true)
             }}
-            onFocus={() => setIsOpen(true)}
-            className="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none shadow-xs"
+            onFocus={() => {
+              setIsOpen(true)
+              if (attention) onAttentionDismiss?.()
+            }}
+            onMouseDown={() => attention && onAttentionDismiss?.()}
+            className={`w-full pl-9 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none shadow-xs ${attention ? 'field-attention' : ''}`}
           />
           {searchTerm && (
             <button

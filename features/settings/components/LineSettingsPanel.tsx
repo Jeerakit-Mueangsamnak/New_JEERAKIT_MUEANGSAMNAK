@@ -12,7 +12,7 @@ import { StatusPill } from '@/features/settings/components/StatusPill'
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { BellRing, Copy, KeyRound, Link2, MessageSquareText, RotateCcw, Trash2 } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
-import { useAskText } from '@/components/common/ConfirmDialogProvider'
+import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { clearLineSecrets, getLineSecretStatus, saveLineSecrets, type LineSecretStatus } from '@/app/actions/system-secrets'
 import { LINE_TEMPLATES, type LineTemplateKey } from '@/lib/line/templates'
 import { LINE_EDITABLE_TEMPLATES, LINE_NOTIFY_EVENTS, type LineNotifyEventType } from '@/lib/line/config'
@@ -142,7 +142,7 @@ interface LineSettingsPanelProps {
 
 function ConnectionSection() {
   const { showToast } = useToast()
-  const askText = useAskText()
+  const confirm = useConfirm()
   const [status, setStatus] = useState<LineSecretStatus | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [secret, setSecret] = useState('')
@@ -173,17 +173,16 @@ function ConnectionSection() {
   }
 
   const clear = async () => {
-    const reply = await askText({
+    const ok = await confirm({
       title: 'ล้างการเชื่อมต่อ LINE',
       message: 'ระบบจะหยุดรับและส่งข้อความ LINE จนกว่าจะใส่ค่าใหม่',
-      placeholder: 'เหตุผล (เช่น เปลี่ยน OA)',
       confirmLabel: 'ล้างการเชื่อมต่อ',
       danger: true,
     })
-    if (reply === null) return
+    if (!ok) return
     setBusy(true)
     try {
-      setStatus(await clearLineSecrets(reply))
+      setStatus(await clearLineSecrets())
       showToast('ล้างแล้ว', 'ลบข้อมูลการเชื่อมต่อ LINE แล้ว', 'SUCCESS')
     } catch (e: unknown) {
       showToast('ล้างไม่สำเร็จ', e instanceof Error ? e.message : 'เกิดข้อผิดพลาด', 'ERROR')

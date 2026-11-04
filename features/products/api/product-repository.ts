@@ -34,6 +34,8 @@ interface ProductRow {
   sku: string
   name: string
   category_id: string | null
+  /** Missing until migration 20261102100000 is on the database. */
+  list_item?: string | null
   unit_id: string
   item_type: string
   calculation_type: string
@@ -94,6 +96,7 @@ export function mapProductRow(
     name: p.name,
     categoryId: p.category_id || undefined,
     category: (p.category_id && lookups.categories.get(p.category_id)) || '',
+    listItem: p.list_item || undefined,
     unitId: p.unit_id,
     unit: lookups.units.get(p.unit_id) || '',
     rentalType,
@@ -191,6 +194,7 @@ function productPayload(p: Product, units: UnitRow[]): Record<string, unknown> {
     sku: (p.code || '').trim(),
     name: (p.name || '').trim(),
     category_id: p.categoryId && isValidUUID(p.categoryId) ? p.categoryId : null,
+    list_item: p.listItem?.trim() || null,
     unit_id: unitId,
     calculation_type: rentalType === 'DAILY' || p.calculationType === 'PER_DAY' ? 'PER_DAY' : canRent ? 'PER_PERIOD' : 'PER_UNIT',
     can_sell: canSell,
@@ -223,9 +227,12 @@ export async function saveProductToSupabase(product: Product, previous?: Product
 
   if (!previous || !isValidUUID(product.id)) {
     const initialQty = Number(product.totalQuantity ?? product.availableQuantity ?? 0)
+    // No รายการ picked: leave the key out, so a database without the column still accepts it.
+    const { list_item: listItem, ...rest } = payload
+    const createData = listItem ? payload : rest
     const create = (pinToken?: string) =>
       rpc<{ id: string }>('product_create', {
-        p_data: { ...payload, sale_price: prices.sale, rental_price: prices.rent },
+        p_data: { ...createData, sale_price: prices.sale, rental_price: prices.rent },
         p_cost_price: product.costPrice ?? null,
         p_initial_qty: initialQty,
         p_pin_token: pinToken,

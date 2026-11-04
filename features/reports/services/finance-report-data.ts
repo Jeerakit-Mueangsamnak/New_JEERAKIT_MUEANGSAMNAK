@@ -1,7 +1,7 @@
 import { loadRevenueLedger, loadTransactions, type StatementTransaction } from '@/features/finance/services/finance-storage'
 import { loadBills } from '@/features/bills/services/bill-storage'
 import { loadSystemSettings } from '@/features/settings/services/settings-storage'
-import { calculateGrowth, generateTimeBuckets, getPreviousPeriod, isDateInRange, localDayOf, type ReportDateFilter } from './report-data-common'
+import { generateTimeBuckets, getPreviousPeriod, isDateInRange, localDayOf, type ReportDateFilter } from './report-data-common'
 
 // 1. FINANCE REPORT DATA (Topics 1, 2, 3, 7, 8, 18)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -16,9 +16,6 @@ export interface FinanceReportData {
   prevTotalIncome: number
   prevTotalExpense: number
   prevNetIncome: number
-  incomeGrowth: number | null
-  expenseGrowth: number | null
-  netIncomeGrowth: number | null
   // Topic 7: Outstanding Debt
   totalOutstanding: number
   debtorCount: number
@@ -48,7 +45,6 @@ export interface FinanceReportData {
     channel: string
     amount: number
     count: number
-    percentage: number
     color: string
   }>
   // Trend Points for Historical Chart
@@ -136,9 +132,6 @@ export function getFinanceReportData(filter: ReportDateFilter): FinanceReportDat
   }
   const prevNetIncome = prevTotalIncome - prevTotalExpense
 
-  const incomeGrowth = calculateGrowth(totalIncome, prevTotalIncome)
-  const expenseGrowth = calculateGrowth(totalExpense, prevTotalExpense)
-  const netIncomeGrowth = calculateGrowth(netIncome, prevNetIncome)
 
   // Topic 7: Outstanding Debt (ลูกหนี้ค้าง)
   const timezone = loadSystemSettings().timezone || 'Asia/Bangkok'
@@ -224,7 +217,6 @@ export function getFinanceReportData(filter: ReportDateFilter): FinanceReportDat
       channel,
       amount: val.amount,
       count: val.count,
-      percentage: totalIncome > 0 ? Math.round((val.amount / totalIncome) * 100) : 0,
       color: CHANNEL_COLORS[channel] || '#64748b',
     })
   )
@@ -271,9 +263,6 @@ export function getFinanceReportData(filter: ReportDateFilter): FinanceReportDat
     prevTotalIncome,
     prevTotalExpense,
     prevNetIncome,
-    incomeGrowth,
-    expenseGrowth,
-    netIncomeGrowth,
     totalOutstanding,
     debtorCount: debtorBills.length,
     debtorBills,

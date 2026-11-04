@@ -264,3 +264,26 @@ body.non-pos-route input[type="date"]::-webkit-inner-spin-button {
   }
 }
 
+
+/* Field that needs the cashier's attention (e.g. missing customer): background and text blink red at a
+   medium pace until the field is clicked. Reduced-motion users get a steady red instead. */
+@keyframes field-attention {
+  50% { background-color: #fecaca; color: #b91c1c; border-color: #ef4444; }
+}
+@keyframes field-attention-dark {
+  50% { background-color: #7f1d1d; color: #fecaca; border-color: #ef4444; }
+}
+@keyframes field-attention-placeholder {
+  50% { color: #b91c1c; }
+}
+@keyframes field-attention-placeholder-dark {
+  50% { color: #fecaca; }
+}
+.field-attention { animation: field-attention 1.2s ease-in-out infinite; }
+.field-attention::placeholder { animation: field-attention-placeholder 1.2s ease-in-out infinite; }
+.dark .field-attention { animation-name: field-attention-dark; }
+.dark .field-attention::placeholder { animation-name: field-attention-placeholder-dark; }
+@media (prefers-reduced-motion: reduce) {
+  .field-attention { animation: none; background-color: #fecaca; color: #b91c1c; border-color: #ef4444; }
+  .dark .field-attention { background-color: #7f1d1d; color: #fecaca; }
+}

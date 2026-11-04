@@ -59,11 +59,8 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
               <span className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 font-mono">
                 {metrics.netCashReceived.toLocaleString()}
               </span>
-              <span className="text-[9px] font-bold text-emerald-700 dark:text-emerald-400">
-                {metrics.growthRate === null ? '—' : `${metrics.growthRate >= 0 ? '+' : ''}${metrics.growthRate}%`}
-              </span>
             </div>
-            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">รับเงินจริงหักเงินคืน ไม่รวมเงินมัดจำ</span>
+            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ยอดสะสมทั้งหมด รับจริงหักเงินคืน</span>
           </div>
         </div>
 
@@ -81,7 +78,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
                 {metrics.totalExpense.toLocaleString()}
               </span>
             </div>
-            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">รายจ่ายและเงินคืนลูกค้าจากรายการการเงิน</span>
+            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ยอดสะสมทั้งหมด รายจ่ายและเงินคืนลูกค้า</span>
           </div>
         </div>
 
@@ -99,7 +96,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
                 {metrics.netIncome.toLocaleString()}
               </span>
             </div>
-            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">หลังหักค่าใช้จ่ายแล้ว</span>
+            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ยอดสะสมทั้งหมด หลังหักค่าใช้จ่าย</span>
           </div>
         </div>
         </>)}
@@ -207,14 +204,14 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
               </span>
               <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">บิล</span>
             </div>
-            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">รอชำระ / รอดำเนินการ</span>
+            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">บิลที่ของยังอยู่กับลูกค้า</span>
           </div>
         </div>
 
-        {/* 9. งานเช่าปัจจุบัน */}
+        {/* 9. รายการสินค้าที่กำลังเช่า */}
         <div className="p-2 bg-indigo-50/60 dark:bg-indigo-950/30 rounded-2xl border border-indigo-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">งานเช่าปัจจุบัน</span>
+            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">รายการสินค้าที่กำลังเช่า</span>
             <div className="w-6 h-6 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
               <Package className="w-3.5 h-3.5" />
             </div>
@@ -226,7 +223,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
               </span>
               <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">รายการ</span>
             </div>
-            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">รายการที่อยู่ระหว่างเช่า</span>
+            <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">นับตามรายการสินค้าในบิล</span>
           </div>
         </div>
 

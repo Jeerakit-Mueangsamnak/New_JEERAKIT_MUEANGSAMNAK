@@ -11,14 +11,12 @@ export interface StockReportData {
   rentedStock: number
   damagedStock: number
   lostStock: number
-  utilizationRate: number
   totalSkuCount: number
   // Donut chart status
   statusProportions: Array<{
     label: string
     value: number
     color: string
-    percentage: number
   }>
   // Category usage bar chart
   categoryUsage: Array<{
@@ -205,7 +203,6 @@ export function getStockReportData(filter: ReportDateFilter): StockReportData {
     })
   }
 
-  const utilizationRate = totalStock > 0 ? Math.round((rentedStock / totalStock) * 100) : 0
 
   // Status proportions Donut
   const statusProportions = [
@@ -213,25 +210,21 @@ export function getStockReportData(filter: ReportDateFilter): StockReportData {
       label: 'พร้อมใช้งาน',
       value: availableStock,
       color: '#10b981', // green
-      percentage: totalStock > 0 ? Math.round((availableStock / totalStock) * 100) : 0,
     },
     {
       label: 'กำลังเช่า',
       value: rentedStock,
       color: '#3b82f6', // blue
-      percentage: totalStock > 0 ? Math.round((rentedStock / totalStock) * 100) : 0,
     },
     {
       label: 'ชำรุดรอซ่อม',
       value: damagedStock,
       color: '#ef4444', // red
-      percentage: totalStock > 0 ? Math.round((damagedStock / totalStock) * 100) : 0,
     },
     {
       label: 'สูญหาย',
       value: lostStock,
       color: '#f59e0b', // orange
-      percentage: totalStock > 0 ? Math.round((lostStock / totalStock) * 100) : 0,
     },
   ]
 
@@ -281,7 +274,6 @@ export function getStockReportData(filter: ReportDateFilter): StockReportData {
     rentedStock,
     damagedStock,
     lostStock,
-    utilizationRate,
     totalSkuCount: allProducts.length,
     statusProportions,
     categoryUsage,

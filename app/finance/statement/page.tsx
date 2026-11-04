@@ -371,7 +371,7 @@ export default function StatementPage() {
                         <div className="flex justify-between gap-2 text-[11px]">
                           <span className="truncate text-slate-700 dark:text-slate-200">{r.label}</span>
                           <span className={`font-bold tabular-nums whitespace-nowrap ${col.text}`}>
-                            {r.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ({pct.toFixed(0)}%)
+                            {r.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                           </span>
                         </div>
                         <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">

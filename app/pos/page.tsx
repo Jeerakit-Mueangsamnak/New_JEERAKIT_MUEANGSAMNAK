@@ -17,7 +17,7 @@ import {
 import { ShoppingBag, Package, FileText, ArrowLeft } from 'lucide-react'
 import { loadProducts, validateProductMode } from '@/features/products/services/product-storage'
 import { loadCustomers, isIdCardUploadError } from '@/features/customers/services/customer-storage'
-import { CartItem, cartLineListPrice } from '@/features/pos/services/cart-storage'
+import { CartItem, cartLineListPrice, isSaleCartItem, loadActiveCart } from '@/features/pos/services/cart-storage'
 import { fetchAppointmentsFromSupabase } from '@/features/appointments/services/appointment-storage'
 import { getLocalDateString } from '@/components/common/CustomDatePicker'
 import {
@@ -39,6 +39,8 @@ function POSContent() {
   const quotationId = searchParams.get('quotationId')
   const draftBillId = searchParams.get('draftBillId')
   const appointmentId = searchParams.get('appointmentId')
+  // Back from the checkout page: put the cart saved before checkout back on screen.
+  const resumeCheckout = searchParams.get('resume') === '1'
   // Quotation mode only: revise an existing quotation in place, or start a new one from a copy.
   const editQuotationId = isQuotationMode ? searchParams.get('editQuotationId') : null
   const copyQuotationId = isQuotationMode ? searchParams.get('copyQuotationId') : null
@@ -46,6 +48,8 @@ function POSContent() {
   const createCustomer = useCreateCustomer()
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  // Cart line being edited through the quantity screen (null = adding a new line).
+  const [editingCartItem, setEditingCartItem] = useState<CartItem | null>(null)
   const [selectedProductMode, setSelectedProductMode] = useState<'RENT' | 'SALE'>('RENT')
   const [customersList, setCustomersList] = useState<Customer[]>([])
   const [productsList, setProductsList] = useState<Product[]>([])
@@ -59,6 +63,7 @@ function POSContent() {
     depositAmount?: number
     vatEnabled?: boolean
     shippingAddress?: string
+    contactPhone?: string
     rentalStartDate?: string
     rentalEndDate?: string
     documentDate?: string
@@ -108,6 +113,27 @@ function POSContent() {
     const custs = loadCustomers()
     setProductsList(prods)
     setCustomersList(custs)
+
+    if (resumeCheckout) {
+      const saved = loadActiveCart()
+      if (saved && saved.items?.length > 0) {
+        setSelectedCustomer(saved.customer)
+        setCartItems(saved.items)
+        setQuotationValues({
+          discount: saved.discount,
+          shippingFee: saved.shippingFee,
+          depositAmount: saved.depositAmount,
+          vatEnabled: saved.vatEnabled === true,
+          shippingAddress: saved.shippingAddress,
+          contactPhone: saved.contactPhone,
+          rentalStartDate: saved.headerRentalDate,
+          rentalEndDate: saved.headerReturnDate,
+          documentDate: saved.documentDate,
+        })
+        if (saved.quotationNo) setLoadedQuotationNo(saved.quotationNo)
+        return
+      }
+    }
 
     if (appointmentId) {
       void (async () => {
@@ -316,7 +342,7 @@ function POSContent() {
         showToast('ไม่พบแบบร่าง', `ไม่พบแบบร่างที่มีรหัส ${draftBillId}`, 'ERROR')
       }
     }
-  }, [appointmentId, quotationId, draftBillId, router, showToast])
+  }, [resumeCheckout, appointmentId, quotationId, draftBillId, router, showToast])
 
   const handleSelectProduct = (product: Product, mode: 'RENT' | 'SALE' = 'RENT') => {
     setSelectedProduct(product)
@@ -332,7 +358,7 @@ function POSContent() {
     dailyStartDate?: Date
     dailyEndDate?: Date
     billableDays?: number
-  }) => {
+  }, replaceItem?: CartItem) => {
     if (data.product.status !== 'ACTIVE') {
       showToast('สินค้าไม่พร้อมทำรายการ', `สินค้า ${data.product.name} ไม่ได้เปิดใช้งานแล้ว`, 'ERROR')
       return
@@ -351,8 +377,9 @@ function POSContent() {
       return
     }
     const available = stockValue
+    // Editing a line: its own old quantity does not count against the stock.
     const currentCartQty = cartItems
-      .filter((item) => item.productId === data.product.id)
+      .filter((item) => item.productId === data.product.id && item.id !== replaceItem?.id)
       .reduce((sum, item) => sum + item.quantity, 0)
 
     if (currentCartQty + data.quantity > available && isQuotationMode) {
@@ -396,9 +423,16 @@ function POSContent() {
       requiresReturn: !isSale, // Adding this per MASTER rule C
     }
 
+    if (replaceItem) {
+      // Same line, new values; keep the product's own price so a price change is still detected.
+      const updated: CartItem = { ...newItem, id: replaceItem.id, listUnitPrice: replaceItem.listUnitPrice }
+      setCartItems((prev) => prev.map((item) => (item.id === replaceItem.id ? updated : item)))
+      setEditingCartItem(null)
+      showToast('แก้ไขรายการแล้ว', `${data.product.name} × ${data.quantity}`, 'SUCCESS')
+      return
+    }
     setCartItems((prev) => [...prev, newItem])
     setSelectedProduct(null)
-    showToast('เพิ่มสินค้าในตะกร้าแล้ว', `${data.product.name} × ${data.quantity}`, 'SUCCESS')
   }
 
   /** false = not saved, so the customer form stays open with what was typed. */
@@ -585,6 +619,7 @@ function POSContent() {
             quotationId={quotationId || undefined}
             quotationNo={loadedQuotationNo ?? editingQuotation?.quotationNo}
             draftBillId={draftBillId || undefined}
+            onEditItem={setEditingCartItem}
             initialDiscount={quotationValues.discount}
             initialShippingFee={quotationValues.shippingFee}
             initialDepositAmount={quotationValues.depositAmount}
@@ -594,6 +629,8 @@ function POSContent() {
             initialRentalEndDate={quotationValues.rentalEndDate}
             initialVatEnabled={quotationValues.vatEnabled}
             initialDocumentDate={quotationValues.documentDate}
+            initialCustomerAttention={searchParams.get('customerRequired') === '1'}
+            initialContactPhone={quotationValues.contactPhone}
           />
         </div>
       </div>
@@ -606,6 +643,26 @@ function POSContent() {
           allowOverStock={isQuotationMode}
           onAdd={handleAddToCart}
           onClose={() => setSelectedProduct(null)}
+        />
+      )}
+
+      {/* Quantity Modal — edit a cart line */}
+      {editingCartItem && (
+        <QuantityModal
+          key={editingCartItem.id}
+          product={editingCartItem.product}
+          mode={isSaleCartItem(editingCartItem) ? 'SALE' : 'RENT'}
+          allowOverStock={isQuotationMode}
+          initial={{
+            quantity: editingCartItem.quantity,
+            unitPrice: editingCartItem.unitPrice,
+            usageCount: editingCartItem.usageCount,
+            dailyStartDate: editingCartItem.dailyStartDate,
+            dailyEndDate: editingCartItem.dailyEndDate,
+          }}
+          submitLabel="บันทึกการแก้ไข"
+          onAdd={(data) => handleAddToCart(data, editingCartItem)}
+          onClose={() => setEditingCartItem(null)}
         />
       )}
     </div>

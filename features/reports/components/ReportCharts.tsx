@@ -327,7 +327,6 @@ export interface DonutItem {
   label: string
   value: number
   color: string
-  percentage?: number
 }
 
 export interface ReportDonutChartProps {
@@ -420,10 +419,6 @@ export function ReportDonutChart({
       {/* Legend Items */}
       <div className="flex flex-col gap-1 min-w-0 flex-1 w-full">
         {data.map((item, idx) => {
-          const pct = item.percentage !== undefined
-            ? item.percentage
-            : total > 0 ? Math.round((item.value / total) * 100) : 0
-
           return (
             <div
               key={idx}
@@ -443,9 +438,6 @@ export function ReportDonutChart({
                   {valuePrefix}
                   {(item.value || 0).toLocaleString()}
                 </span>
-                <span className="text-[9.5px] text-slate-600 dark:text-slate-400 w-7 text-right font-sans">
-                  {pct}%
-                </span>
               </div>
             </div>
           )
@@ -464,7 +456,6 @@ export interface FunnelStep {
   label: string
   count: number
   value: number
-  percentage: number
   color: string
 }
 
@@ -485,15 +476,6 @@ export function ReportFunnel({ steps }: { steps: FunnelStep[] }) {
           <div className="flex items-center justify-between gap-1 mb-1">
             <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400 truncate">
               {st.label}
-            </span>
-            <span
-              className="text-[9.5px] font-bold px-1.5 py-0.2 rounded-md shrink-0"
-              style={{
-                backgroundColor: `${st.color}20`,
-                color: st.color,
-              }}
-            >
-              {st.percentage}%
             </span>
           </div>
 

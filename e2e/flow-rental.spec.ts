@@ -60,7 +60,7 @@ test('เช่าสินค้า: ลูกค้าใหม่ + เงิ
   await expect(page.getByRole('heading', { name: 'เพิ่มลูกค้าสำเร็จ' }).first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'ไม่สามารถเพิ่มลูกค้าได้' })).toHaveCount(0);
 
-  await expect(page.getByText('ยอดสุทธิที่ต้องชำระ')).toBeVisible();
+  await expect(page.getByText('ยอดสินค้ารวม')).toBeVisible();
   await page.getByRole('button', { name: 'ชำระเงิน' }).click();
   await page.waitForURL('**/pos/checkout');
   // Never invent values: no address the user did not type, no sample shop or bank account.
@@ -87,9 +87,8 @@ test('เช่าสินค้า: ลูกค้าใหม่ + เงิ
 async function startReturn(page: Page) {
   await page.goto('/bills');
   await page.getByRole('row', { name: new RegExp(billNo) }).click();
-  await page.getByRole('button', { name: 'รับคืนสินค้า' }).click();
-  await page.getByRole('checkbox', { name: 'เลือก/ยกเลิกทั้งหมด' }).check();
-  await page.getByRole('button', { name: 'ถัดไป' }).click();
+  await page.getByRole('button', { name: 'จัดการบิล' }).click();
+  // One table: typing a quantity in ปกติ / ชำรุด / หาย ticks the row.
   return page.getByRole('row', { name: new RegExp(`${PRODUCT.replace(/[().]/g, '\\$&')} ${SKU}`) });
 }
 
@@ -101,7 +100,7 @@ test('รับคืนบางส่วน: ปกติ 3 ชำรุด 1 
   await row.getByRole('textbox').nth(1).fill('1');
   await page.getByRole('button', { name: 'ถัดไป' }).click();
   await expect(page.getByRole('heading', { name: 'สรุปยอดและรับชำระเงิน' })).toBeVisible();
-  await page.getByRole('button', { name: 'บันทึก', exact: true }).click();
+  await page.getByRole('button', { name: 'ออกบิล', exact: true }).click();
   const done = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: 'บันทึกรับคืนสินค้าสำเร็จ' }) });
   await expect(done).toBeVisible({ timeout: 20000 });
   await done.getByRole('button', { name: 'ออก' }).click();
@@ -119,7 +118,7 @@ test('รับคืนชิ้นสุดท้าย — บิลปิด
   const row = await startReturn(page);
   await row.getByRole('textbox').nth(0).fill('1');
   await page.getByRole('button', { name: 'ถัดไป' }).click();
-  await page.getByRole('button', { name: 'บันทึก', exact: true }).click();
+  await page.getByRole('button', { name: 'ออกบิล', exact: true }).click();
   const done = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: 'บันทึกรับคืนสินค้าสำเร็จ' }) });
   await expect(done).toBeVisible({ timeout: 20000 });
   await done.getByRole('button', { name: 'ออก' }).click();

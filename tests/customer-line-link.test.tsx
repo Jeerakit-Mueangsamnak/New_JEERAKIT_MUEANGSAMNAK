@@ -3,7 +3,7 @@ import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-const mocks = vi.hoisted(() => ({ contact: vi.fn(), code: vi.fn(), unlink: vi.fn(), ask: vi.fn(), toast: vi.fn() }))
+const mocks = vi.hoisted(() => ({ contact: vi.fn(), code: vi.fn(), unlink: vi.fn(), confirm: vi.fn(async () => true), toast: vi.fn() }))
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({ from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: () => mocks.contact() }) }) }) }) }),
 }))
@@ -11,8 +11,7 @@ vi.mock('@/app/actions/line', () => ({ createCustomerLineLinkCode: mocks.code, u
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/png;base64,AAA') } }))
 vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: mocks.toast }) }))
 vi.mock('@/components/common/ConfirmDialogProvider', () => ({
-  useAskText: () => mocks.ask,
-  useConfirm: () => async () => true,
+  useConfirm: () => mocks.confirm,
 }))
 
 import { CustomerLineLink } from '@/features/customers/components/CustomerLineLink'
@@ -47,21 +46,21 @@ describe('ฟอร์มลูกค้า › เชื่อม LINE', () => 
     expect(screen.getByAltText('QR สำหรับส่งรหัสเชื่อม LINE')).toBeDefined()
   })
 
-  it('เชื่อมแล้ว: ยกเลิกต้องมีเหตุผล', async () => {
+  it('เชื่อมแล้ว: ยกเลิกต้องยืนยันก่อน (ไม่ต้องพิมพ์เหตุผล)', async () => {
     mocks.contact.mockResolvedValue({ data: { id: 'k-1', display_name: 'A-LINE' }, error: null })
     mocks.unlink.mockResolvedValue({ success: true })
     await show(ID)
     expect(screen.getByText(/เชื่อมแล้ว · A-LINE/)).toBeDefined()
-    mocks.ask.mockResolvedValueOnce('')
+    mocks.confirm.mockResolvedValueOnce(false)
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /ยกเลิกการเชื่อม/ }))
     })
     expect(mocks.unlink).not.toHaveBeenCalled()
-    mocks.ask.mockResolvedValueOnce('ผูกผิดคน')
+    mocks.confirm.mockResolvedValueOnce(true)
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /ยกเลิกการเชื่อม/ }))
     })
-    expect(mocks.unlink).toHaveBeenCalledWith('k-1', 'ผูกผิดคน')
+    expect(mocks.unlink).toHaveBeenCalledWith('k-1')
   })
 
   it('ฐานข้อมูลยังไม่มีระบบ LINE: แจ้งชัด', async () => {

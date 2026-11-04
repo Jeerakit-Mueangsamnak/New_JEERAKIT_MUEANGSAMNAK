@@ -113,11 +113,12 @@ describe('P0-2 cash taken at checkout must cover the payment', () => {
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledWith('bill-1', [expect.objectContaining({ method: 'CASH', amount: 1000 })]))
   })
 
-  it('requires an explicit payment choice and hides PromptPay until its QR flow is available', () => {
+  it('requires an explicit payment choice; the system has three buttons: เงินสด, QR Code, ค้างชำระ (owner 2026-11-04)', () => {
     mountCheckout([saleItem])
     const confirmButton = screen.getByRole('button', { name: 'ออกบิล' }) as HTMLButtonElement
     expect(confirmButton.disabled).toBe(true)
-    expect(screen.queryByRole('button', { name: 'PromptPay QR' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'QR Code' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /เงินโอน|โอนเงิน/ })).toBeNull()
     selectCashPayment()
     expect(confirmButton.disabled).toBe(false)
   })

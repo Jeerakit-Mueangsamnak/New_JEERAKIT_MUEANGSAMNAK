@@ -17,6 +17,8 @@ import { Unit } from '@/lib/unit-storage'
 import { ActionButton } from '@/components/common/ActionButton'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
 import { ProductCreateDraftRow, createInitialDraftRows } from '@/lib/product-draft-types'
+import { listItemOptions } from '@/features/products/utils/list-items'
+import { loadProducts } from '@/features/products/services/product-storage'
 export type { ProductCreateDraftRow }
 export { createInitialDraftRows }
 
@@ -173,7 +175,7 @@ export function ProductCreateView({
 
   // When category changes: lookup composite rules by categoryId
   const handleCategoryChange = (rowId: string, categoryId: string) => {
-    const matchedRule = compositeRulesList.find((r) => r.categoryId === categoryId)
+    const matchedRule = compositeRulesList.find((r) => r.categoryId === categoryId && !r.listItem)
 
     setRows((prev) =>
       prev.map((r) => {
@@ -188,6 +190,7 @@ export function ProductCreateView({
           return {
             ...r,
             categoryId,
+            listItem: '',
             calculationType: calcType,
             unitId,
             accessoryUnitId: unitId,
@@ -198,10 +201,31 @@ export function ProductCreateView({
           return {
             ...r,
             categoryId,
+            listItem: '',
             calculationType: '',
             unitId: '',
             accessoryUnitId: '',
           }
+        }
+      })
+    )
+  }
+
+  // A รายการ with its own defaults (ตารางประกอบข้อมูล) fills pricing type / unit; both stay changeable.
+  const handleListItemChange = (rowId: string, categoryId: string, listItem: string) => {
+    const itemRule = listItem ? compositeRulesList.find((r) => r.categoryId === categoryId && r.listItem === listItem) : undefined
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== rowId) return r
+        if (!itemRule) return { ...r, listItem }
+        const unitId = itemRule.unitId || r.unitId || ''
+        return {
+          ...r,
+          listItem,
+          calculationType: itemRule.calculationType,
+          unitId,
+          accessoryUnitId: unitId,
+          price: itemRule.calculationType === 'NO_CHARGE' ? 0 : r.price,
         }
       })
     )
@@ -235,6 +259,8 @@ export function ProductCreateView({
   }
 
   const activeUnits = units.filter((u) => u.isActive)
+  // Products already saved: their รายการ stay choosable in the same category.
+  const savedProducts = useMemo(() => loadProducts(), [])
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -249,7 +275,8 @@ export function ProductCreateView({
                 key={row.id}
                 className="p-2 sm:p-2.5 hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition-colors flex flex-col gap-1.5"
               >
-                {/* Line 1: ลำดับ, ชื่อสินค้า, หมวดหมู่, วิธีคิดเงิน, หน่วยนับ, ลบ */}
+                {/* Line 1: ลำดับ, ชื่อสินค้า, หมวดหมู่, รายการ, วิธีคิดเงิน, หน่วยนับ, ลบ
+                    (widths keep line 1 no wider than line 2, so it fits wherever line 2 fits) */}
                 <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap">
                   {/* ลำดับ */}
                   <div
@@ -260,7 +287,7 @@ export function ProductCreateView({
                   </div>
 
                   {/* ชื่อสินค้า */}
-                  <div className="flex-1 min-w-[180px]">
+                  <div className="flex-1 min-w-[140px]">
                     <input
                       type="text"
                       value={row.name}
@@ -272,7 +299,7 @@ export function ProductCreateView({
                   </div>
 
                   {/* หมวดหมู่ */}
-                  <div className="w-[140px] shrink-0" title="หมวดหมู่">
+                  <div className="w-[120px] shrink-0" title="หมวดหมู่">
                     <CustomSelect
                       value={row.categoryId}
                       onChange={(val) => handleCategoryChange(row.id, String(val))}
@@ -290,8 +317,27 @@ export function ProductCreateView({
                     />
                   </div>
 
+                  {/* รายการ: items of the chosen category */}
+                  <div className="w-[130px] shrink-0" title="รายการ">
+                    {(() => {
+                      const catName = categoriesList.find((c) => c.id === row.categoryId)?.name
+                      const items = listItemOptions(catName, savedProducts)
+                      return (
+                        <CustomSelect
+                          value={row.listItem || ''}
+                          onChange={(val) => handleListItemChange(row.id, row.categoryId, String(val))}
+                          className="w-full"
+                          buttonClassName="w-full h-7 px-2 py-0 rounded-lg text-xs font-bold justify-between"
+                          options={[{ value: '', label: '-- ไม่ระบุ --' }, ...items.map((i) => ({ value: i, label: i }))]}
+                          placeholder={row.categoryId ? '-- รายการ --' : 'เลือกหมวดหมู่ก่อน'}
+                          disabled={!row.categoryId || items.length === 0}
+                        />
+                      )
+                    })()}
+                  </div>
+
                   {/* วิธีคิดเงิน */}
-                  <div className="w-[120px] shrink-0" title="วิธีคิดเงิน">
+                  <div className="w-[105px] shrink-0" title="วิธีคิดเงิน">
                     <CustomSelect
                       value={row.calculationType || ''}
                       onChange={(val) => handleCalculationTypeChange(row.id, val as CalculationType)}
@@ -306,7 +352,7 @@ export function ProductCreateView({
                   </div>
 
                   {/* หน่วยนับ */}
-                  <div className="w-[100px] shrink-0" title="หน่วย">
+                  <div className="w-[90px] shrink-0" title="หน่วย">
                     <CustomSelect
                       value={row.unitId || ''}
                       onChange={(val) => handleUnitChange(row.id, String(val))}

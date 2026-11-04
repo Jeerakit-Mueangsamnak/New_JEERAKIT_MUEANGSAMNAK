@@ -91,7 +91,9 @@ export function computeReturnCalculation(
   for (const item of items) {
     repairTotalSatang = addSatang(repairTotalSatang, multiplySatang(toSatang(item.repairFeePerUnit || 0), item.damagedQty || 0))
     replaceTotalSatang = addSatang(replaceTotalSatang, multiplySatang(toSatang(item.replacementFeePerUnit || 0), item.lostQty || 0))
-    const calc = computeItemRentalCalculation(item, { rentalStartDate: start, scheduledReturnDate: scheduled, actualReturnDate: actual })
+    // Daily-rate goods can come back on their own day; everything else on the return day.
+    const itemActual = item.rentalType === 'DAILY' && item.actualReturnDate ? item.actualReturnDate : actual
+    const calc = computeItemRentalCalculation(item, { rentalStartDate: start, scheduledReturnDate: scheduled, actualReturnDate: itemActual })
     creditSatang = addSatang(creditSatang, toSatang(calc.earlyReturnCredit))
   }
 

@@ -18,7 +18,6 @@ const m = vi.hoisted(() => ({
   code: vi.fn(),
   oa: vi.fn(),
   toast: vi.fn(),
-  ask: vi.fn(),
   confirm: vi.fn(),
   linked: vi.fn(),
 }))
@@ -62,7 +61,7 @@ vi.mock('@/app/actions/line', () => ({
 vi.mock('@/features/settings/components/DeliveryDriversPanel', () => ({ DeliveryDriversPanel: () => <div>พนักงานส่งของ (stub)</div> }))
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/png;base64,AAA') } }))
 vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: m.toast }) }))
-vi.mock('@/components/common/ConfirmDialogProvider', () => ({ useAskText: () => m.ask, useConfirm: () => m.confirm }))
+vi.mock('@/components/common/ConfirmDialogProvider', () => ({ useConfirm: () => m.confirm }))
 vi.mock('@/lib/contexts/SystemSettingsContext', () => ({
   useSystemSettings: () => ({ settings: { business: { businessName: 'ร้านเอ' }, line: { templates: {} } } }),
 }))
@@ -135,7 +134,7 @@ describe('คนใน LINE', () => {
     expect(m.toast).toHaveBeenCalledWith('ผูกไม่ได้', expect.stringContaining('ผูก LINE อื่นไว้แล้ว'), 'ERROR')
   })
 
-  it('ไม่รับ asks first; unlinking a customer needs a reason', async () => {
+  it('ไม่รับ asks first; unlinking a customer asks to confirm (no typed reason)', async () => {
     m.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
     m.reject.mockResolvedValue({ success: true })
     m.unlink.mockResolvedValue({ success: true })
@@ -150,16 +149,16 @@ describe('คนใน LINE', () => {
     })
     expect(m.reject).toHaveBeenCalledWith(C1)
 
-    m.ask.mockResolvedValueOnce('')
+    m.confirm.mockResolvedValueOnce(false)
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /ยกเลิกการผูก/ }))
     })
     expect(m.unlink).not.toHaveBeenCalled()
-    m.ask.mockResolvedValueOnce('ผูกผิดคน')
+    m.confirm.mockResolvedValueOnce(true)
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /ยกเลิกการผูก/ }))
     })
-    expect(m.unlink).toHaveBeenCalledWith('k1', 'ผูกผิดคน')
+    expect(m.unlink).toHaveBeenCalledWith('k1')
   })
 
   it('database without the new columns: says so instead of an empty list', async () => {

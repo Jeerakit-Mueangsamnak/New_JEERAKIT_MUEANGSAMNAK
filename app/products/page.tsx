@@ -80,12 +80,14 @@ import { CustomDatePicker, parseLocalDate, getLocalDateString } from '@/componen
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { getDefaultReorderPoint } from '@/features/settings/services/settings-storage'
 import { isLowStock } from '@/features/products/utils/low-stock'
+import { listItemOptions } from '@/features/products/utils/list-items'
+import { isValidUUID } from '@/features/products/api/product-repository'
 
 const RENTAL_STATUS_LABEL: Record<string, string> = {
   DRAFT: 'แบบร่าง',
   CONFIRMED: 'ยืนยันแล้ว',
   RENTING: 'กำลังเช่า',
-  EXTENDED: 'ต่อสัญญา',
+  EXTENDED: 'เช่าต่อ',
   PARTIAL_RETURNED: 'คืนบางส่วน',
   RETURNED: 'คืนครบ',
   CLOSED: 'ปิดบิลแล้ว',
@@ -138,7 +140,6 @@ function ProductsContent() {
 
   // Product Delete State
   const [productToDelete, setProductToDelete] = useState<Product | null>(null)
-  const [deleteReason, setDeleteReason] = useState('')
   const [isDeleting, setIsDeleting] = useState(false)
 
   const loadProducts = React.useCallback(async () => {
@@ -296,6 +297,7 @@ function ProductsContent() {
           name: r.name.trim(),
           category: categoryName,
           categoryId: matchedCat?.id,
+          listItem: r.listItem || undefined,
           categoryRuleId: matchedCat?.id,
           calculationType: calcType,
           calculationLabel: calcLabel,
@@ -503,12 +505,11 @@ function ProductsContent() {
     if (!productToDelete) return
     setIsDeleting(true)
     try {
-      const updated = await deleteProductAsync(productToDelete.id, deleteReason)
+      const updated = await deleteProductAsync(productToDelete.id)
       setProducts(updated)
 
 
       showToast('ปิดใช้งานสินค้าแล้ว', `"${productToDelete.name}" ไม่แสดงในหน้าขาย/เช่าแล้ว เปิดใช้งานอีกครั้งได้จากรายการสินค้า`, 'SUCCESS')
-      setDeleteReason('')
       setProductToDelete(null)
     } catch (err: any) {
       logger.error('Failed to deactivate product:', err)
@@ -603,6 +604,7 @@ function ProductsContent() {
     name: '',
     categoryRuleId: '',
     category: '',
+    listItem: '',
     calculationType: 'PER_ROUND' as string,
     calculationLabel: '',
     unit: '',
@@ -624,6 +626,7 @@ function ProductsContent() {
       name: p.name,
       categoryRuleId: matched ? matched.id : p.categoryRuleId || '',
       category: matched ? matched.name : p.category,
+      listItem: p.listItem || '',
       calculationType: matched ? matched.calculationType : (p.calculationType || (p.rentalType === 'DAILY' ? 'PER_DAY' : 'PER_ROUND')),
       calculationLabel: matched ? matched.calculationLabel : (p.calculationLabel || (p.rentalType === 'DAILY' ? 'คำนวณตามวันใช้งานจริง' : 'คำนวณเหมาต่อรอบ/ครั้ง')),
       unit: matched ? (matched.unit || matched.unitName || '') : p.unit,
@@ -663,6 +666,9 @@ function ProductsContent() {
       name: editForm.name.trim(),
       category: editForm.category,
       categoryRuleId: editForm.categoryRuleId,
+      // The category picked here is what is saved (category rules carry the category id).
+      categoryId: isValidUUID(editForm.categoryRuleId) ? editForm.categoryRuleId : selectedProduct.categoryId,
+      listItem: editForm.listItem || undefined,
       calculationType: calcType,
       calculationLabel: editForm.calculationLabel,
       unit: chosenUnit?.name || editForm.unit || selectedProduct.unit,
@@ -1049,17 +1055,35 @@ function ProductsContent() {
                                 ...prev,
                                 categoryRuleId: chosen.id,
                                 category: chosen.name,
+                                listItem: chosen.name === prev.category ? prev.listItem : '',
                                 calculationType: chosen.calculationType,
                                 calculationLabel: chosen.calculationLabel,
                                 unit: chosen.unit || chosen.unitName || '',
                               }))
                             } else {
-                              setEditForm((prev) => ({ ...prev, category: String(val) }))
+                              setEditForm((prev) => ({ ...prev, category: String(val), listItem: '' }))
                             }
                           }}
                           options={categoryRules.map((r) => ({ value: r.name, label: r.name }))}
                           placeholder="เลือกหมวดหมู่"
                         />
+                      </div>
+
+                      {/* รายการ: items of the chosen category (owner 2026-11-02) */}
+                      <div>
+                        <label className="text-slate-700 dark:text-slate-300 font-bold block mb-1">รายการ</label>
+                        {(() => {
+                          const items = listItemOptions(editForm.category, products)
+                          return (
+                            <CustomSelect
+                              value={editForm.listItem}
+                              onChange={(val) => setEditForm((prev) => ({ ...prev, listItem: String(val) }))}
+                              options={[{ value: '', label: '-- ไม่ระบุ --' }, ...items.map((i) => ({ value: i, label: i }))]}
+                              placeholder={editForm.category ? '-- รายการ --' : 'เลือกหมวดหมู่ก่อน'}
+                              disabled={!editForm.category || items.length === 0}
+                            />
+                          )
+                        })()}
                       </div>
 
                       {/* วิธีคิดเงิน */}
@@ -1217,7 +1241,7 @@ function ProductsContent() {
                 {activeDrawerTab === 'CURRENT' && (() => {
                   const total = selectedProduct.totalQuantity || 0
                   const rented = selectedProduct.rentedQuantity || 0
-                  const pct = total > 0 ? (rented / total) * 100 : 0
+                  const share = total > 0 ? rented / total : 0
                   const r = 16
                   const c = 2 * Math.PI * r
                   return (
@@ -1239,9 +1263,9 @@ function ProductsContent() {
                               <div className="relative w-12 h-12 shrink-0">
                                 <svg viewBox="0 0 40 40" className="w-full h-full -rotate-90">
                                   <circle cx="20" cy="20" r={r} fill="none" strokeWidth="4" className="stroke-slate-100 dark:stroke-slate-800" />
-                                  <circle cx="20" cy="20" r={r} fill="none" strokeWidth="4" strokeLinecap="round" className="stroke-emerald-500" strokeDasharray={`${(pct / 100) * c} ${c}`} />
+                                  <circle cx="20" cy="20" r={r} fill="none" strokeWidth="4" strokeLinecap="round" className="stroke-emerald-500" strokeDasharray={`${share * c} ${c}`} />
                                 </svg>
-                                <span className="absolute inset-0 flex items-center justify-center text-[10px] font-black text-slate-800 dark:text-slate-100">{pct.toFixed(1)}%</span>
+                                <span className="absolute inset-0 flex items-center justify-center text-[10px] font-black text-slate-800 dark:text-slate-100">{rented}</span>
                               </div>
                               <div className="leading-tight">
                                 <span className="block text-[11px] text-slate-600 dark:text-slate-400">กำลังเช่าในขณะนี้</span>
@@ -1476,7 +1500,6 @@ function ProductsContent() {
                 {/* TAB 3: สถานะสต็อก (stock_balances via the product cache) */}
                 {activeDrawerTab === 'OVERVIEW' && (() => {
                   const total = selectedProduct.totalQuantity || 0
-                  const pctOf = (v: number) => (total > 0 ? Math.round(((v || 0) / total) * 100) : 0)
                   const states = [
                     { label: 'พร้อมใช้', value: selectedProduct.availableQuantity || 0, color: '#10b981', tone: KPI_TONE.emerald },
                     { label: 'จองแล้ว', value: selectedProduct.reservedQuantity || 0, color: '#8b5cf6', tone: KPI_TONE.purple },
@@ -1492,7 +1515,7 @@ function ProductsContent() {
                           <h4 className="font-bold text-slate-800 dark:text-slate-200 text-xs pb-2">สัดส่วนสถานะสต็อก</h4>
                           <div className="flex-1 flex items-center">
                             <ReportDonutChart
-                              data={states.map((s) => ({ label: s.label, value: s.value, color: s.color, percentage: pctOf(s.value) }))}
+                              data={states.map((s) => ({ label: s.label, value: s.value, color: s.color }))}
                               size={120}
                               centerTitle="รวม"
                               centerValue={total}
@@ -1511,7 +1534,6 @@ function ProductsContent() {
                               <tr>
                                 <th className="px-2">สถานะ</th>
                                 <th className="px-2 text-right">จำนวน</th>
-                                <th className="px-2 text-right">สัดส่วนจากรวม</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -1522,13 +1544,11 @@ function ProductsContent() {
                                     {s.label}
                                   </td>
                                   <td className={`px-2 text-right font-mono font-bold ${s.tone.value}`}>{s.value} {selectedProduct.unit}</td>
-                                  <td className="px-2 text-right font-mono text-slate-600 dark:text-slate-400">{total > 0 ? `${pctOf(s.value)}%` : '-'}</td>
                                 </tr>
                               ))}
                               <tr className="bg-slate-50 dark:bg-slate-800/60">
                                 <td className="px-2 font-black">รวม (ไม่นับสูญหาย)</td>
                                 <td className="px-2 text-right font-mono font-black">{total} {selectedProduct.unit}</td>
-                                <td className="px-2" />
                               </tr>
                             </tbody>
                           </table>
@@ -1579,26 +1599,13 @@ function ProductsContent() {
           <p className="text-slate-700 dark:text-slate-300">
             ปิดใช้งานสินค้า <strong className="text-slate-900 dark:text-slate-100 font-bold">&quot;{productToDelete?.name}&quot;</strong> หรือไม่?
           </p>
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-              <span>เหตุผลในการปิดใช้งาน (ไม่บังคับ)</span>
-            </label>
-            <input
-              type="text"
-              value={deleteReason}
-              onChange={(e) => setDeleteReason(e.target.value)}
-              placeholder="ระบุเหตุผล เช่น สินค้าชำรุดจำหน่ายออก, สินค้าเลิกจำหน่าย..."
-              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-bold text-xs focus:outline-none focus:ring-2 focus:ring-red-500"
-            />
-          </div>
           <div className="p-2.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl text-red-700 dark:text-red-400 text-[11px] leading-relaxed">
             * สินค้าจะไม่แสดงในหน้าขาย/เช่าและใบเสนอราคา แต่ข้อมูลและประวัติเดิมยังอยู่ครบ เปิดใช้งานอีกครั้งได้จากรายการสินค้า (ตัวกรอง &quot;สินค้าปิดใช้งาน&quot;)
           </div>
         </AppModalBody>
         <AppModalFooter
           onCancel={() => {
-            setDeleteReason('')
-            setProductToDelete(null)
+                  setProductToDelete(null)
           }}
           cancelText="ยกเลิก"
           onConfirm={handleConfirmDeleteProduct}

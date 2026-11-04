@@ -46,16 +46,6 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
             </div>
             <div className="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               <span>{formatNumber(data.incomeCount)} รายการ</span>
-              <span className="text-slate-300 dark:text-slate-700">•</span>
-              <span
-                className={`font-bold font-mono flex items-center ${
-                  data.incomeGrowth === null || data.incomeGrowth >= 0
-                    ? data.incomeGrowth === null ? 'text-slate-600 dark:text-slate-400' : 'text-emerald-700 dark:text-emerald-400'
-                    : 'text-rose-700 dark:text-rose-400'
-                }`}
-              >
-                {data.incomeGrowth === null ? '—' : `${data.incomeGrowth >= 0 ? '+' : ''}${data.incomeGrowth}%`}
-              </span>
             </div>
           </div>
           <div className="text-[9.5px] text-slate-600 dark:text-slate-400 font-mono">
@@ -80,16 +70,6 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
             </div>
             <div className="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               <span>{formatNumber(data.expenseCount)} รายการ</span>
-              <span className="text-slate-300 dark:text-slate-700">•</span>
-              <span
-                className={`font-bold font-mono flex items-center ${
-                  data.expenseGrowth === null || data.expenseGrowth <= 0
-                    ? data.expenseGrowth === null ? 'text-slate-600 dark:text-slate-400' : 'text-emerald-700 dark:text-emerald-400'
-                    : 'text-rose-700 dark:text-rose-400'
-                }`}
-              >
-                {data.expenseGrowth === null ? '—' : `${data.expenseGrowth >= 0 ? '+' : ''}${data.expenseGrowth}%`}
-              </span>
             </div>
           </div>
           <div className="text-[9.5px] text-slate-600 dark:text-slate-400 font-mono">
@@ -132,17 +112,8 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
             >
               {formatCurrency(data.netIncome)}
             </div>
-            <div className="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-400 font-medium">
-              <span>เติบโต:</span>
-              <span
-                className={`font-bold font-mono ${
-                  data.netIncomeGrowth === null || data.netIncomeGrowth >= 0
-                    ? data.netIncomeGrowth === null ? 'text-slate-600 dark:text-slate-400' : 'text-emerald-700 dark:text-emerald-400'
-                    : 'text-rose-700 dark:text-rose-400'
-                }`}
-              >
-                {data.netIncomeGrowth === null ? '—' : `${data.netIncomeGrowth >= 0 ? '+' : ''}${data.netIncomeGrowth}%`}
-              </span>
+            <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
+              รายรับรวม หักเงินออก
             </div>
           </div>
           <div className="text-[9.5px] text-slate-600 dark:text-slate-400 font-mono">
@@ -250,7 +221,6 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
                   label: c.channel,
                   value: c.amount,
                   color: c.color,
-                  percentage: c.percentage,
                 }))}
                 size={120}
                 centerTitle="รายรับรวม"

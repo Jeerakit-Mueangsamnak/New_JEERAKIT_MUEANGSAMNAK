@@ -258,6 +258,8 @@ export interface ReturnItemInput {
   damageFeePerUnit: number
   lossFeePerUnit: number
   note?: string
+  /** Day these goods came back (daily-rate goods); defaults to the day of the whole return. */
+  returnedDay?: string
 }
 
 export interface ReturnResult {
@@ -281,13 +283,20 @@ export async function processReturn(opts: {
   note?: string
 }): Promise<ReturnResult> {
   const back = opts.items.filter((i) => i.normalQty + i.damagedQty > 0)
-  let returnId: string | null = null
-  let returnNo: string | null = null
+  const returnNos: string[] = []
   let credit = 0
 
-  if (back.length > 0) {
+  // The server takes one return day per return: goods that come back on different days are
+  // saved as separate returns, one per day.
+  const byDay = new Map<string, ReturnItemInput[]>()
+  for (const i of back) {
+    const day = i.returnedDay || opts.returnedDay || ''
+    byDay.set(day, [...(byDay.get(day) || []), i])
+  }
+
+  for (const [day, group] of byDay) {
     const lines: Array<Record<string, unknown>> = []
-    for (const i of back) {
+    for (const i of group) {
       if (i.normalQty > 0) lines.push({ bill_line_id: i.lineId, quantity: i.normalQty, condition: 'NORMAL' })
       if (i.damagedQty > 0) {
         lines.push({ bill_line_id: i.lineId, quantity: i.damagedQty, condition: 'MAJOR_DAMAGE', to_stock_state: 'DAMAGED' })
@@ -297,29 +306,28 @@ export async function processReturn(opts: {
       p_bill_id: opts.billId,
       p_lines: lines,
       p_idempotency_key: newIdempotencyKey(),
-      p_returned_at: dayToTimestamp(opts.returnedDay),
+      p_returned_at: dayToTimestamp(day || null),
       p_note: opts.note || null,
     })
-    returnId = r.return_id
-    returnNo = r.return_no
-    credit = Number(r.early_return_credit ?? 0)
-  }
+    returnNos.push(r.return_no)
+    credit += Number(r.early_return_credit ?? 0)
 
-  // Damage fees for the cases this return just opened.
-  const damaged = back.filter((i) => i.damagedQty > 0)
-  if (returnId && damaged.length > 0) {
-    const supabase = createClient()
-    const cases = await selectRows<{ id: string; bill_line_id: string; quantity: number }>(
-      supabase
-        .from('incident_cases')
-        .select('id, bill_line_id, quantity, return_line_id, return_lines!inner(return_id)')
-        .eq('return_lines.return_id', returnId)
-        .eq('incident_type', 'DAMAGE')
-    )
-    for (const c of cases) {
-      const item = damaged.find((i) => i.lineId === c.bill_line_id)
-      if (!item) continue
-      await addIncidentCharge(opts.billId, 'DAMAGE', c, item.damageFeePerUnit * Number(c.quantity), item.note || 'ค่าเสียหายตอนรับคืน', item.productName)
+    // Damage fees for the cases this return just opened.
+    const damaged = group.filter((i) => i.damagedQty > 0)
+    if (damaged.length > 0) {
+      const supabase = createClient()
+      const cases = await selectRows<{ id: string; bill_line_id: string; quantity: number }>(
+        supabase
+          .from('incident_cases')
+          .select('id, bill_line_id, quantity, return_line_id, return_lines!inner(return_id)')
+          .eq('return_lines.return_id', r.return_id)
+          .eq('incident_type', 'DAMAGE')
+      )
+      for (const c of cases) {
+        const item = damaged.find((i) => i.lineId === c.bill_line_id)
+        if (!item) continue
+        await addIncidentCharge(opts.billId, 'DAMAGE', c, item.damageFeePerUnit * Number(c.quantity), item.note || 'ค่าเสียหายตอนรับคืน', item.productName)
+      }
     }
   }
 
@@ -342,7 +350,7 @@ export async function processReturn(opts: {
   await syncProductsFromSupabase()
   const bill = await refreshAfterChange(opts.billId)
   return {
-    returnNo,
+    returnNo: returnNos.join(', ') || null,
     earlyReturnCredit: credit,
     suggestedRefund: bill?.refundDue ?? 0,
     bill,

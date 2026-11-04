@@ -41,7 +41,7 @@ interface BillRow {
   due_date: string | null
   is_credit_bill: boolean
   confirmed_at: string | null
-  pricing_snapshot: { vat_mode?: string | null } | null
+  pricing_snapshot: { vat_mode?: string | null; vat_rate?: number | string | null } | null
   closed_at: string | null
   cancelled_at: string | null
   cancel_reason: string | null
@@ -235,6 +235,9 @@ export function mapBill(
     taxAmount: Number(b.vat_amount),
     vatMode: b.pricing_snapshot?.vat_mode === 'INCLUSIVE' || b.pricing_snapshot?.vat_mode === 'EXCLUSIVE'
       ? b.pricing_snapshot.vat_mode
+      : undefined,
+    vatRatePercent: b.pricing_snapshot?.vat_rate != null && Number.isFinite(Number(b.pricing_snapshot.vat_rate))
+      ? Number(b.pricing_snapshot.vat_rate)
       : undefined,
     billAmount: Number(b.grand_total),
     grandTotal: due,

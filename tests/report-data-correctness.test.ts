@@ -5,7 +5,6 @@ import { setCachedTransactions } from '@/features/finance/services/finance-stora
 import { setCachedQuotations } from '@/features/quotations/services/quotation-storage'
 import { getBusinessReportData } from '@/features/reports/services/business-report-data'
 import { getFinanceReportData } from '@/features/reports/services/finance-report-data'
-import { calculateGrowth } from '@/features/reports/services/report-data-common'
 import { getSalesRentalReportData } from '@/features/reports/services/sales-rental-report-data'
 import type { FullBill } from '@/lib/types/rental-return'
 
@@ -38,12 +37,6 @@ afterEach(() => {
 })
 
 describe('report calculations', () => {
-  it('does not invent a growth percentage when the previous period has no base', () => {
-    expect(calculateGrowth(2200, 0)).toBeNull()
-    expect(calculateGrowth(0, 0)).toBeNull()
-    expect(calculateGrowth(2200, 1100)).toBe(100)
-  })
-
   it('calculates debt overdue days from payment due date, not rental return date', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-10-16T07:00:00+07:00'))
@@ -160,6 +153,7 @@ describe('report calculations', () => {
     expect(salesRental.salesVsRentalTrend.reduce((sum, bucket) => sum + bucket.rental, 0)).toBeCloseTo(98.18, 2)
     expect(salesRental.totalBillsValue).toBe(162)
     expect(business.currentRevenue).toBeCloseTo(147.27, 2)
-    expect(business.revenueGrowth).toBeNull()
+    expect(business.previousRevenue).toBe(0)
+    expect('revenueGrowth' in business).toBe(false)
   })
 })

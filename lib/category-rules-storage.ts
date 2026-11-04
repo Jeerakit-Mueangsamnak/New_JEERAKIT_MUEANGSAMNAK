@@ -1,5 +1,5 @@
 import { saveCategoryToSupabase, deleteCategoryFromSupabase } from '@/features/products/api/product-repository'
-import { saveCategoryDefault } from '@/lib/db/policies'
+import { getCategoryDefaults, saveCategoryDefault } from '@/lib/db/policies'
 import { addUnitAsync, loadUnits } from '@/lib/unit-storage'
 /**
  * Shared Product Category Rules & Composite Lookup Storage
@@ -35,6 +35,8 @@ export interface ProductCategoryItem {
 export interface CategoryCompositeRule {
   id: string
   categoryId: string
+  /** Set = defaults of this รายการ of the category (owner 2026-11-02); empty = the whole category. */
+  listItem?: string
   calculationType: CalculationType
   unitId?: string
 }
@@ -220,12 +222,38 @@ export function loadCompositeRules(): CategoryCompositeRule[] {
   }
 
   const categories = loadCategories()
-  return categories.map(cat => ({
-    id: `comp-${cat.id}`,
-    categoryId: cat.id,
-    calculationType: cat.calculationType || 'PER_ROUND',
-    unitId: cat.defaultUnitId || '',
-  }))
+  const defaults = getCategoryDefaults()
+  const rules: CategoryCompositeRule[] = []
+  for (const cat of categories) {
+    rules.push({
+      id: `comp-${cat.id}`,
+      categoryId: cat.id,
+      calculationType: cat.calculationType || 'PER_ROUND',
+      unitId: cat.defaultUnitId || '',
+    })
+    for (const item of defaults[cat.id]?.items ?? []) {
+      if (!item?.name || (!item.calculationType && !item.unitId)) continue
+      rules.push({
+        id: `comp-${cat.id}::${item.name}`,
+        categoryId: cat.id,
+        listItem: item.name,
+        calculationType: (item.calculationType as CalculationType) || cat.calculationType || 'PER_ROUND',
+        unitId: item.unitId || '',
+      })
+    }
+  }
+  return rules
+}
+
+/** Defaults of one รายการ inside the stored items of its category. */
+async function saveListItemRule(rule: Omit<CategoryCompositeRule, 'id'>): Promise<void> {
+  const items = getCategoryDefaults()[rule.categoryId]?.items ?? []
+  if (!items.some((i) => i.name === rule.listItem)) throw new Error(`ไม่พบรายการ "${rule.listItem}" ในหมวดหมู่นี้`)
+  await saveCategoryDefault(rule.categoryId, {
+    items: items.map((i) =>
+      i.name === rule.listItem ? { ...i, calculationType: rule.calculationType, unitId: rule.unitId || undefined } : i
+    ),
+  })
 }
 
 export function saveCompositeRules(rules: CategoryCompositeRule[]): void {
@@ -250,6 +278,10 @@ function addCompositeRuleToCache(ruleData: Omit<CategoryCompositeRule, 'id'>): C
 }
 
 export async function addCompositeRuleAsync(ruleData: Omit<CategoryCompositeRule, 'id'>): Promise<CategoryCompositeRule[]> {
+  if (ruleData.listItem) {
+    await saveListItemRule(ruleData)
+    return loadCompositeRules()
+  }
   const cats = loadCategories()
   const cat = cats.find(c => c.id === ruleData.categoryId)
   if (cat) {
@@ -273,6 +305,10 @@ function updateCompositeRuleInCache(updatedRule: CategoryCompositeRule): Categor
 }
 
 export async function updateCompositeRuleAsync(updatedRule: CategoryCompositeRule): Promise<CategoryCompositeRule[]> {
+  if (updatedRule.listItem) {
+    await saveListItemRule(updatedRule)
+    return loadCompositeRules()
+  }
   const cats = loadCategories()
   const cat = cats.find(c => c.id === updatedRule.categoryId)
   if (cat) {

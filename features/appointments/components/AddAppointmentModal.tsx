@@ -77,22 +77,16 @@ export function AppointmentForm({ initial, initialDate, customers = [], onSubmit
   const [formData, setFormData] = useState<Partial<Appointment>>(() =>
     initial ? formFromAppointment(initial) : getInitialAppointmentFormData(initialDate)
   )
-  const [rescheduleReason, setRescheduleReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const initialId = initial?.id
   useEffect(() => {
     setFormData(initial ? formFromAppointment(initial) : getInitialAppointmentFormData(initialDate))
-    setRescheduleReason('')
     setIsSubmitting(false)
     setCategoryId('')
     // re-seed only when another appointment / day is opened, not on every parent render
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialId, initialDate])
-
-  const isRescheduling = Boolean(
-    initial && (formData.date !== initial.date || formData.startTime !== initial.startTime || formData.endTime !== initial.endTime)
-  )
 
   const items = formData.items ?? []
   const selectedCategory = categories.find((c) => c.id === categoryId)
@@ -127,10 +121,6 @@ export function AppointmentForm({ initial, initialDate, customers = [], onSubmit
       showToast('เวลาสิ้นสุดต้องไม่ก่อนเวลาเริ่ม', undefined, 'ERROR')
       return
     }
-    if (isRescheduling && !rescheduleReason.trim()) {
-      showToast('กรุณาระบุเหตุผลการเลื่อนนัด', undefined, 'ERROR')
-      return
-    }
     if (items.some((i) => !(Number(i.quantity) > 0))) {
       showToast('จำนวนสินค้าต้องมากกว่า 0', undefined, 'ERROR')
       return
@@ -141,7 +131,7 @@ export function AppointmentForm({ initial, initialDate, customers = [], onSubmit
       const appointment: Appointment = initial
         ? { ...initial, ...(formData as Appointment), title, status: initial.status }
         : { ...(formData as Appointment), title, status: 'SCHEDULED', id: `apt-${Date.now()}`, createdAt: new Date().toISOString() }
-      await onSubmit(appointment, isRescheduling ? rescheduleReason.trim() : undefined)
+      await onSubmit(appointment)
     } catch (err: any) {
       logger.error('Save appointment error:', err)
       showToast(isEdit ? 'แก้ไขไม่สำเร็จ' : 'บันทึกนัดหมายไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
@@ -235,20 +225,6 @@ export function AppointmentForm({ initial, initialDate, customers = [], onSubmit
           </div>
         </div>
 
-        {isRescheduling && (
-          <div>
-            <label className={LABEL}>
-              เหตุผลการเลื่อนนัด <span className="text-red-700 dark:text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              placeholder="เช่น ลูกค้าขอเลื่อน"
-              value={rescheduleReason}
-              onChange={(e) => setRescheduleReason(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-purple-300 dark:border-purple-800 bg-slate-50 dark:bg-slate-900"
-            />
-          </div>
-        )}
 
         <div className="space-y-2">
           <div className="grid grid-cols-2 gap-3">

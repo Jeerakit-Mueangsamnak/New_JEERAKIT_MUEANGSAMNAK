@@ -74,6 +74,26 @@ describe('document converter (real file reading)', () => {
     expect(result.templateSchema).toContain('&lt;script&gt;')
   })
 
+  it('strips dangerous JavaScript and CSS payloads from imported HTML', async () => {
+    const html = `
+      <html><body>
+        <div style="background-image:url(javascript:alert(1)); color:red;">Hello</div>
+        <img src="javascript:alert(1)" onerror="alert(1)" alt="bad" />
+        <svg onload="alert(1)"><circle cx="5" cy="5" r="5"></circle></svg>
+        <script>alert(1)</script>
+      </body></html>
+    `
+
+    const result = await convertFileToInternalTemplate(fileOf('attack.html', html))
+
+    expect(result.success).toBe(true)
+    expect(result.templateSchema).not.toContain('javascript:')
+    expect(result.templateSchema).not.toContain('onerror=')
+    expect(result.templateSchema).not.toContain('<script')
+    expect(result.templateSchema).not.toContain('style="background-image:url')
+    expect(result.templateSchema).toContain('Hello')
+  })
+
   it('asks for .docx when given an old .doc file', async () => {
     const result = await convertFileToInternalTemplate(fileOf('old.doc', 'binary'))
     expect(result.success).toBe(false)

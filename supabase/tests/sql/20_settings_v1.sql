@@ -15,6 +15,11 @@ SELECT t.err('S1-PERM', 'writing category defaults needs an ACTIVE member (owner
     $q$select public.settings_update('{"policies":{"category_defaults":{}}}'::jsonb, 'x')$q$, 'FORBIDDEN');
 SELECT t.ok('S1-PERM', 'USER with the finance menu still saves the finance quick-income list', 'finance',
     $q$select public.settings_update('{"policies":{"finance_income_items":["ค่าขนส่ง"]}}'::jsonb, 'test')$q$);
+-- Owner 2026-11-02: shop settings are OWNER only; staff keep only the menu-owned lists.
+SELECT t.err('S1-PERM', 'a USER cannot change the shop details (OWNER only)', 'finance',
+    $q$select public.settings_update('{"company_name":"x"}'::jsonb, 'test')$q$, 'FORBIDDEN');
+SELECT t.ok('S1-PERM', 'a USER with the products menu still saves category defaults (รายการ)', 'finance',
+    $q$select public.settings_update('{"policies":{"category_defaults":{}}}'::jsonb, 'test')$q$);
 SELECT t.check('S1-PERM', 'settings is open to every ACTIVE member; member management stays OWNER-only',
     NOT (SELECT owner_only FROM public.menu_catalog WHERE code = 'settings')
     AND (SELECT owner_only FROM public.menu_catalog WHERE code = 'members'));

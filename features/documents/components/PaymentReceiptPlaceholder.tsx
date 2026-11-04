@@ -69,7 +69,7 @@ export function PaymentReceiptPlaceholder({
     CASH: 'เงินสด (Cash)',
     TRANSFER: 'โอนเงินผ่านธนาคาร (Bank Transfer)',
     QR: 'สแกน QR Code (PromptPay)',
-    UNPAID: 'ยังไม่ชำระ (Unpaid)',
+    UNPAID: 'ยังไม่ชำระ',
     CHEQUE: 'เช็คธนาคาร (Cheque)',
   }
 

@@ -33,7 +33,12 @@ function LoginForm() {
     setIsLoading(true)
 
     try {
-      const result = await loginWithUsername({ username, password })
+      // Read the fields themselves: browser autofill can fill them without React seeing a change.
+      const form = new FormData(e.currentTarget as HTMLFormElement)
+      const result = await loginWithUsername({
+        username: String(form.get('username') ?? username),
+        password: String(form.get('password') ?? password),
+      })
       if (!result.success) {
         setError(result.error || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง')
         setIsLoading(false)
@@ -94,13 +99,23 @@ function LoginForm() {
             </div>
           )}
 
-          <form onSubmit={handleLogin} className="space-y-3.5 text-xs">
+          <form
+            onSubmit={handleLogin}
+            onKeyDown={(e) => {
+              // Enter in either field logs in (also the numpad Enter), unless a Thai/IME word is still being typed.
+              if (e.key !== 'Enter' || e.nativeEvent.isComposing || !(e.target instanceof HTMLInputElement)) return
+              e.preventDefault()
+              e.currentTarget.requestSubmit()
+            }}
+            className="space-y-3.5 text-xs"
+          >
             <div>
               <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1.5">ชื่อผู้ใช้งาน (Username)</label>
               <div className="relative">
                 <span className="text-slate-600 dark:text-slate-400 font-bold absolute left-3.5 top-1/2 -translate-y-1/2">@</span>
                 <input
                   type="text"
+                  name="username"
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
@@ -122,6 +137,7 @@ function LoginForm() {
                 <Lock className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  name="password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

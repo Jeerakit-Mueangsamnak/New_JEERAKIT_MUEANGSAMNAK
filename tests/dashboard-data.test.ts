@@ -278,6 +278,31 @@ describe('dashboard data uses saved records and bill amounts consistently', () =
   })
 })
 
+describe('dashboard cards show plain amounts, not percentages (owner 2026-11-01)', () => {
+  const run = (bills: FullBill[]) =>
+    computeDashboardMetrics([], bills, [], [], [], [], new Map(), 'Asia/Bangkok', new Date('2026-10-15T03:00:00.000Z'))
+
+  it('gives last month bill value as an amount next to this month', () => {
+    const october = bill([item()], { id: 'oct' })
+    const september = bill([item()], { id: 'sep', billDate: '2026-09-10', confirmedAt: '2026-09-10T03:00:00.000Z' })
+    const metrics = run([october, september])
+    expect(metrics.currentMonthRevenue).toBeGreaterThan(0)
+    expect(metrics.previousMonthRevenue).toBe(metrics.currentMonthRevenue)
+    expect('growthRate' in metrics).toBe(false)
+  })
+
+  it('last month with no bills is 0, not a missing comparison', () => {
+    expect(run([bill([item()])]).previousMonthRevenue).toBe(0)
+  })
+
+  it('counts only bill lines really out on rent; never guesses from the bill status', () => {
+    const notDeliveredYet = bill([item({ status: 'PENDING' }), item({ rentalBillItemId: 'l2', status: 'PENDING' })])
+    expect(run([notDeliveredYet]).activeRentalsCount).toBe(0)
+    const oneOut = bill([item(), item({ rentalBillItemId: 'l2', status: 'PENDING' })])
+    expect(run([oneOut]).activeRentalsCount).toBe(1)
+  })
+})
+
 describe('appointment shop timezone conversion', () => {
   it('converts the shop wall-clock time using the store timezone, not the browser timezone', () => {
     expect(shopLocalDateTimeToIso('2026-10-15', '10:00', 'Asia/Bangkok'))

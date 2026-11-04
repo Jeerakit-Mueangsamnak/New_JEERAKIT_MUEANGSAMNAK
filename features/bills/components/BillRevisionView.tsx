@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   Calendar,
   Package,
-  AlertCircle,
   Save,
   Clock,
   DollarSign,
@@ -117,7 +116,6 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
   const { showToast } = useToast()
   const confirmDialog = useConfirm()
   const { user } = useAuth()
-  const [reason, setReason] = useState('')
   const [headerRentalDate, setHeaderRentalDate] = useState<string>('')
   const [headerReturnDate, setHeaderReturnDate] = useState<string>('')
   const [discountAmount, setDiscountAmount] = useState<number>(0)
@@ -130,7 +128,6 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
   // Initialize data from bill
   useEffect(() => {
     if (!bill) return
-    setReason('')
     setHeaderRentalDate(localDate(bill.rentalStartDate) || getLocalDateString(new Date()))
     setHeaderReturnDate(localDate(bill.scheduledReturnDate) || getLocalDateString(new Date()))
     setDiscountAmount(Number(bill.discountAmount || 0))
@@ -330,7 +327,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
             ? ('FROM_PREVIOUS_END' as const)
             : ('FROM_APPROVAL' as const)
           : undefined
-        await createContinuation({ parentBillId: bill.id, reason: reason.trim(), startMode, items: lines })
+        await createContinuation({ parentBillId: bill.id, reason: '', startMode, items: lines })
       } else {
         // Correction after confirm (Master §20): items and quantities are history — change them with a
         // new bill / return. Only the money can be corrected, as one CREDIT/DEBIT adjustment (PIN).
@@ -347,7 +344,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           showToast('ยอดเงินไม่เปลี่ยน', 'ไม่มีการแก้ราคา ส่วนลด หรือค่าขนส่ง จึงไม่ได้บันทึกรายการปรับยอด', 'INFO')
           return
         }
-        await adjustBill(bill.id, delta, reason.trim())
+        await adjustBill(bill.id, delta, '')
       }
 
       showToast(
@@ -438,7 +435,6 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                 onChange={(val) => setHeaderRentalDate(val ? getLocalDateString(val) : '')}
                 className="w-full text-xs"
               />
-              <span className="text-[10px] text-slate-600 dark:text-slate-400 block truncate">* ไม่นำไปคำนวณเงิน</span>
             </div>
 
             {/* Header Return Date (Calendar Popover) */}
@@ -452,7 +448,6 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                 onChange={(val) => setHeaderReturnDate(val ? getLocalDateString(val) : '')}
                 className="w-full text-xs"
               />
-              <span className="text-[10px] text-slate-600 dark:text-slate-400 block truncate">* ไม่นำไปคำนวณเงิน</span>
             </div>
 
             {/* Discount Amount */}
@@ -731,29 +726,10 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           </div>
         </div>
 
-        {/* Reason Card & Financial Summary */}
+        {/* Financial Summary (stays in the right-hand column as before) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          {/* Reason Input */}
-          <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-1.5">
-            <label className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-              <AlertCircle className="w-4 h-4 text-amber-700 dark:text-amber-400" />
-              <span>เหตุผล / บันทึกการแก้ไขบิล (ไม่บังคับ)</span>
-            </label>
-            <textarea
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              rows={2}
-              placeholder={
-                mode === 'EXTENSION'
-                  ? 'ระบุเหตุผล เช่น ลูกค้าโทรแจ้งขอเช่าต่อถึงวันที่... หรือเพิ่มรายการสินค้า...'
-                  : 'ระบุเหตุผล เช่น แก้ไขจำนวนสินค้าและวันเช่าให้ตรงตามหน้างาน...'
-              }
-              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-          </div>
-
           {/* Financial Recalculation Summary */}
-          <div className="bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between gap-2">
+          <div className="lg:col-start-3 bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between gap-2">
             <div className="space-y-1 text-xs">
               <div className="flex justify-between text-slate-600 dark:text-slate-400">
                 <span>ค่าเช่าคำนวณใหม่:</span>

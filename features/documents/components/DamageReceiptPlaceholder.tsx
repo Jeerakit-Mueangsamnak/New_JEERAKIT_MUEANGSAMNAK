@@ -75,7 +75,7 @@ export function DamageReceiptPlaceholder({
     CASH: 'เงินสด (Cash)',
     TRANSFER: 'โอนเงินผ่านธนาคาร (Bank Transfer)',
     QR: 'สแกน QR Code (PromptPay)',
-    UNPAID: 'ยังไม่ชำระ (Unpaid)',
+    UNPAID: 'ยังไม่ชำระ',
   }
 
   const effectiveTotalDamage = totalDamageFee || items.filter(i => i.type === 'DAMAGED').reduce((sum, i) => sum + i.totalFee, 0)
@@ -156,7 +156,7 @@ export function DamageReceiptPlaceholder({
               <th className="w-[42%] border border-slate-700 px-1.5 py-1 text-left">รายการสินค้า</th>
               <th className="w-[14%] border border-slate-700 px-1.5 py-1 text-center">ประเภท</th>
               <th className="w-[10%] border border-slate-700 px-1 py-1 text-center">จำนวน</th>
-              <th className="w-[14%] border border-slate-700 px-1.5 py-1 text-right">ค่าปรับ/หน่วย</th>
+              <th className="w-[14%] border border-slate-700 px-1.5 py-1 text-right">ค่าเสียหาย/หน่วย</th>
               <th className="w-[14%] border border-slate-700 px-1.5 py-1 text-right">จำนวนเงิน (บาท)</th>
             </tr>
           </thead>

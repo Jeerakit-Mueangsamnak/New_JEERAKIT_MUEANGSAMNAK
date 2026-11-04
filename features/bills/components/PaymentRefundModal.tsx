@@ -30,7 +30,7 @@ const money = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 
 
 /**
  * คืนเงิน (Master v4.3.1 §20): every refund points back to the payment it returns, never more
- * than that payment still has (received − already refunded), with a reason and the user's PIN.
+ * than that payment still has (received − already refunded), without a typed reason or PIN (the audit log keeps who/when/what).
  * The suggested amount comes from the server (e.g. overpaid after an early return).
  */
 export function PaymentRefundModal({ isOpen, rentalBillId, billNo, onClose, onSuccess }: PaymentRefundModalProps) {
@@ -40,7 +40,6 @@ export function PaymentRefundModal({ isOpen, rentalBillId, billNo, onClose, onSu
   const [suggested, setSuggested] = useState(0)
   const [refundMethod, setRefundMethod] = useState<RefundMethod>('CASH')
   const [referenceNo, setReferenceNo] = useState('')
-  const [reason, setReason] = useState('')
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -73,7 +72,6 @@ export function PaymentRefundModal({ isOpen, rentalBillId, billNo, onClose, onSu
         setPaymentId(first?.id || '')
         setAmount(defaultAmount(first, s.suggestedRefund))
         if (first && ['CASH', 'TRANSFER', 'QR', 'OTHER'].includes(first.paymentMethod)) setRefundMethod(first.paymentMethod as RefundMethod)
-        setReason(s.suggestedRefund > 0 ? 'คืนส่วนที่ลูกค้าจ่ายเกิน' : '')
         setReferenceNo('')
       })
       .catch((e: unknown) => {
@@ -108,7 +106,7 @@ export function PaymentRefundModal({ isOpen, rentalBillId, billNo, onClose, onSu
         paymentId: selected.id,
         amount,
         method: refundMethod,
-        reason: [reason.trim(), referenceNo.trim() && `(อ้างอิง ${referenceNo.trim()})`].filter(Boolean).join(' '),
+        reason: referenceNo.trim() ? `(อ้างอิง ${referenceNo.trim()})` : '',
       })
       await onSuccess(`คืนเงินจำนวน ${money(amount)} สำเร็จ`)
       onClose()
@@ -177,10 +175,6 @@ export function PaymentRefundModal({ isOpen, rentalBillId, billNo, onClose, onSu
                 <input value={referenceNo} onChange={(event) => setReferenceNo(event.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900" placeholder="ถ้ามี" />
               </div>
 
-              <div>
-                <label className="mb-1 block font-bold text-slate-600 dark:text-slate-300">เหตุผลการคืนเงิน (ไม่บังคับ)</label>
-                <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={3} className="w-full resize-none rounded-xl border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900" placeholder="ระบุเหตุผล (บันทึกในประวัติการทำรายการ)" />
-              </div>
             </>
           )}
 

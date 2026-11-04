@@ -5,7 +5,7 @@ import QRCode from 'qrcode'
 import Image from 'next/image'
 import { Copy, Link2Off, MessageCircle } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
-import { useAskText } from '@/components/common/ConfirmDialogProvider'
+import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { createClient } from '@/lib/supabase/client'
 import { createCustomerLineLinkCode, unlinkLineContact } from '@/app/actions/line'
 
@@ -29,7 +29,7 @@ const BTN = 'h-7 px-2.5 rounded-lg text-[11px] font-bold inline-flex items-cente
 
 export function CustomerLineLink({ customerId, customerName }: { customerId?: string; customerName: string }) {
   const { showToast } = useToast()
-  const askText = useAskText()
+  const confirm = useConfirm()
   const saved = UUID.test(customerId || '')
   const [contact, setContact] = useState<LinkedContact | null>(null)
   const [notReady, setNotReady] = useState(false)
@@ -70,17 +70,16 @@ export function CustomerLineLink({ customerId, customerName }: { customerId?: st
 
   const unlink = async () => {
     if (!contact) return
-    const reason = await askText({
+    const ok = await confirm({
       title: `ยกเลิกการเชื่อม LINE: ${customerName}`,
       message: 'ข้อความที่ยังไม่ส่งถึงลูกค้าจะถูกยกเลิก และต้องสร้างรหัสใหม่เพื่อเชื่อมอีกครั้ง',
-      placeholder: 'เหตุผล เช่น ผูกผิดคน',
       confirmLabel: 'ยกเลิกการเชื่อม',
       danger: true,
     })
-    if (!reason?.trim()) return
+    if (!ok) return
     setBusy(true)
     try {
-      const r = await unlinkLineContact(contact.id, reason)
+      const r = await unlinkLineContact(contact.id)
       if (!r.success) {
         showToast('ยกเลิกไม่สำเร็จ', r.error || 'เกิดข้อผิดพลาด', 'ERROR')
         return

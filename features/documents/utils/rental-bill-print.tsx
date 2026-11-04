@@ -63,6 +63,8 @@ export function fullBillToTemplateData(bill: FullBill, business: Partial<Busines
     discount: bill.discountAmount ?? 0,
     shippingFee: bill.shippingFee ?? 0,
     taxAmount: bill.taxAmount ?? 0,
+    vatRatePercent: bill.vatRatePercent,
+    vatInclusive: bill.vatMode === 'INCLUSIVE',
     depositAmount: bill.heldDepositAmount ?? bill.paidDepositAmount ?? 0,
     grandTotal: bill.grandTotal,
     paidAmount: bill.paidAmount,

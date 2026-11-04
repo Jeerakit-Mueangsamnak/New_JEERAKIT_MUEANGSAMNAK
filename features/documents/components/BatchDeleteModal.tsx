@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React from 'react'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
 import { AlertTriangle, Trash2 } from 'lucide-react'
 
@@ -9,7 +9,7 @@ interface BatchDeleteModalProps {
   count: number
   itemTypeLabel?: string
   onClose: () => void
-  onConfirm: (reason: string) => void
+  onConfirm: () => void
 }
 
 export function BatchDeleteModal({
@@ -19,18 +19,8 @@ export function BatchDeleteModal({
   onClose,
   onConfirm
 }: BatchDeleteModalProps) {
-  const [deleteReason, setDeleteReason] = useState('')
-
-  useEffect(() => {
-    if (isOpen) {
-      setDeleteReason('')
-    }
-  }, [isOpen])
-
   const handleConfirm = () => {
-    const trimmed = deleteReason.trim()
-    if (!trimmed) return
-    onConfirm(trimmed)
+    onConfirm()
     onClose()
   }
 
@@ -49,20 +39,6 @@ export function BatchDeleteModal({
             การดำเนินการนี้ไม่สามารถยกเลิกได้ รายการทั้งหมดจะถูกลบออกจากฐานข้อมูลถาวร
           </p>
         </div>
-
-        <div className="space-y-1">
-          <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-            <span>เหตุผลในการลบ (จำเป็น)</span>
-            <span className="text-red-700 dark:text-red-400">*</span>
-          </label>
-          <input
-            type="text"
-            value={deleteReason}
-            onChange={(e) => setDeleteReason(e.target.value)}
-            placeholder="ระบุเหตุผล เช่น แบบฟอร์มเก่าเลิกใช้งาน, ข้อมูลซ้ำซ้อน..."
-            className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-red-500"
-          />
-        </div>
       </AppModalBody>
 
       <AppModalFooter>
@@ -76,7 +52,6 @@ export function BatchDeleteModal({
         <button
           type="button"
           onClick={handleConfirm}
-          disabled={!deleteReason.trim()}
           className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:bg-red-300 dark:disabled:bg-red-900/40 text-white font-extrabold text-xs shadow-md shadow-red-600/30 flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
         >
           <Trash2 className="w-4 h-4" />

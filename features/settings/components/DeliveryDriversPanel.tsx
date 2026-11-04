@@ -13,7 +13,7 @@ import QRCode from 'qrcode'
 import Image from 'next/image'
 import { Copy, Link2Off, Pencil, Plus, RefreshCw, Truck } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
-import { useAskText } from '@/components/common/ConfirmDialogProvider'
+import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { createClient } from '@/lib/supabase/client'
 import { createDriverLineLinkCode, unlinkLineContact } from '@/app/actions/line'
 import { LineContactInfo, type LineReviewContact } from '@/features/settings/components/LineInviteButton'
@@ -50,7 +50,7 @@ const PILL = 'inline-flex items-center h-5 px-2 rounded-full text-[10px] font-bo
 
 export function DeliveryDriversPanel() {
   const { showToast } = useToast()
-  const askText = useAskText()
+  const confirm = useConfirm()
   const [now, setNow] = useState(() => Date.now())
   const [contacts, setContacts] = useState<Record<string, DriverContact>>({})
   const [lineReady, setLineReady] = useState(true)
@@ -120,17 +120,16 @@ export function DeliveryDriversPanel() {
   }
 
   const unlink = async (d: DeliveryDriver, contact: DriverContact) => {
-    const reason = await askText({
+    const ok = await confirm({
       title: `ยกเลิกการผูก LINE: ${d.name}`,
       message: 'งานที่ยังไม่ส่งถึงพนักงานคนนี้จะถูกยกเลิก และต้องสร้างลิงก์ใหม่เพื่อผูกอีกครั้ง',
-      placeholder: 'เหตุผล เช่น เปลี่ยน LINE',
       confirmLabel: 'ยกเลิกการผูก',
       danger: true,
     })
-    if (!reason?.trim()) return
+    if (!ok) return
     setLineBusy(d.id)
     try {
-      const r = await unlinkLineContact(contact.id, reason)
+      const r = await unlinkLineContact(contact.id)
       if (!r.success) {
         showToast('ยกเลิกไม่สำเร็จ', r.error || 'เกิดข้อผิดพลาด', 'ERROR')
         return

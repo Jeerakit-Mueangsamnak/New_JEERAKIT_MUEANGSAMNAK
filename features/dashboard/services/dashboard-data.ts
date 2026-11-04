@@ -86,7 +86,6 @@ export interface DashboardMetrics {
     label: string
     value: number
     color: string
-    percentage: number
   }>
 
   // Bill Status Counts (Image 1 Bar)
@@ -102,7 +101,6 @@ export interface DashboardMetrics {
     label: string
     value: number
     color: string
-    percentage: number
   }>
 
   // Today's Key Tasks / Table (Image 1 List & Table)
@@ -122,7 +120,6 @@ export interface DashboardMetrics {
     label: string
     value: number
     color: string
-    percentage: number
   }>
 
   // Top Rented Products
@@ -169,7 +166,6 @@ export interface DashboardMetrics {
     name: string
     type: string
     revenue: number
-    percentage: number
   }>
 
   // Top Customers
@@ -182,7 +178,6 @@ export interface DashboardMetrics {
     vatAmount: number
     receivedAmount: number
     outstandingAmount: number
-    percentage: number
   }>
 
   // Payment Channels Breakdown
@@ -190,13 +185,12 @@ export interface DashboardMetrics {
     channel: string
     label: string
     amount: number
-    percentage: number
     color: string
   }>
 
-  // Growth Rate & Top Summary Metrics
-  growthRate: number | null
+  // This month vs last month as plain amounts (bill value excluding VAT)
   currentMonthRevenue: number
+  previousMonthRevenue: number
   topProductMetric: {
     name: string
     revenue: number
@@ -205,12 +199,10 @@ export interface DashboardMetrics {
   topCustomerMetric: {
     count: number
     totalBilled: number
-    percentage: number
   }
   topChannelMetric: {
     name: string
     amount: number
-    percentage: number
   }
 }
 
@@ -301,7 +293,7 @@ export function computeDashboardMetrics(
   )
   const inProgressBillsCount = inProgressBills.length
 
-  // 9. งานเช่าปัจจุบัน
+  // 9. รายการสินค้าที่กำลังเช่า: bill lines whose saved status is out on rent (no guessing)
   let activeRentalsCount = 0
   activeBills.forEach((b) => {
     b.items.forEach((it) => {
@@ -310,15 +302,6 @@ export function computeDashboardMetrics(
       }
     })
   })
-  if (activeRentalsCount === 0 && inProgressBillsCount > 0) {
-    inProgressBills.forEach((b) => {
-      b.items.forEach((it) => {
-        if (it.requiresReturn !== false && it.rentalType !== 'SALE') {
-          activeRentalsCount += 1
-        }
-      })
-    })
-  }
 
   // Today's work comes only from saved appointments, never inferred from bill dates.
   const todayAppointments = appointments.filter((appointment) => appointment.date === todayStr)
@@ -401,21 +384,16 @@ export function computeDashboardMetrics(
   })
 
   // 8. Income Breakdown Data (Donut in View 1)
-  const totalBreakdownSum = rentalRevenue + salesRevenue
-  const safeBreakdownSum = totalBreakdownSum > 0 ? totalBreakdownSum : 1
-
   const incomeBreakdownData = [
     {
       label: 'มูลค่าสินค้าเช่า (ไม่รวม VAT)',
       value: rentalRevenue,
       color: '#10b981', // green
-      percentage: Math.round((rentalRevenue / safeBreakdownSum) * 100),
     },
     {
       label: 'มูลค่าสินค้าขาย (ไม่รวม VAT)',
       value: salesRevenue,
       color: '#3b82f6', // blue
-      percentage: Math.round((salesRevenue / safeBreakdownSum) * 100),
     },
   ]
 
@@ -436,20 +414,16 @@ export function computeDashboardMetrics(
   }
 
   // 10. Deposit vs Debt Donut (Donut in View 1)
-  const totalDepDebt = depositBalance + outstandingReceivable
-  const safeDepDebt = totalDepDebt > 0 ? totalDepDebt : 1
   const depositVsDebtData = [
     {
       label: 'เงินมัดจำ',
       value: depositBalance,
       color: '#8b5cf6', // purple
-      percentage: Math.round((depositBalance / safeDepDebt) * 100),
     },
     {
       label: 'ลูกหนี้ค้างชำระ',
       value: outstandingReceivable,
       color: '#f59e0b', // amber
-      percentage: Math.round((outstandingReceivable / safeDepDebt) * 100),
     },
   ]
 
@@ -517,32 +491,26 @@ export function computeDashboardMetrics(
   }))
 
   // 13. Stock Donut Proportions
-  const totalStockSum = availableStock + rentedStock + reservedStock + damagedStock + lostStock
-  const safeTotalStock = totalStockSum > 0 ? totalStockSum : 1
   const stockDonutData = [
     {
       label: 'พร้อมใช้',
       value: availableStock,
       color: '#10b981', // green
-      percentage: Math.round((availableStock / safeTotalStock) * 100),
     },
     {
       label: 'กำลังเช่า',
       value: rentedStock,
       color: '#3b82f6', // blue
-      percentage: Math.round((rentedStock / safeTotalStock) * 100),
     },
     {
       label: 'จองคิว',
       value: reservedStock,
       color: '#8b5cf6', // purple
-      percentage: Math.round((reservedStock / safeTotalStock) * 100),
     },
     {
       label: 'ชำรุด/สูญหาย',
       value: damagedOrLostStock,
       color: '#ef4444', // red
-      percentage: Math.round((damagedOrLostStock / safeTotalStock) * 100),
     },
   ]
 
@@ -710,8 +678,6 @@ export function computeDashboardMetrics(
   })
 
   const sortedProducts = Object.values(productAgg).filter((product) => product.revenue > 0).sort((a, b) => b.revenue - a.revenue)
-  const totalProductsRevenue = sortedProducts.reduce((sum, p) => sum + p.revenue, 0)
-  const safeProdRev = totalProductsRevenue > 0 ? totalProductsRevenue : 1
 
   const topRevenueProducts = sortedProducts.slice(0, 5).map((p) => ({
     id: p.id,
@@ -719,7 +685,6 @@ export function computeDashboardMetrics(
     name: p.name,
     type: p.type,
     revenue: p.revenue,
-    percentage: Math.round((p.revenue / safeProdRev) * 1000) / 10,
   }))
 
   const topRentedProducts = Object.values(productAgg)
@@ -761,23 +726,15 @@ export function computeDashboardMetrics(
   })
 
   const sortedCustomers = Object.values(custAgg).sort((a, b) => b.billedAmount - a.billedAmount)
-  const totalCustomerBilled = sortedCustomers.reduce((sum, customer) => sum + customer.billedAmount, 0)
-  const safeCustomerBilled = totalCustomerBilled > 0 ? totalCustomerBilled : 1
-
-  const topCustomers = sortedCustomers.slice(0, 5).map((c) => ({
-    ...c,
-    percentage: Math.round((c.billedAmount / safeCustomerBilled) * 1000) / 10,
-  }))
+  const topCustomers = sortedCustomers.slice(0, 5)
 
   // 19. Payment channel mix uses received bill payments (gross, before refunds).
   const channelMap: Record<string, number> = {}
-  let totalChannelIncome = 0
 
   transactions.forEach((tx) => {
     if (!tx.isDeposit && tx.billId && tx.category === 'รับชำระบิล' && tx.type === 'INCOME' && tx.incomeAmount > 0) {
       const ch = tx.channel || 'เงินสด'
       channelMap[ch] = (channelMap[ch] || 0) + tx.incomeAmount
-      totalChannelIncome += tx.incomeAmount
     }
   })
 
@@ -786,7 +743,6 @@ export function computeDashboardMetrics(
     channel,
     label: channel === 'CASH' ? 'เงินสด' : channel === 'TRANSFER' ? 'โอนธนาคาร' : channel === 'CREDIT_CARD' ? 'บัตรเครดิต/เดบิต' : channel === 'CHEQUE' ? 'เช็ค' : channel,
     amount,
-    percentage: totalChannelIncome > 0 ? Math.round((amount / totalChannelIncome) * 100) : 0,
     color: CHANNEL_COLOR_PALETTE[idx % CHANNEL_COLOR_PALETTE.length],
   }))
 
@@ -824,17 +780,10 @@ export function computeDashboardMetrics(
     }
   })
 
-  // 21. Growth Rate Calculation (Compare this month vs last month)
-  let growthRate: number | null = 0
-  let currentMonthRevenue = monthlyMap[currentMonthKey]?.revenue || 0
+  // 21. This month and last month as plain amounts (owner 2026-11-01: no percentages on cards)
+  const currentMonthRevenue = monthlyMap[currentMonthKey]?.revenue || 0
   const monthlyKeys = Object.keys(monthlyMap)
-  if (monthlyKeys.length >= 2) {
-    const prevMonthRev = monthlyMap[monthlyKeys[monthlyKeys.length - 2]].revenue
-    if (prevMonthRev > 0) {
-      growthRate = Math.round(((currentMonthRevenue - prevMonthRev) / prevMonthRev) * 100)
-    } else if (currentMonthRevenue > 0) growthRate = null
-    else growthRate = null
-  }
+  const previousMonthRevenue = monthlyKeys.length >= 2 ? monthlyMap[monthlyKeys[monthlyKeys.length - 2]].revenue : 0
 
   // Summary helper metrics
   const topProductMetric = topRevenueProducts[0]
@@ -845,13 +794,12 @@ export function computeDashboardMetrics(
   const topCustomerMetric = {
     count: topCustomers.length,
     totalBilled: topCustomerSum,
-    percentage: safeCustomerBilled > 0 ? Math.round((topCustomerSum / safeCustomerBilled) * 100) : 0,
   }
 
   const topChannel = paymentChannelsData.sort((a, b) => b.amount - a.amount)[0]
   const topChannelMetric = topChannel
-    ? { name: topChannel.label, amount: topChannel.amount, percentage: topChannel.percentage }
-    : { name: 'ไม่มีข้อมูล', amount: 0, percentage: 0 }
+    ? { name: topChannel.label, amount: topChannel.amount }
+    : { name: 'ไม่มีข้อมูล', amount: 0 }
 
   return {
     totalIncome,
@@ -894,8 +842,8 @@ export function computeDashboardMetrics(
     topRevenueProducts,
     topCustomers,
     paymentChannelsData,
-    growthRate,
     currentMonthRevenue,
+    previousMonthRevenue,
     topProductMetric,
     topCustomerMetric,
     topChannelMetric,

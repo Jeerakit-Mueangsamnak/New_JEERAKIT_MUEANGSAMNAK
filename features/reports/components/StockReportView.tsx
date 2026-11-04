@@ -59,7 +59,7 @@ export function StockReportView({ data }: { data: StockReportData }) {
               พร้อมใช้งาน
             </span>
             <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
-              {data.totalStock > 0 ? Math.round((data.availableStock / data.totalStock) * 100) : 0}%
+              จาก {formatNumber(data.totalStock)} ชิ้น
             </span>
           </div>
           <div className="my-1">
@@ -84,7 +84,7 @@ export function StockReportView({ data }: { data: StockReportData }) {
               กำลังถูกเช่า
             </span>
             <span className="px-1.5 py-0.5 rounded-xs text-[9px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400">
-              {data.utilizationRate}% ใช้จริง
+              จาก {formatNumber(data.totalStock)} ชิ้น
             </span>
           </div>
           <div className="my-1">
@@ -97,7 +97,7 @@ export function StockReportView({ data }: { data: StockReportData }) {
             </div>
           </div>
           <div className="text-[9.5px] text-blue-600/80 dark:text-blue-400/80 font-bold">
-            อัตราการใช้งานสินทรัพย์
+            สินค้าที่ออกไปให้เช่า
           </div>
         </div>
 
@@ -178,9 +178,9 @@ export function StockReportView({ data }: { data: StockReportData }) {
           </div>
 
           <div className="text-[10px] text-slate-600 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800/80 pt-1.5 flex justify-between">
-            <span>อัตราพร้อมใช้งาน:</span>
+            <span>พร้อมใช้งาน:</span>
             <span className="font-bold text-emerald-700 dark:text-emerald-400">
-              {data.totalStock > 0 ? Math.round((data.availableStock / data.totalStock) * 100) : 0}%
+              {formatNumber(data.availableStock)} จาก {formatNumber(data.totalStock)} ชิ้น
             </span>
           </div>
         </div>

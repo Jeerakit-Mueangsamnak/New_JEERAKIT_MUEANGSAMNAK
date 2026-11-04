@@ -130,7 +130,7 @@ export function PaymentDynamicContent({
                 )}
               </div>
               <span className="text-[10px] text-slate-600 dark:text-slate-400 mt-1 font-semibold whitespace-nowrap">
-                {promptPayId ? `PromptPay: ${promptPayId}` : bankQrUrl ? 'QR รับเงินธนาคาร' : 'ยังไม่ได้ตั้งค่าพร้อมเพย์'}
+                {promptPayId ? `PromptPay: ${promptPayId}` : bankQrUrl ? 'QR Code รับเงิน' : 'ยังไม่ได้ตั้งค่า QR Code รับเงิน'}
               </span>
             </>
           )}
@@ -141,7 +141,7 @@ export function PaymentDynamicContent({
         <div className="bg-amber-50/80 dark:bg-amber-950/40 p-2 rounded-xl border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 leading-snug">
           {unpaidMessage || (
             <>
-              ⚠️ บิลนี้จะถูกตั้งเป็น <strong>&quot;ค้างชำระ (Unpaid)&quot;</strong> ยอดคงค้าง {targetAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} จะแสดงในระบบรายงานลูกหนี้
+              ⚠️ บิลนี้จะถูกตั้งเป็น <strong>&quot;ค้างชำระ&quot;</strong> ยอดคงค้าง {targetAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} จะแสดงในระบบรายงานลูกหนี้
             </>
           )}
         </div>

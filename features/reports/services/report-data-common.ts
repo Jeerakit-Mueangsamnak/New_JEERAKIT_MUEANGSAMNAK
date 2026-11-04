@@ -71,11 +71,6 @@ export function getPreviousPeriod(start: Date, end: Date): { prevStart: Date; pr
   return { prevStart, prevEnd }
 }
 
-export function calculateGrowth(current: number, previous: number): number | null {
-  if (previous === 0) return null
-  return Math.round(((current - previous) / Math.abs(previous)) * 100)
-}
-
 // Generate time buckets for daily / monthly grouping
 export function generateTimeBuckets(
   start: Date,

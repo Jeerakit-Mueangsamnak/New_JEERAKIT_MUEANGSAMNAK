@@ -238,7 +238,7 @@ describe('คลังแบบฟอร์ม', () => {
     expect(screen.getByText(`เลือกแล้ว 0 / ${total}`)).toBeTruthy()
   })
 
-  it('ลบ deletes the ticked forms on the server for good, only after a reason is given', async () => {
+  it('ลบ deletes the ticked forms on the server for good, with no typed reason', async () => {
     render(<Harness />)
     await ready()
     const a = FORMS[2]
@@ -248,14 +248,12 @@ describe('คลังแบบฟอร์ม', () => {
     fireEvent.click(screen.getByLabelText(`เลือก ${a.name}`))
     fireEvent.click(screen.getByLabelText(`เลือก ${b.name}`))
     fireEvent.click(screen.getByRole('button', { name: /ลบ \(2\)/ }))
-    const confirm = screen.getByRole('button', { name: /ยืนยันการลบ/ }) as HTMLButtonElement
-    expect(confirm.disabled).toBe(true)
-    fireEvent.change(screen.getByPlaceholderText(/ระบุเหตุผล/), { target: { value: 'เลิกใช้' } })
-    fireEvent.click(confirm)
+    expect(screen.queryByPlaceholderText(/ระบุเหตุผล/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /ยืนยันการลบ/ }))
 
     await waitFor(() => expect(screen.queryByTestId(`tpl-row-${a.id}`)).toBeNull())
     expect(screen.queryByTestId(`tpl-row-${b.id}`)).toBeNull()
-    expect(mocks.deleteTemplates).toHaveBeenCalledWith([a.id, b.id], 'เลิกใช้')
+    expect(mocks.deleteTemplates).toHaveBeenCalledWith([a.id, b.id], '')
     expect(mocks.server.has(a.id)).toBe(false)
     expect(screen.getByText(`รายการแบบฟอร์มเอกสาร (${FORMS.length - 2})`)).toBeTruthy()
     expect(screen.getByTestId(`tpl-row-${FORMS[0].id}`)).toBeTruthy()
@@ -266,10 +264,9 @@ describe('คลังแบบฟอร์ม', () => {
     await ready()
     fireEvent.click(screen.getByLabelText(`เลือก ${QUOTE.name}`))
     fireEvent.click(screen.getByRole('button', { name: /ลบ \(1\)/ }))
-    fireEvent.change(screen.getByPlaceholderText(/ระบุเหตุผล/), { target: { value: 'ทำแบบใหม่' } })
     fireEvent.click(screen.getByRole('button', { name: /ยืนยันการลบ/ }))
     await waitFor(() => expect(screen.queryByTestId(`tpl-row-${QUOTE.id}`)).toBeNull())
-    expect(mocks.deleteTemplates).toHaveBeenCalledWith([QUOTE.id], 'ทำแบบใหม่')
+    expect(mocks.deleteTemplates).toHaveBeenCalledWith([QUOTE.id], '')
   })
 
   it('เพิ่มแบบฟอร์ม saves the form on the server (not this browser), previews it, and every device sees it', async () => {
@@ -507,7 +504,7 @@ describe('หน้าเอกสาร', () => {
     expect(pages[0]).toContain(shown as string)
   })
 
-  it('ลบ: unsaved rows are dropped, saved rows are cancelled with the reason', async () => {
+  it('ลบ: unsaved rows are dropped, saved rows are cancelled (no typed reason)', async () => {
     renderCreatePage()
     await pickCustomer()
     await waitFor(() => expect(counter()).toBe('เลือกแล้ว 0 / 1'))
@@ -516,9 +513,8 @@ describe('หน้าเอกสาร', () => {
     expect(counter()).toBe('เลือกแล้ว 2 / 2')
 
     fireEvent.click(screen.getByRole('button', { name: /ลบ \(2\)/ }))
-    fireEvent.change(screen.getByPlaceholderText(/ระบุเหตุผล/), { target: { value: 'ลูกค้ายกเลิก' } })
     fireEvent.click(screen.getByRole('button', { name: /ยืนยันการลบ/ }))
-    await waitFor(() => expect(mocks.deactivate).toHaveBeenCalledWith('d-active', 'ลูกค้ายกเลิก'))
+    await waitFor(() => expect(mocks.deactivate).toHaveBeenCalledWith('d-active', ''))
     expect(mocks.deactivate).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(screen.queryAllByTestId(/doc-row-draft:/)).toHaveLength(0))
   })

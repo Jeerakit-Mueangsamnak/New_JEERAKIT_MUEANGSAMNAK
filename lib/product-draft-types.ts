@@ -4,6 +4,8 @@ export interface ProductCreateDraftRow {
   id: string
   name: string
   categoryId: string
+  /** รายการ inside the category (owner 2026-11-02). */
+  listItem?: string
   calculationType?: CalculationType | ''
   unitId?: string
   price: number | null

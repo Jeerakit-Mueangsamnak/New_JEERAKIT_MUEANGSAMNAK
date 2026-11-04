@@ -396,13 +396,12 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
     }
   }
 
-  // ── delete: unsaved rows are dropped, saved rows are cancelled with the reason ──
-  const handleDelete = async (reason: string) => {
-    if (!reason.trim()) return showToast('กรุณาระบุเหตุผล', 'จำเป็นต้องระบุเหตุผลในการลบ', 'ERROR')
+  // ── delete: unsaved rows are dropped, saved rows are cancelled (the audit log keeps who/when) ──
+  const handleDelete = async () => {
     const draftIds = deletable.filter((i) => i.draft).map((i) => i.draft!.id)
     const rows = deletable.filter((i) => i.row).map((i) => i.row!)
     try {
-      for (const row of rows) await deactivateCustomerDocument(row.id, reason.trim())
+      for (const row of rows) await deactivateCustomerDocument(row.id, '')
       dropDrafts(draftIds)
       setCheckedKeys([])
       if (previewKey && deletable.some((i) => i.key === previewKey)) setPreviewKey(null)
@@ -706,7 +705,7 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
         count={deletable.length}
         itemTypeLabel="เอกสารลูกค้า"
         onClose={() => setDeleteOpen(false)}
-        onConfirm={(reason) => void handleDelete(reason)}
+        onConfirm={() => void handleDelete()}
       />
     </div>
   )

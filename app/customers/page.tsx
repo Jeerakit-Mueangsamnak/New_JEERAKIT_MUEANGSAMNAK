@@ -97,7 +97,6 @@ export default function CustomersPage() {
   const [customerReturnStats, setCustomerReturnStats] = useState<CustomerReturnStats>({
     totalReturnedItemsWithDates: 0,
     onTimeReturnedItems: 0,
-    onTimeRatePercent: null,
   })
   const [customerNoteInput, setCustomerNoteInput] = useState<string>('')
   const [isSavingNote, setIsSavingNote] = useState(false)
@@ -113,7 +112,6 @@ export default function CustomersPage() {
 
   // Delete Customer Confirmation State
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null)
-  const [customerDeleteReason, setCustomerDeleteReason] = useState('')
 
   // Active Tab State inside Customer Details
   const [active360Tab, setActive360Tab] = useState<
@@ -173,7 +171,7 @@ export default function CustomersPage() {
     if (!selectedCustomerId) {
       setCustomerPayments([])
       setCustomerOutstandingItems([])
-      setCustomerReturnStats({ totalReturnedItemsWithDates: 0, onTimeReturnedItems: 0, onTimeRatePercent: null })
+      setCustomerReturnStats({ totalReturnedItemsWithDates: 0, onTimeReturnedItems: 0 })
       setCustomerNoteInput('')
       return
     }
@@ -368,10 +366,8 @@ export default function CustomersPage() {
 
   const handleConfirmDelete = async () => {
     if (!customerToDelete) return
-    const trimmedReason = customerDeleteReason.trim() || undefined
-
     try {
-      await deleteCustomerAsync(customerToDelete.id, trimmedReason)
+      await deleteCustomerAsync(customerToDelete.id)
       setCustomers((prev) => prev.map((item) => (item.id === customerToDelete.id ? { ...item, isSuspended: true, status: 'INACTIVE' } : item)))
       if (selectedCustomerId === customerToDelete.id) {
         setSelectedCustomerId('')
@@ -381,7 +377,6 @@ export default function CustomersPage() {
         `ทำการระงับข้อมูลลูกค้า ${customerToDelete.customerName} เรียบร้อยแล้ว`,
         'SUCCESS'
       )
-      setCustomerDeleteReason('')
       setCustomerToDelete(null)
     } catch (err: any) {
       showToast('ไม่สามารถลบข้อมูลลูกค้าได้', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
@@ -1490,11 +1485,11 @@ export default function CustomersPage() {
                   <div className="p-3 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-100 dark:border-emerald-900 rounded-xl">
                     <span className="text-slate-600 dark:text-slate-400 block text-xs">ตรงเวลาคืน</span>
                     <strong className="text-xl font-black text-emerald-700 dark:text-emerald-400 block mt-0.5">
-                      {customerReturnStats.onTimeRatePercent !== null ? `${customerReturnStats.onTimeRatePercent}%` : '-'}
+                      {customerReturnStats.totalReturnedItemsWithDates > 0 ? `${customerReturnStats.onTimeReturnedItems} รายการ` : '-'}
                     </strong>
                     <span className="text-[10px] text-slate-600 dark:text-slate-400">
-                      {customerReturnStats.onTimeRatePercent !== null
-                        ? `ตรงเวลา ${customerReturnStats.onTimeReturnedItems}/${customerReturnStats.totalReturnedItemsWithDates} รายการ`
+                      {customerReturnStats.totalReturnedItemsWithDates > 0
+                        ? `จากที่คืนแล้ว ${customerReturnStats.totalReturnedItemsWithDates} รายการ`
                         : 'ยังไม่มีข้อมูลการคืนที่มีวันที่ครบ'}
                     </span>
                   </div>
@@ -1602,27 +1597,12 @@ export default function CustomersPage() {
                 </p>
               </div>
 
-              <div className="space-y-1 text-left mt-3">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                  <span>เหตุผลในการลบลูกค้า (ไม่บังคับ)</span>
-                </label>
-                <input
-                  type="text"
-                  value={customerDeleteReason}
-                  onChange={(e) => setCustomerDeleteReason(e.target.value)}
-                  placeholder="ระบุเหตุผล เช่น ข้อมูลซ้ำซ้อน, ลูกค้ายกเลิกการใช้งาน..."
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-red-500"
-                />
-              </div>
             </AppModalBody>
 
             <AppModalFooter>
               <button
                 type="button"
-                onClick={() => {
-                  setCustomerDeleteReason('')
-                  setCustomerToDelete(null)
-                }}
+                onClick={() => setCustomerToDelete(null)}
                 className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-xs transition-colors cursor-pointer"
               >
                 ยกเลิก

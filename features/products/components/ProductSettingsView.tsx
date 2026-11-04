@@ -26,6 +26,13 @@ import {
   deleteUnitAsync as deleteUnit,
 } from '@/lib/unit-storage'
 import { Product } from '@/lib/types/rental-pos'
+import {
+  sortCategoryNames,
+  getCategoryListItems,
+  addCategoryListItemAsync,
+  renameCategoryListItemAsync,
+  deleteCategoryListItemAsync,
+} from '@/features/products/utils/list-items'
 
 interface ProductSettingsViewProps {
   categories?: ProductCategoryItem[]
@@ -74,11 +81,22 @@ export function ProductSettingsView({
   const [unitEditName, setUnitEditName] = useState('')
   const [unitDeleteConfirmId, setUnitDeleteConfirmId] = useState<string | null>(null)
 
+  // ─── ตารางเพิ่มรายการ State (owner 2026-11-02) ─────────────
+  const [newItemCatId, setNewItemCatId] = useState('')
+  const [newItemName, setNewItemName] = useState('')
+  const [itemEditKey, setItemEditKey] = useState<string | null>(null)
+  const [itemEditName, setItemEditName] = useState('')
+  const [itemDeleteKey, setItemDeleteKey] = useState<string | null>(null)
+  const [itemSaving, setItemSaving] = useState(false)
+  // Bumped after each change: the items live in the shop settings cache, not in React state.
+  const [itemsVersion, setItemsVersion] = useState(0)
+
   // ─── Table 3: Composite Rules State ────────────────────────
   const [isAddingCompositeRow, setIsAddingCompositeRow] = useState(false)
   const [newCompCategoryId, setNewCompCategoryId] = useState('')
   const [newCompCalcType, setNewCompCalcType] = useState<CalculationType>('PER_ROUND')
   const [newCompUnitId, setNewCompUnitId] = useState('')
+  const [newCompListItem, setNewCompListItem] = useState('')
 
   const [compEditId, setCompEditId] = useState<string | null>(null)
   const [compEditCategoryId, setCompEditCategoryId] = useState('')
@@ -206,12 +224,82 @@ export function ProductSettingsView({
     }
   }
 
+  // ─── ตารางเพิ่มรายการ Handlers ─────────────────────────────
+  type ListItemRow = { categoryId: string; categoryName: string; name: string }
+  const listItemRows = useMemo<ListItemRow[]>(() => {
+    void itemsVersion
+    // Grouped per category (แบบคาน แบบเสา แบบข้าง นั่งร้าน อื่นๆ first); picking a category in the
+    // toolbar shows only that category's items (owner 2026-11-02).
+    const order = sortCategoryNames(categories.map((c) => c.name))
+    const sorted = [...categories].sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name))
+    return sorted
+      .filter((c) => !newItemCatId || c.id === newItemCatId)
+      .flatMap((c) => getCategoryListItems(c.id).map((i) => ({ categoryId: c.id, categoryName: c.name, name: i.name })))
+  }, [categories, itemsVersion, newItemCatId])
+
+  const listItemInUse = (row: ListItemRow) =>
+    allProducts.some((p) => (p.categoryId === row.categoryId || p.category === row.categoryName) && p.listItem === row.name)
+
+  const afterListItemChange = () => {
+    setItemsVersion((v) => v + 1)
+    // Item rows of ตารางประกอบข้อมูล follow the item list.
+    setCompositeRules(loadCompositeRules())
+  }
+
+  const handleListItemAdd = async () => {
+    if (itemSaving) return
+    const trimmed = newItemName.trim()
+    if (!newItemCatId || !trimmed) return
+    setItemSaving(true)
+    try {
+      await addCategoryListItemAsync(newItemCatId, trimmed)
+      setNewItemName('')
+      afterListItemChange()
+      onShowToast('เพิ่มรายการสำเร็จ', `เพิ่ม "${trimmed}" ในหมวดหมู่ ${getCategoryName(newItemCatId)} แล้ว`, 'SUCCESS')
+    } catch (err: any) {
+      onShowToast('ไม่สามารถเพิ่มรายการได้', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
+    } finally {
+      setItemSaving(false)
+    }
+  }
+
+  const handleListItemSaveEdit = async (row: ListItemRow) => {
+    if (itemSaving) return
+    setItemSaving(true)
+    try {
+      await renameCategoryListItemAsync(row.categoryId, row.name, itemEditName, listItemInUse(row))
+      setItemEditKey(null)
+      afterListItemChange()
+      onShowToast('แก้ไขรายการสำเร็จ', `อัปเดต "${itemEditName.trim()}" เรียบร้อยแล้ว`, 'SUCCESS')
+    } catch (err: any) {
+      onShowToast('ไม่สามารถแก้ไขรายการได้', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
+    } finally {
+      setItemSaving(false)
+    }
+  }
+
+  const handleListItemDelete = async (row: ListItemRow) => {
+    if (itemSaving) return
+    setItemSaving(true)
+    try {
+      await deleteCategoryListItemAsync(row.categoryId, row.name, listItemInUse(row))
+      afterListItemChange()
+      onShowToast('ลบรายการสำเร็จ', `ลบ "${row.name}" ออกจากหมวดหมู่ ${row.categoryName} แล้ว`, 'SUCCESS')
+    } catch (err: any) {
+      onShowToast('ไม่สามารถลบรายการได้', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
+    } finally {
+      setItemDeleteKey(null)
+      setItemSaving(false)
+    }
+  }
+
   // ─── Composite Rules Handlers (ตาราง 3) ────────────────────
   const handleStartAddCompositeRow = () => {
     const defaultCatId = categories[0]?.id || ''
     setNewCompCategoryId(defaultCatId)
     setNewCompCalcType('PER_ROUND')
     setNewCompUnitId('')
+    setNewCompListItem('')
     setIsAddingCompositeRow(true)
     setCompEditId(null)
   }
@@ -228,6 +316,7 @@ export function ProductSettingsView({
     try {
       const updated = await addCompositeRule({
         categoryId: newCompCategoryId,
+        listItem: newCompListItem || undefined,
         calculationType: newCompCalcType,
         unitId: newCompUnitId || undefined,
       })
@@ -259,6 +348,8 @@ export function ProductSettingsView({
       const updated = await updateCompositeRule({
         id,
         categoryId: compEditCategoryId,
+        // An item row stays the same รายการ; only its pricing type / unit change.
+        listItem: compositeRules.find((r) => r.id === id)?.listItem,
         calculationType: compEditCalcType,
         unitId: compEditUnitId || undefined,
       })
@@ -319,15 +410,15 @@ export function ProductSettingsView({
   const paginatedComp = compositeRules
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto p-2.5 sm:p-3 text-xs">
-      {/* Landscape: 2 columns for Table 1 + Table 2 / Portrait: stacked */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div className="flex-1 min-h-0 flex flex-col gap-3 overflow-hidden p-2.5 sm:p-3 text-xs">
+      {/* หมวดหมู่ | รายการ | หน่วยนับ: always side by side, equal width, every screen size (owner 2026-11-02) */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-3 flex-1 min-h-0">
         {/* ==================================================== */}
         {/* ตารางที่ 1: หมวดหมู่สินค้า */}
         {/* ==================================================== */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col overflow-hidden min-w-0 min-h-0">
           {/* Table Toolbar */}
-          <div className="p-2.5 sm:p-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
+          <div className="p-2.5 sm:p-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2 min-w-0">
             <input
               type="text"
               value={newCatName}
@@ -342,24 +433,24 @@ export function ProductSettingsView({
               disabled={!newCatName.trim()}
               variant="primary"
               icon={<Plus />}
-              className="shrink-0"
+              className="shrink-0 !px-2"
             >
               เพิ่มหมวดหมู่
             </ActionButton>
           </div>
 
           {/* Table Content */}
-          <DataTableFrame fill className="h-[244px] shrink-0 rounded-none bg-transparent">
+          <DataTableFrame fill className="flex-1 min-h-0 rounded-none bg-transparent">
             <table className="w-full text-center text-xs border-collapse table-fixed">
               <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs">
                 <tr className="border-b border-slate-200 dark:border-slate-700">
-                  <th className="py-2.5 px-2 w-16 text-center border-r border-slate-200 dark:border-slate-700">
+                  <th className="py-2.5 px-1 w-10 text-center border-r border-slate-200 dark:border-slate-700">
                     ลำดับ
                   </th>
-                  <th className="py-2.5 px-3 text-center border-r border-slate-200 dark:border-slate-700">
+                  <th className="py-2.5 px-1.5 text-center border-r border-slate-200 dark:border-slate-700">
                     หมวดหมู่
                   </th>
-                  <th className="py-2.5 px-2 w-24 text-center">
+                  <th className="py-2.5 px-1 w-[4.5rem] text-center">
                     จัดการ
                   </th>
                 </tr>
@@ -418,7 +509,7 @@ export function ProductSettingsView({
                     if (catDeleteConfirmId === cat.id) {
                       return (
                         <tr key={cat.id} className="h-10 bg-red-50/60 dark:bg-red-950/30">
-                          <td colSpan={2} className="py-1 px-3 text-center text-red-700 dark:text-red-400 font-bold text-xs">
+                          <td colSpan={2} className="py-1 px-1.5 text-center text-red-700 dark:text-red-400 font-bold text-xs truncate">
                             ยืนยันลบหมวดหมู่ &quot;{cat.name}&quot;?
                           </td>
                           <td className="py-1 px-2 text-center">
@@ -426,14 +517,14 @@ export function ProductSettingsView({
                               <button
                                 type="button"
                                 onClick={() => handleCategoryDelete(cat.id)}
-                                className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] cursor-pointer transition-colors shadow-2xs"
+                                className="px-1.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] cursor-pointer transition-colors shadow-2xs"
                               >
                                 ลบ
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setCatDeleteConfirmId(null)}
-                                className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-[11px] cursor-pointer transition-colors"
+                                className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-[11px] cursor-pointer transition-colors"
                               >
                                 ยกเลิก
                               </button>
@@ -448,7 +539,7 @@ export function ProductSettingsView({
                         <td className="py-1 px-2 text-center font-bold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
                           {globalIdx}
                         </td>
-                        <td className="py-1 px-3 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 truncate">
+                        <td className="py-1 px-1.5 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 truncate" title={cat.name}>
                           {cat.name}
                         </td>
                         <td className="py-1 px-2 text-center">
@@ -485,11 +576,197 @@ export function ProductSettingsView({
         </div>
 
         {/* ==================================================== */}
+        {/* ตารางเพิ่มรายการ (owner 2026-11-02): รายการ inside a category */}
+        {/* ==================================================== */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col overflow-hidden min-w-0 min-h-0">
+          {/* Table Toolbar: หมวดหมู่ that receives the item · item name · เพิ่ม */}
+          <div className="p-2.5 sm:p-3 border-b border-slate-100 dark:border-slate-800 flex flex-wrap xl:flex-nowrap items-center gap-2 min-w-0">
+            <div className="w-full xl:w-28 shrink-0 min-w-0">
+              <CustomSelect
+                value={newItemCatId}
+                onChange={(val) => setNewItemCatId(String(val))}
+                options={[{ value: '', label: 'ทุกหมวดหมู่' }, ...categoryOptions]}
+                placeholder="หมวดหมู่"
+                className="w-full"
+                buttonClassName="h-8 px-2 text-xs font-semibold rounded-xl justify-between"
+              />
+            </div>
+            <input
+              type="text"
+              value={newItemName}
+              onChange={(e) => setNewItemName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleListItemAdd())}
+              placeholder="ชื่อรายการใหม่..."
+              className="flex-1 min-w-0 h-8 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-400"
+            />
+            <ActionButton
+              type="button"
+              onClick={handleListItemAdd}
+              disabled={!newItemCatId || !newItemName.trim() || itemSaving}
+              variant="primary"
+              icon={<Plus />}
+              className="shrink-0"
+            >
+              เพิ่ม
+            </ActionButton>
+          </div>
+
+          {/* Table Content */}
+          <DataTableFrame fill className="flex-1 min-h-0 rounded-none bg-transparent">
+            <table className="w-full text-center text-xs border-collapse table-fixed">
+              <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs">
+                <tr className="border-b border-slate-200 dark:border-slate-700">
+                  <th className="py-2.5 px-1 w-10 text-center border-r border-slate-200 dark:border-slate-700">
+                    ลำดับ
+                  </th>
+                  <th className="py-2.5 px-2 text-center border-r border-slate-200 dark:border-slate-700">
+                    หมวดหมู่
+                  </th>
+                  <th className="py-2.5 px-2 text-center border-r border-slate-200 dark:border-slate-700">
+                    รายการ
+                  </th>
+                  <th className="py-2.5 px-1 w-[4.5rem] text-center">
+                    จัดการ
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {listItemRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-8 text-center text-slate-600 dark:text-slate-400 italic">
+                      ยังไม่มีรายการ
+                    </td>
+                  </tr>
+                ) : (
+                  listItemRows.map((row, idx) => {
+                    const key = `${row.categoryId}::${row.name}`
+
+                    if (itemEditKey === key) {
+                      return (
+                        <tr key={key} className="h-10 bg-amber-50/50 dark:bg-amber-950/20">
+                          <td className="py-1 px-1 text-center font-bold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
+                            {idx + 1}
+                          </td>
+                          <td className="py-1 px-2 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 truncate">
+                            {row.categoryName}
+                          </td>
+                          <td className="py-1 px-1.5 text-center border-r border-slate-200 dark:border-slate-700">
+                            <input
+                              type="text"
+                              value={itemEditName}
+                              onChange={(e) => setItemEditName(e.target.value)}
+                              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleListItemSaveEdit(row))}
+                              className="w-full h-7 px-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-bold text-center focus:ring-2 focus:ring-emerald-500 outline-none"
+                              autoFocus
+                            />
+                          </td>
+                          <td className="py-1 px-1 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleListItemSaveEdit(row)}
+                                disabled={itemSaving}
+                                className="w-7 h-7 rounded-lg text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center justify-center transition-colors cursor-pointer"
+                                title="บันทึก"
+                              >
+                                <Check className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setItemEditKey(null)}
+                                className="w-7 h-7 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
+                                title="ยกเลิก"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    }
+
+                    if (itemDeleteKey === key) {
+                      return (
+                        <tr key={key} className="h-10 bg-red-50/60 dark:bg-red-950/30">
+                          <td colSpan={3} className="py-1 px-2 text-center text-red-700 dark:text-red-400 font-bold text-xs truncate">
+                            ยืนยันลบรายการ &quot;{row.name}&quot;?
+                          </td>
+                          <td className="py-1 px-1 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleListItemDelete(row)}
+                                disabled={itemSaving}
+                                className="px-1.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] cursor-pointer transition-colors shadow-2xs"
+                              >
+                                ลบ
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setItemDeleteKey(null)}
+                                className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-[11px] cursor-pointer transition-colors"
+                              >
+                                ยกเลิก
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    }
+
+                    return (
+                      <tr key={key} className="h-10 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td className="py-1 px-1 text-center font-bold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
+                          {idx + 1}
+                        </td>
+                        <td className="py-1 px-2 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 truncate">
+                          {row.categoryName}
+                        </td>
+                        <td className="py-1 px-2 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 truncate" title={row.name}>
+                          {row.name}
+                        </td>
+                        <td className="py-1 px-1 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setItemEditKey(key)
+                                setItemEditName(row.name)
+                                setItemDeleteKey(null)
+                              }}
+                              className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
+                              title="แก้ไข"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setItemDeleteKey(key)
+                                setItemEditKey(null)
+                              }}
+                              className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                              title="ลบ"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
+          </DataTableFrame>
+        </div>
+
+        {/* ==================================================== */}
         {/* ตารางที่ 2: หน่วยนับ */}
         {/* ==================================================== */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col overflow-hidden min-w-0 min-h-0">
           {/* Table Toolbar */}
-          <div className="p-2.5 sm:p-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
+          <div className="p-2.5 sm:p-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2 min-w-0">
             <input
               type="text"
               value={newUnitName}
@@ -504,24 +781,24 @@ export function ProductSettingsView({
               disabled={!newUnitName.trim()}
               variant="primary"
               icon={<Plus />}
-              className="shrink-0"
+              className="shrink-0 !px-2"
             >
               เพิ่มหน่วยนับ
             </ActionButton>
           </div>
 
           {/* Table Content */}
-          <DataTableFrame fill className="h-[244px] shrink-0 rounded-none bg-transparent">
+          <DataTableFrame fill className="flex-1 min-h-0 rounded-none bg-transparent">
             <table className="w-full text-center text-xs border-collapse table-fixed">
               <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs">
                 <tr className="border-b border-slate-200 dark:border-slate-700">
-                  <th className="py-2.5 px-2 w-16 text-center border-r border-slate-200 dark:border-slate-700">
+                  <th className="py-2.5 px-1 w-10 text-center border-r border-slate-200 dark:border-slate-700">
                     ลำดับ
                   </th>
-                  <th className="py-2.5 px-3 text-center border-r border-slate-200 dark:border-slate-700">
+                  <th className="py-2.5 px-1.5 text-center border-r border-slate-200 dark:border-slate-700">
                     หน่วยนับ
                   </th>
-                  <th className="py-2.5 px-2 w-24 text-center">
+                  <th className="py-2.5 px-1 w-[4.5rem] text-center">
                     จัดการ
                   </th>
                 </tr>
@@ -580,7 +857,7 @@ export function ProductSettingsView({
                     if (unitDeleteConfirmId === u.id) {
                       return (
                         <tr key={u.id} className="h-10 bg-red-50/60 dark:bg-red-950/30">
-                          <td colSpan={2} className="py-1 px-3 text-center text-red-700 dark:text-red-400 font-bold text-xs">
+                          <td colSpan={2} className="py-1 px-1.5 text-center text-red-700 dark:text-red-400 font-bold text-xs truncate">
                             ยืนยันลบหน่วยนับ &quot;{u.name}&quot;?
                           </td>
                           <td className="py-1 px-2 text-center">
@@ -588,14 +865,14 @@ export function ProductSettingsView({
                               <button
                                 type="button"
                                 onClick={() => handleUnitDelete(u.id)}
-                                className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] cursor-pointer transition-colors shadow-2xs"
+                                className="px-1.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] cursor-pointer transition-colors shadow-2xs"
                               >
                                 ลบ
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setUnitDeleteConfirmId(null)}
-                                className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-[11px] cursor-pointer transition-colors"
+                                className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-[11px] cursor-pointer transition-colors"
                               >
                                 ยกเลิก
                               </button>
@@ -610,7 +887,7 @@ export function ProductSettingsView({
                         <td className="py-1 px-2 text-center font-bold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
                           {globalIdx}
                         </td>
-                        <td className="py-1 px-3 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 truncate">
+                        <td className="py-1 px-1.5 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 truncate" title={u.name}>
                           {u.name}
                         </td>
                         <td className="py-1 px-2 text-center">
@@ -650,38 +927,38 @@ export function ProductSettingsView({
       {/* ==================================================== */}
       {/* ตารางที่ 3: ตารางประกอบข้อมูล (Full Width Below) */}
       {/* ==================================================== */}
-      <div className="flex flex-col mt-2">
+      <div className="flex flex-col flex-1 min-h-0">
         {/* Header title */}
-        <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-slate-200 dark:border-slate-800">
+        <div className="shrink-0 flex items-center justify-between pb-1.5 mb-2 border-b border-slate-200 dark:border-slate-800">
           <div>
             <h3 className="text-sm font-black text-slate-900 dark:text-slate-100">
               ตารางประกอบข้อมูล
             </h3>
-            <p className="text-[11px] text-slate-600 dark:text-slate-400">
-              ข้อมูลช่วย Lookup กำหนดวิธีคิดเงิน รูปแบบการคิดเงิน และหน่วยนับอัตโนมัติตอนเพิ่มสินค้าใหม่
-            </p>
           </div>
         </div>
 
-        {/* Table 3: | ลำดับ | หมวดหมู่ | วิธีคิดเงิน | หน่วยนับ | จัดการ | */}
-        <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs bg-white dark:bg-slate-900 flex flex-col justify-between">
-          <div className="max-h-[320px] overflow-auto [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
-            <table className="w-full text-center text-xs border-collapse table-fixed min-w-[580px]">
+        {/* Table 3: | ลำดับ | หมวดหมู่ | รายการ | วิธีคิดเงิน | หน่วยนับ | จัดการ | — only fills the add-product form, every value stays changeable there */}
+        <div className="flex-1 min-h-0 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs bg-white dark:bg-slate-900 flex flex-col justify-between">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
+            <table className="w-full text-center text-xs border-collapse table-fixed">
               <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs">
                 <tr className="border-b border-slate-200 dark:border-slate-700">
-                  <th className="py-2.5 px-2 w-16 text-center border-r border-slate-200 dark:border-slate-700">
+                  <th className="py-2.5 px-1 w-12 text-center border-r border-slate-200 dark:border-slate-700">
                     ลำดับ
                   </th>
-                  <th className="py-2.5 px-3 w-48 text-center border-r border-slate-200 dark:border-slate-700">
+                  <th className="py-2.5 px-2 w-[22%] text-center border-r border-slate-200 dark:border-slate-700">
                     หมวดหมู่
+                  </th>
+                  <th className="py-2.5 px-2 w-[22%] text-center border-r border-slate-200 dark:border-slate-700">
+                    รายการ
                   </th>
                   <th className="py-2.5 px-3 text-center border-r border-slate-200 dark:border-slate-700">
                     วิธีคิดเงิน
                   </th>
-                  <th className="py-2.5 px-3 w-40 text-center border-r border-slate-200 dark:border-slate-700">
+                  <th className="py-2.5 px-2 w-[18%] text-center border-r border-slate-200 dark:border-slate-700">
                     หน่วยนับ
                   </th>
-                  <th className="py-2.5 px-2 w-20 text-center">
+                  <th className="py-2.5 px-1 w-16 text-center">
                     จัดการ
                   </th>
                 </tr>
@@ -696,9 +973,24 @@ export function ProductSettingsView({
                     <td className="py-1 px-2 border-r border-slate-200 dark:border-slate-700">
                       <CustomSelect
                         value={newCompCategoryId}
-                        onChange={(val) => setNewCompCategoryId(String(val))}
+                        onChange={(val) => {
+                          setNewCompCategoryId(String(val))
+                          setNewCompListItem('')
+                        }}
                         options={categoryOptions}
                         placeholder="-- เลือกหมวดหมู่ --"
+                        className="w-full"
+                        buttonClassName="h-7 text-xs font-bold justify-between"
+                      />
+                    </td>
+                    <td className="py-1 px-2 border-r border-slate-200 dark:border-slate-700">
+                      <CustomSelect
+                        value={newCompListItem}
+                        onChange={(val) => setNewCompListItem(String(val))}
+                        options={[
+                          { value: '', label: 'ทั้งหมวดหมู่' },
+                          ...getCategoryListItems(newCompCategoryId).map((i) => ({ value: i.name, label: i.name })),
+                        ]}
                         className="w-full"
                         buttonClassName="h-7 text-xs font-bold justify-between"
                       />
@@ -748,7 +1040,7 @@ export function ProductSettingsView({
 
                 {compositeRules.length === 0 && !isAddingCompositeRow ? (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-600 dark:text-slate-400 italic">
+                    <td colSpan={6} className="py-8 text-center text-slate-600 dark:text-slate-400 italic">
                       ยังไม่มีรายการ
                     </td>
                   </tr>
@@ -763,14 +1055,21 @@ export function ProductSettingsView({
                             {globalIdx}
                           </td>
                           <td className="py-1 px-2 border-r border-slate-200 dark:border-slate-700">
-                            <CustomSelect
-                              value={compEditCategoryId}
-                              onChange={(val) => setCompEditCategoryId(String(val))}
-                              options={categoryOptions}
-                              placeholder="-- เลือกหมวดหมู่ --"
-                              className="w-full"
-                              buttonClassName="h-7 text-xs font-bold justify-between"
-                            />
+                            {rule.listItem ? (
+                              <span className="font-bold text-slate-800 dark:text-slate-200 truncate block">{getCategoryName(rule.categoryId)}</span>
+                            ) : (
+                              <CustomSelect
+                                value={compEditCategoryId}
+                                onChange={(val) => setCompEditCategoryId(String(val))}
+                                options={categoryOptions}
+                                placeholder="-- เลือกหมวดหมู่ --"
+                                className="w-full"
+                                buttonClassName="h-7 text-xs font-bold justify-between"
+                              />
+                            )}
+                          </td>
+                          <td className="py-1 px-2 border-r border-slate-200 dark:border-slate-700 font-bold text-slate-800 dark:text-slate-200 truncate">
+                            {rule.listItem || 'ทั้งหมวดหมู่'}
                           </td>
                           <td className="py-1 px-2 border-r border-slate-200 dark:border-slate-700">
                             <CustomSelect
@@ -823,6 +1122,9 @@ export function ProductSettingsView({
                         <td className="py-1 px-3 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 truncate">
                           {getCategoryName(rule.categoryId)}
                         </td>
+                        <td className="py-1 px-3 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 truncate" title={rule.listItem || undefined}>
+                          {rule.listItem || <span className="text-slate-600 dark:text-slate-400 font-normal text-[11px]">ทั้งหมวดหมู่</span>}
+                        </td>
                         <td className="py-1 px-3 text-center font-semibold text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-700">
                           <span className={`px-2.5 py-0.5 rounded-lg font-bold text-[11px] ${
                             rule.calculationType === 'NO_CHARGE'
@@ -868,7 +1170,7 @@ export function ProductSettingsView({
           </div>
 
           {/* ท้ายตาราง: [ + เพิ่มแถว ] */}
-          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-t border-slate-200 dark:border-slate-800 text-xs bg-slate-50 dark:bg-slate-850">
+          <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-t border-slate-200 dark:border-slate-800 text-xs bg-slate-50 dark:bg-slate-850">
             <div>
               <ActionButton
                 type="button"
