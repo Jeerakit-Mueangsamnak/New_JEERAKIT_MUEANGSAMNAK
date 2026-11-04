@@ -280,13 +280,13 @@ export function RentalBillTemplate({ data }: { data: BillTemplateData }) {
           {data.discount > 0 && (
             <div className="flex justify-between border-b border-slate-200 py-0.5 text-emerald-700 font-bold">
               <span>ส่วนลด:</span>
-              <span className="font-mono">-{fmt(data.discount)}</span>
+              <span className="font-mono">{fmt(data.discount)}</span>
             </div>
           )}
           {data.shippingFee > 0 && (
             <div className="flex justify-between border-b border-slate-200 py-0.5 text-slate-700">
               <span>ค่าจัดส่ง / บริการ:</span>
-              <span className="font-mono font-semibold">+{fmt(data.shippingFee)}</span>
+              <span className="font-mono font-semibold">{fmt(data.shippingFee)}</span>
             </div>
           )}
           {data.taxAmount > 0 && (
@@ -294,7 +294,7 @@ export function RentalBillTemplate({ data }: { data: BillTemplateData }) {
               <span>
                 ภาษีมูลค่าเพิ่ม{data.vatRatePercent ? ` (${data.vatRatePercent}%)` : ''}{data.vatInclusive ? ' รวมในราคาแล้ว' : ''}:
               </span>
-              <span className="font-mono font-semibold">{data.vatInclusive ? '' : '+'}{fmt(data.taxAmount)}</span>
+              <span className="font-mono font-semibold">{fmt(data.taxAmount)}</span>
             </div>
           )}
           {data.depositAmount > 0 && (

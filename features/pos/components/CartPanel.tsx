@@ -18,33 +18,14 @@ import { AppModal, AppModalBody } from '@/components/common/AppModal'
 import { NewCustomerModal } from '@/features/customers/components/NewCustomerModal'
 import { CalendarPanel, getLocalDateString } from '@/components/common/CustomDatePicker'
 import { CustomSelect, SelectOption } from '@/components/common/CustomSelect'
-import { NumericInput } from '@/components/common/NumericInput'
 import { CustomerUnifiedSelector } from '@/features/pos/components/CustomerUnifiedSelector'
 import { CartItem, defaultBillDocumentType, isSaleCartItem, saveActiveCart, validateCartCustomer } from '@/features/pos/services/cart-storage'
 import { calculateBillTotals } from '@/lib/calculation-service'
 import { isVatRateConfigured } from '@/features/settings/services/settings-storage'
-import { VatModeButtons, type VatMode } from '@/features/pos/components/VatModeButtons'
+import { type VatMode } from '@/features/pos/components/VatModeButtons'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 
 export type { CartItem }
-
-export interface CartPanelQuotationData {
-  discount: number
-  shippingFee: number
-  depositAmount: number
-  taxRate: number
-  tax: number
-  subtotal: number
-  grandTotal: number
-  shippingAddress: string
-  rentalStartDate?: string
-  rentalEndDate?: string
-  documentDate?: string
-  /** VAT chosen for this quotation (the rate comes from the shop settings). */
-  vatEnabled?: boolean
-  /** รวม VAT / ไม่รวม VAT pressed for this quotation; null when VAT is off. */
-  vatMode?: VatMode | null
-}
 
 interface CartPanelProps {
   onCheckout: () => void
@@ -52,7 +33,6 @@ interface CartPanelProps {
   /** Resolves false when saving failed, so the customer form stays open. */
   onAddCustomer?: (newCustomer: Customer) => Promise<boolean | void> | void
   isQuotationMode?: boolean
-  onSaveQuotation?: (data?: CartPanelQuotationData) => void
   items?: CartItem[]
   setItems?: React.Dispatch<React.SetStateAction<CartItem[]>>
   customer?: Customer | null
@@ -86,7 +66,6 @@ export function CartPanel({
   customers = [],
   onAddCustomer,
   isQuotationMode = false,
-  onSaveQuotation,
   items: externalItems,
   setItems: setExternalItems,
   customer: externalCustomer,
@@ -126,11 +105,6 @@ export function CartPanel({
   }, [initialVatEnabled, initialVatMode])
   const effectiveVatMode: VatMode | null = docVatMode ?? (legacyVatOn ? settings.taxDiscount?.vatMode ?? null : null)
   const vatOn = effectiveVatMode !== null && vatConfigured
-  const vatInclusive = vatOn && effectiveVatMode === 'INCLUSIVE'
-  const toggleVatMode = (mode: VatMode) => {
-    setLegacyVatOn(false)
-    setDocVatMode(effectiveVatMode === mode ? null : mode)
-  }
   
   const [internalCustomer, setInternalCustomer] = useState<Customer | null>(null)
   const [internalItems, setInternalItems] = useState<CartItem[]>([])
@@ -456,193 +430,65 @@ export function CartPanel({
         )}
       </div>
 
-      {/* Adjustments & Totals Summary */}
+      {/* Totals + next step. Discount, shipping, deposit, VAT and the net amount are set on the next page
+          (ชำระเงิน for a bill, สรุปใบเสนอราคา for a quotation — the same central panel, owner 2026-11-04). */}
       {items.length > 0 && (
         <div className="p-2 border-t border-slate-100 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/80 space-y-2">
-          
-          {/* Quick Adjustments: Discount, Shipping, Deposit — a bill sets them on the payment page; a quotation has none */}
-          {isQuotationMode && (
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            <div>
-              <span className="text-slate-600 dark:text-slate-400 block mb-0.5">ส่วนลด (บาท)</span>
-              <NumericInput
-                value={discount || ''}
-                onChange={(val) => {
-                  if (val === '') {
-                    setDiscount(0)
-                    return
-                  }
-                  setDiscount(val)
-                }}
-                defaultValueOnBlur={0}
-                min={0}
-                placeholder="0"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium focus:ring-1 focus:ring-emerald-500"
-              />
-            </div>
-            <div>
-              <span className="text-slate-600 dark:text-slate-400 block mb-0.5">ค่าขนส่ง (บาท)</span>
-              <NumericInput
-                value={shippingFee || ''}
-                onChange={(val) => setShippingFee(val === '' ? 0 : val)}
-                defaultValueOnBlur={0}
-                min={0}
-                placeholder="0"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium focus:ring-1 focus:ring-emerald-500"
-              />
-            </div>
-            <div>
-              <span className="text-slate-600 dark:text-slate-400 block mb-0.5">เงินมัดจำ (บาท)</span>
-              <NumericInput
-                value={depositAmount || ''}
-                onChange={(val) => setDepositAmount(val === '' ? 0 : val)}
-                defaultValueOnBlur={0}
-                min={0}
-                placeholder="0"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium focus:ring-1 focus:ring-emerald-500"
-              />
-            </div>
+          <div className="flex justify-between items-baseline pt-2 border-t border-slate-200 dark:border-slate-700">
+            <span className="font-bold text-sm text-slate-900 dark:text-slate-100">ยอดสินค้ารวม</span>
+            <span className="font-black text-xl text-blue-600 dark:text-blue-400 whitespace-nowrap">
+              {subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+            </span>
           </div>
-          )}
-
-
-            {isQuotationMode && (
-              <VatModeButtons mode={vatOn ? effectiveVatMode : null} onToggle={toggleVatMode} vatRate={settings.taxDiscount?.vatRate} />
-            )}
-
-          {/* A bill's cart only shows what is in the cart; discount, shipping, deposit and the net amount are on the payment page */}
-          {!isQuotationMode && (
-            <div className="flex justify-between items-baseline pt-2 border-t border-slate-200 dark:border-slate-700">
-              <span className="font-bold text-sm text-slate-900 dark:text-slate-100">ยอดสินค้ารวม</span>
-              <span className="font-black text-xl text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                {subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-          )}
-
-          {/* Breakdown summary (quotation) */}
-          {isQuotationMode && (
-          <div className="space-y-1.5 text-xs pt-2 border-t border-slate-200 dark:border-slate-700">
-            <div className="flex justify-between text-slate-600 dark:text-slate-400">
-              <span>ยอดสินค้าก่อนหักส่วนลด</span>
-              <span className="font-semibold">{subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
-            </div>
-            {discount > 0 && (
-              <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
-                <span>ส่วนลด</span>
-                <span>-{discount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
-              </div>
-            )}
-            {shippingFee > 0 && (
-              <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                <span>ค่าขนส่ง</span>
-                <span>+{shippingFee.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
-              </div>
-            )}
-            {taxRate > 0 && (
-              <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                <span>
-                  ภาษี VAT ({(taxRate * 100).toFixed(0)}%)
-                  {vatInclusive && ' รวมในราคาแล้ว'}
-                </span>
-                <span>
-                  {vatInclusive ? '' : '+'}
-                  {tax.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-            )}
-            {depositAmount > 0 && (
-              <div className="flex justify-between text-amber-700 dark:text-amber-400 font-medium">
-                <span>เงินมัดจำประกันความเสียหาย</span>
-                <span>{depositAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
-              </div>
-            )}
-
-            <div className="flex justify-between items-baseline pt-2 border-t border-slate-200 dark:border-slate-700">
-              <span className="font-bold text-sm text-slate-900 dark:text-slate-100">
-                {isQuotationMode ? 'ยอดรวมใบเสนอราคา' : 'ยอดสุทธิที่ต้องชำระ'}
-              </span>
-              {/* Same amount as the checkout page: the bill plus its deposit (owner 2026-11-02). */}
-              <span className="font-black text-xl text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                {(isQuotationMode ? grandTotal : totals.totalPayableWithDeposit).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-          </div>
-          )}
 
           {/* Action buttons */}
           <div className="pt-1 grid grid-cols-2 gap-2">
-            {isQuotationMode ? (
-              <button
-                type="button"
-                onClick={() => {
-                  if (!validateRentalPeriods()) return
-                  onSaveQuotation?.({
-                    discount: Number(discount) || 0,
-                    shippingFee: Number(shippingFee) || 0,
-                    depositAmount: Number(depositAmount) || 0,
-                    taxRate: taxRate,
-                    tax,
-                    subtotal,
-                    grandTotal,
-                    shippingAddress,
-                    rentalStartDate: headerRentalDate ? getLocalDateString(headerRentalDate) : undefined,
-                    rentalEndDate: headerReturnDate ? getLocalDateString(headerReturnDate) : undefined,
-                    documentDate: documentDate ? getLocalDateString(documentDate) : undefined,
-                    vatEnabled: vatOn,
-                    vatMode: vatOn ? effectiveVatMode : null,
-                  })
-                }}
-                disabled={items.length === 0}
-                className="w-full col-span-2 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-xs shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1.5 transition-all"
-              >
-                <FileText className="w-4 h-4" />
-                <span>บันทึกใบเสนอราคา</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  if (!validateRentalPeriods()) return
+            <button
+              type="button"
+              onClick={() => {
+                if (!validateRentalPeriods()) return
+                // A quotation may be for a walk-in customer; a bill needs the customer details first.
+                if (!isQuotationMode) {
                   try {
                     validateCartCustomer(items, customer)
                   } catch {
                     setCustomerAttention(true)
                     return
                   }
+                }
 
-                  saveActiveCart({
-                    customer,
-                    items,
-                    discount: Number(discount) || 0,
-                    shippingFee: Number(shippingFee) || 0,
-                    depositAmount: Number(depositAmount) || 0,
-                    taxRate: taxRate,
-                    vatEnabled: vatOn,
-                    vatMode: vatOn ? effectiveVatMode : null,
-                    shippingAddress,
-                    contactPhone: contactPhone.trim() || undefined,
-                    headerRentalDate: getLocalDateString(headerRentalDate ?? new Date()),
-                    headerReturnDate: getLocalDateString(headerReturnDate ?? new Date()),
-                    documentType: documentType || defaultBillDocumentType(items),
-                    documentDate: getLocalDateString(documentDate ?? new Date()),
-                    subtotal,
-                    tax,
-                    grandTotal,
-                    quotationId: quotationId || undefined,
-                    quotationNo: quotationNo || undefined,
-                    draftBillId: draftBillId || undefined,
-                  })
-                  onCheckout()
-                }}
-                disabled={items.length === 0}
-                className="w-full col-span-2 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-xs shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-              >
-                <span>ชำระเงิน</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            )}
+                saveActiveCart({
+                  customer,
+                  items,
+                  discount: Number(discount) || 0,
+                  shippingFee: Number(shippingFee) || 0,
+                  depositAmount: Number(depositAmount) || 0,
+                  taxRate: taxRate,
+                  vatEnabled: vatOn,
+                  vatMode: vatOn ? effectiveVatMode : null,
+                  shippingAddress,
+                  contactPhone: contactPhone.trim() || undefined,
+                  headerRentalDate: getLocalDateString(headerRentalDate ?? new Date()),
+                  headerReturnDate: getLocalDateString(headerReturnDate ?? new Date()),
+                  documentType: documentType || defaultBillDocumentType(items),
+                  documentDate: getLocalDateString(documentDate ?? new Date()),
+                  subtotal,
+                  tax,
+                  grandTotal,
+                  quotationId: quotationId || undefined,
+                  quotationNo: quotationNo || undefined,
+                  draftBillId: draftBillId || undefined,
+                  quotationMode: isQuotationMode || undefined,
+                })
+                onCheckout()
+              }}
+              disabled={items.length === 0}
+              className="w-full col-span-2 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-xs shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+            >
+              {isQuotationMode && <FileText className="w-4 h-4" />}
+              <span>{isQuotationMode ? 'สรุปใบเสนอราคา' : 'ชำระเงิน'}</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
           </div>
 
         </div>

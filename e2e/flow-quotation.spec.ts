@@ -24,6 +24,9 @@ async function createQuotation(page: Page): Promise<string> {
   await add.getByRole('button', { name: 'เพิ่มลงตะกร้า' }).click();
   await page.getByPlaceholder('ค้นหาชื่อ / เบอร์โทร หรือพิมพ์ชื่อลูกค้าทั่วไป...').fill('ลูกค้า E2E');
   await page.getByRole('button', { name: /ลูกค้า E2E \d+/ }).first().click();
+  // Owner 2026-11-04: the cart goes to สรุปใบเสนอราคา (same central panel as ชำระเงิน), saved there.
+  await page.getByRole('button', { name: 'สรุปใบเสนอราคา' }).click();
+  await page.waitForURL('**/pos/quotation');
   await page.getByRole('button', { name: 'บันทึกใบเสนอราคา' }).click();
   await page.waitForURL('**/quotations');
   const toast = page.getByText(/^ใบเสนอราคา [A-Z]{2,4}-\d{8}-\d{3}$/);

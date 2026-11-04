@@ -69,7 +69,7 @@ test('เช่าสินค้า: ลูกค้าใหม่ + เงิ
     await expect(page.getByText(made_up)).toHaveCount(0);
   }
   await page.getByRole('button', { name: 'เงินสด' }).click();
-  await expect(page.getByRole('checkbox', { name: /ลูกค้ารับของเลย/ })).toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'รับของแล้ว' })).toBeChecked();
   await page.getByRole('button', { name: 'ออกบิล' }).click();
 
   const done = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: 'บันทึกบิลเช่าสำเร็จ' }) });

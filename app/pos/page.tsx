@@ -3,9 +3,9 @@
 import React, { Suspense, useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ProductGrid } from '@/features/pos/components/ProductGrid'
-import { CartPanel, CartPanelQuotationData } from '@/features/pos/components/CartPanel'
+import { CartPanel } from '@/features/pos/components/CartPanel'
 import { QuantityModal } from '@/features/pos/components/QuantityModal'
-import { Product, Customer, Quotation, QuotationItem, Appointment } from '@/lib/types/rental-pos'
+import { Product, Customer, Quotation, Appointment } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
 import { useCreateCustomer } from '@/features/customers/hooks/useCreateCustomer'
 import {
@@ -17,19 +17,15 @@ import {
 import { ShoppingBag, Package, FileText, ArrowLeft } from 'lucide-react'
 import { loadProducts, validateProductMode } from '@/features/products/services/product-storage'
 import { loadCustomers, isIdCardUploadError } from '@/features/customers/services/customer-storage'
-import { CartItem, cartLineListPrice, isSaleCartItem, loadActiveCart } from '@/features/pos/services/cart-storage'
+import { CartItem, cartLineListPrice, isSaleCartItem, loadActiveCart, saveActiveCart } from '@/features/pos/services/cart-storage'
 import { fetchAppointmentsFromSupabase } from '@/features/appointments/services/appointment-storage'
 import { getLocalDateString } from '@/components/common/CustomDatePicker'
 import {
-  addQuotation,
   fetchQuotationsFromSupabase,
   getQuotationById,
-  generateQuotationNo,
   mapQuotationToPos,
-  quotationPeriodOf,
   quotationStatusView,
 } from '@/features/quotations/services/quotation-storage'
-import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { loadBillById } from '@/features/bills/services/bill-storage'
 
 function POSContent() {
@@ -90,6 +86,11 @@ function POSContent() {
           router.push('/quotations')
           return
         }
+        // Back from สรุปใบเสนอราคา: the resumed cart already holds the changes; only remember which quotation this is.
+        if (resumeCheckout && editQuotationId) {
+          setEditingQuotation(quote)
+          return
+        }
         const { customer, cartItems: loadedItems, values } = mapQuotationToPos(quote, loadProducts(), loadCustomers())
         setSelectedCustomer(customer.id ? customer : null)
         setCartItems(loadedItems)
@@ -108,7 +109,7 @@ function POSContent() {
     return () => {
       alive = false
     }
-  }, [editQuotationId, copyQuotationId, router, showToast])
+  }, [editQuotationId, copyQuotationId, resumeCheckout, router, showToast])
 
   useEffect(() => {
     const prods = loadProducts()
@@ -463,80 +464,23 @@ function POSContent() {
   }
 
   const handleCheckout = () => {
-    router.push('/pos/checkout')
-  }
-
-  const handleSaveQuotation = async (quotationData?: CartPanelQuotationData) => {
-    if (cartItems.length === 0) {
-      showToast('ไม่สามารถบันทึกได้', 'กรุณาเลือกสินค้าอย่างน้อย 1 รายการก่อนบันทึกใบเสนอราคา', 'ERROR')
+    if (!isQuotationMode) {
+      router.push('/pos/checkout')
       return
     }
-
-    const now = new Date()
-    const qDate = quotationData?.documentDate || getLocalDateString(now)
-
-    // Only an edit revises an existing quotation; a new one or a copy gets a fresh id.
-    const existingQuotation = editingQuotation
-    const id = existingQuotation?.id || `qt-${Date.now()}`
-    const quotationNo = existingQuotation?.quotationNo || generateQuotationNo()
-
-    const items: QuotationItem[] = cartItems.map((item, idx) => ({
-      id: item.id || `qitem-${Date.now()}-${idx}`,
-      productId: item.productId || item.product.id,
-      productName: item.productName || item.product.name,
-      rentalType: item.rentalType,
-      quantity: item.quantity,
-      unitName: item.unitName || item.product.unit || 'ชิ้น',
-      unitPrice: item.unitPrice,
-      usageCountOrDays: quotationPeriodOf(item),
-      lineTotal: item.lineTotal,
-      dailyStartDate: item.dailyStartDate,
-      dailyEndDate: item.dailyEndDate,
-      isAccessory: item.product.isAccessory || false,
-      isChargeable: item.product.isChargeable !== false,
-      requiresReturn: item.product.requiresReturn !== false,
-    }))
-
-    const subtotal = quotationData?.subtotal ?? cartItems.reduce((sum, it) => sum + (it.lineTotal || 0), 0)
-    const discountAmount = quotationData?.discount ?? 0
-    const shippingFee = quotationData?.shippingFee ?? 0
-    const depositAmount = quotationData?.depositAmount ?? 0
-    const taxAmount = quotationData?.tax ?? 0
-    const grandTotal = quotationData?.grandTotal ?? Math.max(0, subtotal - discountAmount + shippingFee + depositAmount + taxAmount)
-
-    const newQuotation: Quotation = {
-      id,
-      quotationNo,
-      quotationDate: qDate,
-      customerId: selectedCustomer?.id || '',
-      customerName: selectedCustomer?.customerName || 'ลูกค้าทั่วไป',
-      phone: selectedCustomer?.phone || '',
-      customerAddress: selectedCustomer?.address || quotationData?.shippingAddress || '',
-      customerTaxId: selectedCustomer?.taxId || '',
-      siteName: quotationData?.shippingAddress || '',
-      rentalStartDate: quotationData?.rentalStartDate || qDate,
-      rentalEndDate: quotationData?.rentalEndDate || quotationData?.rentalStartDate || qDate,
-      items,
-      subtotal,
-      discountAmount,
-      shippingFee,
-      depositAmount,
-      taxAmount,
-      vatEnabled: Boolean(quotationData?.vatEnabled),
-      vatMode: quotationData?.vatEnabled ? quotationData.vatMode ?? undefined : undefined,
-      grandTotal,
-      status: existingQuotation?.status || 'WAITING',
-      remark: existingQuotation?.remark,
+    // Quotation mode: the cart (saved by CartPanel) goes to สรุปใบเสนอราคา, the same central panel as ชำระเงิน.
+    // Only an edit revises the quotation in place; a new one or a copy gets a fresh id when saved.
+    const cart = loadActiveCart()
+    if (cart) {
+      saveActiveCart({
+        ...cart,
+        quotationMode: true,
+        quotationEdit: editingQuotation
+          ? { id: editingQuotation.id, quotationNo: editingQuotation.quotationNo, status: editingQuotation.status, remark: editingQuotation.remark }
+          : undefined,
+      })
     }
-
-    try {
-      const savedId = await addQuotation(newQuotation)
-      const no = getQuotationById(savedId)?.quotationNo
-      showToast('บันทึกใบเสนอราคาสำเร็จ', no ? `ใบเสนอราคา ${no}` : 'บันทึกเรียบร้อยแล้ว', 'SUCCESS')
-      router.push('/quotations')
-    } catch (err) {
-      if (!isPinCancelled(err)) showToast('บันทึกใบเสนอราคาไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
-    }
+    router.push('/pos/quotation')
   }
 
   const handleExitQuotationMode = () => {
@@ -620,7 +564,6 @@ function POSContent() {
             onAddCustomer={handleAddCustomer}
             onCheckout={handleCheckout}
             isQuotationMode={isQuotationMode}
-            onSaveQuotation={handleSaveQuotation}
             quotationId={quotationId || undefined}
             quotationNo={loadedQuotationNo ?? editingQuotation?.quotationNo}
             draftBillId={draftBillId || undefined}

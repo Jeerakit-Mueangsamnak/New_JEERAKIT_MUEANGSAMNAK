@@ -2,25 +2,19 @@
 
 import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { RentalBillTemplate, BillTemplateData } from '@/templates/rental-bill/RentalBillTemplate'
 import { billBusinessFields, printRentalBillDocument } from '@/features/documents/utils/rental-bill-print'
 import { A4FitPreview } from '@/features/pos/components/A4FitPreview'
-import {
-  ArrowLeft,
-  CreditCard,
-  FileText,
-  Printer,
-} from 'lucide-react'
+import { FileText, Printer } from 'lucide-react'
 import { PaymentMethodSelector, type PaymentMethodType } from '@/features/pos/components/payment/PaymentMethodSelector'
 import { PaymentDynamicContent } from '@/features/pos/components/payment/PaymentDynamicContent'
-import { VatModeButtons, type VatMode } from '@/features/pos/components/VatModeButtons'
+import { type VatMode } from '@/features/pos/components/VatModeButtons'
+import { DocumentSummaryLayout, DocumentSummaryPanel, documentSummaryRows } from '@/features/pos/components/DocumentSummaryPanel'
 import { RentalBill, Customer, Product } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
 import { PostSavePrintModal } from '@/components/common/PostSavePrintModal'
 import { getLocalDateString } from '@/components/common/CustomDatePicker'
 import { isVatRateConfigured } from '@/features/settings/services/settings-storage'
-import { NumericInput } from '@/components/common/NumericInput'
 import {
   loadActiveCart,
   saveActiveCart,
@@ -181,8 +175,6 @@ export default function CheckoutPage() {
     title: '',
     description: '',
   })
-
-  const [mobileTab, setMobileTab] = useState<'PAYMENT' | 'PREVIEW'>('PAYMENT')
 
   const receivedCash = receivedCashInput === '' ? amountToCollect : (parseFloat(receivedCashInput) || 0)
   const changeAmount = paymentMethod === 'CASH' ? Math.max(0, receivedCash - amountToCollect) : 0
@@ -451,215 +443,96 @@ export default function CheckoutPage() {
   const backToPosHref = `/pos?${backToPosParams.toString()}`
 
   return (
-    <div className="pos-checkout-print-root flex h-full min-h-0 w-full flex-1 flex-col bg-slate-100 p-2 sm:p-2.5 dark:bg-slate-900 md:grid md:h-full md:max-h-full md:min-h-0 md:grid-cols-[minmax(0,58fr)_minmax(300px,42fr)] lg:grid-cols-[minmax(0,60fr)_minmax(340px,40fr)] md:gap-2.5 md:overflow-hidden lg:gap-3 lg:p-3">
-      {/* Mobile View Switcher (< md screens) */}
-      <div className="md:hidden flex items-center bg-white dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm shrink-0 mb-1.5">
-        <button
-          type="button"
-          onClick={() => setMobileTab('PAYMENT')}
-          className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-            mobileTab === 'PAYMENT'
-              ? 'bg-emerald-700 text-white shadow-xs'
-              : 'text-slate-600 dark:text-slate-300'
-          }`}
-        >
-          <CreditCard className="w-3.5 h-3.5" />
-          <span>ฟอร์มชำระเงิน</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setMobileTab('PREVIEW')}
-          className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-            mobileTab === 'PREVIEW'
-              ? 'bg-emerald-700 text-white shadow-xs'
-              : 'text-slate-600 dark:text-slate-300'
-          }`}
-        >
-          <FileText className="w-3.5 h-3.5" />
-          <span>ดูตัวอย่างบิล A4</span>
-        </button>
-      </div>
-
-      {/* Left: real A4 preview. The A4 sheet never scrolls; it is scaled to fit available space. */}
-      <div className={`h-full min-h-0 w-full flex-1 overflow-hidden flex-col bg-slate-100/60 dark:bg-slate-950/40 rounded-xl border border-slate-200/80 dark:border-slate-800 ${
-        mobileTab === 'PREVIEW' ? 'flex' : 'hidden md:flex'
-      }`}>
-        <div className="flex-1 min-h-0 w-full h-full overflow-hidden">
-          <A4FitPreview
-            paddingPx={1}
-            className="h-full w-full"
-            align="center"
-          >
-            <RentalBillTemplate data={savedPrintData ?? billData} />
-          </A4FitPreview>
-        </div>
-      </div>
-
-      {/* Right Column - Payment Panel */}
-      <div className={`mt-0 flex min-h-0 min-w-0 flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-800 md:mt-0 md:h-full md:p-3.5 lg:p-4 ${
-        mobileTab === 'PAYMENT' ? 'flex flex-1' : 'hidden md:flex'
-      }`}>
-
-        <div className="flex min-h-0 flex-1 flex-col space-y-2 sm:space-y-2.5 overflow-hidden">
-          {/* Header */}
-          <div className="flex shrink-0 min-w-0 items-center justify-between gap-2 border-b border-slate-100 pb-2 dark:border-slate-700">
-            <Link
-              href={backToPosHref}
-              className="flex shrink-0 items-center gap-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-semibold"
-            >
-              <ArrowLeft className="w-4 h-4 shrink-0" />
-              <span className="whitespace-nowrap">ย้อนกลับไป POS</span>
-            </Link>
-            <h3 className="shrink-0 whitespace-nowrap text-sm font-bold text-slate-900 dark:text-slate-100 sm:text-base">
-              ชำระเงิน
-            </h3>
-          </div>
-
-          {/* ส่วนลด / ค่าขนส่ง / เงินมัดจำ (moved here from the POS cart) */}
-          <div className="grid shrink-0 grid-cols-3 gap-2 text-xs">
-            <div>
-              <span className="text-slate-600 dark:text-slate-400 block mb-0.5">ส่วนลด (บาท)</span>
-              <NumericInput
-                value={discount || ''}
-                onChange={(val) => setDiscount(val === '' ? 0 : val)}
-                defaultValueOnBlur={0}
-                min={0}
-                placeholder="0"
-                disabled={isSubmitting}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium focus:ring-1 focus:ring-emerald-500"
+    <>
+    <DocumentSummaryLayout
+      className="pos-checkout-print-root"
+      formTabLabel="ฟอร์มชำระเงิน"
+      previewTabLabel="ดูตัวอย่างบิล A4"
+      preview={
+        <A4FitPreview paddingPx={1} className="h-full w-full" align="center">
+          <RentalBillTemplate data={savedPrintData ?? billData} />
+        </A4FitPreview>
+      }
+    >
+      <DocumentSummaryPanel
+        title="ชำระเงิน"
+        backHref={backToPosHref}
+        backLabel="ย้อนกลับไป POS"
+        discount={discount}
+        onDiscountChange={setDiscount}
+        shippingFee={shippingFee}
+        onShippingFeeChange={setShippingFee}
+        depositAmount={depositAmount}
+        onDepositAmountChange={setDepositAmount}
+        disabled={isSubmitting}
+        vatRate={settings.taxDiscount?.vatRate}
+        vatMode={vatOn ? effectiveVatMode : null}
+        onToggleVat={toggleVatMode}
+        rows={documentSummaryRows({ totals, vatInclusive, depositAmount: depositToCollect })}
+        totalLabel="ยอดคงต้องชำระ"
+        totalAmount={amountToCollect}
+        footer={
+          <>
+            <label className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={deliverNow}
+                onChange={(e) => setDeliverNow(e.target.checked)}
+                className="w-4 h-4 text-emerald-700 dark:text-emerald-400 rounded"
               />
-            </div>
-            <div>
-              <span className="text-slate-600 dark:text-slate-400 block mb-0.5">ค่าขนส่ง (บาท)</span>
-              <NumericInput
-                value={shippingFee || ''}
-                onChange={(val) => setShippingFee(val === '' ? 0 : val)}
-                defaultValueOnBlur={0}
-                min={0}
-                placeholder="0"
+              <span>รับของแล้ว</span>
+            </label>
+            <div className="flex items-stretch gap-2">
+              <button
+                type="button"
+                onClick={handleSaveDraft}
                 disabled={isSubmitting}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium focus:ring-1 focus:ring-emerald-500"
-              />
-            </div>
-            <div>
-              <span className="text-slate-600 dark:text-slate-400 block mb-0.5">เงินมัดจำ (บาท)</span>
-              <NumericInput
-                value={depositAmount || ''}
-                onChange={(val) => setDepositAmount(val === '' ? 0 : val)}
-                defaultValueOnBlur={0}
-                min={0}
-                placeholder="0"
-                disabled={isSubmitting}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium focus:ring-1 focus:ring-emerald-500"
-              />
-            </div>
-          </div>
+                className="shrink-0 whitespace-nowrap rounded-xl border-2 border-slate-200 bg-white px-3 py-2.5 hover:bg-slate-50 active:scale-[0.99] text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700/50 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
+              >
+                <FileText className="w-4 h-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
+                <span className="truncate">บันทึกแบบร่าง</span>
+              </button>
 
-          {/* VAT of this bill: รวม VAT / ไม่รวม VAT. None pressed = no VAT; pressing the chosen one again cancels it.
-              The rate (%) is only what the owner set in Settings. */}
-          <VatModeButtons
-            mode={vatOn ? effectiveVatMode : null}
-            onToggle={toggleVatMode}
-            vatRate={settings.taxDiscount?.vatRate}
-            disabled={isSubmitting}
+              <button
+                type="button"
+                onClick={handleConfirmBill}
+                disabled={isSubmitting || !paymentMethod}
+                className="flex-1 min-w-0 rounded-xl bg-emerald-700 px-2 py-2.5 hover:bg-emerald-800 active:scale-[0.99] text-white font-black text-xs sm:text-sm md:text-base flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
+              >
+                <Printer className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+                <span className="truncate">
+                  {isSubmitting ? 'กำลังบันทึกบิล...' : draftBillId ? 'ออกบิลจากแบบร่าง' : 'ออกบิล'}
+                </span>
+              </button>
+            </div>
+          </>
+        }
+      >
+        {/* Payment Method Selector — one row, equal-size buttons */}
+        <PaymentMethodSelector
+          selectedMethod={paymentMethod}
+          onSelectMethod={setPaymentMethod}
+          autoSelectFirst={false}
+          showLabel={false}
+          itemsPerRow={3}
+        />
+
+        {/* Dynamic Inputs per Method */}
+        {paymentMethod ? (
+          <PaymentDynamicContent
+            paymentMethod={paymentMethod}
+            targetAmount={amountToCollect}
+            receivedCashInput={receivedCashInput}
+            onReceivedCashInputChange={setReceivedCashInput}
+            changeAmount={changeAmount}
+            bankRef={bankRef}
+            onBankRefChange={setBankRef}
+            bankQrUrl={settings.business?.bankQrDataUrl}
+            promptPayId={settings.business?.promptPayValue}
           />
-
-          {/* Bill amounts in use on this bill (owner 2026-11-02): shown only when not 0 */}
-          {(() => {
-            const money = (v: number) => v.toLocaleString('th-TH', { minimumFractionDigits: 2 })
-            const rows: Array<[string, string]> = [['มูลค่าสินค้า', money(subtotal)]]
-            if (totals.discountAmount > 0) rows.push(['ส่วนลด', money(totals.discountAmount)])
-            if (totals.shippingFee > 0) rows.push(['ค่าขนส่ง', money(totals.shippingFee)])
-            // Amounts are shown plain: no +, - or currency sign (owner 2026-11-04); the label says what it is.
-            if (tax > 0) {
-              const vatLabel = `ภาษีมูลค่าเพิ่ม ${(totals.vatRate * 100).toFixed(0)}%`
-              rows.push(vatInclusive
-                ? [`${vatLabel} (รวมในราคาแล้ว)`, money(tax)]
-                : [vatLabel, money(tax)])
-            }
-            if (depositToCollect > 0) rows.push(['เงินมัดจำ', money(depositToCollect)])
-            return (
-              <div className="shrink-0 divide-y divide-slate-100 border-y border-slate-100 text-xs text-slate-700 tabular-nums dark:divide-slate-700 dark:border-slate-700 dark:text-slate-300">
-                {rows.map(([label, value]) => (
-                  <div key={label} className="flex justify-between gap-2 py-1">
-                    <span>{label}</span>
-                    <span className="font-medium text-slate-900 dark:text-slate-100">{value}</span>
-                  </div>
-                ))}
-              </div>
-            )
-          })()}
-
-          {/* Amount due */}
-          <div className="flex shrink-0 items-center justify-between gap-2 rounded-xl bg-emerald-50 px-3 py-2 dark:bg-emerald-950/40">
-            <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300">ยอดคงต้องชำระ</span>
-            <span className="whitespace-nowrap text-2xl font-black leading-tight tracking-tight text-emerald-700 tabular-nums dark:text-emerald-300 sm:text-3xl">
-              {amountToCollect.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-            </span>
-          </div>
-
-          {/* Payment Method Selector — one row, equal-size buttons */}
-          <PaymentMethodSelector
-            selectedMethod={paymentMethod}
-            onSelectMethod={setPaymentMethod}
-            autoSelectFirst={false}
-            showLabel={false}
-            itemsPerRow={3}
-          />
-
-          {/* Dynamic Inputs per Method */}
-          {paymentMethod ? (
-            <PaymentDynamicContent
-              paymentMethod={paymentMethod}
-              targetAmount={amountToCollect}
-              receivedCashInput={receivedCashInput}
-              onReceivedCashInputChange={setReceivedCashInput}
-              changeAmount={changeAmount}
-              bankRef={bankRef}
-              onBankRefChange={setBankRef}
-              bankQrUrl={settings.business?.bankQrDataUrl}
-              promptPayId={settings.business?.promptPayValue}
-            />
-          ) : null}
-        </div>
-
-        {/* Bottom of the panel: delivery choice, then บันทึกแบบร่าง + ออกบิล */}
-        <div className="flex shrink-0 flex-col gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
-          <label className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={deliverNow}
-              onChange={(e) => setDeliverNow(e.target.checked)}
-              className="w-4 h-4 text-emerald-700 dark:text-emerald-400 rounded"
-            />
-            <span>รับของแล้ว</span>
-          </label>
-          <div className="flex items-stretch gap-2">
-            <button
-              type="button"
-              onClick={handleSaveDraft}
-              disabled={isSubmitting}
-              className="shrink-0 whitespace-nowrap rounded-xl border-2 border-slate-200 bg-white px-3 py-2.5 hover:bg-slate-50 active:scale-[0.99] text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700/50 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
-            >
-              <FileText className="w-4 h-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
-              <span className="truncate">บันทึกแบบร่าง</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleConfirmBill}
-              disabled={isSubmitting || !paymentMethod}
-              className="flex-1 min-w-0 rounded-xl bg-emerald-700 px-2 py-2.5 hover:bg-emerald-800 active:scale-[0.99] text-white font-black text-xs sm:text-sm md:text-base flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
-            >
-              <Printer className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
-              <span className="truncate">
-                {isSubmitting ? 'กำลังบันทึกบิล...' : draftBillId ? 'ออกบิลจากแบบร่าง' : 'ออกบิล'}
-              </span>
-            </button>
-          </div>
-        </div>
-
-      </div>
+        ) : null}
+      </DocumentSummaryPanel>
+    </DocumentSummaryLayout>
 
       {/* Post-Save Print Confirmation Modal */}
       <PostSavePrintModal
@@ -732,6 +605,6 @@ export default function CheckoutPage() {
           }
         }
       `}</style>
-    </div>
+    </>
   )
 }

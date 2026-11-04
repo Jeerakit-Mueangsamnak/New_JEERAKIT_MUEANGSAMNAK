@@ -150,28 +150,13 @@ describe('VAT is chosen per bill with รวม VAT / ไม่รวม VAT, no
     expect(screen.queryByRole('button', { name: 'ยกเลิก' })).toBeNull()
   })
 
-  it.each([
-    ['ไม่รวม VAT', 'EXCLUSIVE', 7, 107],
-    ['รวม VAT', 'INCLUSIVE', 6.54, 100],
-  ] as const)('quotation mode has the same buttons (none pressed at start); %s is sent when saving', (name, mode, tax, total) => {
-    // Owner 2026-11-04: the shop sets only the rate — no price mode needed.
-    setCachedSystemSettings({ ...vatShop, taxDiscount: { ...vatShop.taxDiscount, vatMode: null } })
-    const onSave = vi.fn()
-    render(<SystemSettingsProvider><CartPanel onCheckout={vi.fn()} items={[saleItem]} isQuotationMode onSaveQuotation={onSave} /></SystemSettingsProvider>)
-    expect(screen.queryByRole('switch')).toBeNull()
-    const btn = screen.getByRole('button', { name }) as HTMLButtonElement
-    expect(btn.getAttribute('aria-pressed')).toBe('false')
-    fireEvent.click(btn)
-    expect(btn.getAttribute('aria-pressed')).toBe('true')
-    fireEvent.click(screen.getByRole('button', { name: /บันทึกใบเสนอราคา/ }))
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ vatEnabled: true, vatMode: mode, tax, grandTotal: total }))
-  })
-
-  it('a quotation saved with no VAT button sends VAT off', () => {
-    setCachedSystemSettings(vatShop)
-    const onSave = vi.fn()
-    render(<SystemSettingsProvider><CartPanel onCheckout={vi.fn()} items={[saleItem]} isQuotationMode onSaveQuotation={onSave} /></SystemSettingsProvider>)
-    fireEvent.click(screen.getByRole('button', { name: /บันทึกใบเสนอราคา/ }))
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ vatEnabled: false, vatMode: null, tax: 0 }))
+  it('the quotation cart has no VAT buttons any more: it goes to สรุปใบเสนอราคา like a bill goes to ชำระเงิน', () => {
+    const onCheckout = vi.fn()
+    render(<SystemSettingsProvider><CartPanel onCheckout={onCheckout} items={[saleItem]} isQuotationMode /></SystemSettingsProvider>)
+    expect(screen.queryByRole('button', { name: 'รวม VAT' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'ไม่รวม VAT' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'สรุปใบเสนอราคา' }))
+    expect(onCheckout).toHaveBeenCalledOnce()
+    expect(loadActiveCart()).toMatchObject({ quotationMode: true, items: [expect.objectContaining({ id: 'SALE' })] })
   })
 })

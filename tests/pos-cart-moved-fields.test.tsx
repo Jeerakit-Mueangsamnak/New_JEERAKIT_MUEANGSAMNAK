@@ -36,10 +36,12 @@ describe('POS cart: fields moved to the payment page / contact phone', () => {
     expect(screen.queryByText('เงินมัดจำ (บาท)')).toBeNull()
   })
 
-  it('a quotation keeps them (it has no payment page)', () => {
+  it('a quotation has none either: they are on สรุปใบเสนอราคา, the same central panel (owner 2026-11-04)', () => {
     mount({ isQuotationMode: true })
-    expect(screen.getByText('ส่วนลด (บาท)')).toBeTruthy()
-    expect(screen.getByText('เงินมัดจำ (บาท)')).toBeTruthy()
+    expect(screen.queryByText('ส่วนลด (บาท)')).toBeNull()
+    expect(screen.queryByText('ค่าขนส่ง (บาท)')).toBeNull()
+    expect(screen.queryByText('เงินมัดจำ (บาท)')).toBeNull()
+    expect(screen.getByRole('button', { name: 'สรุปใบเสนอราคา' })).toBeTruthy()
   })
 
   it('the contact phone starts as the customer phone, takes typing, and keeps digits only', () => {

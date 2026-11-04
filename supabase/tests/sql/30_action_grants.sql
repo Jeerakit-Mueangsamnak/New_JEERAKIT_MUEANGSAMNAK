@@ -12,14 +12,17 @@ SELECT t.err('A-GRANT', 'an OWNER has every action already', 'owner',
     format($q$select public.owner_set_member_actions(%L::uuid, ARRAY['REFUND'], 'x')$q$, t.u('owner')), 'OWNER_HAS_ALL_ACTIONS');
 SELECT t.err('A-GRANT', 'unknown action refused', 'owner',
     format($q$select public.owner_set_member_actions(%L::uuid, ARRAY['DELETE_EVERYTHING'], 'x')$q$, t.u('cashier')), 'UNKNOWN_ACTION');
-SELECT t.err('A-GRANT', 'a reason is required', 'owner',
-    format($q$select public.owner_set_member_actions(%L::uuid, ARRAY['REFUND'], '')$q$, t.u('cashier')), 'REASON');
 SELECT t.ok('A-GRANT', 'owner revokes every action from the cashier', 'owner',
     format($q$select public.owner_set_member_actions(%L::uuid, ARRAY[]::text[], 'test revoke')$q$, t.u('cashier')));
 SELECT t.check('A-GRANT', 'revoke is audited with before and after',
     EXISTS (SELECT 1 FROM public.audit_logs WHERE action = 'MEMBER_ACTIONS_CHANGE' AND entity_id = t.u('cashier')
              AND reason = 'test revoke' AND jsonb_array_length(after_data -> 'actions') = 0
              AND jsonb_array_length(before_data -> 'actions') = 6));
+SELECT t.ok('A-GRANT', 'an empty reason is accepted (owner 2026-10-22)', 'owner',
+    format($q$select public.owner_set_member_actions(%L::uuid, ARRAY[]::text[], '')$q$, t.u('cashier')));
+SELECT t.check('A-GRANT', 'that change is audited with the automatic reason',
+    EXISTS (SELECT 1 FROM public.audit_logs WHERE action = 'MEMBER_ACTIONS_CHANGE' AND entity_id = t.u('cashier')
+             AND reason = 'บันทึกอัตโนมัติ'));
 SELECT t.check('A-GRANT', 'the cashier sees only their own grants (none)',
     (t.exec_as(t.u('cashier'), 'authenticated', $q$select to_jsonb(count(*)) from public.member_action_grants$q$))::text = '0');
 

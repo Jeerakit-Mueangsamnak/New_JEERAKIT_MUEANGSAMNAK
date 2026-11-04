@@ -40,16 +40,24 @@ SELECT t.check('PIN', 'wrong PIN 1 → not ok, no wait yet',
 SELECT t.check('PIN', 'right PIN → single-use token', t.pin('cashier', 'REFUND') IS NOT NULL);
 SELECT t.err('PIN', 'a PIN for a risky action must name that action', 'cashier',
     $q$select public.verify_pin('123456', 'ACTION')$q$, 'ACTION_REQUIRED');
-SELECT t.err('PIN', 'a PIN confirmed for REFUND cannot be spent on receiving stock', 'owner',
-    format($q$select public.stock_receive(%L::uuid, 1, 'x', 'key-recv-wrongact', %L::uuid)$q$, t.v('bk1'), t.pin('owner', 'REFUND')),
-    'PIN_CONFIRMATION_INVALID');
-SELECT t.set('tok', t.pin('owner', 'PRICE_OVERRIDE'));
-SELECT t.err('PIN', 'another user cannot spend my token', 'cashier',
+-- Owner 2026-10-22 (migration 20261022150000): actions need no PIN and no typed reason; an empty reason
+-- is saved as 'บันทึกอัตโนมัติ'. A PIN token sent anyway is spent only for its own action and user.
+SELECT t.set('tok_refund', t.pin('owner', 'REFUND'));
+SELECT t.ok('PIN', 'a PIN confirmed for REFUND is not spent on another action (that action needs no PIN)', 'owner',
     format($q$select public.bill_save_draft(NULL, jsonb_build_object('customer_id', %L, 'lines', jsonb_build_array(
         jsonb_build_object('product_id', %L, 'line_mode', 'RENTAL', 'ordered_qty', 1, 'unit_price', 1,
         'rental_calculation_type', 'PER_PERIOD', 'period_count', 1, 'rental_start_at', now(),
-        'rental_end_at', now() + interval '1 day'))), %L::uuid)$q$, t.v('c1'), t.v('bk1'), t.v('tok')),
-    'PIN_CONFIRMATION_INVALID');
+        'rental_end_at', now() + interval '1 day'))), %L::uuid)$q$, t.v('c1'), t.v('bk1'), t.v('tok_refund')));
+SELECT t.check('PIN', 'the REFUND token is still unused',
+    (SELECT used_at IS NULL FROM public.pin_confirmations WHERE id = t.v('tok_refund')::uuid));
+SELECT t.set('tok', t.pin('owner', 'PRICE_OVERRIDE'));
+SELECT t.ok('PIN', 'another user cannot spend my token (the draft itself needs no PIN)', 'cashier',
+    format($q$select public.bill_save_draft(NULL, jsonb_build_object('customer_id', %L, 'lines', jsonb_build_array(
+        jsonb_build_object('product_id', %L, 'line_mode', 'RENTAL', 'ordered_qty', 1, 'unit_price', 1,
+        'rental_calculation_type', 'PER_PERIOD', 'period_count', 1, 'rental_start_at', now(),
+        'rental_end_at', now() + interval '1 day'))), %L::uuid)$q$, t.v('c1'), t.v('bk1'), t.v('tok')));
+SELECT t.check('PIN', 'my token is still unused',
+    (SELECT used_at IS NULL FROM public.pin_confirmations WHERE id = t.v('tok')::uuid));
 SELECT t.err('PIN', 'PIN format is 6 digits', 'nomenu', $q$select public.set_pin('12ab')$q$, 'PIN_FORMAT');
 SELECT t.err('PIN', 'changing a PIN needs the current PIN', 'cashier', $q$select public.set_pin('654321')$q$, 'PIN_REQUIRED');
 SELECT t.err('PIN', 'clients cannot read PIN hashes', 'owner', $q$select to_jsonb(count(*)) from public.user_pins$q$,
@@ -135,12 +143,11 @@ SELECT t.check('PIN', 'owner recovery audited (who, account, method, time) witho
              AND after_data ? 'reauthenticated_at' AND after_data::text NOT LIKE '%123456%'));
 
 -- ===================================================================== RENTAL BILL (no contract, no cash session, deposit on bill)
-SELECT t.err('STOCK', 'receiving stock without PIN is refused', 'owner',
-    format($q$select public.stock_receive(%L::uuid, 10, 'first count', 'key-recv-nopin', NULL)$q$, t.v('bk1')), 'PIN_REQUIRED');
-SELECT t.ok('STOCK', 'receive 10 BK-001 with PIN', 'owner',
-    format($q$select public.stock_receive(%L::uuid, 10, 'first count', 'key-recv-bk1', %L::uuid)$q$, t.v('bk1'), t.pin('owner', 'STOCK_RECEIVE')));
-SELECT t.check('STOCK', 'receive is audited with PIN verified',
-    EXISTS (SELECT 1 FROM public.audit_logs WHERE action = 'STOCK_RECEIVE' AND pin_verified AND quantity = 10));
+SELECT t.ok('STOCK', 'receive 10 BK-001 without PIN (owner 2026-10-22)', 'owner',
+    format($q$select public.stock_receive(%L::uuid, 10, 'first count', 'key-recv-bk1', NULL)$q$, t.v('bk1')));
+SELECT t.check('STOCK', 'receive is audited (who / quantity) without a PIN',
+    EXISTS (SELECT 1 FROM public.audit_logs WHERE action = 'STOCK_RECEIVE' AND NOT pin_verified AND quantity = 10
+             AND actor_id = t.u('owner')));
 SELECT t.ok('STOCK', 'receive 10 BK-003 with PIN', 'owner',
     format($q$select public.stock_receive(%L::uuid, 10, 'first count', 'key-recv-bk3', %L::uuid)$q$, t.v('bk3'), t.pin('owner', 'STOCK_RECEIVE')));
 SELECT t.check('SEED', 'units follow the owner list (กากบาท คู่ / ครอบ ตัว / ข้อต่อ ชุด)',
@@ -170,32 +177,26 @@ SELECT t.check('BILL', 'accessory rents at list price 0',
     OR true);  -- helper is not granted to clients (checked in GRANTS); value checked as postgres below
 SELECT t.check('BILL', 'accessory list price for RENTAL = 0', public._list_price(t.v('acc')::uuid, 'RENTAL') = 0);
 
--- price override = PIN
-SELECT t.err('PRICE', 'price override without PIN refused', 'cashier',
+-- price override: no PIN, no typed reason (owner 2026-10-22)
+SELECT t.ok('PRICE', 'price override needs no PIN or reason', 'cashier',
     format($q$select public.bill_save_draft(NULL, jsonb_build_object('customer_id', %L, 'lines', jsonb_build_array(
         jsonb_build_object('product_id', %L, 'line_mode', 'RENTAL', 'ordered_qty', 1, 'unit_price', 5,
         'rental_calculation_type', 'PER_PERIOD', 'period_count', 1, 'rental_start_at', now(),
-        'rental_end_at', now() + interval '1 day'))))$q$, t.v('c1'), t.v('bk1')), 'PIN_REQUIRED');
-SELECT t.err('PRICE', 'price override with PIN but no reason refused', 'cashier',
-    format($q$select public.bill_save_draft(NULL, jsonb_build_object('customer_id', %L, 'lines', jsonb_build_array(
-        jsonb_build_object('product_id', %L, 'line_mode', 'RENTAL', 'ordered_qty', 1, 'unit_price', 5,
-        'rental_calculation_type', 'PER_PERIOD', 'period_count', 1, 'rental_start_at', now(),
-        'rental_end_at', now() + interval '1 day'))), %L::uuid)$q$, t.v('c1'), t.v('bk1'), t.pin('cashier', 'PRICE_OVERRIDE')),
-    'REASON_REQUIRED');
+        'rental_end_at', now() + interval '1 day'))))$q$, t.v('c1'), t.v('bk1')));
+SELECT t.check('PRICE', 'the override is audited with the automatic reason',
+    EXISTS (SELECT 1 FROM public.audit_logs WHERE action = 'BILL_DRAFT_SAVE' AND actor_id = t.u('cashier')
+             AND reason = 'บันทึกอัตโนมัติ' AND NOT pin_verified));
 SELECT t.ok('PRICE', 'price override with PIN + reason accepted', 'cashier',
     format($q$select public.bill_save_draft(NULL, jsonb_build_object('customer_id', %L, 'override_reason', 'regular customer', 'lines', jsonb_build_array(
         jsonb_build_object('product_id', %L, 'line_mode', 'RENTAL', 'ordered_qty', 1, 'unit_price', 5,
         'rental_calculation_type', 'PER_PERIOD', 'period_count', 1, 'rental_start_at', now(),
         'rental_end_at', now() + interval '1 day'))), %L::uuid)$q$, t.v('c1'), t.v('bk1'), t.pin('cashier', 'PRICE_OVERRIDE')));
-SELECT t.err('PRICE', 'master price change without PIN refused', 'owner',
-    format($q$select public.product_set_price(%L::uuid, NULL, 12, 'new price', NULL)$q$, t.v('bk2')), 'PIN_REQUIRED');
+SELECT t.ok('PRICE', 'master price change needs no PIN', 'owner',
+    format($q$select public.product_set_price(%L::uuid, NULL, 12, 'new price', NULL)$q$, t.v('bk2')));
 
--- ===================================================================== REFUND / VOID (PIN, no approval step)
-SELECT t.err('REFUND', 'refund without PIN refused', 'cashier',
-    format($q$select public.refund_pay(%L::uuid, 5, 'CASH', 'overcharged', 'key-rf-1', NULL)$q$, t.v('b1')), 'PIN_REQUIRED');
-SELECT t.err('REFUND', 'a refund must point to the payment it returns', 'cashier',
-    format($q$select public.refund_pay(%L::uuid, 5, 'CASH', 'overcharged', 'key-rf-np', %L::uuid)$q$, t.v('b1'),
-           t.pin('cashier', 'REFUND')), 'PAYMENT_REQUIRED');
+-- ===================================================================== REFUND / VOID (no PIN since 2026-10-22, no approval step)
+SELECT t.err('REFUND', 'a refund must point to the payment it returns (no PIN asked first)', 'cashier',
+    format($q$select public.refund_pay(%L::uuid, 5, 'CASH', 'overcharged', 'key-rf-np', NULL)$q$, t.v('b1')), 'PAYMENT_REQUIRED');
 SELECT t.ok('REFUND', 'refund with PIN paid at once', 'cashier',
     format($q$select public.refund_pay(%L::uuid, 5, 'CASH', 'overcharged', 'key-rf-2', %L::uuid, %L::uuid)$q$, t.v('b1'),
            t.pin('cashier', 'REFUND'), (SELECT id::text FROM public.payments WHERE bill_id = t.v('b1')::uuid LIMIT 1)));
@@ -204,9 +205,8 @@ SELECT t.check('REFUND', 'refund audit: PIN verified, amount, channel, no PIN va
     AND NOT EXISTS (SELECT 1 FROM public.audit_logs WHERE COALESCE(after_data::text, '') || COALESCE(before_data::text, '') LIKE '%123456%'));
 SELECT t.check('REFUND', 'bill shows refunded 5, balance 5 due again',
     (SELECT refunded_amount = 5 AND balance_due = 5 FROM public.bills WHERE id = t.v('b1')::uuid));
-SELECT t.err('REFUND', 'token cannot be reused', 'cashier',
-    format($q$select public.refund_pay(%L::uuid, 1, 'CASH', 'again', 'key-rf-3', %L::uuid)$q$, t.v('b1'),
-           (SELECT used_for FROM public.pin_confirmations LIMIT 0)), 'PIN_REQUIRED');
+SELECT t.check('REFUND', 'the PIN token sent with that refund was spent once',
+    (SELECT count(*) FROM public.pin_confirmations WHERE user_id = t.u('cashier') AND used_for = 'REFUND' AND used_at IS NOT NULL) = 1);
 
 -- ===================================================================== DELIVERY / RETURN / DAMAGE DEFAULTS
 SELECT t.set('l1', (SELECT id::text FROM public.bill_lines WHERE bill_id = t.v('b1')::uuid));
@@ -221,34 +221,32 @@ SELECT t.ok('RENTAL', 'return 1 damaged → DAMAGED stock + damage case', 'cashi
 SELECT t.set('dc', (SELECT id::text FROM public.incident_cases WHERE bill_line_id = t.v('l1')::uuid AND incident_type = 'DAMAGE'));
 SELECT t.check('RENTAL', 'return screen data: bill still shows its deposit 500',
     (SELECT deposit_amount = 500 FROM public.bills WHERE id = t.v('b1')::uuid));
-SELECT t.err('DAMAGE', 'reduced damage fee (100 ≠ default 150) needs PIN', 'cashier',
-    format($q$select public.charge_create(%L::uuid, 'DAMAGE', 100, 'scratch', %L::uuid, %L::uuid)$q$, t.v('b1'), t.v('l1'), t.v('dc')),
-    'PIN_REQUIRED');
+SELECT t.set('ch0', (t.ok('DAMAGE', 'a reduced damage fee (100 ≠ default 150) needs no PIN', 'cashier',
+    format($q$select public.charge_create(%L::uuid, 'DAMAGE', 100, 'scratch', %L::uuid, %L::uuid)$q$, t.v('b1'), t.v('l1'), t.v('dc')))) ->> 'id');
+SELECT t.ok('DAMAGE', 'waiving a damage charge needs no PIN', 'cashier',
+    format($q$select public.charge_cancel(%L::uuid, 'waive')$q$, t.v('ch0')));
 SELECT t.set('ch1', (t.ok('DAMAGE', 'default damage fee 150 needs no PIN', 'cashier',
     format($q$select public.charge_create(%L::uuid, 'DAMAGE', 150, 'scratch', %L::uuid, %L::uuid)$q$, t.v('b1'), t.v('l1'), t.v('dc')))) ->> 'id');
 SELECT t.check('DAMAGE', 'suggested amount stored from product default',
     (SELECT suggested_amount = 150 FROM public.charges WHERE id = t.v('ch1')::uuid));
-SELECT t.err('DAMAGE', 'waiving a damage charge needs PIN', 'cashier',
-    format($q$select public.charge_cancel(%L::uuid, 'waive')$q$, t.v('ch1')), 'PIN_REQUIRED');
 SELECT t.ok('DAMAGE', 'confirm damage charge', 'cashier', format($q$select public.charge_confirm(%L::uuid)$q$, t.v('ch1')));
 SELECT t.check('DAMAGE', 'deposit is never deducted by the system (balance includes 150 charge)',
     (SELECT balance_due = 155 AND deposit_amount = 500 FROM public.bills WHERE id = t.v('b1')::uuid));
 
--- LOST: recorded with PIN, no approval
+-- LOST: recorded at once (no PIN since 2026-10-22), no approval
 SELECT t.set('mc', (t.ok('LOST', 'open missing case for the other piece', 'cashier',
     format($q$select public.incident_open(%L::uuid, 'MISSING', 1, 'not returned')$q$, t.v('l1')))) ->> 'id');
-SELECT t.err('LOST', 'lost without PIN refused', 'cashier',
-    format($q$select public.lost_record(%L::uuid, 1, 'REPLACEMENT', 'gone', NULL)$q$, t.v('mc')), 'PIN_REQUIRED');
-SELECT t.ok('LOST', 'lost with PIN recorded', 'cashier',
-    format($q$select public.lost_record(%L::uuid, 1, 'REPLACEMENT', 'gone', %L::uuid)$q$, t.v('mc'), t.pin('cashier', 'LOST_RECORD')));
+SELECT t.ok('LOST', 'lost recorded without PIN', 'cashier',
+    format($q$select public.lost_record(%L::uuid, 1, 'REPLACEMENT', 'gone', NULL)$q$, t.v('mc')));
 SELECT t.check('LOST', 'line obligation resolved, LOST stock 1',
     (SELECT obligation_held_here = 0 FROM public.bill_lines WHERE id = t.v('l1')::uuid)
     AND (SELECT quantity FROM public.stock_balances WHERE product_id = t.v('bk1')::uuid AND stock_state = 'LOST') = 1);
 
 -- ===================================================================== STOCK ADJUST / A → B CONVERSION (Master §11.5)
-SELECT t.err('STOCK', 'stock adjust without PIN refused', 'owner',
-    format($q$select public.stock_adjust(%L::uuid, 'AVAILABLE', 'INSPECTION', 1, 'check', 'key-adj-1', NULL)$q$, t.v('bk1')),
-    'PIN_REQUIRED');
+SELECT t.ok('STOCK', 'stock adjust needs no PIN (1 available → inspection)', 'owner',
+    format($q$select public.stock_adjust(%L::uuid, 'AVAILABLE', 'INSPECTION', 1, 'check', 'key-adj-1', NULL)$q$, t.v('bk1')));
+SELECT t.ok('STOCK', 'and back (inspection → available), so the counts below are unchanged', 'owner',
+    format($q$select public.stock_adjust(%L::uuid, 'INSPECTION', 'AVAILABLE', 1, 'checked ok', 'key-adj-2', NULL)$q$, t.v('bk1')));
 SELECT t.err('CONVERT', 'convert more than damaged → refused, nothing changes', 'owner',
     format($q$select public.convert_damaged_stock(%L::uuid, %L::uuid, 5, 5, 'cut', 'key-cv-1', %L::uuid)$q$,
            t.v('bk1'), t.v('bk2'), t.pin('owner', 'STOCK_CONVERT')), 'INSUFFICIENT_STOCK');
@@ -273,8 +271,8 @@ SELECT t.set('l2', (SELECT id::text FROM public.bill_lines WHERE bill_id = t.v('
 SELECT t.ok('CONT', 'deliver 3', 'cashier',
     format($q$select public.delivery_create(%L::uuid, jsonb_build_array(jsonb_build_object('bill_line_id', %L, 'quantity', 3)), 'key-dl-2')$q$,
            t.v('b2'), t.v('l2')));
-SELECT t.err('CONT', 'continuation needs a reason', 'cashier',
-    format($q$select public.create_rental_continuation(%L::uuid, '[]'::jsonb, NULL, 'key-ct-0')$q$, t.v('b2')), 'REASON_REQUIRED');
+SELECT t.err('CONT', 'continuation with no items is refused (the reason is optional since 2026-10-22)', 'cashier',
+    format($q$select public.create_rental_continuation(%L::uuid, '[]'::jsonb, NULL, 'key-ct-0')$q$, t.v('b2')), 'ITEMS_REQUIRED');
 SELECT t.set('b3', (t.ok('CONT', 'continue 2 of 3 in one step', 'cashier',
     format($q$select public.create_rental_continuation(%L::uuid, jsonb_build_array(jsonb_build_object('from_line_id', %L,
         'quantity', 2, 'rental_calculation_type', 'PER_PERIOD', 'period_count', 1,
@@ -291,10 +289,8 @@ SELECT t.check('CONT', 'carry forward created no stock movement',
         AND source_id IN (SELECT id FROM public.bill_lines WHERE bill_id = t.v('b3')::uuid)) = 0);
 
 -- ===================================================================== FINANCE: expense / other income
-SELECT t.err('FIN', 'expense without PIN refused', 'finance',
-    $q$select public.expense_create('FUEL', 300, 'CASH', 'delivery truck', NULL)$q$, 'PIN_REQUIRED');
-SELECT t.set('ex1', (t.ok('FIN', 'expense with PIN recorded at once', 'finance',
-    format($q$select public.expense_create('FUEL', 300, 'CASH', 'delivery truck', %L::uuid)$q$, t.pin('finance', 'EXPENSE_CREATE')))) ->> 'id');
+SELECT t.set('ex1', (t.ok('FIN', 'expense recorded at once without PIN', 'finance',
+    $q$select public.expense_create('FUEL', 300, 'CASH', 'delivery truck', NULL)$q$)) ->> 'id');
 SELECT t.check('FIN', 'expense posted to ledger immediately',
     EXISTS (SELECT 1 FROM public.finance_ledger_entries WHERE source_type = 'EXPENSE' AND source_id = t.v('ex1')::uuid));
 SELECT t.set('oi1', (t.ok('FIN', 'other income without PIN', 'finance',
@@ -302,8 +298,8 @@ SELECT t.set('oi1', (t.ok('FIN', 'other income without PIN', 'finance',
 SELECT t.check('FIN', 'other income is REVENUE / OTHER in ledger',
     EXISTS (SELECT 1 FROM public.finance_ledger_entries WHERE source_type = 'OTHER_INCOME'
              AND source_id = t.v('oi1')::uuid AND entry_type = 'REVENUE' AND revenue_class = 'OTHER'));
-SELECT t.err('FIN', 'voiding other income needs PIN', 'finance',
-    format($q$select public.other_income_void(%L::uuid, 'mistake', NULL)$q$, t.v('oi1')), 'PIN_REQUIRED');
+SELECT t.ok('FIN', 'voiding other income needs no PIN', 'finance',
+    format($q$select public.other_income_void(%L::uuid, 'mistake', NULL)$q$, t.v('oi1')));
 
 -- ===================================================================== CUSTOMER DOCUMENTS (Master §6)
 SELECT t.err('DOCS', 'contract needs template + snapshot', 'owner',
@@ -348,18 +344,17 @@ SELECT t.ok('SET', 'owner switches the discount limit on at 10% (test value only
     $q$select public.settings_update('{"policies":{"discount_limit_enabled":true,"discount_limit_percent":10}}'::jsonb, 'test')$q$);
 SELECT t.ok('DISC', '5% line discount needs no PIN', 'cashier',
     t.draft('', $x$'line_discount_type', 'PERCENT', 'line_discount_value', 5,$x$, NULL));
-SELECT t.err('DISC', '20% line discount without PIN refused', 'cashier',
-    t.draft('', $x$'line_discount_type', 'PERCENT', 'line_discount_value', 20,$x$, NULL), 'PIN_REQUIRED');
-SELECT t.err('DISC', '20% with PIN but no reason refused', 'cashier',
-    t.draft('', $x$'line_discount_type', 'PERCENT', 'line_discount_value', 20,$x$, t.pin('cashier', 'PRICE_OVERRIDE')),
-    'REASON_REQUIRED');
+SELECT t.ok('DISC', '20% line discount (over the 10% limit) needs no PIN', 'cashier',
+    t.draft('', $x$'line_discount_type', 'PERCENT', 'line_discount_value', 20,$x$, NULL));
+SELECT t.ok('DISC', '20% with PIN but no reason is accepted (reason saved automatically)', 'cashier',
+    t.draft('', $x$'line_discount_type', 'PERCENT', 'line_discount_value', 20,$x$, t.pin('cashier', 'PRICE_OVERRIDE')));
 SELECT t.ok('DISC', '20% with PIN + reason accepted', 'cashier',
     t.draft($x$'override_reason', 'loyal customer',$x$, $x$'line_discount_type', 'PERCENT', 'line_discount_value', 20,$x$,
             t.pin('cashier', 'PRICE_OVERRIDE')));
 SELECT t.check('DISC', 'over-limit discount audited with PIN + reason',
     EXISTS (SELECT 1 FROM public.audit_logs WHERE action = 'BILL_DRAFT_SAVE' AND pin_verified AND reason = 'loyal customer'));
-SELECT t.err('DISC', 'bill-level fixed discount over the limit needs PIN', 'cashier',
-    t.draft($x$'bill_discount_type', 'FIXED', 'bill_discount_value', 5,$x$, '', NULL), 'PIN_REQUIRED');
+SELECT t.ok('DISC', 'bill-level fixed discount over the limit needs no PIN', 'cashier',
+    t.draft($x$'bill_discount_type', 'FIXED', 'bill_discount_value', 5,$x$, '', NULL));
 SELECT t.ok('SET', 'owner switches the discount limit off', 'owner',
     $q$select public.settings_update('{"policies":{"discount_limit_enabled":false}}'::jsonb, 'test done')$q$);
 SELECT t.ok('DISC', 'limit off: 50% discount needs no PIN', 'cashier',
@@ -384,8 +379,9 @@ SELECT t.ok('EARLY', 'deliver 1', 'cashier',
 SELECT public.rental_overdue_scan();
 SELECT t.check('NOTICE', 'default return reminder (1 day) does not fire 4 days ahead',
     NOT EXISTS (SELECT 1 FROM public.notifications WHERE event_type = 'RENTAL_DUE_SOON' AND entity_id = t.v('b3')::uuid));
-SELECT t.ok('NOTICE', 'owner changes the return reminder to 7 days in Settings', 'owner',
-    $q$select public.settings_update('{"policies":{"notifications":{"returnReminder":{"enabled":true,"daysBefore":7},"overdueReturnReminder":{"enabled":true}}}}'::jsonb, 'test')$q$);
+-- Reminders are each member's own setting (ตั้งค่าส่วนตัว, migration 20261019090000), not a shop policy.
+SELECT t.ok('NOTICE', 'owner changes their own return reminder to 7 days', 'owner',
+    $q$select public.my_notification_prefs_set('{"returnReminder":{"enabled":true,"daysBefore":7},"overdueReturnReminder":{"enabled":true}}'::jsonb)$q$);
 SELECT public.rental_overdue_scan();
 SELECT t.check('NOTICE', 'in-app due-soon notice for the rental',
     EXISTS (SELECT 1 FROM public.notifications WHERE event_type = 'RENTAL_DUE_SOON' AND entity_id = t.v('b3')::uuid));
@@ -465,14 +461,13 @@ SELECT t.check('RESV', 'reservation expiry is optional',
 SELECT t.check('RESV', 'no auto-release until the owner sets a policy', public.reservations_expire() = 0);
 
 -- ===================================================================== APP DATA SHAPES (step 4)
-SELECT t.err('STOCK', 'new product with opening stock needs the stock-receive PIN', 'owner',
+SELECT t.ok('STOCK', 'new product with opening stock needs no PIN', 'owner',
     format($q$select public.product_create(jsonb_build_object('sku', 'T-OPEN', 'name', 'opening test', 'unit_id', %L,
         'calculation_type', 'PER_DAY', 'rental_price', 5, 'can_rent', true), NULL, 3)$q$,
-        (SELECT id FROM public.units ORDER BY sort_order LIMIT 1)), 'PIN_REQUIRED');
-SELECT t.ok('STOCK', 'new product with opening stock + PIN', 'owner',
-    format($q$select public.product_create(jsonb_build_object('sku', 'T-OPEN', 'name', 'opening test', 'unit_id', %L,
-        'calculation_type', 'PER_DAY', 'rental_price', 5, 'can_rent', true), NULL, 3, false, %L::uuid)$q$,
-        (SELECT id FROM public.units ORDER BY sort_order LIMIT 1), t.pin('owner', 'STOCK_RECEIVE')));
+        (SELECT id FROM public.units ORDER BY sort_order LIMIT 1)));
+SELECT t.check('STOCK', 'the opening stock 3 is received',
+    (SELECT sb.quantity = 3 FROM public.stock_balances sb JOIN public.products p ON p.id = sb.product_id
+      WHERE p.sku = 'T-OPEN' AND sb.stock_state = 'AVAILABLE'));
 SELECT t.ok('DATA', 'customer keeps structured contact details', 'cashier',
     $q$select public.customer_create('{"name":"Wichai","phone":"089-000-1111","address":"12 ม.3 ต.บางพลี","contact_details":{"lineId":"wichai","houseNo":"12"}}'::jsonb)$q$);
 SELECT t.check('DATA', 'contact details stored',
@@ -489,7 +484,7 @@ SELECT t.check('DATA', 'quotation total = items 20 + delivery 200',
 SELECT t.ok('NOTICE', 'OWNER session may run the notice scan', 'owner', $q$select to_jsonb(public.rental_overdue_scan())$q$);
 SELECT t.err('NOTICE', 'the notice scan needs an ACTIVE member (owner 2026-10-26: every ACTIVE member may; one waiting for approval may not)', 'pending', $q$select to_jsonb(public.rental_overdue_scan())$q$, 'FORBIDDEN');
 
--- waiving a damage fee = closing the case with no fee while the default is > 0 → PIN
+-- waiving a damage fee = closing the case with no fee while the default is > 0 (no PIN since 2026-10-22)
 SELECT t.set('bw', (t.ok('DAMAGE', 'bill for the waiver test', 'cashier',
     format($q$select public.bill_save_draft(NULL, jsonb_build_object('customer_id', %L, 'lines', jsonb_build_array(
         jsonb_build_object('product_id', %L, 'line_mode', 'RENTAL', 'ordered_qty', 1, 'rental_calculation_type', 'PER_PERIOD',
@@ -504,10 +499,10 @@ SELECT t.ok('DAMAGE', 'return damaged', 'cashier',
            t.v('bw'), (SELECT id::text FROM public.bill_lines WHERE bill_id = t.v('bw')::uuid)));
 SELECT t.set('dcase', (SELECT id::text FROM public.incident_cases WHERE bill_id = t.v('bw')::uuid AND incident_type = 'DAMAGE'));
 SELECT t.check('DAMAGE', 'an open damage case without a fee exists for the waiver test', t.v('dcase') IS NOT NULL);
-SELECT t.err('DAMAGE', 'closing a damage case with no fee (default > 0) needs PIN', 'owner',
-    format($q$select public.incident_resolve(%L::uuid, 'ลูกค้าประจำ ไม่คิด')$q$, t.v('dcase')), 'PIN_REQUIRED');
-SELECT t.ok('DAMAGE', 'waiver with PIN + reason', 'owner',
-    format($q$select public.incident_resolve(%L::uuid, 'ลูกค้าประจำ ไม่คิด', false, %L::uuid)$q$, t.v('dcase'), t.pin('owner', 'CHARGE_AMOUNT_OVERRIDE')));
+SELECT t.ok('DAMAGE', 'closing a damage case with no fee (default > 0) needs no PIN', 'owner',
+    format($q$select public.incident_resolve(%L::uuid, 'ลูกค้าประจำ ไม่คิด')$q$, t.v('dcase')));
+SELECT t.check('DAMAGE', 'the waived case is closed',
+    (SELECT status <> 'OPEN' FROM public.incident_cases WHERE id = t.v('dcase')::uuid));
 
 -- ===================================================================== DIRECT WRITES / HISTORY / GRANTS
 SELECT t.err('DIRECT', 'client cannot insert bills', 'owner',

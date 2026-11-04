@@ -5,7 +5,7 @@
  * Bridges cart state from POS page to Checkout page with full fidelity.
  */
 
-import { Customer, Product } from '@/lib/types/rental-pos'
+import { Customer, Product, QuotationStatus } from '@/lib/types/rental-pos'
 
 const STORAGE_KEY = 'pos_active_cart'
 
@@ -57,6 +57,10 @@ export interface ActiveCartData {
   quotationId?: string
   quotationNo?: string
   draftBillId?: string
+  /** This cart is a quotation being made (POS quotation mode → สรุปใบเสนอราคา), not a bill. */
+  quotationMode?: boolean
+  /** The quotation being revised (quotation mode only); absent for a new one or a copy. */
+  quotationEdit?: { id: string; quotationNo: string; status: QuotationStatus; remark?: string }
 }
 
 export function loadActiveCart(): ActiveCartData | null {

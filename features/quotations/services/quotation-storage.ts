@@ -70,6 +70,81 @@ export function quotationPeriodOf(item: Pick<CartItem, 'rentalType' | 'itemType'
   return Math.max(1, Number(n) || 1)
 }
 
+/** The quotation being revised (kept with the cart while it goes to สรุปใบเสนอราคา and back). */
+export interface QuotationEditRef {
+  id: string
+  quotationNo: string
+  status: QuotationStatus
+  remark?: string
+}
+
+export interface QuotationFromCartInput {
+  items: CartItem[]
+  customer: Customer | null
+  /** Only an edit revises an existing quotation; a new one or a copy gets a fresh id. */
+  editing?: QuotationEditRef | null
+  documentDate?: string
+  shippingAddress?: string
+  rentalStartDate?: string
+  rentalEndDate?: string
+  subtotal: number
+  discount: number
+  shippingFee: number
+  depositAmount: number
+  tax: number
+  grandTotal: number
+  vatEnabled: boolean
+  vatMode?: 'INCLUSIVE' | 'EXCLUSIVE' | null
+}
+
+/** Cart + amounts of สรุปใบเสนอราคา → the Quotation to save (the server prices it again). */
+export function buildQuotationFromCart(input: QuotationFromCartInput, now: Date = new Date()): Quotation {
+  const localDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const qDate = (input.documentDate || localDay).slice(0, 10)
+  const customer = input.customer
+  const items = input.items.map((item, idx) => ({
+    id: item.id || `qitem-${now.getTime()}-${idx}`,
+    productId: item.productId || item.product.id,
+    productName: item.productName || item.product.name,
+    rentalType: item.rentalType,
+    quantity: item.quantity,
+    unitName: item.unitName || item.product.unit || 'ชิ้น',
+    unitPrice: item.unitPrice,
+    usageCountOrDays: quotationPeriodOf(item),
+    lineTotal: item.lineTotal,
+    dailyStartDate: item.dailyStartDate,
+    dailyEndDate: item.dailyEndDate,
+    isAccessory: item.product.isAccessory || false,
+    isChargeable: item.product.isChargeable !== false,
+    requiresReturn: item.product.requiresReturn !== false,
+  }))
+  const rentalStart = input.rentalStartDate?.slice(0, 10) || qDate
+  return {
+    id: input.editing?.id || `qt-${now.getTime()}`,
+    quotationNo: input.editing?.quotationNo || generateQuotationNo(),
+    quotationDate: qDate,
+    customerId: customer?.id || '',
+    customerName: customer?.customerName || 'ลูกค้าทั่วไป',
+    phone: customer?.phone || '',
+    customerAddress: customer?.address || input.shippingAddress || '',
+    customerTaxId: customer?.taxId || '',
+    siteName: input.shippingAddress || '',
+    rentalStartDate: rentalStart,
+    rentalEndDate: input.rentalEndDate?.slice(0, 10) || rentalStart,
+    items,
+    subtotal: input.subtotal,
+    discountAmount: input.discount,
+    shippingFee: input.shippingFee,
+    depositAmount: input.depositAmount,
+    taxAmount: input.tax,
+    vatEnabled: input.vatEnabled,
+    vatMode: input.vatEnabled ? input.vatMode ?? undefined : undefined,
+    grandTotal: input.grandTotal,
+    status: input.editing?.status || 'WAITING',
+    remark: input.editing?.remark,
+  }
+}
+
 /**
  * Saves a quotation made in POS and sends it (number assigned once, kept on later edits).
  * `incoming.id` of an existing, still editable quotation revises it in place; any other id

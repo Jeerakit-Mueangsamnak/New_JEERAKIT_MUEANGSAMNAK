@@ -139,8 +139,8 @@ BEGIN
     PERFORM t.check('LINE-VAULT', 'no value in the audit trail',
         NOT EXISTS (SELECT 1 FROM public.audit_logs WHERE action LIKE 'LINE_CHANNEL_%'
                      AND (after_data::text LIKE '%0123456789abcdef%' OR after_data::text LIKE '%token-%')));
-    PERFORM t.err('LINE-VAULT', 'clear needs a reason', 'owner', $q$select public.line_channel_clear('')$q$, 'REASON');
-    PERFORM t.ok('LINE-VAULT', 'owner clears', 'owner', $q$select public.line_channel_clear('test clear')$q$);
+    -- Owner 2026-10-22: no typed reason needed (an empty one is saved as 'บันทึกอัตโนมัติ').
+    PERFORM t.ok('LINE-VAULT', 'owner clears without typing a reason', 'owner', $q$select public.line_channel_clear('')$q$);
     PERFORM t.check('LINE-VAULT', 'clear removes the Vault rows; credentials read as empty',
         NOT EXISTS (SELECT 1 FROM vault.secrets WHERE name IN ('line_channel_secret', 'line_channel_access_token'))
         AND (SELECT channel_secret IS NULL AND access_token IS NULL FROM public.line_channel_credentials()));
