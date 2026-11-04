@@ -3,7 +3,7 @@ import { test, expect } from './fixtures';
 import { amountBox, issuedBillNo } from './helpers';
 import { billByNo, sql } from './db';
 
-// Parts that had no browser test yet (2026-11-04): the VAT switch on the payment page, and the
+// Parts that had no browser test yet (2026-11-04): the รวม VAT / ไม่รวม VAT buttons on the payment page, and the
 // deposit (คืน / เพิ่ม) on the return screen with its effect on the net amount. Local Supabase only.
 const SALE_SKU = 'NR-004';
 const SALE_PRODUCT = 'ขาปรับระดับ';
@@ -19,9 +19,10 @@ test.afterAll(() => {
   sql(`update public.store_settings set vat_enabled = false, vat_rate = null, vat_mode = null`);
 });
 
-test('สวิตช์ VAT หน้าชำระเงิน: เปิดแล้วยอดบวก VAT 7% และบิลบันทึกตามนั้น', async ({ page }) => {
-  // The shop owner must set a rate first; otherwise the switch is greyed out.
-  sql(`update public.store_settings set vat_enabled = true, vat_rate = 7, vat_mode = 'EXCLUSIVE'`);
+test('ปุ่ม ไม่รวม VAT หน้าชำระเงิน: กดแล้วยอดบวก VAT 7% และบิลบันทึกตามนั้น', async ({ page }) => {
+  // The shop owner must set a rate first; otherwise the two VAT buttons are greyed out.
+  // Owner 2026-11-04: Settings hold only the rate (no price mode).
+  sql(`update public.store_settings set vat_enabled = false, vat_rate = 7, vat_mode = null`);
   if (!sql(`select sale_price from public.products where sku = '${SALE_SKU}'`)[0]?.[0]) {
     sql(`update public.products set sale_price = 50 where sku = '${SALE_SKU}'`);
   }
@@ -40,11 +41,13 @@ test('สวิตช์ VAT หน้าชำระเงิน: เปิด�
   await page.getByRole('button', { name: 'ชำระเงิน' }).click();
   await page.waitForURL('**/pos/checkout');
 
-  const vatSwitch = page.getByRole('switch', { name: 'เปิด VAT สำหรับบิลนี้' });
-  await expect(vatSwitch).toBeEnabled();
+  const excl = page.getByRole('button', { name: 'ไม่รวม VAT' });
+  await expect(excl).toBeEnabled();
+  await expect(excl).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByRole('button', { name: 'รวม VAT', exact: true })).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByText('ภาษีมูลค่าเพิ่ม 7%')).toHaveCount(0);
-  await vatSwitch.click();
-  await expect(vatSwitch).toHaveAttribute('aria-checked', 'true');
+  await excl.click();
+  await expect(excl).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText('ภาษีมูลค่าเพิ่ม 7%')).toBeVisible();
 
   await page.getByRole('button', { name: 'เงินสด' }).click();
@@ -52,13 +55,47 @@ test('สวิตช์ VAT หน้าชำระเงิน: เปิด�
   await page.getByRole('button', { name: 'ออกบิล' }).click();
   const billNo = await issuedBillNo(page);
 
-  const [row] = sql(`select vat_enabled, vat_amount, grand_total from public.bills where bill_no = '${billNo}'`);
+  const [row] = sql(`select vat_enabled, vat_amount, grand_total, vat_mode from public.bills where bill_no = '${billNo}'`);
   expect(row[0]).toBe('t');
   expect(Number(row[1])).toBeCloseTo(vat, 2);
   expect(Number(row[2])).toBeCloseTo(subtotal + vat, 2);
+  expect(row[3]).toBe('EXCLUSIVE');
 });
 
-test('สวิตช์ VAT: ปิดไว้ บิลไม่มี VAT', async ({ page }) => {
+test('ปุ่ม รวม VAT: VAT อยู่ในราคา ยอดบิลไม่เพิ่ม แม้ตั้งค่าร้านเป็น "ไม่รวม"', async ({ page }) => {
+  // The shop setting says EXCLUSIVE; the button on this bill decides.
+  sql(`update public.store_settings set vat_rate = 7, vat_mode = 'EXCLUSIVE'`);
+  const price = Number(sql(`select sale_price from public.products where sku = '${SALE_SKU}'`)[0][0]);
+  const vatInside = Math.round(((price * 7) / 107) * 100) / 100;
+
+  await page.goto('/pos');
+  await page.getByRole('button', { name: 'ขายสินค้า' }).click();
+  await page.getByRole('heading', { name: SALE_PRODUCT, level: 4 }).click();
+  const add = page.getByRole('dialog').filter({ hasText: 'จำนวนที่ต้องการ' });
+  await add.getByRole('textbox', { name: '1' }).first().fill('1');
+  await add.getByRole('button', { name: 'เพิ่มลงตะกร้า' }).click();
+  await page.getByPlaceholder('ค้นหาชื่อ / เบอร์โทร หรือพิมพ์ชื่อลูกค้าทั่วไป...').fill('ลูกค้าหน้าร้าน E2E');
+  await page.getByRole('button', { name: /เป็นลูกค้าทั่วไป \(Guest\)/ }).click();
+  await page.getByRole('button', { name: 'ชำระเงิน' }).click();
+  await page.waitForURL('**/pos/checkout');
+
+  const incl = page.getByRole('button', { name: 'รวม VAT', exact: true });
+  await incl.click();
+  await expect(incl).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText('ภาษีมูลค่าเพิ่ม 7% (รวมในราคาแล้ว)')).toBeVisible();
+  await page.getByRole('button', { name: 'เงินสด' }).click();
+  await amountBox(page, 'เงินสดที่รับมา (บาท)').fill('1000');
+  await page.getByRole('button', { name: 'ออกบิล' }).click();
+  const billNo = await issuedBillNo(page);
+
+  const [row] = sql(`select vat_enabled, vat_amount, grand_total, vat_mode from public.bills where bill_no = '${billNo}'`);
+  expect(row[0]).toBe('t');
+  expect(Number(row[1])).toBeCloseTo(vatInside, 2);
+  expect(Number(row[2])).toBeCloseTo(price, 2);
+  expect(row[3]).toBe('INCLUSIVE');
+});
+
+test('ไม่กดปุ่ม VAT: บิลไม่มี VAT', async ({ page }) => {
   const price = Number(sql(`select sale_price from public.products where sku = '${SALE_SKU}'`)[0][0]);
   await page.goto('/pos');
   await page.getByRole('button', { name: 'ขายสินค้า' }).click();
@@ -71,7 +108,8 @@ test('สวิตช์ VAT: ปิดไว้ บิลไม่มี VAT', 
   await page.getByRole('button', { name: 'ชำระเงิน' }).click();
   await page.waitForURL('**/pos/checkout');
 
-  await expect(page.getByRole('switch', { name: 'เปิด VAT สำหรับบิลนี้' })).toHaveAttribute('aria-checked', 'false');
+  await expect(page.getByRole('button', { name: 'รวม VAT', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByRole('button', { name: 'ไม่รวม VAT' })).toHaveAttribute('aria-pressed', 'false');
   await page.getByRole('button', { name: 'เงินสด' }).click();
   await amountBox(page, 'เงินสดที่รับมา (บาท)').fill('1000');
   await page.getByRole('button', { name: 'ออกบิล' }).click();
@@ -81,6 +119,49 @@ test('สวิตช์ VAT: ปิดไว้ บิลไม่มี VAT', 
   expect(row[0]).toBe('f');
   expect(Number(row[1])).toBe(0);
   expect(Number(row[2])).toBeCloseTo(price, 2);
+});
+
+test('ใบเสนอราคา: กด รวม VAT แล้วบันทึก — เก็บวิธีคิดไว้ และเปิดบิลต่อได้ปุ่มเดิม', async ({ page }) => {
+  // Owner 2026-11-04: quotations use the same รวม / ไม่รวม VAT buttons; the shop sets only the rate.
+  sql(`update public.store_settings set vat_rate = 7, vat_mode = null`);
+  await page.goto('/pos?mode=quotation');
+  await expect(page.getByText('โหมดสร้างใบเสนอราคา')).toBeVisible({ timeout: 20000 });
+  await page.getByRole('button', { name: 'เช่าสินค้า' }).click();
+  await page.getByRole('heading', { name: RENT_PRODUCT, level: 4 }).click();
+  const add = page.getByRole('dialog').filter({ hasText: 'จำนวนที่ต้องการ' });
+  await add.getByRole('textbox', { name: '1' }).first().fill('2');
+  await add.getByRole('button', { name: 'เพิ่มลงตะกร้า' }).click();
+  await page.getByPlaceholder('ค้นหาชื่อ / เบอร์โทร หรือพิมพ์ชื่อลูกค้าทั่วไป...').fill('ลูกค้า E2E');
+  await page.getByRole('button', { name: /ลูกค้า E2E \d+/ }).first().click();
+  const incl = page.getByRole('button', { name: 'รวม VAT', exact: true });
+  await incl.click();
+  await expect(incl).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'บันทึกใบเสนอราคา' }).click();
+  await page.waitForURL('**/quotations');
+  const toast = page.getByText(/^ใบเสนอราคา [A-Z]{2,4}-\d{8}-\d{3}$/);
+  await expect(toast).toBeVisible({ timeout: 20000 });
+  const no = (await toast.innerText()).replace('ใบเสนอราคา ', '').trim();
+
+  const [q] = sql(`select pricing_snapshot ->> 'vat_mode', vat_amount, grand_total, subtotal + delivery_fee
+    from public.quotations where quotation_no = '${no}'`);
+  expect(q[0]).toBe('INCLUSIVE');
+  expect(Number(q[1])).toBeGreaterThan(0);
+  expect(Number(q[2])).toBeCloseTo(Number(q[3]), 2);
+  expect(Number(q[1])).toBeCloseTo(Math.round((Number(q[2]) * 7 / 107) * 100) / 100, 2);
+
+  // Open the bill from it: the payment page starts with รวม VAT pressed.
+  const row = page.getByRole('row', { name: new RegExp(no) });
+  await row.getByRole('button', { name: 'ตอบรับ' }).click();
+  await page.getByRole('button', { name: 'ยืนยันตอบรับ' }).click();
+  await expect(page.getByText('ตอบรับใบเสนอราคาสำเร็จ')).toBeVisible({ timeout: 20000 });
+  await row.getByRole('button', { name: 'เปิดบิล' }).click();
+  await page.getByRole('button', { name: 'เข้า POS เพื่อเปิดบิล' }).click();
+  await page.waitForURL('**/pos?quotationId=*');
+  await expect(page.getByText('โหลดใบเสนอราคาสำเร็จ').first()).toBeVisible({ timeout: 20000 });
+  await page.getByRole('button', { name: 'ชำระเงิน' }).click();
+  await page.waitForURL('**/pos/checkout');
+  await expect(page.getByRole('button', { name: 'รวม VAT', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'ไม่รวม VAT' })).toHaveAttribute('aria-pressed', 'false');
 });
 
 async function rentWithDeposit(page: Page, deposit: number) {

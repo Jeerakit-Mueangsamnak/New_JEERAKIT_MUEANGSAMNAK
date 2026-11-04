@@ -19,7 +19,7 @@ interface QuotationRow {
   discount_total: number
   vat_amount: number
   grand_total: number
-  pricing_snapshot: { vat_enabled?: boolean; vat_rate?: number | null } | null
+  pricing_snapshot: { vat_enabled?: boolean; vat_rate?: number | null; vat_mode?: string | null } | null
   converted_bill_id: string | null
   note: string | null
   site_name: string | null
@@ -120,6 +120,9 @@ export async function fetchQuotationsFromSupabase(): Promise<Quotation[]> {
       taxAmount: Number(q.vat_amount),
       vatEnabled: Boolean(q.pricing_snapshot?.vat_enabled),
       vatRate: q.pricing_snapshot?.vat_enabled && q.pricing_snapshot.vat_rate != null ? Number(q.pricing_snapshot.vat_rate) : undefined,
+      vatMode: q.pricing_snapshot?.vat_enabled && (q.pricing_snapshot.vat_mode === 'INCLUSIVE' || q.pricing_snapshot.vat_mode === 'EXCLUSIVE')
+        ? q.pricing_snapshot.vat_mode
+        : undefined,
       grandTotal: Number(q.grand_total),
       status: q.status as QuotationStatus,
       remark: q.note || undefined,
@@ -170,6 +173,8 @@ export async function saveQuotationDraft(q: Quotation, isExistingDraft: boolean)
     customer_id: q.customerId || null,
     document_date: q.quotationDate ? q.quotationDate.slice(0, 10) : null,
     vat_enabled: Boolean(q.vatEnabled),
+    // รวม / ไม่รวม VAT pressed in POS for this quotation (owner 2026-11-04).
+    vat_mode: q.vatEnabled ? q.vatMode ?? null : null,
     note: q.remark || null,
     site_name: q.siteName || null,
     delivery_fee: Number(q.shippingFee) || 0,

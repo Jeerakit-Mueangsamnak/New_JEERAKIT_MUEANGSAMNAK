@@ -62,6 +62,8 @@ function POSContent() {
     shippingFee?: number
     depositAmount?: number
     vatEnabled?: boolean
+    /** รวม / ไม่รวม VAT of a draft bill or of the cart being resumed from the payment page. */
+    vatMode?: 'INCLUSIVE' | 'EXCLUSIVE' | null
     shippingAddress?: string
     contactPhone?: string
     rentalStartDate?: string
@@ -124,6 +126,7 @@ function POSContent() {
           shippingFee: saved.shippingFee,
           depositAmount: saved.depositAmount,
           vatEnabled: saved.vatEnabled === true,
+          vatMode: saved.vatMode ?? null,
           shippingAddress: saved.shippingAddress,
           contactPhone: saved.contactPhone,
           rentalStartDate: saved.headerRentalDate,
@@ -327,6 +330,7 @@ function POSContent() {
           shippingFee: draftBill.shippingFee || 0,
           depositAmount: draftBill.heldDepositAmount || draftBill.paidDepositAmount || 0,
           vatEnabled: Boolean(draftBill.vatMode) || (draftBill.taxAmount ?? 0) > 0,
+          vatMode: draftBill.vatMode ?? null,
           shippingAddress: draftBill.siteName || draftBill.customerAddress || '',
           rentalStartDate: draftBill.rentalStartDate,
           rentalEndDate: draftBill.scheduledReturnDate,
@@ -519,6 +523,7 @@ function POSContent() {
       depositAmount,
       taxAmount,
       vatEnabled: Boolean(quotationData?.vatEnabled),
+      vatMode: quotationData?.vatEnabled ? quotationData.vatMode ?? undefined : undefined,
       grandTotal,
       status: existingQuotation?.status || 'WAITING',
       remark: existingQuotation?.remark,
@@ -628,6 +633,7 @@ function POSContent() {
             initialRentalStartDate={quotationValues.rentalStartDate}
             initialRentalEndDate={quotationValues.rentalEndDate}
             initialVatEnabled={quotationValues.vatEnabled}
+            initialVatMode={quotationValues.vatMode}
             initialDocumentDate={quotationValues.documentDate}
             initialCustomerAttention={searchParams.get('customerRequired') === '1'}
             initialContactPhone={quotationValues.contactPhone}

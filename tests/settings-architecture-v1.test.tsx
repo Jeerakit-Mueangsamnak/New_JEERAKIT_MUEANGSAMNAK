@@ -152,7 +152,8 @@ describe('SAVE: one section at a time', () => {
     const patch = mocks.rpc.mock.calls[0][1].p_patch
     expect(Object.keys(patch).sort()).toEqual(['address', 'company_name', 'logo_url', 'phone', 'policies', 'tax_id'])
     expect(Object.keys(patch.policies)).toEqual(['business_profile'])
-    expect(Object.keys(sectionPatch('taxDiscount', DEFAULT_SYSTEM_CONFIG)).sort()).toEqual(['policies', 'vat_mode', 'vat_rate'])
+    // Owner 2026-11-04: Settings send only the rate; รวม / ไม่รวม VAT is chosen on each document.
+    expect(Object.keys(sectionPatch('taxDiscount', DEFAULT_SYSTEM_CONFIG)).sort()).toEqual(['policies', 'vat_rate'])
     expect(Object.keys(sectionPatch('documentNumbering', DEFAULT_SYSTEM_CONFIG))).toEqual(['doc_number_formats'])
     expect(Object.keys(sectionPatch('payment', DEFAULT_SYSTEM_CONFIG).policies as object).sort()).toEqual(['allow_overpayment', 'payment_receiving'])
     for (const s of ['business', 'taxDiscount', 'payment', 'salesRental', 'product', 'documentNumbering', 'notifications', 'shopSecurity'] as const) {

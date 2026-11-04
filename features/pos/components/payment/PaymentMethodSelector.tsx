@@ -103,7 +103,8 @@ export function PaymentMethodSelector({
             } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
           >
             {item.icon}
-            <span className="min-w-0 truncate">{item.label}</span>
+            {/* Wraps instead of being cut ("QR C…") when the panel is narrow (768px). */}
+            <span className="min-w-0 text-center leading-tight">{item.label}</span>
           </button>
         ))}
       </div>

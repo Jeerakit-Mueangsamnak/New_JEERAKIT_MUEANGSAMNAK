@@ -22,7 +22,8 @@ import { NumericInput } from '@/components/common/NumericInput'
 import { CustomerUnifiedSelector } from '@/features/pos/components/CustomerUnifiedSelector'
 import { CartItem, defaultBillDocumentType, isSaleCartItem, saveActiveCart, validateCartCustomer } from '@/features/pos/services/cart-storage'
 import { calculateBillTotals } from '@/lib/calculation-service'
-import { isVatConfigured } from '@/features/settings/services/settings-storage'
+import { isVatRateConfigured } from '@/features/settings/services/settings-storage'
+import { VatModeButtons, type VatMode } from '@/features/pos/components/VatModeButtons'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 
 export type { CartItem }
@@ -39,8 +40,10 @@ export interface CartPanelQuotationData {
   rentalStartDate?: string
   rentalEndDate?: string
   documentDate?: string
-  /** VAT ON/OFF chosen for this quotation (rate + mode come from the shop settings). */
+  /** VAT chosen for this quotation (the rate comes from the shop settings). */
   vatEnabled?: boolean
+  /** รวม VAT / ไม่รวม VAT pressed for this quotation; null when VAT is off. */
+  vatMode?: VatMode | null
 }
 
 interface CartPanelProps {
@@ -68,6 +71,8 @@ interface CartPanelProps {
   initialRentalEndDate?: string
   /** VAT ON/OFF of a loaded draft bill / quotation; a new cart starts with VAT off. */
   initialVatEnabled?: boolean
+  /** รวม / ไม่รวม VAT chosen on the payment page; the cart only carries it back to the payment page. */
+  initialVatMode?: 'INCLUSIVE' | 'EXCLUSIVE' | null
   /** Document date (yyyy-mm-dd) of a quotation being edited. */
   initialDocumentDate?: string
   /** Opened from checkout because the customer was missing: the customer field starts blinking. */
@@ -98,22 +103,34 @@ export function CartPanel({
   initialRentalStartDate,
   initialRentalEndDate,
   initialVatEnabled,
+  initialVatMode,
   initialDocumentDate,
   initialCustomerAttention = false,
   initialContactPhone,
 }: CartPanelProps) {
   const { showToast } = useToast()
   const { settings } = useSystemSettings()
-  // VAT ON/OFF belongs to THIS bill / quotation only (never written to the shop settings) and starts
-  // off for every new cart. Rate + mode come from the shop settings, the same for both.
-  const vatConfigured = isVatConfigured(settings)
-  const [billVatEnabled, setBillVatEnabled] = useState<boolean>(Boolean(initialVatEnabled))
+  // VAT belongs to THIS bill / quotation only (never written to the shop settings) and starts off for
+  // every new cart. Owner 2026-11-04: the rate comes from Settings; รวม / ไม่รวม VAT is this document's own
+  // button (quotations here, bills on the payment page).
+  const vatConfigured = isVatRateConfigured(settings)
+  const [docVatMode, setDocVatMode] = useState<VatMode | null>(initialVatMode ?? null)
+  // A loaded document that had VAT on but no mode of its own keeps the shop's old price mode.
+  const [legacyVatOn, setLegacyVatOn] = useState<boolean>(Boolean(initialVatEnabled) && !initialVatMode)
   // Missing / incomplete customer: the customer field blinks red until it is clicked (no pop-up message).
   const [customerAttention, setCustomerAttention] = useState<boolean>(initialCustomerAttention)
   useEffect(() => {
-    if (initialVatEnabled !== undefined) setBillVatEnabled(initialVatEnabled)
-  }, [initialVatEnabled])
-  const vatOn = billVatEnabled && vatConfigured
+    if (initialVatEnabled === undefined && initialVatMode === undefined) return
+    setDocVatMode(initialVatMode ?? null)
+    setLegacyVatOn(Boolean(initialVatEnabled) && !initialVatMode)
+  }, [initialVatEnabled, initialVatMode])
+  const effectiveVatMode: VatMode | null = docVatMode ?? (legacyVatOn ? settings.taxDiscount?.vatMode ?? null : null)
+  const vatOn = effectiveVatMode !== null && vatConfigured
+  const vatInclusive = vatOn && effectiveVatMode === 'INCLUSIVE'
+  const toggleVatMode = (mode: VatMode) => {
+    setLegacyVatOn(false)
+    setDocVatMode(effectiveVatMode === mode ? null : mode)
+  }
   
   const [internalCustomer, setInternalCustomer] = useState<Customer | null>(null)
   const [internalItems, setInternalItems] = useState<CartItem[]>([])
@@ -151,7 +168,8 @@ export function CartPanel({
   const clearCart = () => {
     setItems([])
     setCustomer(null)
-    setBillVatEnabled(false)
+    setDocVatMode(null)
+    setLegacyVatOn(false)
   }
 
   const totals = calculateBillTotals({
@@ -161,6 +179,7 @@ export function CartPanel({
     shippingFee: Number(shippingFee) || 0,
     depositAmount: Number(depositAmount) || 0,
     enableVat: vatOn,
+    vatMode: vatOn ? effectiveVatMode : null,
   })
   const subtotal = totals.subtotal
   const tax = totals.vatAmount
@@ -488,21 +507,7 @@ export function CartPanel({
 
 
             {isQuotationMode && (
-            <label className={`flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-400 ${vatConfigured ? 'cursor-pointer' : 'opacity-60'}`}>
-              <span>
-                VAT {isQuotationMode ? 'ใบเสนอราคานี้' : 'บิลนี้'} {vatOn ? 'เปิด' : 'ปิด'}
-                {!vatConfigured && <span className="block text-[11px]">เจ้าของร้านยังไม่ได้ตั้งอัตรา VAT</span>}
-              </span>
-              <input
-                type="checkbox"
-                role="switch"
-                aria-label={isQuotationMode ? 'เปิด VAT สำหรับใบเสนอราคานี้' : 'เปิด VAT สำหรับบิลนี้'}
-                checked={vatOn}
-                disabled={!vatConfigured}
-                onChange={(e) => setBillVatEnabled(e.target.checked)}
-                className="w-4 h-4 text-emerald-700 dark:text-emerald-400 rounded"
-              />
-            </label>
+              <VatModeButtons mode={vatOn ? effectiveVatMode : null} onToggle={toggleVatMode} vatRate={settings.taxDiscount?.vatRate} />
             )}
 
           {/* A bill's cart only shows what is in the cart; discount, shipping, deposit and the net amount are on the payment page */}
@@ -538,10 +543,10 @@ export function CartPanel({
               <div className="flex justify-between text-slate-600 dark:text-slate-400">
                 <span>
                   ภาษี VAT ({(taxRate * 100).toFixed(0)}%)
-                  {settings.taxDiscount?.vatMode === 'INCLUSIVE' && ' รวมในราคาแล้ว'}
+                  {vatInclusive && ' รวมในราคาแล้ว'}
                 </span>
                 <span>
-                  {settings.taxDiscount?.vatMode === 'INCLUSIVE' ? '' : '+'}
+                  {vatInclusive ? '' : '+'}
                   {tax.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                 </span>
               </div>
@@ -585,6 +590,7 @@ export function CartPanel({
                     rentalEndDate: headerReturnDate ? getLocalDateString(headerReturnDate) : undefined,
                     documentDate: documentDate ? getLocalDateString(documentDate) : undefined,
                     vatEnabled: vatOn,
+                    vatMode: vatOn ? effectiveVatMode : null,
                   })
                 }}
                 disabled={items.length === 0}
@@ -614,6 +620,7 @@ export function CartPanel({
                     depositAmount: Number(depositAmount) || 0,
                     taxRate: taxRate,
                     vatEnabled: vatOn,
+                    vatMode: vatOn ? effectiveVatMode : null,
                     shippingAddress,
                     contactPhone: contactPhone.trim() || undefined,
                     headerRentalDate: getLocalDateString(headerRentalDate ?? new Date()),

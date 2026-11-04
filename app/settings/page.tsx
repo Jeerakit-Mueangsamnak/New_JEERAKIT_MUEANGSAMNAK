@@ -233,7 +233,7 @@ function TaxDiscountSection({ cfg, set }: { cfg: SystemConfig; set: SetDraft }) 
           <span>ภาษีมูลค่าเพิ่ม (VAT)</span>
         </h4>
         <p className={SETTINGS_HELPER}>
-          เปิด/ปิด VAT เลือกที่หน้า POS ทีละบิล · ที่นี่ตั้งเฉพาะอัตราและวิธีคิดราคา · บิลจะเก็บค่าที่ใช้ไว้ตอนบันทึก
+          ที่นี่ตั้งเฉพาะอัตรา VAT · การคิด VAT (รวม VAT / ไม่รวม VAT) เลือกที่หน้า POS ทีละบิลและทีละใบเสนอราคา · เอกสารจะเก็บค่าที่ใช้ไว้ตอนบันทึก
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
           <div>
@@ -248,21 +248,7 @@ function TaxDiscountSection({ cfg, set }: { cfg: SystemConfig; set: SetDraft }) 
               className={SETTINGS_INPUT_MONO}
             />
           </div>
-          <div>
-            <label className={SETTINGS_LABEL}>วิธีคิดราคา</label>
-            <CustomSelect
-              ariaLabel="วิธีคิดราคา"
-              value={t.vatMode ?? ''}
-              onChange={(value) => setT({ vatMode: (String(value) || null) as SystemConfig['taxDiscount']['vatMode'] })}
-              options={[
-                { value: '', label: 'ยังไม่ได้ตั้ง' },
-                { value: 'EXCLUSIVE', label: 'ราคาไม่รวม VAT (บวก VAT เพิ่ม)' },
-                { value: 'INCLUSIVE', label: 'ราคารวม VAT แล้ว' },
-              ]}
-            />
-          </div>
         </div>
-        <p className={SETTINGS_HELPER}>ใบเสนอราคาเลือกเปิด/ปิด VAT ทีละใบที่หน้า POS เหมือนบิล และใช้อัตรา/วิธีคิดราคาจากที่นี่</p>
       </div>
       <div className={SETTINGS_SECTION}>
         <h4 className={SETTINGS_SECTION_TITLE}>

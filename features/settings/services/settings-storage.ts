@@ -243,7 +243,11 @@ export function getDefaultReorderPoint(): number {
   return loadSystemSettings().product.defaultReorderPoint
 }
 
-/** VAT can be switched on for a bill only once the OWNER has set the rate and mode. */
-export function isVatConfigured(cfg: SystemConfig = loadSystemSettings()): boolean {
-  return cfg.taxDiscount.vatRate !== null && cfg.taxDiscount.vatRate > 0 && cfg.taxDiscount.vatMode !== null
+/** VAT can be used on a bill / quotation once the OWNER has set the rate. รวม / ไม่รวม VAT is chosen on each
+ *  document (owner 2026-11-04); taxDiscount.vatMode is only the old shop mode kept for documents saved before. */
+export function isVatRateConfigured(cfg: SystemConfig = loadSystemSettings()): boolean {
+  return cfg.taxDiscount.vatRate !== null && cfg.taxDiscount.vatRate > 0
 }
+
+/** Same as isVatRateConfigured (kept for older callers). */
+export const isVatConfigured = isVatRateConfigured

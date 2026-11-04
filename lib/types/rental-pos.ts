@@ -375,6 +375,8 @@ export interface Quotation {
   vatEnabled?: boolean
   /** VAT rate (%) used when the quotation was saved; undefined when VAT is off. */
   vatRate?: number
+  /** รวม VAT / ไม่รวม VAT of this quotation (pricing_snapshot.vat_mode); undefined when VAT is off. */
+  vatMode?: 'INCLUSIVE' | 'EXCLUSIVE'
   grandTotal: number
   status: QuotationStatus
   remark?: string

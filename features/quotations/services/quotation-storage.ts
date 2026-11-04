@@ -101,6 +101,8 @@ export interface QuotationToPosValues {
   shippingFee: number
   depositAmount: number
   vatEnabled: boolean
+  /** รวม VAT / ไม่รวม VAT of the quotation; null when VAT is off or it was saved before the buttons. */
+  vatMode: 'INCLUSIVE' | 'EXCLUSIVE' | null
   shippingAddress: string
   rentalStartDate: string
   rentalEndDate: string
@@ -184,6 +186,7 @@ export function mapQuotationToPos(
     shippingFee: quote.shippingFee,
     depositAmount: quote.depositAmount,
     vatEnabled: quote.vatEnabled ?? quote.taxAmount > 0,
+    vatMode: quote.vatMode ?? null,
     shippingAddress: quote.siteName || quote.customerAddress || '',
     rentalStartDate: quote.rentalStartDate,
     rentalEndDate: quote.rentalEndDate,

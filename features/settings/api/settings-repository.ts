@@ -175,8 +175,8 @@ export function sectionPatch(section: SettingsSection, cfg: SystemConfig): Recor
       const t = cfg.taxDiscount
       const limitOn = t.discountLimitEnabled
       return {
+        // Only the rate: รวม / ไม่รวม VAT is chosen on each bill / quotation (owner 2026-11-04).
         vat_rate: t.vatRate === null ? null : Number(t.vatRate),
-        vat_mode: t.vatMode,
         policies: { discount_limit_enabled: limitOn, discount_limit_percent: limitOn ? Number(t.discountLimitPercent) : null },
       }
     }

@@ -8,17 +8,18 @@ import { billBusinessFields, printRentalBillDocument } from '@/features/document
 import { A4FitPreview } from '@/features/pos/components/A4FitPreview'
 import {
   ArrowLeft,
-  FileCheck,
   CreditCard,
   FileText,
+  Printer,
 } from 'lucide-react'
 import { PaymentMethodSelector, type PaymentMethodType } from '@/features/pos/components/payment/PaymentMethodSelector'
 import { PaymentDynamicContent } from '@/features/pos/components/payment/PaymentDynamicContent'
+import { VatModeButtons, type VatMode } from '@/features/pos/components/VatModeButtons'
 import { RentalBill, Customer, Product } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
 import { PostSavePrintModal } from '@/components/common/PostSavePrintModal'
 import { getLocalDateString } from '@/components/common/CustomDatePicker'
-import { isVatConfigured } from '@/features/settings/services/settings-storage'
+import { isVatRateConfigured } from '@/features/settings/services/settings-storage'
 import { NumericInput } from '@/components/common/NumericInput'
 import {
   loadActiveCart,
@@ -87,8 +88,11 @@ export default function CheckoutPage() {
   const savedDraftIdRef = useRef<string | null>(null)
   // Goods leave with the customer now (default) — or later / in parts from the bills screen.
   const [deliverNow, setDeliverNow] = useState<boolean>(true)
-  // VAT ON/OFF of this bill, chosen in the cart; sent with the draft and snapshotted by the server.
-  const [vatEnabled, setVatEnabled] = useState<boolean>(false)
+  // VAT of this bill, chosen here with the two buttons รวม VAT / ไม่รวม VAT (owner 2026-11-04):
+  // none pressed = no VAT; the chosen mode is sent with the draft and snapshotted by the server.
+  const [vatMode, setVatMode] = useState<VatMode | null>(null)
+  // A quotation / old draft that already had VAT on but no mode of its own: it keeps the shop's price mode.
+  const [legacyVatOn, setLegacyVatOn] = useState<boolean>(false)
 
   useEffect(() => {
     const cart = loadActiveCart()
@@ -107,22 +111,34 @@ export default function CheckoutPage() {
       if (cart.quotationId) setQuotationId(cart.quotationId)
       if (cart.quotationNo) setQuotationNo(cart.quotationNo)
       if (cart.draftBillId) setDraftBillId(cart.draftBillId)
-      setVatEnabled(cart.vatEnabled === true)
+      setVatMode(cart.vatMode === 'INCLUSIVE' || cart.vatMode === 'EXCLUSIVE' ? cart.vatMode : null)
+      setLegacyVatOn(cart.vatEnabled === true && !cart.vatMode)
     }
     cartLoadedRef.current = true
   }, [])
 
-  // Discount / shipping / deposit are typed here: keep them in the saved cart so going back to the POS and
-  // forward again does not lose them.
+  // The mode in use: the button pressed here, else the shop's price mode for a bill that came with VAT on.
+  const shopVatMode = settings.taxDiscount?.vatMode ?? null
+  const effectiveVatMode: VatMode | null = vatMode ?? (legacyVatOn ? shopVatMode : null)
+
+  // Discount / shipping / deposit / VAT are chosen here: keep them in the saved cart so going back to the POS
+  // and forward again does not lose them.
   useEffect(() => {
     if (!cartLoadedRef.current) return
     const cart = loadActiveCart()
-    if (cart) saveActiveCart({ ...cart, discount, shippingFee, depositAmount, vatEnabled })
-  }, [discount, shippingFee, depositAmount, vatEnabled])
+    if (cart) {
+      saveActiveCart({ ...cart, discount, shippingFee, depositAmount, vatEnabled: effectiveVatMode !== null, vatMode: effectiveVatMode })
+    }
+  }, [discount, shippingFee, depositAmount, effectiveVatMode])
 
-  // VAT of this bill: chosen here with the switch, only when the owner has set the rate and mode.
-  const vatConfigured = isVatConfigured(settings)
-  const vatOn = vatEnabled && vatConfigured
+  // VAT of this bill: the rate comes only from Settings (the owner sets it); รวม / ไม่รวม is this bill's own button.
+  const vatConfigured = isVatRateConfigured(settings)
+  const vatOn = effectiveVatMode !== null && vatConfigured
+  const vatInclusive = vatOn && effectiveVatMode === 'INCLUSIVE'
+  const toggleVatMode = (mode: VatMode) => {
+    setLegacyVatOn(false)
+    setVatMode(effectiveVatMode === mode ? null : mode)
+  }
   const totals = calculateBillTotals({
     settings,
     items,
@@ -130,6 +146,7 @@ export default function CheckoutPage() {
     shippingFee,
     depositAmount,
     enableVat: vatOn,
+    vatMode: vatOn ? effectiveVatMode : null,
   })
   const tax = totals.vatAmount
   const subtotal = totals.subtotal
@@ -206,7 +223,7 @@ export default function CheckoutPage() {
     shippingFee: shippingFee || 0,
     taxAmount: tax,
     vatRatePercent: tax > 0 ? Math.round(totals.vatRate * 10000) / 100 : undefined,
-    vatInclusive: tax > 0 && settings.taxDiscount?.vatMode === 'INCLUSIVE',
+    vatInclusive: tax > 0 && vatInclusive,
     depositAmount: depositAmount || 0,
     grandTotal,
     paidAmount: paymentMethod && paymentMethod !== 'UNPAID' ? grandTotal : 0,
@@ -273,6 +290,7 @@ export default function CheckoutPage() {
       customerId: customer?.id || null,
       quotationId: quotationId || null,
       vatEnabled: vatOn,
+      vatMode: vatOn ? effectiveVatMode : null,
       note: note || undefined,
       discountAmount: discount || 0,
       deliveryFee: shippingFee || 0,
@@ -432,10 +450,6 @@ export default function CheckoutPage() {
   if (draftBillId) backToPosParams.set('draftBillId', draftBillId)
   const backToPosHref = `/pos?${backToPosParams.toString()}`
 
-  const handleCancel = () => {
-    router.push(backToPosHref)
-  }
-
   return (
     <div className="pos-checkout-print-root flex h-full min-h-0 w-full flex-1 flex-col bg-slate-100 p-2 sm:p-2.5 dark:bg-slate-900 md:grid md:h-full md:max-h-full md:min-h-0 md:grid-cols-[minmax(0,58fr)_minmax(300px,42fr)] lg:grid-cols-[minmax(0,60fr)_minmax(340px,40fr)] md:gap-2.5 md:overflow-hidden lg:gap-3 lg:p-3">
       {/* Mobile View Switcher (< md screens) */}
@@ -541,69 +555,47 @@ export default function CheckoutPage() {
             </div>
           </div>
 
-          {/* VAT of this bill */}
-          <div className={`flex shrink-0 items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-400 ${vatConfigured ? '' : 'opacity-60'}`}>
-            <span>
-              VAT บิลนี้ {vatOn ? 'เปิด' : 'ปิด'}
-              {!vatConfigured && <span className="block text-[11px]">เจ้าของร้านยังไม่ได้ตั้งอัตรา VAT</span>}
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={vatOn}
-              aria-label="เปิด VAT สำหรับบิลนี้"
-              disabled={!vatConfigured || isSubmitting}
-              onClick={() => setVatEnabled((on) => !on)}
-              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 disabled:cursor-not-allowed ${
-                vatOn ? 'bg-emerald-700' : 'bg-slate-300 dark:bg-slate-600'
-              } ${vatConfigured ? 'cursor-pointer' : ''}`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                  vatOn ? 'translate-x-[18px]' : 'translate-x-0.5'
-                }`}
-              />
-            </button>
-          </div>
+          {/* VAT of this bill: รวม VAT / ไม่รวม VAT. None pressed = no VAT; pressing the chosen one again cancels it.
+              The rate (%) is only what the owner set in Settings. */}
+          <VatModeButtons
+            mode={vatOn ? effectiveVatMode : null}
+            onToggle={toggleVatMode}
+            vatRate={settings.taxDiscount?.vatRate}
+            disabled={isSubmitting}
+          />
 
-          {/* Amount Due Card */}
-          <div className="flex shrink-0 flex-col rounded-2xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 px-3 py-1.5 text-white shadow-lg">
-            {/* Bill amounts that are in use on this bill (owner 2026-11-02): shown only when not 0 */}
-            {(() => {
-              const money = (v: number) => v.toLocaleString('th-TH', { minimumFractionDigits: 2 })
-              const rows: Array<[string, string]> = []
-              if (totals.discountAmount > 0) rows.push(['ส่วนลด', `-${money(totals.discountAmount)}`])
-              if (totals.shippingFee > 0) rows.push(['ค่าขนส่ง', `+${money(totals.shippingFee)}`])
-              // VAT of this bill with its rate; inclusive VAT is already inside the prices (no "+").
-              if (tax > 0) {
-                const vatLabel = `ภาษีมูลค่าเพิ่ม ${(totals.vatRate * 100).toFixed(0)}%`
-                rows.push(settings.taxDiscount?.vatMode === 'INCLUSIVE'
-                  ? [`${vatLabel} (รวมในราคาแล้ว)`, money(tax)]
-                  : [vatLabel, `+${money(tax)}`])
-              }
-              if (depositToCollect > 0) rows.push(['เงินมัดจำ', `+${money(depositToCollect)}`])
-              if (rows.length === 0) return null
-              return (
-                <div className="space-y-0.5 border-b border-white/20 pb-1 mb-0.5 text-[11px] sm:text-xs text-blue-100 font-medium tabular-nums">
-                  <div className="flex justify-between gap-2">
-                    <span>ยอดก่อนส่วนลด</span>
-                    <span>{money(subtotal)}</span>
+          {/* Bill amounts in use on this bill (owner 2026-11-02): shown only when not 0 */}
+          {(() => {
+            const money = (v: number) => v.toLocaleString('th-TH', { minimumFractionDigits: 2 })
+            const rows: Array<[string, string]> = [['มูลค่าสินค้า', money(subtotal)]]
+            if (totals.discountAmount > 0) rows.push(['ส่วนลด', money(totals.discountAmount)])
+            if (totals.shippingFee > 0) rows.push(['ค่าขนส่ง', money(totals.shippingFee)])
+            // Amounts are shown plain: no +, - or currency sign (owner 2026-11-04); the label says what it is.
+            if (tax > 0) {
+              const vatLabel = `ภาษีมูลค่าเพิ่ม ${(totals.vatRate * 100).toFixed(0)}%`
+              rows.push(vatInclusive
+                ? [`${vatLabel} (รวมในราคาแล้ว)`, money(tax)]
+                : [vatLabel, money(tax)])
+            }
+            if (depositToCollect > 0) rows.push(['เงินมัดจำ', money(depositToCollect)])
+            return (
+              <div className="shrink-0 divide-y divide-slate-100 border-y border-slate-100 text-xs text-slate-700 tabular-nums dark:divide-slate-700 dark:border-slate-700 dark:text-slate-300">
+                {rows.map(([label, value]) => (
+                  <div key={label} className="flex justify-between gap-2 py-1">
+                    <span>{label}</span>
+                    <span className="font-medium text-slate-900 dark:text-slate-100">{value}</span>
                   </div>
-                  {rows.map(([label, value]) => (
-                    <div key={label} className="flex justify-between gap-2">
-                      <span>{label}</span>
-                      <span>{value}</span>
-                    </div>
-                  ))}
-                </div>
-              )
-            })()}
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] sm:text-xs text-blue-100 font-medium">ยอดสุทธิ</span>
-              <span className="whitespace-nowrap text-2xl sm:text-3xl font-black leading-tight tracking-tight tabular-nums">
-                {amountToCollect.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
+                ))}
+              </div>
+            )
+          })()}
+
+          {/* Amount due */}
+          <div className="flex shrink-0 items-center justify-between gap-2 rounded-xl bg-emerald-50 px-3 py-2 dark:bg-emerald-950/40">
+            <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300">ยอดคงต้องชำระ</span>
+            <span className="whitespace-nowrap text-2xl font-black leading-tight tracking-tight text-emerald-700 tabular-nums dark:text-emerald-300 sm:text-3xl">
+              {amountToCollect.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+            </span>
           </div>
 
           {/* Payment Method Selector — one row, equal-size buttons */}
@@ -631,7 +623,7 @@ export default function CheckoutPage() {
           ) : null}
         </div>
 
-        {/* Action Buttons Group (Confirm, Save Draft, Cancel) */}
+        {/* Bottom of the panel: delivery choice, then บันทึกแบบร่าง + ออกบิล */}
         <div className="flex shrink-0 flex-col gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
           <label className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
             <input
@@ -640,25 +632,17 @@ export default function CheckoutPage() {
               onChange={(e) => setDeliverNow(e.target.checked)}
               className="w-4 h-4 text-emerald-700 dark:text-emerald-400 rounded"
             />
-            <span>ลูกค้ารับของเลย (บันทึกส่งมอบทันที) — ไม่ติ๊ก = ส่งภายหลังที่หน้าจัดการบิล</span>
+            <span>รับของแล้ว</span>
           </label>
           <div className="flex items-stretch gap-2">
             <button
               type="button"
-              onClick={handleCancel}
-              className="flex-1 min-w-0 rounded-xl bg-slate-100 dark:bg-slate-700/80 px-2 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.99] text-slate-700 dark:text-slate-300 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all min-h-[44px] cursor-pointer"
-            >
-              <span className="truncate">ยกเลิก</span>
-            </button>
-
-            <button
-              type="button"
               onClick={handleSaveDraft}
               disabled={isSubmitting}
-              className="flex-1 min-w-0 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-[0.99] text-slate-900 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 px-2 py-2.5 shadow-md shadow-amber-500/20 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
+              className="shrink-0 whitespace-nowrap rounded-xl border-2 border-slate-200 bg-white px-3 py-2.5 hover:bg-slate-50 active:scale-[0.99] text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700/50 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
             >
-              <FileText className="w-4 h-4 shrink-0" />
-              <span className="truncate">แบบร่าง</span>
+              <FileText className="w-4 h-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
+              <span className="truncate">บันทึกแบบร่าง</span>
             </button>
 
             <button
@@ -667,7 +651,7 @@ export default function CheckoutPage() {
               disabled={isSubmitting || !paymentMethod}
               className="flex-1 min-w-0 rounded-xl bg-emerald-700 px-2 py-2.5 hover:bg-emerald-800 active:scale-[0.99] text-white font-black text-xs sm:text-sm md:text-base flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
             >
-              <FileCheck className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+              <Printer className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
               <span className="truncate">
                 {isSubmitting ? 'กำลังบันทึกบิล...' : draftBillId ? 'ออกบิลจากแบบร่าง' : 'ออกบิล'}
               </span>

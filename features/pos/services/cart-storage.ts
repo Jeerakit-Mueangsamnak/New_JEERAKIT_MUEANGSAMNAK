@@ -41,6 +41,8 @@ export interface ActiveCartData {
   taxRate: number
   /** VAT ON/OFF chosen at the POS for this bill (transaction state, not a shop setting). */
   vatEnabled?: boolean
+  /** รวม / ไม่รวม VAT chosen on the payment page for this bill; null/absent = none chosen yet. */
+  vatMode?: 'INCLUSIVE' | 'EXCLUSIVE' | null
   shippingAddress: string
   /** Contact phone of this bill (typed at the POS, kept in the bill's note). */
   contactPhone?: string

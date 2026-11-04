@@ -542,6 +542,7 @@ export type Database = {
           updated_at: string
           vat_amount: number
           vat_enabled: boolean
+          vat_mode: string | null
           void_reason: string | null
           voided_at: string | null
           voided_by: string | null
@@ -590,6 +591,7 @@ export type Database = {
           updated_at?: string
           vat_amount?: number
           vat_enabled?: boolean
+          vat_mode?: string | null
           void_reason?: string | null
           voided_at?: string | null
           voided_by?: string | null
@@ -638,6 +640,7 @@ export type Database = {
           updated_at?: string
           vat_amount?: number
           vat_enabled?: boolean
+          vat_mode?: string | null
           void_reason?: string | null
           voided_at?: string | null
           voided_by?: string | null

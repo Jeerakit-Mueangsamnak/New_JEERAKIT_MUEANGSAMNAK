@@ -10,7 +10,7 @@ import { CartItem, loadActiveCart, saveActiveCart } from '@/features/pos/service
 import { Customer } from '@/lib/types/rental-pos'
 
 const mocks = vi.hoisted(() => ({
-  saveDraft: vi.fn(async (_input: { lines: unknown[]; vatEnabled?: boolean }) => 'bill-1'),
+  saveDraft: vi.fn(async (_input: { lines: unknown[]; vatEnabled?: boolean; vatMode?: string | null }) => 'bill-1'),
   confirm: vi.fn(async () => ({ id: 'bill-1', billNo: 'BL-07102569-001', items: [] })),
   deliver: vi.fn(async () => null),
   fetchBill: vi.fn(async () => ({ id: 'bill-1', grandTotal: 107 })),
@@ -45,10 +45,10 @@ const saleItem: CartItem = {
 }
 const vatShop = { ...DEFAULT_SYSTEM_CONFIG, taxDiscount: { ...DEFAULT_SYSTEM_CONFIG.taxDiscount, vatRate: 7, vatMode: 'EXCLUSIVE' as const } }
 
-function mountCheckout(vatEnabled: boolean | undefined) {
+function mountCheckout(vatEnabled: boolean | undefined, vatMode?: 'INCLUSIVE' | 'EXCLUSIVE') {
   saveActiveCart({
     items: [saleItem], customer: null, discount: 0, shippingFee: 0, depositAmount: 0,
-    tax: 999, taxRate: 0.99, subtotal: 100, grandTotal: 1099, vatEnabled,
+    tax: 999, taxRate: 0.99, subtotal: 100, grandTotal: 1099, vatEnabled, vatMode,
     shippingAddress: '', documentType: 'บิลขาย', documentDate: '2026-10-07',
     headerRentalDate: '2026-10-07', headerReturnDate: '2026-10-07',
   })
@@ -62,19 +62,56 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-describe('VAT ON/OFF is the state of the current bill, not a shop setting', () => {
-  it('a new bill starts with VAT off; the switch on the payment page turns it on for this bill only (settings untouched)', async () => {
+describe('VAT is chosen per bill with รวม VAT / ไม่รวม VAT, not a shop setting', () => {
+  const inclusiveBtn = () => screen.getByRole('button', { name: 'รวม VAT' }) as HTMLButtonElement
+  const exclusiveBtn = () => screen.getByRole('button', { name: 'ไม่รวม VAT' }) as HTMLButtonElement
+
+  it('a new bill starts with no button pressed (no VAT); ไม่รวม VAT adds VAT for this bill only (settings untouched)', async () => {
     const before = JSON.stringify(loadSystemSettings())
     mountCheckout(undefined)
-    const toggle = screen.getByRole('switch', { name: 'เปิด VAT สำหรับบิลนี้' })
-    expect(toggle.getAttribute('aria-checked')).toBe('false')
+    expect(inclusiveBtn().getAttribute('aria-pressed')).toBe('false')
+    expect(exclusiveBtn().getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByText('VAT 7%')).toBeTruthy()
     expect(screen.getByTestId('preview-tax').textContent).toBe('0')
-    fireEvent.click(toggle)
-    await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'))
+    fireEvent.click(exclusiveBtn())
+    await waitFor(() => expect(exclusiveBtn().getAttribute('aria-pressed')).toBe('true'))
+    expect(inclusiveBtn().getAttribute('aria-pressed')).toBe('false')
     expect(screen.getByTestId('preview-tax').textContent).toBe('7')
-    expect(loadActiveCart()?.vatEnabled).toBe(true)
+    expect(screen.getByText('ภาษีมูลค่าเพิ่ม 7%')).toBeTruthy()
+    expect(loadActiveCart()).toMatchObject({ vatEnabled: true, vatMode: 'EXCLUSIVE' })
     expect(mocks.saveSection).not.toHaveBeenCalled()
     expect(JSON.stringify(loadSystemSettings())).toBe(before)
+  })
+
+  it('รวม VAT works by its name even though the shop price mode says EXCLUSIVE: VAT is inside the price', async () => {
+    mountCheckout(undefined)
+    fireEvent.click(inclusiveBtn())
+    await waitFor(() => expect(inclusiveBtn().getAttribute('aria-pressed')).toBe('true'))
+    expect(screen.getByTestId('preview-tax').textContent).toBe('6.54')
+    expect(screen.getByText('ภาษีมูลค่าเพิ่ม 7% (รวมในราคาแล้ว)')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'เงินสด' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
+    await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledOnce())
+    expect(mocks.saveDraft.mock.calls[0][0]).toMatchObject({ vatEnabled: true, vatMode: 'INCLUSIVE' })
+  })
+
+  it('pressing the chosen button again cancels VAT; the other button switches the mode', async () => {
+    mountCheckout(undefined)
+    fireEvent.click(exclusiveBtn())
+    await waitFor(() => expect(exclusiveBtn().getAttribute('aria-pressed')).toBe('true'))
+    fireEvent.click(inclusiveBtn())
+    await waitFor(() => expect(inclusiveBtn().getAttribute('aria-pressed')).toBe('true'))
+    expect(exclusiveBtn().getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(inclusiveBtn())
+    await waitFor(() => expect(inclusiveBtn().getAttribute('aria-pressed')).toBe('false'))
+    expect(screen.getByTestId('preview-tax').textContent).toBe('0')
+    expect(loadActiveCart()).toMatchObject({ vatEnabled: false, vatMode: null })
+  })
+
+  it('a saved cart with a chosen mode comes back with that button pressed', () => {
+    mountCheckout(true, 'INCLUSIVE')
+    expect(inclusiveBtn().getAttribute('aria-pressed')).toBe('true')
+    expect(exclusiveBtn().getAttribute('aria-pressed')).toBe('false')
   })
 
   it('the bill cart in the POS has no VAT switch any more, and a fresh bill starts with VAT off', () => {
@@ -83,22 +120,23 @@ describe('VAT ON/OFF is the state of the current bill, not a shop setting', () =
     expect(screen.queryByText(/VAT บิลนี้/)).toBeNull()
   })
 
-  it('VAT cannot be switched on before the OWNER sets the rate and mode (no 7% fallback)', () => {
+  it('VAT cannot be chosen before the OWNER sets the rate in Settings (no 7% fallback)', () => {
     setCachedSystemSettings(DEFAULT_SYSTEM_CONFIG)
     mountCheckout(true)
-    const toggle = screen.getByRole('switch', { name: 'เปิด VAT สำหรับบิลนี้' }) as HTMLButtonElement
-    expect(toggle.disabled).toBe(true)
-    expect(toggle.getAttribute('aria-checked')).toBe('false')
+    expect(inclusiveBtn().disabled).toBe(true)
+    expect(exclusiveBtn().disabled).toBe(true)
+    expect(inclusiveBtn().getAttribute('aria-pressed')).toBe('false')
+    expect(exclusiveBtn().getAttribute('aria-pressed')).toBe('false')
     expect(screen.getByText('เจ้าของร้านยังไม่ได้ตั้งอัตรา VAT')).toBeTruthy()
   })
 
-  it.each([true, false])('checkout previews this bill VAT (%s) and sends it with the draft; the SERVER total is paid', async (on) => {
+  it.each([true, false])('a bill that came with VAT %s but no mode keeps the shop price mode, is sent with the draft and the SERVER total is paid', async (on) => {
     mountCheckout(on)
     expect(screen.getByTestId('preview-tax').textContent).toBe(on ? '7' : '0')
     fireEvent.click(screen.getByRole('button', { name: 'เงินสด' }))
     fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledOnce())
-    expect(mocks.saveDraft.mock.calls[0][0]).toMatchObject({ vatEnabled: on })
+    expect(mocks.saveDraft.mock.calls[0][0]).toMatchObject({ vatEnabled: on, vatMode: on ? 'EXCLUSIVE' : null })
     expect(mocks.confirm).toHaveBeenCalledWith('bill-1', [expect.objectContaining({ method: 'CASH', amount: 107 })])
     expect(mocks.saveSection).not.toHaveBeenCalled()
   })
@@ -106,20 +144,34 @@ describe('VAT ON/OFF is the state of the current bill, not a shop setting', () =
   it('an old cart without a VAT choice is a bill with VAT off', async () => {
     mountCheckout(undefined)
     expect(screen.getByTestId('preview-tax').textContent).toBe('0')
-    fireEvent.click(screen.getByRole('button', { name: 'แบบร่าง' }))
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึกแบบร่าง' }))
     await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledOnce())
-    expect(mocks.saveDraft.mock.calls[0][0]).toMatchObject({ vatEnabled: false })
+    expect(mocks.saveDraft.mock.calls[0][0]).toMatchObject({ vatEnabled: false, vatMode: null })
+    expect(screen.queryByRole('button', { name: 'ยกเลิก' })).toBeNull()
   })
 
-  it('quotation mode has its own VAT switch (off at start) and sends the choice when saving', () => {
+  it.each([
+    ['ไม่รวม VAT', 'EXCLUSIVE', 7, 107],
+    ['รวม VAT', 'INCLUSIVE', 6.54, 100],
+  ] as const)('quotation mode has the same buttons (none pressed at start); %s is sent when saving', (name, mode, tax, total) => {
+    // Owner 2026-11-04: the shop sets only the rate — no price mode needed.
+    setCachedSystemSettings({ ...vatShop, taxDiscount: { ...vatShop.taxDiscount, vatMode: null } })
+    const onSave = vi.fn()
+    render(<SystemSettingsProvider><CartPanel onCheckout={vi.fn()} items={[saleItem]} isQuotationMode onSaveQuotation={onSave} /></SystemSettingsProvider>)
+    expect(screen.queryByRole('switch')).toBeNull()
+    const btn = screen.getByRole('button', { name }) as HTMLButtonElement
+    expect(btn.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(btn)
+    expect(btn.getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: /บันทึกใบเสนอราคา/ }))
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ vatEnabled: true, vatMode: mode, tax, grandTotal: total }))
+  })
+
+  it('a quotation saved with no VAT button sends VAT off', () => {
     setCachedSystemSettings(vatShop)
     const onSave = vi.fn()
     render(<SystemSettingsProvider><CartPanel onCheckout={vi.fn()} items={[saleItem]} isQuotationMode onSaveQuotation={onSave} /></SystemSettingsProvider>)
-    const vatSwitch = screen.getByRole('switch', { name: 'เปิด VAT สำหรับใบเสนอราคานี้' }) as HTMLInputElement
-    expect(vatSwitch.checked).toBe(false)
-    fireEvent.click(vatSwitch)
     fireEvent.click(screen.getByRole('button', { name: /บันทึกใบเสนอราคา/ }))
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ vatEnabled: true }))
-    expect(onSave.mock.calls[0][0].tax).toBeGreaterThan(0)
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ vatEnabled: false, vatMode: null, tax: 0 }))
   })
 })

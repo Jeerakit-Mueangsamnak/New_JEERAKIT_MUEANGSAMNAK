@@ -110,6 +110,7 @@ describe('quotations read from the server', () => {
     expect(q.rentalEndDate).toBe('2026-10-18')
     expect(q.vatEnabled).toBe(true)
     expect(q.vatRate).toBe(7)
+    expect(q.vatMode).toBe('EXCLUSIVE')
     expect(q.items[0].usageCountOrDays).toBe(2)
   })
 })

@@ -39,8 +39,9 @@ SELECT t.err('S7-VAT', 'VAT ON/OFF is not a shop setting any more', 'owner',
     $q$select public.settings_update('{"vat_enabled":true}'::jsonb, 'x')$q$, 'UNKNOWN_FIELDS');
 SELECT t.err('S7-VAT', 'a bill cannot switch VAT on before the OWNER sets rate + mode', 'cashier',
     t.draft($x$'vat_enabled', true,$x$, '', NULL), 'VAT_SETUP_REQUIRED');
-SELECT t.err('S7-VAT', 'rate without price mode is refused', 'owner',
-    $q$select public.settings_update('{"vat_rate":7}'::jsonb, 'x')$q$, 'VAT_SETUP_INCOMPLETE');
+-- Owner 2026-11-04: Settings hold only the rate; รวม / ไม่รวม VAT is chosen on each document.
+SELECT t.ok('S7-VAT', 'a rate alone is accepted (no price mode needed any more)', 'owner',
+    $q$select public.settings_update('{"vat_rate":7}'::jsonb, 'x')$q$);
 SELECT t.ok('S7-VAT', 'OWNER sets VAT 7% exclusive (test value only)', 'owner',
     $q$select public.settings_update('{"vat_rate":7,"vat_mode":"EXCLUSIVE"}'::jsonb, 'test')$q$);
 SELECT t.set('vat_bill', (t.ok('S7-VAT', 'bill with VAT on', 'cashier',

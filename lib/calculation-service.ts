@@ -123,6 +123,9 @@ export interface CalculateTotalsOptions {
   depositAmount?: number
   /** VAT ON/OFF of THIS bill (POS transaction state); off when omitted. */
   enableVat?: boolean
+  /** How VAT is priced on THIS bill (POS button รวม / ไม่รวม VAT). When given it replaces the shop's
+   *  price mode and only the shop's VAT rate is needed; omitted = the shop's rate + mode as before. */
+  vatMode?: 'INCLUSIVE' | 'EXCLUSIVE' | null
   includeShippingInTax?: boolean // defaults to true matching Thai standard
   settings?: SystemConfig
 }
@@ -188,8 +191,11 @@ export function calculateBillTotals(options: CalculateTotalsOptions): BillCalcul
   const shippingFee = toBaht(shippingFeeSatang)
 
   // 5. VAT in Satang
+  const billVatMode = options.vatMode ?? null
+  const vatMode = billVatMode ?? cfg.taxDiscount.vatMode
   let vatRate = 0
-  if (options.enableVat === true && isVatConfigured(cfg)) {
+  const rateSet = (cfg.taxDiscount.vatRate ?? 0) > 0
+  if (options.enableVat === true && (billVatMode ? rateSet : isVatConfigured(cfg))) {
     vatRate = (cfg.taxDiscount.vatRate as number) / 100
   }
 
@@ -198,7 +204,7 @@ export function calculateBillTotals(options: CalculateTotalsOptions): BillCalcul
     ? addSatang(netSubtotalSatang, shippingFeeSatang)
     : netSubtotalSatang
 
-  const isVatInclusive = vatRate > 0 && cfg.taxDiscount.vatMode === 'INCLUSIVE'
+  const isVatInclusive = vatRate > 0 && vatMode === 'INCLUSIVE'
   const vatAmountSatang = calculateVatSatang(taxBaseSatang, vatRate, isVatInclusive)
   const vatAmount = toBaht(vatAmountSatang)
 

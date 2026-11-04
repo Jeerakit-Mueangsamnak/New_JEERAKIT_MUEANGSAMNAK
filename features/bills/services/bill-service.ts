@@ -37,6 +37,8 @@ export interface BillDraftInput {
   quotationId?: string | null
   /** VAT ON/OFF of this bill (POS); the server snapshots it with the shop's rate and mode. */
   vatEnabled?: boolean
+  /** How this bill's VAT is priced (POS button รวม / ไม่รวม VAT); only sent while VAT is on. */
+  vatMode?: 'INCLUSIVE' | 'EXCLUSIVE' | null
   note?: string
   /** Bill-level discount in baht (ลดแล้วก็ลดไป). */
   discountAmount?: number
@@ -112,6 +114,7 @@ export async function saveBillDraft(input: BillDraftInput): Promise<string> {
     customer_id: input.customerId || null,
     quotation_id: input.quotationId || null,
     vat_enabled: input.vatEnabled === true,
+    vat_mode: input.vatEnabled === true ? input.vatMode ?? null : null,
     note: input.note || null,
     bill_discount_type: Number(input.discountAmount) > 0 ? 'FIXED' : null,
     bill_discount_value: Number(input.discountAmount) || 0,

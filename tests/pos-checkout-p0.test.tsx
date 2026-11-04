@@ -163,7 +163,7 @@ describe('P0-4 quoted price survives quotation → bill', () => {
   it('checkout sends the quoted unit price in the draft', async () => {
     const { cartItems } = mapQuotationToPos(quote, [product], [customer])
     mountCheckout([cartItems[0]])
-    fireEvent.click(screen.getByRole('button', { name: 'แบบร่าง' }))
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึกแบบร่าง' }))
     await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledOnce())
     expect(mocks.saveDraft.mock.calls[0][0].lines).toEqual([
       expect.objectContaining({ productId: 'p1', mode: 'RENTAL', quantity: 2, unitPrice: 80 }),

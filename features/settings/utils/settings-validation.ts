@@ -18,7 +18,6 @@ export function validateSection(section: SettingsSection, cfg: SystemConfig): st
   }
   if (section === 'taxDiscount') {
     const t = cfg.taxDiscount
-    if ((t.vatRate === null) !== (t.vatMode === null)) return 'กรอกอัตรา VAT และวิธีคิดราคาให้ครบทั้งสองค่า (หรือเว้นว่างทั้งคู่)'
     if (t.vatRate !== null && !(t.vatRate > 0 && t.vatRate <= 100)) return 'อัตรา VAT ต้องมากกว่า 0 และไม่เกิน 100'
     if (t.discountLimitEnabled && (t.discountLimitPercent === null || t.discountLimitPercent < 0 || t.discountLimitPercent > 100))
       return 'เมื่อเปิดเพดานส่วนลด ต้องระบุเปอร์เซ็นต์ 0–100'
