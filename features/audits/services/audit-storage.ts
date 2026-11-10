@@ -129,3 +129,48 @@ export async function fetchAuditLogs(filter: AuditLogFilter = {}): Promise<Audit
 export async function getAuditLogsForBill(billId: string): Promise<AuditLogEntry[]> {
   return fetchAuditLogs({ billId })
 }
+
+interface BillMovementRow {
+  id: string
+  action: string
+  entity_type: string
+  entity_id: string | null
+  after_data: Record<string, unknown> | null
+  amount: number | string | null
+  quantity: number | string | null
+  channel: string | null
+  correlation_id: string | null
+  created_at: string
+  actor_name: string | null
+}
+
+/**
+ * The การเคลื่อนไหว of one bill, oldest first, for everyone who works with bills (owner 2026-11-11):
+ * the server's bill_movements() reads just this bill's audit rows. A database without migration
+ * 20261111120000 has no such function yet: then the OWNER's own audit read is used, as before.
+ */
+export async function getBillMovements(billId: string): Promise<AuditLogEntry[]> {
+  const { data, error } = await createClient().rpc('bill_movements', { p_bill_id: billId })
+  if (error) {
+    if (error.code === 'PGRST202' || error.code === '42883') {
+      return (await getAuditLogsForBill(billId)).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
+    }
+    throw new Error(error.message)
+  }
+  return ((data ?? []) as BillMovementRow[]).map((r) => ({
+    id: r.id,
+    userId: '',
+    displayName: r.actor_name || 'ระบบ',
+    action: r.action,
+    entityType: r.entity_type,
+    entityId: r.entity_id || '',
+    billId,
+    before: null,
+    after: r.after_data,
+    correlationId: r.correlation_id || '',
+    createdAt: r.created_at,
+    amount: r.amount == null ? null : Number(r.amount),
+    quantity: r.quantity == null ? null : Number(r.quantity),
+    channel: r.channel,
+  }))
+}

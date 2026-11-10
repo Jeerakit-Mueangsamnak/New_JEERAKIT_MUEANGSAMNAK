@@ -83,17 +83,16 @@ test('audit: จัดการบิลเช่า', async ({ page }) => {
     await page.waitForTimeout(400);
   }
 
-  // Other tabs
-  await page.getByRole('tab', { name: 'เอกสาร' }).click();
-  await page.waitForTimeout(700);
-  await shot(page, '07-docs-tab');
-  await page.getByRole('tab', { name: 'ประวัติรายการ' }).click();
-  await page.waitForTimeout(1200);
-  await shot(page, '08-history-tab');
-
   // back to list: reload to drop the workspace
   await page.goto('/bills');
   await page.waitForTimeout(2000);
+
+  // History / documents: a window from the row's ดูประวัติ icon (owner 2026-11-11)
+  await rows.first().getByTitle('ดูประวัติ').click();
+  await page.waitForTimeout(1200);
+  await shot(page, '07-records-window');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(500);
 
   // Double-click preview
   await rows.first().dblclick();

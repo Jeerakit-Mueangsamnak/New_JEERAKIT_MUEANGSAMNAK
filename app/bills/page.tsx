@@ -8,7 +8,7 @@ import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import React, { useState } from 'react'
 import { BillActionView } from '@/features/bills/components/BillActionView'
 import { BillRevisionView } from '@/features/bills/components/BillRevisionView'
-import { AuditLogViewerModal } from '@/features/bills/components/AuditLogViewerModal'
+import { BillRecordsModal } from '@/features/bills/components/BillRecordsModal'
 import { LineNotifyModal } from '@/features/bills/components/LineNotifyModal'
 import { DepositModal } from '@/features/bills/components/DepositRefundModal'
 import { DeliveryModal } from '@/features/bills/components/DeliveryModal'
@@ -96,7 +96,7 @@ export default function BillsPage() {
   }
 
 
-  const [activeWorkflow, setActiveWorkflow] = useState<'RETURN' | 'DOCS' | 'CORRECTION' | 'EXTENSION' | null>(null)
+  const [activeWorkflow, setActiveWorkflow] = useState<'RETURN' | 'CORRECTION' | 'EXTENSION' | null>(null)
   const [showDepositRefund, setShowDepositRefund] = useState(false)
   const [showPaymentRefund, setShowPaymentRefund] = useState(false)
   const [showDelivery, setShowDelivery] = useState(false)
@@ -288,7 +288,6 @@ export default function BillsPage() {
               customerName={selectedRowBill?.customerName || ''}
               bills={bills}
               setBills={setBills}
-              initialTab={activeWorkflow}
               initialBillId={selectedRowBill?.id}
               onClose={() => {
                 setActiveWorkflow(null)
@@ -440,14 +439,15 @@ export default function BillsPage() {
                   </>
                 ) : (
                   <>
-                    {/* จัดการบิล: one workspace for return / payment / documents / history of the selected bill.
-                        A cancelled / void bill holds no goods, so it opens on the documents tab. */}
+                    {/* จัดการบิล: the return / payment workspace of the selected bill. A cancelled / void bill holds
+                        no goods, so it opens its history / documents window instead. */}
                     <ActionButton
                       className={BILL_TOOLBAR_BUTTON_CLASSES}
                       disabled={!selectedRowBill}
-                      onClick={() =>
-                        setActiveWorkflow(selectedRowBill && isCancelledOrVoidBill(selectedRowBill) ? 'DOCS' : 'RETURN')
-                      }
+                      onClick={() => {
+                        if (selectedRowBill && isCancelledOrVoidBill(selectedRowBill)) setSelectedBillForLog(selectedRowBill)
+                        else setActiveWorkflow('RETURN')
+                      }}
                       variant={selectedRowBill ? 'primary' : 'neutral'}
                       icon={<RefreshCw className="w-3.5 h-3.5" />}
                       title="รับคืนสินค้า รับชำระเงิน เอกสาร และประวัติของบิลที่เลือก"
@@ -936,15 +936,8 @@ export default function BillsPage() {
         />
       )}
 
-      {/* Audit Log Modal */}
-      {selectedBillForLog && (
-        <AuditLogViewerModal
-          billId={selectedBillForLog.id}
-          billNo={selectedBillForLog.billNo}
-          customerName={selectedBillForLog.customerName}
-          onClose={() => setSelectedBillForLog(null)}
-        />
-      )}
+      {/* ประวัติการทำรายการ/เอกสาร: the window of the ดูประวัติ icon (owner 2026-11-11) */}
+      <BillRecordsModal bill={selectedBillForLog} onClose={() => setSelectedBillForLog(null)} />
 
       {/* Line Notify Modal */}
       <LineNotifyModal

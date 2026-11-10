@@ -36,8 +36,6 @@ import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { dbErrorMessage } from '@/lib/db/rpc'
 import { ReturnTableStep } from '@/features/bills/components/ReturnTableStep'
 import type { ReturnQuantityField } from '@/features/bills/components/ReturnTableStep'
-import { BillWorkspaceHeader, type BillWorkspaceTab } from '@/features/bills/components/BillWorkspaceHeader'
-import { BillRecordsTab } from '@/features/bills/components/BillRecordsTab'
 import { isCancelledOrVoidBill } from '@/features/bills/utils/bill-list-presentation'
 import { loadProducts } from '@/features/products/services/product-storage'
 import {
@@ -96,7 +94,6 @@ interface BillActionViewProps {
   customerName: string
   bills: FullBill[]
   setBills: React.Dispatch<React.SetStateAction<FullBill[]>>
-  initialTab: 'RETURN' | 'DOCS'
   initialBillId?: string
   onClose: () => void
 }
@@ -105,7 +102,6 @@ export function BillActionView({
   customerName,
   bills,
   setBills,
-  initialTab,
   initialBillId,
   onClose,
 }: BillActionViewProps) {
@@ -121,8 +117,8 @@ export function BillActionView({
     }
   }
 
-  // The workspace opens on the tab the caller asked for. Return steps: 1 = table, 2 = preview + payment.
-  const [tab, setTab] = useState<BillWorkspaceTab>(initialTab)
+  // Return steps: 1 = table, 2 = preview + payment. History / documents open in BillRecordsModal from the
+  // bills list (owner 2026-11-11), so this workspace has no tabs.
   const [currentStep, setCurrentStep] = useState<number>(1)
   const [selectedBillId, setSelectedBillId] = useState<string | null>(() => {
     if (initialBillId) return initialBillId
@@ -1098,23 +1094,11 @@ export function BillActionView({
   }
 
   return (
-    // One white work area: the tab bar and the open tab together (owner 2026-11-11)
+    // One white work area for the return (owner 2026-11-11: no tab bar)
     <div className="flex flex-col min-h-0 h-full w-full overflow-hidden animate-in fade-in duration-150 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
-      {/* Tabs: รับคืนสินค้า / ประวัติการทำรายการ/เอกสาร */}
-      {activeBill && (
-        <div className="shrink-0 p-2">
-          <BillWorkspaceHeader
-            tab={tab}
-            onTab={setTab}
-            returnDisabled={isCancelledOrVoidBill(activeBill)}
-          />
-        </div>
-      )}
-
-      {/* Content of the open tab */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* RETURN WORKFLOW STEPS */}
-        {tab === 'RETURN' && activeBill && (
+        {activeBill && (
           <>
             {/* STEP 1: one table for the whole return */}
             {currentStep === 1 && (
@@ -1142,7 +1126,7 @@ export function BillActionView({
             {/* STEP 2: Preview + payment (Centered A4 Preview without Outer White Card + External Navigation + Double-click Full Preview) */}
             {currentStep === 2 && (() => {
               return (
-                <div className="flex-1 min-h-0 h-full w-full grid grid-cols-1 md:grid-cols-[minmax(0,58fr)_minmax(300px,42fr)] lg:grid-cols-[minmax(0,60fr)_minmax(340px,40fr)] gap-2 md:gap-2.5 lg:gap-3 overflow-hidden p-2 pt-0">
+                <div className="flex-1 min-h-0 h-full w-full grid grid-cols-1 md:grid-cols-[minmax(0,58fr)_minmax(300px,42fr)] lg:grid-cols-[minmax(0,60fr)_minmax(340px,40fr)] gap-2 md:gap-2.5 lg:gap-3 overflow-hidden p-2">
                   {/* Left: Document Preview Area (Centered A4, No outer white card, Outside Prev/Next buttons) */}
                   <div className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-100/60 dark:bg-slate-950/40">
                     {/* Previous Button Zone (Outside A4) */}
@@ -1419,11 +1403,6 @@ export function BillActionView({
           </>
         )}
 
-        {tab === 'DOCS' && activeBill && (
-          <div className="flex-1 min-h-0 flex flex-col overflow-hidden p-2 pt-0">
-            <BillRecordsTab bill={activeBill} />
-          </div>
-        )}
       </div>
 
       {/* Post-Save Print Confirmation Modal */}

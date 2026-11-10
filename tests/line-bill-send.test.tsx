@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 /** Bill screen › ส่งทาง LINE (outbox + mock sender) and the customer link code (OA 1:1 chat). */
 
@@ -18,6 +18,7 @@ const m = vi.hoisted(() => ({
   recipient: vi.fn(),
   send: vi.fn(),
   code: vi.fn(),
+  confirm: vi.fn(),
 }))
 
 describe('sendBillViaLine (server action)', () => {
@@ -127,6 +128,7 @@ describe('LineNotifyModal (bill screen)', () => {
   async function open() {
     vi.resetModules()
     vi.doMock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: m.toast }) }))
+    vi.doMock('@/components/common/ConfirmDialogProvider', () => ({ useConfirm: () => m.confirm }))
     vi.doMock('@/app/actions/line', () => ({ getBillLineRecipient: m.recipient, sendBillViaLine: m.send, createCustomerLineLinkCode: m.code }))
     vi.doMock('qrcode', () => ({ default: { toDataURL: async () => 'data:image/png;base64,QR' } }))
     const { LineNotifyModal } = await import('@/features/bills/components/LineNotifyModal')
@@ -136,19 +138,34 @@ describe('LineNotifyModal (bill screen)', () => {
     })
     return onClose
   }
+  const sendButton = () => screen.getByRole('button', { name: /ส่งทาง LINE/ }) as HTMLButtonElement
+  const linkTab = () => screen.getByRole('tab', { name: /สร้างลิงก์ LINE/ }) as HTMLButtonElement
+  const sendReady = () => waitFor(() => expect(sendButton().disabled).toBe(false))
 
   beforeEach(() => {
     m.toast.mockReset()
     m.recipient.mockReset()
     m.send.mockReset()
     m.code.mockReset()
+    m.confirm.mockReset()
     Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => undefined) } })
   })
   afterEach(() => {
     cleanup()
     vi.doUnmock('@/components/common/Toast')
+    vi.doUnmock('@/components/common/ConfirmDialogProvider')
     vi.doUnmock('@/app/actions/line')
     vi.doUnmock('qrcode')
+  })
+
+  it('no notice box and no "รูปแบบการส่ง" label; the tab bar is [ข้อความ][Flex Card][สร้างลิงก์ LINE] (owner 2026-11-11)', async () => {
+    m.recipient.mockResolvedValue({ success: true, data: { state: 'NOT_LINKED', customer_id: CUSTOMER } })
+    await open()
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['ข้อความ', 'Flex Card', 'สร้างลิงก์ LINE'])
+    expect(screen.queryByText('รูปแบบการส่ง')).toBeNull()
+    expect(screen.queryByText(/ยังไม่ได้ผูก LINE กับร้าน/)).toBeNull()
+    expect(screen.queryByRole('link', { name: /ไปหน้าลูกค้า/ })).toBeNull()
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('linked customer: "ส่งทาง LINE" sends the stored bill numbers (no recalculation) and closes', async () => {
@@ -156,10 +173,11 @@ describe('LineNotifyModal (bill screen)', () => {
     m.send.mockResolvedValue({ success: true, data: { delivery_id: 'd1', status: 'SENT', duplicate: false, mode: 'mock' } })
     const onClose = await open()
     expect(m.recipient).toHaveBeenCalledWith(BILL)
-    expect(await screen.findByText(/ลูกค้าผูก LINE กับร้านแล้ว/)).toBeTruthy()
+    await sendReady()
+    expect(linkTab().disabled).toBe(true) // already linked
     fireEvent.click(screen.getByRole('button', { name: /ยอดค้าง/ }))
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /ส่งทาง LINE/ }))
+      fireEvent.click(sendButton())
     })
     const sent = m.send.mock.calls[0][0]
     expect(sent.billId).toBe(BILL)
@@ -176,9 +194,9 @@ describe('LineNotifyModal (bill screen)', () => {
     m.recipient.mockResolvedValue({ success: true, data: { state: 'LINKED', customer_id: CUSTOMER, display_name: null } })
     m.send.mockResolvedValue({ success: true, data: { delivery_id: 'd1', status: 'SENT', duplicate: false, mode: 'live' } })
     await open()
-    await screen.findByText(/ลูกค้าผูก LINE กับร้านแล้ว/)
+    await sendReady()
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /ส่งทาง LINE/ }))
+      fireEvent.click(sendButton())
     })
     expect(m.toast).toHaveBeenCalledWith('ส่งบิลทาง LINE แล้ว', expect.stringContaining('สมชาย'), 'SUCCESS')
   })
@@ -187,12 +205,12 @@ describe('LineNotifyModal (bill screen)', () => {
     m.recipient.mockResolvedValue({ success: true, data: { state: 'LINKED', customer_id: CUSTOMER } })
     m.send.mockResolvedValue({ success: true, data: { delivery_id: 'd1', status: 'SENT', duplicate: false, mode: 'live' } })
     await open()
-    await screen.findByText(/ลูกค้าผูก LINE กับร้านแล้ว/)
-    fireEvent.click(screen.getByRole('button', { name: /Flex Card/ }))
+    await sendReady()
+    fireEvent.click(screen.getByRole('tab', { name: /Flex Card/ }))
     fireEvent.click(screen.getByRole('button', { name: /ยอดค้าง/ }))
     expect(screen.getByLabelText('ตัวอย่าง Flex Card').textContent).toContain('แจ้งยอดค้างชำระ')
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /ส่งทาง LINE/ }))
+      fireEvent.click(sendButton())
     })
     const sent = m.send.mock.calls[0][0]
     expect(sent.text).toBe('กรุณาชำระยอดค้างหรือติดต่อร้าน')
@@ -209,10 +227,10 @@ describe('LineNotifyModal (bill screen)', () => {
     m.recipient.mockResolvedValue({ success: true, data: { state: 'LINKED', customer_id: CUSTOMER } })
     m.send.mockResolvedValue({ success: true, data: { delivery_id: 'd1', status: 'QUEUED', duplicate: false, mode: 'live' } })
     await open()
-    await screen.findByText(/ลูกค้าผูก LINE กับร้านแล้ว/)
+    await sendReady()
     fireEvent.click(screen.getByRole('button', { name: /สรุปบิล/ }))
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /ส่งทาง LINE/ }))
+      fireEvent.click(sendButton())
     })
     expect(m.send.mock.calls[0][0].text).toBe('สรุปบิลเช่า\nลูกค้า: สมชาย\nเลขที่บิล: B-0001\nสถานะ: กำลังเช่า\nวันครบกำหนด: 10/10/2569\nยอดรวม: 2,500.00\nยอดค้าง: 1,500.00')
     expect(m.toast).toHaveBeenCalledWith('ยังส่งไม่ถึงลูกค้า', expect.any(String), 'INFO')
@@ -233,35 +251,42 @@ describe('LineNotifyModal (bill screen)', () => {
     expect(box()).toBe('เรียน คุณ สมชาย\nเรื่อง บิลเลขที่ B-0001\n')
   })
 
-  it('not linked: send is off, copy still works, no code or QR here; the customer page link is shown', async () => {
+  it('not linked: send is off, copy still works; สร้างลิงก์ LINE asks first, then shows the QR + link window', async () => {
     m.recipient.mockResolvedValue({ success: true, data: { state: 'NOT_LINKED', customer_id: CUSTOMER } })
-    const onClose = await open()
-    expect(await screen.findByText(/ยังไม่ได้ผูก LINE กับร้าน/)).toBeTruthy()
-    expect(screen.getByRole('status').textContent).toContain('ให้ลูกค้าเพิ่มเพื่อน LINE ร้านแล้วพิมพ์ชื่อและเบอร์โทรในแชต หรือส่งลิงก์ผูก LINE จากหน้าลูกค้า')
-    expect((screen.getByRole('button', { name: /ส่งทาง LINE/ }) as HTMLButtonElement).disabled).toBe(true)
-
+    m.code.mockResolvedValue({ success: true, data: { code: 'LINK-W8K2', expires_at: new Date(Date.now() + 600000).toISOString(), oaUrl: 'https://line.me/R/oaMessage/x/?LINK-W8K2' } })
+    await open()
+    await waitFor(() => expect(linkTab().disabled).toBe(false))
+    expect(sendButton().disabled).toBe(true)
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /คัดลอกไปส่งเอง/ }))
     })
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('B-0001'))
 
-    // the link code / QR left this screen: no button, no image, never asked for
-    expect(screen.queryByRole('button', { name: /รหัสผูก LINE/ })).toBeNull()
-    expect(screen.queryByAltText(/QR/)).toBeNull()
+    // the confirm is refused: nothing is made
+    m.confirm.mockResolvedValueOnce(false)
+    await act(async () => {
+      fireEvent.click(linkTab())
+    })
+    expect(m.confirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'สร้างลิงก์ผูก LINE', confirmLabel: 'สร้างลิงก์' }))
     expect(m.code).not.toHaveBeenCalled()
 
-    const link = screen.getByRole('link', { name: /ไปหน้าลูกค้า/ }) as HTMLAnchorElement
-    expect(link.getAttribute('href')).toBe(`/customers?customer=${CUSTOMER}`)
-    fireEvent.click(link)
-    expect(onClose).toHaveBeenCalled()
+    // confirmed: the customer's code is made and its window opens
+    m.confirm.mockResolvedValueOnce(true)
+    await act(async () => {
+      fireEvent.click(linkTab())
+    })
+    await waitFor(() => expect(m.code).toHaveBeenCalledWith(CUSTOMER))
+    expect(await screen.findByAltText(/QR ลิงก์ผูก LINE ของคุณสมชาย/)).toBeTruthy()
+    expect((screen.getByLabelText('ลิงก์ผูก LINE') as HTMLInputElement).value).toContain('LINK-W8K2')
     expect(m.send).not.toHaveBeenCalled()
   })
 
-  it('no LINE system yet (database not ready): copy-only, with the reason shown', async () => {
+  it('no LINE system yet (database not ready): copy-only, nothing to link', async () => {
     m.recipient.mockResolvedValue({ success: false, error: 'ระบบ LINE ยังไม่พร้อมในฐานข้อมูลนี้' })
     await open()
-    expect(await screen.findByText(/ระบบ LINE ยังไม่พร้อม/)).toBeTruthy()
-    expect((screen.getByRole('button', { name: /ส่งทาง LINE/ }) as HTMLButtonElement).disabled).toBe(true)
+    await waitFor(() => expect(m.recipient).toHaveBeenCalled())
+    expect(sendButton().disabled).toBe(true)
+    expect(linkTab().disabled).toBe(true)
     expect((screen.getByRole('button', { name: /คัดลอกไปส่งเอง/ }) as HTMLButtonElement).disabled).toBe(false)
   })
 })

@@ -1,11 +1,18 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import {
+  COMMAND_BUTTON_SIZE_CLASSES,
+  TAB_BAR_SURFACE_CLASSES,
+  TAB_BUTTON_ACTIVE_CLASSES,
+  TAB_BUTTON_BASE_CLASSES,
+  TAB_BUTTON_INACTIVE_CLASSES,
+} from '@/components/common/ActionButton'
 
-import React, { useEffect, useState } from 'react'
-import Link from 'next/link'
-import { AlertTriangle, Clock, Copy, CreditCard, MessageSquare, Send, ShieldCheck, Sparkles, UserRound, WalletCards } from 'lucide-react'
+import React, { useCallback, useEffect, useState } from 'react'
+import { AlertTriangle, Clock, Copy, CreditCard, Link2, MessageSquare, Send, ShieldCheck, Sparkles, WalletCards } from 'lucide-react'
 import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
 import { useToast } from '@/components/common/Toast'
+import { useConfirm } from '@/components/common/ConfirmDialogProvider'
+import { CustomerLineLinkDialog } from '@/features/customers/components/CustomerLineLinkButton'
 import { getBillLineRecipient, sendBillViaLine, type BillLineRecipient } from '@/app/actions/line'
 
 /** ข้อความ = plain text; Flex Card = the bill as a card (title, the note, the bill's rows). */
@@ -127,21 +134,26 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
   const [sending, setSending] = useState(false)
   const [message, setMessage] = useState('')
   const [recipient, setRecipient] = useState<BillLineRecipient | null>(null)
-  const [recipientError, setRecipientError] = useState<string | null>(null)
+  const [linkOpen, setLinkOpen] = useState(false)
+  const confirm = useConfirm()
 
+  // Who the bill goes to on LINE (no notice box any more, owner 2026-11-11: ส่งทาง LINE is simply
+  // off until the customer is linked). Read again after the link window closes: the customer may
+  // have linked in the meantime.
   const billId = billData?.id
+  const [recipientRound, setRecipientRound] = useState(0)
   useEffect(() => {
     if (!isOpen || !billId) return
     let alive = true
-    setRecipient(null)
-    setRecipientError(null)
-    getBillLineRecipient(billId).then((r) => {
-      if (!alive) return
-      if (r.success && r.data) setRecipient(r.data)
-      else setRecipientError(r.error || 'ตรวจสอบ LINE ของลูกค้าไม่สำเร็จ')
-    }).catch(() => alive && setRecipientError('ตรวจสอบ LINE ของลูกค้าไม่สำเร็จ'))
+    getBillLineRecipient(billId)
+      .then((r) => alive && setRecipient(r.success && r.data ? r.data : null))
+      .catch(() => alive && setRecipient(null))
     return () => { alive = false }
-  }, [isOpen, billId])
+  }, [isOpen, billId, recipientRound])
+  const closeLink = useCallback(() => {
+    setLinkOpen(false)
+    setRecipientRound((n) => n + 1)
+  }, [])
 
   useEffect(() => {
     if (!billData) return
@@ -158,6 +170,18 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
   }
 
   const canSend = recipient?.state === 'LINKED'
+  // สร้างลิงก์ LINE: only for a bill with a customer who is not linked yet
+  const canLink = Boolean(recipient?.customer_id) && recipient?.state !== 'LINKED'
+  const startLink = async () => {
+    if (!canLink) return
+    const ok = await confirm({
+      title: 'สร้างลิงก์ผูก LINE',
+      message: `สร้างลิงก์ผูก LINE ให้คุณ${billData.customerName} ใช่ไหม`,
+      confirmLabel: 'สร้างลิงก์',
+      cancelLabel: 'ยกเลิก',
+    })
+    if (ok) setLinkOpen(true)
+  }
   const outgoingText = message
   const card = buildBillCard(billData, presetType)
   // Copy-to-send-yourself: a card cannot be pasted, so its content goes out as text
@@ -216,30 +240,36 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
       </AppModalHeader>
 
       <AppModalBody className="space-y-4">
-        <RecipientPanel recipient={recipient} error={recipientError} onNavigate={onClose} />
-
-        <div className="space-y-1.5">
-          <label className="font-bold text-slate-700 dark:text-slate-300 block text-[11px]">รูปแบบการส่ง</label>
-          <div className="grid grid-cols-2 gap-2">
-            {([
-              { id: 'TEXT' as const, label: 'ข้อความ', icon: <MessageSquare className="w-4 h-4" /> },
-              { id: 'FLEX' as const, label: 'Flex Card', icon: <WalletCards className="w-4 h-4" /> },
-            ]).map((b) => (
-              <button
-                key={b.id}
-                type="button"
-                aria-pressed={mode === b.id}
-                onClick={() => setMode(b.id)}
-                className={`${COMMAND_BUTTON_SIZE_CLASSES} border flex items-center justify-center ${
-                  mode === b.id
-                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
-                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
-                }`}
-              >
-                {b.icon} {b.label}
-              </button>
-            ))}
-          </div>
+        {/* Tab bar (owner 2026-11-11): [ข้อความ] [Flex Card] [สร้างลิงก์ LINE]; the last one opens the link window after a confirm */}
+        <div role="tablist" aria-label="รูปแบบการส่ง" className={`${TAB_BAR_SURFACE_CLASSES} grid grid-cols-3`}>
+          {([
+            { id: 'TEXT' as const, label: 'ข้อความ', icon: <MessageSquare /> },
+            { id: 'FLEX' as const, label: 'Flex Card', icon: <WalletCards /> },
+          ]).map((b) => (
+            <button
+              key={b.id}
+              type="button"
+              role="tab"
+              aria-selected={mode === b.id}
+              onClick={() => setMode(b.id)}
+              className={`${TAB_BUTTON_BASE_CLASSES} min-w-0 [&_svg]:w-3.5 [&_svg]:h-3.5 ${mode === b.id ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
+            >
+              {b.icon}
+              <span className="truncate">{b.label}</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={false}
+            disabled={!canLink}
+            title={recipient?.state === 'LINKED' ? 'ลูกค้าผูก LINE แล้ว' : recipient?.customer_id ? undefined : 'บิลนี้ไม่มีข้อมูลลูกค้า'}
+            onClick={() => void startLink()}
+            className={`${TAB_BUTTON_BASE_CLASSES} min-w-0 [&_svg]:w-3.5 [&_svg]:h-3.5 ${TAB_BUTTON_INACTIVE_CLASSES} disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            <Link2 />
+            <span className="truncate">สร้างลิงก์ LINE</span>
+          </button>
         </div>
 
         <>
@@ -294,39 +324,12 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
           {sending ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />กำลังส่ง...</> : <><Send className="w-4 h-4" />ส่งทาง LINE</>}
         </button>
       </AppModalFooter>
+      <CustomerLineLinkDialog
+        customerId={recipient?.customer_id || undefined}
+        customerName={billData.customerName}
+        open={linkOpen}
+        onClose={closeLink}
+      />
     </AppModal>
-  )
-}
-
-function RecipientPanel({ recipient, error, onNavigate }: {
-  recipient: BillLineRecipient | null
-  error: string | null
-  onNavigate: () => void
-}) {
-  if (error) return <p role="status" className="rounded-xl bg-slate-100 dark:bg-slate-800 px-3 py-2 text-[11px] text-slate-600 dark:text-slate-300">{error} ใช้ปุ่ม &quot;คัดลอกไปส่งเอง&quot; แทนได้</p>
-  if (!recipient) return <p role="status" className="text-[11px] text-slate-600 dark:text-slate-400">กำลังตรวจสอบ LINE ของลูกค้า...</p>
-  if (recipient.state === 'LINKED') {
-    return <p role="status" className="rounded-xl bg-emerald-50 dark:bg-emerald-950/60 px-3 py-2 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">ลูกค้าผูก LINE กับร้านแล้ว{recipient.display_name ? ` (${recipient.display_name})` : ''} กด &quot;ส่งทาง LINE&quot; ได้เลย</p>
-  }
-  if (recipient.state === 'NO_CUSTOMER') return <p role="status" className="rounded-xl bg-slate-100 dark:bg-slate-800 px-3 py-2 text-[11px] text-slate-600 dark:text-slate-300">บิลนี้ไม่มีข้อมูลลูกค้า จึงส่งทาง LINE ไม่ได้</p>
-  if (recipient.state === 'UNREACHABLE') return <p role="status" className="rounded-xl bg-amber-50 dark:bg-amber-950/60 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-200">ลูกค้าบล็อกหรือลบ LINE ร้านแล้ว ให้ลูกค้าเพิ่มเพื่อน LINE ร้านอีกครั้ง</p>
-  // Not linked: no code here any more. The customer types name + phone in the shop chat, or the
-  // shop sends the customer's own link from the customer page.
-  return (
-    <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 p-3 space-y-2 text-[11px]">
-      <p role="status" className="text-amber-800 dark:text-amber-200">
-        <b>ยังไม่ได้ผูก LINE กับร้าน</b> ให้ลูกค้าเพิ่มเพื่อน LINE ร้านแล้วพิมพ์ชื่อและเบอร์โทรในแชต หรือส่งลิงก์ผูก LINE จากหน้าลูกค้า
-      </p>
-      {recipient.customer_id && (
-        <Link
-          href={`/customers?customer=${encodeURIComponent(recipient.customer_id)}`}
-          onClick={onNavigate}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 dark:border-amber-700 font-bold text-amber-900 dark:text-amber-100 hover:bg-amber-100 dark:hover:bg-amber-900/40"
-        >
-          <UserRound className="w-3.5 h-3.5" />
-          ไปหน้าลูกค้า
-        </Link>
-      )}
-    </div>
   )
 }
