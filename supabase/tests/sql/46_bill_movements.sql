@@ -1,4 +1,4 @@
--- Rule tests for supabase/migrations/20261111120000_bill_movements_v1.sql (owner 2026-11-11):
+-- Rule tests for supabase/migrations/20261110232456_bill_movements_v1.sql (owner 2026-11-11):
 -- the การเคลื่อนไหว of a bill is seen by everyone who works with bills, not only the OWNER;
 -- audit_logs itself stays OWNER-only. Runs after 45_payment_allocation.sql (uses its bill 'mx').
 \set ON_ERROR_STOP 1

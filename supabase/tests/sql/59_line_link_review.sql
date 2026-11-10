@@ -1,4 +1,4 @@
--- Rule tests for supabase/migrations/20261111130000_line_customer_link_review_v1.sql (owner 2026-11-11):
+-- Rule tests for supabase/migrations/20261110232606_line_customer_link_review_v1.sql (owner 2026-11-11):
 -- a customer who links with the shop's link waits for the shop to check it; no bill goes to that LINE
 -- until the shop confirms; a wrong link is undone and a new link can be made.
 -- Runs after 58_line_full.sql (uses the sale product 'ps' of 40_money_stock.sql).

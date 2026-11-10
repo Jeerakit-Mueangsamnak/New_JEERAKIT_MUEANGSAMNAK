@@ -147,7 +147,7 @@ interface BillMovementRow {
 /**
  * The การเคลื่อนไหว of one bill, oldest first, for everyone who works with bills (owner 2026-11-11):
  * the server's bill_movements() reads just this bill's audit rows. A database without migration
- * 20261111120000 has no such function yet: then the OWNER's own audit read is used, as before.
+ * 20261110232456 has no such function yet: then the OWNER's own audit read is used, as before.
  */
 export async function getBillMovements(billId: string): Promise<AuditLogEntry[]> {
   const { data, error } = await createClient().rpc('bill_movements', { p_bill_id: billId })
