@@ -56,7 +56,7 @@ import {
   COMMAND_BUTTON_SIZE_CLASSES,
   SEARCH_INPUT_CLASSES,
   SEARCH_ICON_CLASSES,
-  TABLE_TOOLBAR_CLASSES, ROW_ICON_BUTTON_CLASSES } from '@/components/common/ActionButton'
+  TABLE_TOOLBAR_CLASSES, TABLE_LINE_COLOUR_CLASSES, ROW_ICON_BUTTON_CLASSES } from '@/components/common/ActionButton'
 import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_THEAD_CLASSES, DATA_TABLE_TH_CLASSES } from '@/components/common/DataTableFrame'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
 
@@ -299,50 +299,49 @@ export default function BillsPage() {
         </div>
       ) : (
         <>
-          {/* Summary Metrics */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 sm:gap-2 shrink-0">
-            <div className="bg-blue-50/60 dark:bg-blue-950/40 p-2 sm:p-2.5 rounded-xl border border-blue-200 dark:border-blue-800 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] sm:text-[11px] text-blue-700 dark:text-blue-300 font-semibold">กำลังเช่าอยู่</span>
-                <h3 className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5">{rentingCount} บิล</h3>
-              </div>
-              <div className="p-1.5 bg-blue-100 dark:bg-blue-900/50 rounded-lg text-blue-600 dark:text-blue-300">
-                <Clock className="w-3.5 h-3.5" />
-              </div>
-            </div>
-
-            <div className="bg-red-50/60 dark:bg-red-950/40 p-2 sm:p-2.5 rounded-xl border border-red-200 dark:border-red-800 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] sm:text-[11px] text-red-700 dark:text-red-300 font-semibold">เกินกำหนดคืน</span>
-                <h3 className="text-base sm:text-lg font-black text-red-700 dark:text-red-400 mt-0.5">{overdueCount} บิล</h3>
-              </div>
-              <div className="p-1.5 bg-red-100 dark:bg-red-900/50 rounded-lg text-red-700 dark:text-red-300">
-                <ShieldAlert className="w-3.5 h-3.5" />
-              </div>
-            </div>
-
-            <div className="bg-amber-50/60 dark:bg-amber-950/40 p-2 sm:p-2.5 rounded-xl border border-amber-200 dark:border-amber-800 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] sm:text-[11px] text-amber-700 dark:text-amber-300 font-semibold">ค้างชำระ</span>
-                <h3 className="text-base sm:text-lg font-black text-amber-700 dark:text-amber-400 mt-0.5">{unpaidCount} บิล</h3>
-              </div>
-              <div className="p-1.5 bg-amber-100 dark:bg-amber-900/50 rounded-lg text-amber-700 dark:text-amber-300">
-                <AlertCircle className="w-3.5 h-3.5" />
-              </div>
-            </div>
-
-            <div className="bg-emerald-50/60 dark:bg-emerald-950/40 p-2 sm:p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] sm:text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold">ปิดบิลแล้ว</span>
-                <h3 className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 mt-0.5">{closedCount} บิล</h3>
-              </div>
-              <div className="p-1.5 bg-emerald-100 dark:bg-emerald-900/50 rounded-lg text-emerald-700 dark:text-emerald-300">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-              </div>
-            </div>
-          </div>
-
           <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
+            {/* Summary cards inside the white work area, evenly spread, shared 8px spacing (owner 2026-11-11) */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-2 pb-0 shrink-0">
+              <div className="min-w-0 bg-blue-50/60 dark:bg-blue-950/40 p-2 sm:p-2.5 rounded-xl border border-blue-200 dark:border-blue-800 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] sm:text-[11px] text-blue-700 dark:text-blue-300 font-semibold">กำลังเช่าอยู่</span>
+                  <h3 className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5">{rentingCount} บิล</h3>
+                </div>
+                <div className="p-1.5 bg-blue-100 dark:bg-blue-900/50 rounded-lg text-blue-600 dark:text-blue-300">
+                  <Clock className="w-3.5 h-3.5" />
+                </div>
+              </div>
+
+              <div className="min-w-0 bg-red-50/60 dark:bg-red-950/40 p-2 sm:p-2.5 rounded-xl border border-red-200 dark:border-red-800 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] sm:text-[11px] text-red-700 dark:text-red-300 font-semibold">เกินกำหนดคืน</span>
+                  <h3 className="text-base sm:text-lg font-black text-red-700 dark:text-red-400 mt-0.5">{overdueCount} บิล</h3>
+                </div>
+                <div className="p-1.5 bg-red-100 dark:bg-red-900/50 rounded-lg text-red-700 dark:text-red-300">
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                </div>
+              </div>
+
+              <div className="min-w-0 bg-amber-50/60 dark:bg-amber-950/40 p-2 sm:p-2.5 rounded-xl border border-amber-200 dark:border-amber-800 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] sm:text-[11px] text-amber-700 dark:text-amber-300 font-semibold">ค้างชำระ</span>
+                  <h3 className="text-base sm:text-lg font-black text-amber-700 dark:text-amber-400 mt-0.5">{unpaidCount} บิล</h3>
+                </div>
+                <div className="p-1.5 bg-amber-100 dark:bg-amber-900/50 rounded-lg text-amber-700 dark:text-amber-300">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                </div>
+              </div>
+
+              <div className="min-w-0 bg-emerald-50/60 dark:bg-emerald-950/40 p-2 sm:p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] sm:text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold">ปิดบิลแล้ว</span>
+                  <h3 className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 mt-0.5">{closedCount} บิล</h3>
+                </div>
+                <div className="p-1.5 bg-emerald-100 dark:bg-emerald-900/50 rounded-lg text-emerald-700 dark:text-emerald-300">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                </div>
+              </div>
+            </div>
             {/* Filter Toolbar */}
           <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-col`}>
             {/* Row 1: Search & Filter Dropdowns */}
@@ -391,7 +390,7 @@ export default function BillsPage() {
 
             {/* Row 2: One toolbar row even after selecting a bill. On very narrow screens,
                 allow horizontal scrolling inside this row rather than wrapping controls. */}
-            <div className="border-t border-slate-100 dark:border-slate-700/60 pt-2 overflow-x-auto">
+            <div className={`border-t ${TABLE_LINE_COLOUR_CLASSES} pt-2 overflow-x-auto`}>
               <div data-testid="bill-toolbar" className="flex w-max min-w-full flex-nowrap items-center gap-1 shrink-0">
                 {selectedRowBill?.rentalStatus === 'DRAFT' ? (
                   <>

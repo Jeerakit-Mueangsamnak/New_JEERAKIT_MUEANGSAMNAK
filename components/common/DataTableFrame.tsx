@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { TABLE_LINE_COLOUR_CLASSES } from '@/components/common/ActionButton'
 
 export interface DataTableFrameProps extends React.HTMLAttributes<HTMLDivElement> {
   header?: React.ReactNode
@@ -25,6 +26,9 @@ export const DATA_TABLE_FRAME_HEIGHT_CLASSES = 'min-h-[320px] max-h-[380px]'
 // System table colour #749bfc for every table header and row-count bar, light and dark (owner 2026-11-10).
 // Dark text keeps WCAG AA contrast on it.
 const TABLE_BAR_COLOUR_CLASSES = 'bg-[#749bfc] text-slate-900'
+// Every line inside a table (row lines, header line, cell borders) is #acacad (owner 2026-11-11). `!` wins over
+// the colour each table puts on its own rows (divide-* / border-*), so the colour lives only here.
+const TABLE_INNER_LINE_CLASSES = '[&_thead]:!border-[#acacad] [&_tr]:!border-[#acacad] [&_th]:!border-[#acacad] [&_td]:!border-[#acacad]'
 export const DATA_TABLE_THEAD_CLASSES = `sticky top-0 z-20 ${TABLE_BAR_COLOUR_CLASSES} font-bold`
 export const DATA_TABLE_TH_CLASSES = 'py-2 font-bold whitespace-nowrap'
 /**
@@ -77,7 +81,7 @@ export function DataTableFrame({
       >
         <div
           ref={scrollRef}
-          className={`overflow-y-auto overflow-x-auto ${fill ? 'h-full' : DATA_TABLE_FRAME_HEIGHT_CLASSES} [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20 [&_thead]:bg-[#749bfc] dark:[&_thead]:bg-[#749bfc] [&_thead]:text-slate-900 dark:[&_thead]:text-slate-900 [&_thead]:font-bold [&_thead]:shadow-xs [&_th]:py-2 [&_th]:font-bold [&_th]:whitespace-nowrap [&_td]:py-1.5 ${bodyClassName}`.trim()}
+          className={`overflow-y-auto overflow-x-auto ${fill ? 'h-full' : DATA_TABLE_FRAME_HEIGHT_CLASSES} [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20 [&_thead]:bg-[#749bfc] dark:[&_thead]:bg-[#749bfc] [&_thead]:text-slate-900 dark:[&_thead]:text-slate-900 [&_thead]:font-bold [&_thead]:shadow-xs [&_th]:py-2 [&_th]:font-bold [&_th]:whitespace-nowrap [&_td]:py-1.5 ${TABLE_INNER_LINE_CLASSES} ${bodyClassName}`.trim()}
         >
           {children}
         </div>
@@ -86,14 +90,14 @@ export function DataTableFrame({
       {/* Row-count bar sits right under the rows (no gap); a custom footer goes below it. */}
       {rowCount !== undefined && !barControls && (
         <div
-          className={`shrink-0 px-2 py-1.5 ${TABLE_BAR_COLOUR_CLASSES} border-t border-slate-200 dark:border-slate-800 text-xs truncate ${padded ? `-mx-2 ${footer ? '' : '-mb-2'}` : ''}`.trim()}
+          className={`shrink-0 px-2 py-1.5 ${TABLE_BAR_COLOUR_CLASSES} border-t ${TABLE_LINE_COLOUR_CLASSES} text-xs truncate ${padded ? `-mx-2 ${footer ? '' : '-mb-2'}` : ''}`.trim()}
         >
           {countText}
         </div>
       )}
       {rowCount !== undefined && barControls && (
         <div
-          className={`shrink-0 grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-2 py-1.5 ${TABLE_BAR_COLOUR_CLASSES} border-t border-slate-200 dark:border-slate-800 text-xs ${padded ? `-mx-2 ${footer ? '' : '-mb-2'}` : ''}`.trim()}
+          className={`shrink-0 grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-2 py-1.5 ${TABLE_BAR_COLOUR_CLASSES} border-t ${TABLE_LINE_COLOUR_CLASSES} text-xs ${padded ? `-mx-2 ${footer ? '' : '-mb-2'}` : ''}`.trim()}
         >
           <div className="flex justify-start min-w-0">{countBarStart}</div>
           <span className="truncate text-center">{countText}</span>

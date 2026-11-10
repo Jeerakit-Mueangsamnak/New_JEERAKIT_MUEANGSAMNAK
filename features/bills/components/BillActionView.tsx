@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, StepNavButton } from '@/components/common/ActionButton'
 
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { printReactDocuments } from '@/lib/print/print-react'
@@ -37,8 +37,7 @@ import { dbErrorMessage } from '@/lib/db/rpc'
 import { ReturnTableStep } from '@/features/bills/components/ReturnTableStep'
 import type { ReturnQuantityField } from '@/features/bills/components/ReturnTableStep'
 import { BillWorkspaceHeader, type BillWorkspaceTab } from '@/features/bills/components/BillWorkspaceHeader'
-import { BillDocumentsTab } from '@/features/bills/components/BillDocumentsTab'
-import { BillHistoryTab } from '@/features/bills/components/BillHistoryTab'
+import { BillRecordsTab } from '@/features/bills/components/BillRecordsTab'
 import { isCancelledOrVoidBill } from '@/features/bills/utils/bill-list-presentation'
 import { loadProducts } from '@/features/products/services/product-storage'
 import {
@@ -675,11 +674,6 @@ export function BillActionView({
     )
   }
 
-  // Double-click on a row selects that item (the tick box keeps toggling).
-  const handleSelectItem = (idx: number) => {
-    setInspectionItems((prev) => prev.map((item, i) => (i === idx ? { ...item, selected: true } : item)))
-  }
-
   const handleItemDateChange = (
     idx: number,
     field: 'rentalStartDate' | 'scheduledReturnDate' | 'actualReturnDate',
@@ -1104,14 +1098,17 @@ export function BillActionView({
   }
 
   return (
-    <div className="flex flex-col min-h-0 h-full w-full overflow-hidden animate-in fade-in duration-150 gap-2 sm:gap-2.5">
-      {/* Bill identity + tabs (รับคืน / รับชำระ / เอกสาร / ประวัติ) */}
+    // One white work area: the tab bar and the open tab together (owner 2026-11-11)
+    <div className="flex flex-col min-h-0 h-full w-full overflow-hidden animate-in fade-in duration-150 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
+      {/* Tabs: รับคืนสินค้า / ประวัติการทำรายการ/เอกสาร */}
       {activeBill && (
-        <BillWorkspaceHeader
-          tab={tab}
-          onTab={setTab}
-          returnDisabled={isCancelledOrVoidBill(activeBill)}
-        />
+        <div className="shrink-0 p-2">
+          <BillWorkspaceHeader
+            tab={tab}
+            onTab={setTab}
+            returnDisabled={isCancelledOrVoidBill(activeBill)}
+          />
+        </div>
       )}
 
       {/* Content of the open tab */}
@@ -1133,7 +1130,6 @@ export function BillActionView({
                 }
                 onToggleSelectAll={handleToggleSelectAll}
                 onToggleSelectItem={handleToggleSelectItem}
-                onSelectItem={handleSelectItem}
                 onQuantityChange={handleItemQtyChange}
                 onReturnDateChange={(idx, value) => handleItemDateChange(idx, 'actualReturnDate', value)}
                 onContinueEndDateChange={handleContinueEndDateChange}
@@ -1146,7 +1142,7 @@ export function BillActionView({
             {/* STEP 2: Preview + payment (Centered A4 Preview without Outer White Card + External Navigation + Double-click Full Preview) */}
             {currentStep === 2 && (() => {
               return (
-                <div className="flex-1 min-h-0 h-full w-full grid grid-cols-1 md:grid-cols-[minmax(0,58fr)_minmax(300px,42fr)] lg:grid-cols-[minmax(0,60fr)_minmax(340px,40fr)] gap-2 md:gap-2.5 lg:gap-3 overflow-hidden">
+                <div className="flex-1 min-h-0 h-full w-full grid grid-cols-1 md:grid-cols-[minmax(0,58fr)_minmax(300px,42fr)] lg:grid-cols-[minmax(0,60fr)_minmax(340px,40fr)] gap-2 md:gap-2.5 lg:gap-3 overflow-hidden p-2 pt-0">
                   {/* Left: Document Preview Area (Centered A4, No outer white card, Outside Prev/Next buttons) */}
                   <div className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-100/60 dark:bg-slate-950/40">
                     {/* Previous Button Zone (Outside A4) */}
@@ -1401,13 +1397,7 @@ export function BillActionView({
 
                     {/* 5. Action Buttons Bar: same look and behaviour as the buttons of the POS payment page */}
                     <div className="flex shrink-0 items-center gap-1.5 sm:gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
-                      <button
-                        type="button"
-                        onClick={handleBackStep}
-                        className={`${COMMAND_BUTTON_SIZE_CLASSES} flex-1 min-w-0 bg-slate-100 dark:bg-slate-700/80 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.99] text-slate-700 dark:text-slate-300 flex items-center justify-center transition-all cursor-pointer`}
-                      >
-                        <span className="truncate">ย้อนกลับ</span>
-                      </button>
+                      <StepNavButton direction="back" onClick={handleBackStep} className="flex-1 min-w-0" />
 
                       <button
                         type="button"
@@ -1429,8 +1419,11 @@ export function BillActionView({
           </>
         )}
 
-        {tab === 'DOCS' && activeBill && <BillDocumentsTab bill={activeBill} />}
-        {tab === 'HISTORY' && activeBill && <BillHistoryTab bill={activeBill} />}
+        {tab === 'DOCS' && activeBill && (
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden p-2 pt-0">
+            <BillRecordsTab bill={activeBill} />
+          </div>
+        )}
       </div>
 
       {/* Post-Save Print Confirmation Modal */}

@@ -2,7 +2,8 @@
 
 import React from 'react'
 import type { FullBill, ReturnInspectionItem } from '@/lib/types/rental-return'
-import { ActionButton } from '@/components/common/ActionButton'
+import { StepNavButton } from '@/components/common/ActionButton'
+import { toggleRowOnDoubleClick } from '@/components/common/row-selection'
 import { NumericInput } from '@/components/common/NumericInput'
 import { CustomDatePicker, getLocalDateString, parseLocalDate } from '@/components/common/CustomDatePicker'
 import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
@@ -22,9 +23,8 @@ interface ReturnTableStepProps {
   items: ReturnInspectionItem[]
   canNext: boolean
   onToggleSelectAll: () => void
+  /** Tick box, and double-click on the row (1st = tick, 2nd = untick: the shared rule). */
   onToggleSelectItem: (idx: number) => void
-  /** Double-click on a row: select that item. */
-  onSelectItem: (idx: number) => void
   onQuantityChange: (rentalBillItemId: string, field: ReturnQuantityField, value: number) => void
   /** Daily goods without เช่าต่อ: the day they came back. */
   onReturnDateChange: (idx: number, value: string) => void
@@ -76,7 +76,6 @@ export function ReturnTableStep({
   canNext,
   onToggleSelectAll,
   onToggleSelectItem,
-  onSelectItem,
   onQuantityChange,
   onReturnDateChange,
   onContinueEndDateChange,
@@ -92,17 +91,10 @@ export function ReturnTableStep({
       <DataTableFrame
         fill
         rowCount={items.length}
-        countBarStart={
-          <ActionButton type="button" onClick={onBack} variant="outline">
-            ย้อนกลับ
-          </ActionButton>
-        }
-        countBarEnd={
-          <ActionButton type="button" onClick={onNext} disabled={!canNext} variant="primary">
-            ถัดไป
-          </ActionButton>
-        }
-        className="flex-1 min-h-0 min-w-0 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
+        countBarStart={<StepNavButton direction="back" onClick={onBack} />}
+        countBarEnd={<StepNavButton direction="next" onClick={onNext} disabled={!canNext} />}
+        // Edge to edge inside the bill's white work area, under the tabs
+        className="flex-1 min-h-0 min-w-0 rounded-none bg-transparent"
       >
         <table className={`${DATA_TABLE_CLASSES} text-[10px] leading-tight`}>
           <colgroup>
@@ -173,11 +165,7 @@ export function ReturnTableStep({
               return (
                 <tr
                   key={item.rentalBillItemId || item.productId}
-                  onDoubleClick={(e) => {
-                    if ((e.target as HTMLElement).closest('button, a, input, select, textarea')) return
-                    window.getSelection()?.removeAllRanges()
-                    if (!isCompleted) onSelectItem(idx)
-                  }}
+                  onDoubleClick={(e) => toggleRowOnDoubleClick(e, () => !isCompleted && onToggleSelectItem(idx))}
                   className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors ${
                     item.selected ? 'bg-emerald-50/50 dark:bg-emerald-950/20' : ''
                   } ${isCompleted ? 'opacity-60' : ''}`}

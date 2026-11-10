@@ -48,6 +48,17 @@ export function scaffoldPartQuantities(sets: number): Record<ScaffoldPartKey, nu
   return Object.fromEntries(SCAFFOLD_PARTS.map((p) => [p.key, p.perSet * n])) as Record<ScaffoldPartKey, number>
 }
 
+/**
+ * The POS หมวด whose cards the accessory card follows, always last (owner 2026-11-11): น็อต → แบบเสา,
+ * อุปกรณ์นั่งร้าน → นั่งร้าน. The products themselves stay in หมวด อื่นๆ.
+ */
+export const ACCESSORY_HOST_CATEGORY: Record<AccessoryWindow, string> = { NUT: 'แบบเสา', SCAFFOLD: 'นั่งร้าน' }
+
+/** The name among `categoryNames` that hosts this window's card (spaces ignored); null = not on screen. */
+export function accessoryHostCategory(window: AccessoryWindow, categoryNames: readonly string[]): string | null {
+  return categoryNames.find((name) => squash(name) === squash(ACCESSORY_HOST_CATEGORY[window])) ?? null
+}
+
 /** Which accessory window a product belongs to (by its หมวด อื่นๆ › รายการ); null = an ordinary product. */
 export function accessoryWindowFor(product: Pick<Product, 'category' | 'listItem'>): AccessoryWindow | null {
   if (squash(product.category) !== squash(ACCESSORY_CATEGORY)) return null

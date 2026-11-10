@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { Product } from '@/lib/types/rental-pos'
 import { NutAccessoryModal, ScaffoldAccessoryModal } from '@/features/pos/components/AccessoryModals'
 import { ProductGrid } from '@/features/pos/components/ProductGrid'
@@ -66,14 +66,15 @@ describe('POS cards', () => {
     expect(screen.getByRole('heading', { name: 'แบบเสา 15x15x3.00' })).toBeDefined()
   })
 
-  it('น็อต then อุปกรณ์นั่งร้าน are pinned first, above the scrolling grid (owner 2026-11-11)', () => {
+  it('น็อต is the last card of หมวด แบบเสา, อุปกรณ์นั่งร้าน the last of หมวด นั่งร้าน (owner 2026-11-11)', () => {
     render(<ProductGrid products={products} onSelectProduct={vi.fn()} />)
-    const pinned = screen.getByTestId('pinned-accessory-cards')
-    const cards = Array.from(pinned.children)
-    expect(cards).toHaveLength(2)
-    expect(within(cards[0] as HTMLElement).getByRole('heading', { name: 'น็อต' })).toBeDefined()
-    expect(within(cards[1] as HTMLElement).getByRole('heading', { name: 'อุปกรณ์นั่งร้าน' })).toBeDefined()
-    expect(screen.getAllByRole('heading', { name: 'น็อต' })).toHaveLength(1)
+    const names = ['แบบเสา 15x15x3.00', 'น็อต', 'กากบาท (หมวดนั่งร้าน)', 'อุปกรณ์นั่งร้าน']
+    const order = screen
+      .getAllByRole('heading')
+      .map((h) => h.textContent?.trim() || '')
+      .filter((t) => names.includes(t))
+    expect(order).toEqual(names)
+    expect(screen.queryByTestId('pinned-accessory-cards')).toBeNull()
   })
 
   it('a no-charge rental card says ไม่คิดเงิน instead of "ราคา 0" / รายรอบ', () => {

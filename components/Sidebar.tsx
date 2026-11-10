@@ -40,7 +40,8 @@ const MENU_ROW_CLASSES =
 // Selected menu colour #749bfc (owner 2026-11-10); dark text keeps WCAG AA contrast on it.
 const MENU_ROW_ACTIVE_CLASSES = 'bg-[#749bfc] text-slate-900 shadow-lg shadow-[#749bfc]/30'
 const MENU_ROW_IDLE_CLASSES =
-  'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-300/60 dark:hover:bg-slate-800'
+  // Hover shade #edf3ff (owner 2026-11-11)
+  'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-[#edf3ff] dark:hover:bg-slate-800'
 
 function SidebarContent() {
   const pathname = usePathname() || ''
@@ -91,9 +92,10 @@ function SidebarContent() {
         }`}
       >
         {/* Drawer Header: the login page logo almost edge to edge, so this row is taller than the app header
-            (owner 2026-11-10). No lines under / beside the logo or above the user row (owner 2026-11-11). */}
+            (owner 2026-11-10). No lines under / beside the logo or above the user row (owner 2026-11-11).
+            Logo a little lower (owner 2026-11-11): 8px above, none below, same logo size as before. */}
         {/* No close button (owner 2026-11-10): on iPad/phone the drawer closes by tapping outside it or picking a menu. */}
-        <div className={`h-[72px] px-3.5 sm:px-4 py-1 flex items-center shrink-0`}>
+        <div className={`h-[72px] px-3.5 sm:px-4 pt-2 pb-0 flex items-center shrink-0`}>
           <Image
             src="/logo.png"
             alt="JJK JEERAKIT PLASTIC FORMWORK UTTARADIT"

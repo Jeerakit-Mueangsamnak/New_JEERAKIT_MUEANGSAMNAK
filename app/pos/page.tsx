@@ -78,6 +78,7 @@ function POSContent() {
     rentalEndDate?: string
     documentDate?: string
     documentType?: string
+    datesPicked?: boolean
   }>({})
   const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null)
   // Draft / quotation a held cart belongs to (the URL no longer carries them after switching menus).
@@ -153,6 +154,7 @@ function POSContent() {
           rentalEndDate: saved.headerReturnDate,
           documentDate: saved.documentDate,
           documentType: saved.documentType,
+          datesPicked: saved.datesPicked,
         })
         if (saved.quotationNo) setLoadedQuotationNo(saved.quotationNo)
         return
@@ -681,6 +683,10 @@ function POSContent() {
             initialCustomerAttention={searchParams.get('customerRequired') === '1'}
             initialContactPhone={quotationValues.contactPhone}
             initialDocumentType={quotationValues.documentType}
+            // A held cart says whether its dates were picked; a quotation / draft / appointment brings its own dates
+            initialDatesPicked={
+              quotationValues.datesPicked ?? (quotationValues.rentalStartDate || quotationValues.documentDate ? true : undefined)
+            }
           />
         </div>
       </div>

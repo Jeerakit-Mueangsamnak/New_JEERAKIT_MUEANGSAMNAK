@@ -52,6 +52,8 @@ export interface CalendarPanelProps {
   showClear?: boolean
   showToday?: boolean
   className?: string
+  /** Colour classes of the line under the month bar and above the buttons (default light grey). */
+  dividerClassName?: string
 }
 
 /**
@@ -66,6 +68,7 @@ export function CalendarPanel({
   showClear = true,
   showToday = true,
   className = '',
+  dividerClassName = 'border-slate-100 dark:border-slate-700/80',
 }: CalendarPanelProps) {
   const initialDate = value || new Date()
   const [viewYear, setViewYear] = useState(initialDate.getFullYear())
@@ -144,7 +147,7 @@ export function CalendarPanel({
   return (
     <div className={`w-72 max-w-[calc(100vw-1.5rem)] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl p-3.5 text-slate-900 dark:text-slate-100 select-none ${className}`}>
       {/* Header Controls: ‹ [สิงหาคม v] [2569 v] › */}
-      <div className="flex items-center justify-between mb-3 border-b border-slate-100 dark:border-slate-700/80 pb-2.5 gap-1 relative">
+      <div className={`flex items-center justify-between mb-3 border-b ${dividerClassName} pb-2.5 gap-1 relative`}>
         <button
           type="button"
           onClick={handlePrevMonth}
@@ -305,7 +308,7 @@ export function CalendarPanel({
 
       {/* Footer Quick Actions */}
       {(showClear || showToday) && (
-        <div className="flex items-center justify-between pt-3 mt-2.5 border-t border-slate-100 dark:border-slate-700 text-xs">
+        <div className={`flex items-center justify-between pt-3 mt-2.5 border-t ${dividerClassName} text-xs`}>
           {showClear ? (
             <button
               type="button"

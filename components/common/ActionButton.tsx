@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 export interface ActionButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'active' | 'primary' | 'neutral' | 'ghost' | 'dashed' | 'secondary' | 'outline' | 'utility' | 'danger' | 'info'
@@ -52,10 +53,17 @@ export const HEADER_ICON_BUTTON_OPEN_CLASSES = 'bg-blue-50 dark:bg-blue-950/60 b
  * Shared sizes for every menu except POS (owner 2026-11-07: the size most pages already use becomes
  * the one value every page reads from here).
  */
+/** Colour of every table line and of the lines between a table and its bars (owner 2026-11-11: #acacad). */
+export const TABLE_LINE_COLOUR_CLASSES = 'border-[#acacad] dark:border-[#acacad]'
 /** Table toolbar above a list: padding, gap between controls, bottom line. Add the layout (flex …). */
-export const TABLE_TOOLBAR_CLASSES = 'p-2 gap-2 border-b border-slate-200 dark:border-slate-700 shrink-0'
+export const TABLE_TOOLBAR_CLASSES = `p-2 gap-2 border-b ${TABLE_LINE_COLOUR_CLASSES} shrink-0`
 /** Bar under a table/form (same spacing as the toolbar, line on top). Add the layout (flex …). */
-export const TABLE_FOOTER_CLASSES = 'p-2 gap-2 border-t border-slate-200 dark:border-slate-700 shrink-0'
+export const TABLE_FOOTER_CLASSES = `p-2 gap-2 border-t ${TABLE_LINE_COLOUR_CLASSES} shrink-0`
+/**
+ * ย้อนกลับ / ถัดไป of a step-by-step screen (owner 2026-11-11, the "NEXT >" picture): black, a thin white
+ * line inside the edge, white bold text, the standard command height. Use StepNavButton.
+ */
+export const STEP_NAV_BUTTON_CLASSES = `${COMMAND_BUTTON_SIZE_CLASSES} px-3 inline-flex items-center justify-center whitespace-nowrap bg-slate-950 text-white border border-slate-950 shadow-[inset_0_0_0_2px_#020617,inset_0_0_0_3px_#ffffff] hover:opacity-90 transition-opacity cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed`
 /** Icon-only action button inside a table row (the bills table style). Add the icon colour + hover colour. */
 export const ROW_ICON_BUTTON_CLASSES =
   'inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed'
@@ -146,3 +154,20 @@ export const ActionButton = React.forwardRef<HTMLButtonElement, ActionButtonProp
 )
 
 ActionButton.displayName = 'ActionButton'
+
+export interface StepNavButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  /** back = "< ย้อนกลับ", next = "ถัดไป >" (the text can be changed with children). */
+  direction: 'back' | 'next'
+}
+
+/** The one ย้อนกลับ / ถัดไป button of step-by-step screens (owner 2026-11-11). */
+export function StepNavButton({ direction, children, className = '', type = 'button', ...props }: StepNavButtonProps) {
+  const label = children ?? (direction === 'back' ? 'ย้อนกลับ' : 'ถัดไป')
+  return (
+    <button type={type} className={`${STEP_NAV_BUTTON_CLASSES} ${className}`.trim()} {...props}>
+      {direction === 'back' && <ChevronLeft aria-hidden="true" />}
+      <span className="truncate">{label}</span>
+      {direction === 'next' && <ChevronRight aria-hidden="true" />}
+    </button>
+  )
+}

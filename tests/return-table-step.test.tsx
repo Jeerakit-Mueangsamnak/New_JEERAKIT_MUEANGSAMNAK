@@ -16,7 +16,7 @@ const bill = { items: [{ rentalBillItemId: 'a', returnedQty: 5 }, { rentalBillIt
 
 const setup = (items: ReturnInspectionItem[]) => {
   const handlers = {
-    onToggleSelectAll: vi.fn(), onToggleSelectItem: vi.fn(), onSelectItem: vi.fn(), onQuantityChange: vi.fn(),
+    onToggleSelectAll: vi.fn(), onToggleSelectItem: vi.fn(), onQuantityChange: vi.fn(),
     onReturnDateChange: vi.fn(), onContinueEndDateChange: vi.fn(), onContinueRoundsChange: vi.fn(), onBack: vi.fn(), onNext: vi.fn(),
   }
   render(<ReturnTableStep activeBill={bill} items={items} canNext {...handlers} />)
@@ -49,13 +49,25 @@ describe('ReturnTableStep', () => {
     expect(within(row).getAllByRole('textbox').length).toBe(5) // ปกติ ชำรุด หาย เช่าต่อ + rounds box, always there
   })
 
-  it('double-click selects the row; the tick box still toggles', () => {
+  it('double-click toggles the row (1st ticks, 2nd unticks); the tick box toggles too (owner 2026-11-11)', () => {
     const h = setup([item({})])
     const row = screen.getByText('นั่งร้าน 170').closest('tr') as HTMLElement
     fireEvent.doubleClick(row)
-    expect(h.onSelectItem).toHaveBeenCalledWith(0)
-    fireEvent.click(within(row).getByRole('checkbox'))
+    fireEvent.doubleClick(row)
+    expect(h.onToggleSelectItem).toHaveBeenCalledTimes(2)
     expect(h.onToggleSelectItem).toHaveBeenCalledWith(0)
+    fireEvent.doubleClick(within(row).getAllByRole('textbox')[0])
+    expect(h.onToggleSelectItem).toHaveBeenCalledTimes(2) // a double-click in a box is the box's own
+    fireEvent.click(within(row).getByRole('checkbox'))
+    expect(h.onToggleSelectItem).toHaveBeenCalledTimes(3)
+  })
+
+  it('ย้อนกลับ / ถัดไป are the shared step buttons', () => {
+    const h = setup([item({})])
+    fireEvent.click(screen.getByRole('button', { name: 'ย้อนกลับ' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ถัดไป' }))
+    expect(h.onBack).toHaveBeenCalled()
+    expect(h.onNext).toHaveBeenCalled()
   })
 
   it('a quantity typed in ปกติ is reported to the parent', () => {

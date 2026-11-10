@@ -63,6 +63,8 @@ export interface ActiveCartData {
   headerReturnDate: string // ISO string or YYYY-MM-DD
   documentType: string
   documentDate: string // ISO string or YYYY-MM-DD
+  /** The three dates were picked in the date window (a bill needs them picked, owner 2026-11-11). */
+  datesPicked?: boolean
   subtotal: number
   tax: number
   grandTotal: number

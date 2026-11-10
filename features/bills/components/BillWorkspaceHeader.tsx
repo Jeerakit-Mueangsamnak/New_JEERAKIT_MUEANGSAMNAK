@@ -3,12 +3,12 @@
 import { TAB_BAR_SURFACE_CLASSES, TAB_BUTTON_BASE_CLASSES, TAB_BUTTON_ACTIVE_CLASSES, TAB_BUTTON_INACTIVE_CLASSES } from '@/components/common/ActionButton'
 import React from 'react'
 
-export type BillWorkspaceTab = 'RETURN' | 'DOCS' | 'HISTORY'
+/** RETURN = รับคืนสินค้า; DOCS = ประวัติการทำรายการ/เอกสาร (history and documents on one page, owner 2026-11-11). */
+export type BillWorkspaceTab = 'RETURN' | 'DOCS'
 
 const TABS: { tab: BillWorkspaceTab; label: string }[] = [
   { tab: 'RETURN', label: 'รับคืนสินค้า' },
-  { tab: 'DOCS', label: 'เอกสาร' },
-  { tab: 'HISTORY', label: 'ประวัติรายการ' },
+  { tab: 'DOCS', label: 'ประวัติการทำรายการ/เอกสาร' },
 ]
 
 interface BillWorkspaceHeaderProps {
@@ -22,11 +22,11 @@ interface BillWorkspaceHeaderProps {
 export function BillWorkspaceHeader({ tab, onTab, returnDisabled = false }: BillWorkspaceHeaderProps) {
   return (
     <div className="shrink-0 flex items-center gap-2">
-      {/* owner 2026-11-07: the three tabs sit in a coloured strip, like the customer page tabs */}
+      {/* owner 2026-11-07: the tabs sit in a coloured strip, like the customer page tabs */}
       <div
         role="tablist"
         aria-label="งานของบิล"
-        className={`${TAB_BAR_SURFACE_CLASSES} grid min-w-0 flex-1 grid-cols-3`}
+        className={`${TAB_BAR_SURFACE_CLASSES} grid min-w-0 flex-1 grid-cols-2`}
       >
         {TABS.map((t) => {
           const active = tab === t.tab

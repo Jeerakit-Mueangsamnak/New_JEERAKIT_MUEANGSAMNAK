@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { Calendar, Clock, MapPin, Phone, User } from 'lucide-react'
+import { Calendar, Clock, MapPin, Phone, RotateCcw, User } from 'lucide-react'
 import { formatPhoneNumber, formatThaiNumericDate } from '@/lib/utils/format'
 
 export interface JobSummaryCardProps {
@@ -14,6 +14,8 @@ export interface JobSummaryCardProps {
   date?: string | null
   startTime?: string | null
   endTime?: string | null
+  /** A bill: the return due date (circle-arrow icon) takes the place of the time (owner 2026-11-11). */
+  returnDate?: string | null
   className?: string
   'data-testid'?: string
 }
@@ -32,6 +34,7 @@ export function JobSummaryCard({
   date,
   startTime,
   endTime,
+  returnDate,
   className = '',
   'data-testid': testId,
 }: JobSummaryCardProps) {
@@ -68,10 +71,17 @@ export function JobSummaryCard({
           <Calendar className="w-4 h-4 shrink-0 text-blue-600 dark:text-blue-400" aria-label="วันที่" />
           <span data-testid="job-date" className="min-w-0 break-words">{date ? formatThaiNumericDate(date) : '-'}</span>
         </p>
-        <p className={row}>
-          <Clock className="w-4 h-4 shrink-0 text-blue-600 dark:text-blue-400" aria-label="เวลา" />
-          <span data-testid="job-time" className="min-w-0 break-words">{time}</span>
-        </p>
+        {returnDate !== undefined ? (
+          <p className={row}>
+            <RotateCcw className="w-4 h-4 shrink-0 text-red-700 dark:text-red-400" aria-label="กำหนดคืน" />
+            <span data-testid="job-return-date" className="min-w-0 break-words">{returnDate ? formatThaiNumericDate(returnDate) : '-'}</span>
+          </p>
+        ) : (
+          <p className={row}>
+            <Clock className="w-4 h-4 shrink-0 text-blue-600 dark:text-blue-400" aria-label="เวลา" />
+            <span data-testid="job-time" className="min-w-0 break-words">{time}</span>
+          </p>
+        )}
       </div>
     </div>
   )

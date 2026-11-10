@@ -70,3 +70,29 @@ describe('POS cart: fields moved to the payment page / contact phone', () => {
     expect(screen.queryByLabelText('เบอร์โทรติดต่อ')).toBeNull()
   })
 })
+
+describe('POS cart: the dates must be picked for a bill (owner 2026-11-11)', () => {
+  const dateRow = () => screen.getByRole('button', { name: 'วันที่เอกสาร วันเริ่มเช่า วันกำหนดคืน' })
+
+  it('a new bill shows --/-- and ชำระเงิน makes the date row blink red instead of going on', () => {
+    const onCheckout = vi.fn()
+    mount({ onCheckout, initialDocumentType: 'ใบส่งของ/ใบเสร็จรับเงิน' })
+    expect(dateRow().textContent).not.toMatch(/\d{2}\/\d{2}/)
+    fireEvent.click(screen.getByRole('button', { name: /ชำระเงิน/ }))
+    expect(onCheckout).not.toHaveBeenCalled()
+    expect(dateRow().className).toContain('field-attention')
+  })
+
+  it('dates that came with the cart (held cart / quotation / draft) count as picked', () => {
+    const onCheckout = vi.fn()
+    mount({ onCheckout, initialDocumentType: 'ใบส่งของ/ใบเสร็จรับเงิน', initialDatesPicked: true })
+    expect(dateRow().textContent).toMatch(/\d{2}\/\d{2}/)
+    fireEvent.click(screen.getByRole('button', { name: /ชำระเงิน/ }))
+    expect(onCheckout).toHaveBeenCalled()
+  })
+
+  it('a quotation does not need them', () => {
+    mount({ isQuotationMode: true })
+    expect(dateRow().textContent).toMatch(/\d{2}\/\d{2}/)
+  })
+})

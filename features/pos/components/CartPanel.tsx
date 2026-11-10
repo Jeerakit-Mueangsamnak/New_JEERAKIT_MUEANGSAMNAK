@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
+import { StepNavButton } from '@/components/common/ActionButton'
 import { Customer, Product } from '@/lib/types/rental-pos'
 import {
   Trash2,
@@ -73,6 +74,8 @@ interface CartPanelProps {
   initialContactPhone?: string
   /** ประเภทเอกสาร picked before (restored when coming back from checkout). */
   initialDocumentType?: string
+  /** The dates were picked before (held cart) or come with the document (quotation / draft / appointment). */
+  initialDatesPicked?: boolean
 }
 
 export function CartPanel({
@@ -101,6 +104,7 @@ export function CartPanel({
   initialCustomerAttention = false,
   initialContactPhone,
   initialDocumentType,
+  initialDatesPicked,
 }: CartPanelProps) {
   const { showToast } = useToast()
   const { settings } = useSystemSettings()
@@ -166,6 +170,14 @@ export function CartPanel({
     if (initialDocumentType !== undefined) setDocumentType(initialDocumentType)
   }, [initialDocumentType])
   const [documentDate, setDocumentDate] = useState<Date | null>(new Date())
+  // A bill must have its dates picked in the date window (owner 2026-11-11): until then they show --/--
+  // and the row blinks red like the customer field when ชำระเงิน is pressed.
+  const [datesPicked, setDatesPicked] = useState(false)
+  const [datesAttention, setDatesAttention] = useState(false)
+  useEffect(() => {
+    if (initialDatesPicked !== undefined) setDatesPicked(initialDatesPicked)
+  }, [initialDatesPicked])
+  const showDates = isQuotationMode || datesPicked
 
   const removeItem = (id: string) => {
     setItems((prev) => prev.filter((item) => item.id !== id))
@@ -283,6 +295,7 @@ export function CartPanel({
     headerReturnDate: getLocalDateString(headerReturnDate ?? new Date()),
     documentType,
     documentDate: getLocalDateString(documentDate ?? new Date()),
+    datesPicked,
     subtotal,
     tax,
     grandTotal,
@@ -304,7 +317,7 @@ export function CartPanel({
     if (items.length > 0) saveActiveCart(latestCart.current())
     else if (keptItemCount.current > 0) clearActiveCart('BILL')
     keptItemCount.current = items.length
-  }, [isQuotationMode, items, customer, contactPhone, shippingAddress, headerRentalDate, headerReturnDate, documentType, documentDate, docVatMode, draftBillId, quotationId])
+  }, [isQuotationMode, items, customer, contactPhone, shippingAddress, headerRentalDate, headerReturnDate, documentType, documentDate, datesPicked, docVatMode, draftBillId, quotationId])
 
   const handleOpenAddCustomerModal = () => {
     setShowAddCustomerModal(true)
@@ -416,16 +429,18 @@ export function CartPanel({
           <div>
             <button
               type="button"
+              aria-label="วันที่เอกสาร วันเริ่มเช่า วันกำหนดคืน"
               onClick={() => {
+                setDatesAttention(false)
                 setDateStep(0)
                 setShowDatePicker(true)
               }}
-              className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-[10px] sm:text-[11px] font-bold flex items-center justify-between shadow-xs hover:border-emerald-500 transition-colors"
+              className={`w-full px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-[10px] sm:text-[11px] font-bold flex items-center justify-between shadow-xs hover:border-emerald-500 transition-colors ${datesAttention ? 'field-attention' : ''}`}
             >
               <div className="flex items-center gap-2 flex-wrap min-w-0 leading-tight">
-                <span className="text-emerald-700 dark:text-emerald-400 whitespace-nowrap">📝 {documentDate ? documentDate.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit'}) : '--/--'}</span>
-                <span className="text-blue-600 dark:text-blue-400 whitespace-nowrap">🟢 {headerRentalDate ? headerRentalDate.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit'}) : '--/--'}</span>
-                <span className="text-red-700 dark:text-red-400 whitespace-nowrap">🔴 {headerReturnDate ? headerReturnDate.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit'}) : '--/--'}</span>
+                <span className="text-emerald-700 dark:text-emerald-400 whitespace-nowrap">📝 {showDates && documentDate ? documentDate.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit'}) : '--/--'}</span>
+                <span className="text-blue-600 dark:text-blue-400 whitespace-nowrap">🟢 {showDates && headerRentalDate ? headerRentalDate.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit'}) : '--/--'}</span>
+                <span className="text-red-700 dark:text-red-400 whitespace-nowrap">🔴 {showDates && headerReturnDate ? headerReturnDate.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit'}) : '--/--'}</span>
               </div>
               <Calendar className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 shrink-0 ml-1" />
             </button>
@@ -542,6 +557,10 @@ export function CartPanel({
                     setDocumentTypeAttention(true)
                     missing = true
                   }
+                  if (!datesPicked) {
+                    setDatesAttention(true)
+                    missing = true
+                  }
                   if (missing) return
                 }
 
@@ -586,8 +605,8 @@ export function CartPanel({
               </p>
             </div>
             
-            {/* No grey backing; a black frame around the calendar itself (owner 2026-11-11). `!` because the
-                panel's own border / shadow classes would otherwise win. */}
+            {/* No grey backing; a black frame and black lines above / below the days (owner 2026-11-11).
+                `!` because the panel's own border / shadow classes would otherwise win. */}
             <div className="flex justify-center">
                <CalendarPanel
                  value={dateStep === 0 ? documentDate : dateStep === 1 ? headerRentalDate : headerReturnDate}
@@ -612,6 +631,7 @@ export function CartPanel({
                        return
                      }
                      setHeaderReturnDate(d)
+                     setDatesPicked(true)
                      setShowDatePicker(false)
                      setDateStep(0)
                    }
@@ -619,19 +639,18 @@ export function CartPanel({
                  showClear={false}
                  showToday={true}
                  className="w-full !shadow-none !border-slate-900 dark:!border-slate-100"
+                 dividerClassName="border-slate-900 dark:border-slate-100"
                />
             </div>
             
             {/* Actions: Back Button (for Steps 2 & 3) + Cancel Button */}
             <div className="flex items-center gap-2">
               {dateStep > 0 && (
-                <button
-                  type="button"
+                <StepNavButton
+                  direction="back"
                   onClick={() => setDateStep((prev) => (prev > 0 ? prev - 1 : 0))}
-                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-xs transition-colors cursor-pointer text-center"
-                >
-                  ย้อนกลับ
-                </button>
+                  className="flex-1"
+                />
               )}
               <button
                 type="button"
