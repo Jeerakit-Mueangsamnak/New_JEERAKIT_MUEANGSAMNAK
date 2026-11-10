@@ -1,4 +1,4 @@
--- Rule tests for supabase/migrations/20261111100000_deposit_unpaid_payment_allocation_v1.sql (owner 2026-11-11):
+-- Rule tests for supabase/migrations/20261110192958_deposit_unpaid_payment_allocation_v1.sql (owner 2026-11-11):
 -- money is cut ค่าสินค้าขาย → ค่าขนส่ง → มัดจำ → ค่าเช่า; what is not paid (an unpaid deposit too) stays owed;
 -- each payment keeps a record of what it paid. Runs after 40_money_stock.sql (uses c1, unit, its helpers).
 \set ON_ERROR_STOP 1

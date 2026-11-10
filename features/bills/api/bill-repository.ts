@@ -360,7 +360,7 @@ async function loadBills(billIds?: string[]): Promise<FullBill[]> {
     selectRows<{ id: string; bill_id: string; charge_type: string; amount: number; suggested_amount: number | null; status: string; reason: string; bill_line_id: string | null; incident_case_id: string | null; created_at: string; basis: Record<string, unknown> | null }>(
       byId(supabase.from('charges').select('id, bill_id, charge_type, amount, suggested_amount, status, reason, bill_line_id, incident_case_id, created_at, basis'), 'bill_id')
     ),
-    // A database without migration 20261111100000 has no such table yet: no history rows, the rest still loads.
+    // A database without migration 20261110192958 has no such table yet: no history rows, the rest still loads.
     selectRows<AllocationRow>(byId(supabase.from('bill_payment_allocations').select('*').order('created_at'), 'bill_id'))
       .catch((e: { sqlState?: string }) => {
         if (e?.sqlState === 'PGRST205' || e?.sqlState === '42P01') return [] as AllocationRow[]
