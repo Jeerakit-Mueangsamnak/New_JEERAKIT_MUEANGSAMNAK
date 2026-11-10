@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useState } from 'react'
 import Link from 'next/link'
@@ -87,7 +88,7 @@ export default function ForgotPasswordPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-700 text-white font-extrabold text-xs rounded-xl border border-blue-500 flex items-center justify-center gap-2 transition-all disabled:opacity-50 mt-2 shadow-lg shadow-blue-500/20 cursor-pointer"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-700 text-white border border-blue-500 flex items-center justify-center transition-all disabled:opacity-50 mt-2 shadow-lg shadow-blue-500/20 cursor-pointer`}
             >
               {isSubmitting ? (
                 <span>กำลังส่งคำขอ...</span>

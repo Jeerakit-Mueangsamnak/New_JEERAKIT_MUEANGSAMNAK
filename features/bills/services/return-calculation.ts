@@ -36,6 +36,33 @@ function getInclusiveDays(startDate?: string, endDate?: string): number {
 
 const returnedQtyOf = (item: ReturnInspectionItem) => (item.normalQty || 0) + (item.damagedQty || 0)
 
+/**
+ * Per-round goods coming back after more rounds than the bill (owner 2026-11-07): the rounds box of the
+ * return table. On a row that continues (เช่าต่อ) the box is the new bill's rounds instead.
+ */
+export function extraRoundsOf(item: ReturnInspectionItem): number {
+  if (item.rentalType === 'DAILY' || item.rentalType === 'SALE' || (item.continueQty || 0) > 0) return 0
+  return Math.max(0, Math.floor(item.continueRounds || 0))
+}
+
+/**
+ * Rent for those extra rounds: rate per round × every piece of the line still out × rounds. Charged whether or
+ * not the goods come back now (owner 2026-11-07: "เช่า 1 รอบ จ่ายแล้ว ใช้จริง 5 รอบ → กรอกเพิ่ม 4 รอบ").
+ */
+export function extraRoundsFeeOf(item: ReturnInspectionItem): number {
+  return toBaht(multiplySatang(toSatang(item.dailyRate || 0), Math.max(0, item.outstandingQty || 0) * extraRoundsOf(item)))
+}
+
+/** Rounds already charged on a line as extra rounds (they count as rounds of the bill from then on). */
+export function chargedExtraRounds(
+  charges: Array<{ status: string; billLineId?: string; basis?: Record<string, unknown> | null }>,
+  lineId: string
+): number {
+  return charges
+    .filter((c) => c.billLineId === lineId && c.status === 'CONFIRMED' && c.basis?.kind === 'EXTRA_ROUNDS')
+    .reduce((sum, c) => sum + Math.max(0, Number(c.basis?.rounds) || 0), 0)
+}
+
 /** Whole days the actual return date is past the scheduled one (0 when not overdue / not parseable). */
 function computeOverdueDays(scheduledDate?: string, actualDate?: string): number {
   const scheduledDay = getCalendarDay(scheduledDate)
@@ -87,8 +114,10 @@ export function computeReturnCalculation(
   let repairTotalSatang = 0
   let replaceTotalSatang = 0
   let creditSatang = 0
+  let extraSatang = 0
 
   for (const item of items) {
+    extraSatang = addSatang(extraSatang, toSatang(extraRoundsFeeOf(item)))
     repairTotalSatang = addSatang(repairTotalSatang, multiplySatang(toSatang(item.repairFeePerUnit || 0), item.damagedQty || 0))
     replaceTotalSatang = addSatang(replaceTotalSatang, multiplySatang(toSatang(item.replacementFeePerUnit || 0), item.lostQty || 0))
     // Daily-rate goods can come back on their own day; everything else on the return day.
@@ -103,7 +132,7 @@ export function computeReturnCalculation(
   const persistedGrand = billSummary?.grandTotal || 0
   const persistedPaid = billSummary?.paidAmount || 0
   const persistedOutstanding = billSummary?.outstandingAmount || 0
-  const grandTotalCharge = toBaht(addSatang(addSatang(toSatang(persistedGrand), damageTotalSatang), -creditSatang))
+  const grandTotalCharge = toBaht(addSatang(addSatang(addSatang(toSatang(persistedGrand), damageTotalSatang), extraSatang), -creditSatang))
   const actualRentalDays = getInclusiveDays(start, actual)
   const scheduledRentalDays = getInclusiveDays(start, scheduled)
   const lateDays = computeOverdueDays(scheduled, actual)
@@ -122,13 +151,13 @@ export function computeReturnCalculation(
     persistedGrandTotal: persistedGrand,
     persistedPaidAmount: persistedPaid,
     persistedOutstandingAmount: persistedOutstanding,
-    actualRentalFee: toBaht(addSatang(toSatang(persistedGrand), -creditSatang)),
+    actualRentalFee: toBaht(addSatang(addSatang(toSatang(persistedGrand), extraSatang), -creditSatang)),
     rentalFeeDelta: credit > 0 ? -credit : 0,
-    lateFeeTotal: 0,
+    extraRoundsFee: toBaht(extraSatang),
     totalDamageFee: damageTotal,
     repairFeeTotal: toBaht(repairTotalSatang),
     replacementFeeTotal: toBaht(replaceTotalSatang),
-    returnChargeDelta: toBaht(addSatang(damageTotalSatang, -creditSatang)),
+    returnChargeDelta: toBaht(addSatang(addSatang(damageTotalSatang, extraSatang), -creditSatang)),
     grandTotalCharge,
     heldDepositAmount: heldDeposit,
     netAmount,

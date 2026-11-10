@@ -5,8 +5,6 @@ import React from 'react'
 export interface DataTableFrameProps extends React.HTMLAttributes<HTMLDivElement> {
   header?: React.ReactNode
   footer?: React.ReactNode
-  empty?: boolean
-  emptyState?: React.ReactNode
   bodyClassName?: string
   containerClassName?: string
   /** Fill the parent's height (scroll inside) instead of the fixed 320–380px box. */
@@ -17,34 +15,35 @@ export interface DataTableFrameProps extends React.HTMLAttributes<HTMLDivElement
   shownCount?: number
   /** Ref on the rows' scroll area (e.g. useAutoFitPageSize().containerRef for incremental rows). */
   scrollRef?: React.Ref<HTMLDivElement>
+  /** Controls inside the row-count bar (e.g. ย้อนกลับ / ถัดไป): left and right, the count then sits in the middle. */
+  countBarStart?: React.ReactNode
+  countBarEnd?: React.ReactNode
   children: React.ReactNode
 }
 
 export const DATA_TABLE_FRAME_HEIGHT_CLASSES = 'min-h-[320px] max-h-[380px]'
-export const DATA_TABLE_THEAD_CLASSES = 'sticky top-0 z-20 bg-[#E3E3E3] dark:bg-slate-800 font-bold'
+// System table colour #749bfc for every table header and row-count bar, light and dark (owner 2026-11-10).
+// Dark text keeps WCAG AA contrast on it.
+const TABLE_BAR_COLOUR_CLASSES = 'bg-[#749bfc] text-slate-900'
+export const DATA_TABLE_THEAD_CLASSES = `sticky top-0 z-20 ${TABLE_BAR_COLOUR_CLASSES} font-bold`
 export const DATA_TABLE_TH_CLASSES = 'py-2 font-bold whitespace-nowrap'
-export const DATA_TABLE_TD_CLASSES = 'py-1.5'
-
 /**
  * Shared standard table class based on StockReportView:
  * Full width, table-auto (browser distributes column widths automatically),
  * border-collapse, and left-aligned.
  */
 export const DATA_TABLE_CLASSES = 'w-full text-left border-collapse table-auto'
-export const DATA_TABLE_AUTO_CLASSES = DATA_TABLE_CLASSES
-export const DATA_TABLE_LAYOUT_CLASSES = DATA_TABLE_CLASSES
-
 /**
  * DataTableFrame: Source of truth for full data tables (same pattern as the product list).
  * Only the rows scroll: the thead is sticky at the top and the header/footer/row-count bar sit
  * outside the scroll area. `fill` takes the remaining height of the parent; otherwise the rows
- * area is a fixed 320–380px box so the page never grows with the row count.
+ * area is a fixed 320–380px box so the page never grows with the row count. The table rows and
+ * header keep their natural size; the scroll area uses any remaining workspace space.
+ * With no rows the table still shows its header (owner 2026-11-06: no empty-state text).
  */
 export function DataTableFrame({
   header,
   footer,
-  empty,
-  emptyState,
   className = '',
   bodyClassName = '',
   containerClassName = '',
@@ -52,9 +51,13 @@ export function DataTableFrame({
   rowCount,
   shownCount,
   scrollRef,
+  countBarStart,
+  countBarEnd,
   children,
   ...props
 }: DataTableFrameProps) {
+  const countText = rowCount === undefined ? '' : rowCount > 0 ? `แสดง ${Math.min(shownCount ?? rowCount, rowCount)} จากทั้งหมด ${rowCount} รายการ` : '0 รายการ'
+  const barControls = countBarStart !== undefined || countBarEnd !== undefined
   const baseCard = className.includes('rounded-')
     ? className
     : `p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs ${className}`
@@ -74,20 +77,27 @@ export function DataTableFrame({
       >
         <div
           ref={scrollRef}
-          className={`overflow-y-auto overflow-x-auto ${fill ? 'h-full' : DATA_TABLE_FRAME_HEIGHT_CLASSES} [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20 [&_thead]:bg-[#E3E3E3] dark:[&_thead]:bg-slate-800 [&_thead]:font-bold [&_thead]:shadow-xs [&_th]:py-2 [&_th]:font-bold [&_th]:whitespace-nowrap [&_td]:py-1.5 ${bodyClassName}`.trim()}
+          className={`overflow-y-auto overflow-x-auto ${fill ? 'h-full' : DATA_TABLE_FRAME_HEIGHT_CLASSES} [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20 [&_thead]:bg-[#749bfc] dark:[&_thead]:bg-[#749bfc] [&_thead]:text-slate-900 dark:[&_thead]:text-slate-900 [&_thead]:font-bold [&_thead]:shadow-xs [&_th]:py-2 [&_th]:font-bold [&_th]:whitespace-nowrap [&_td]:py-1.5 ${bodyClassName}`.trim()}
         >
-          {empty && emptyState ? emptyState : children}
+          {children}
         </div>
       </div>
 
       {/* Row-count bar sits right under the rows (no gap); a custom footer goes below it. */}
-      {rowCount !== undefined && (
+      {rowCount !== undefined && !barControls && (
         <div
-          className={`shrink-0 px-2 py-1.5 bg-slate-100/70 dark:bg-slate-900/60 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 truncate ${padded ? `-mx-2 ${footer ? '' : '-mb-2'}` : ''}`.trim()}
+          className={`shrink-0 px-2 py-1.5 ${TABLE_BAR_COLOUR_CLASSES} border-t border-slate-200 dark:border-slate-800 text-xs truncate ${padded ? `-mx-2 ${footer ? '' : '-mb-2'}` : ''}`.trim()}
         >
-          {rowCount > 0
-            ? `แสดง ${Math.min(shownCount ?? rowCount, rowCount)} จากทั้งหมด ${rowCount} รายการ`
-            : '0 รายการ'}
+          {countText}
+        </div>
+      )}
+      {rowCount !== undefined && barControls && (
+        <div
+          className={`shrink-0 grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-2 py-1.5 ${TABLE_BAR_COLOUR_CLASSES} border-t border-slate-200 dark:border-slate-800 text-xs ${padded ? `-mx-2 ${footer ? '' : '-mb-2'}` : ''}`.trim()}
+        >
+          <div className="flex justify-start min-w-0">{countBarStart}</div>
+          <span className="truncate text-center">{countText}</span>
+          <div className="flex justify-end min-w-0">{countBarEnd}</div>
         </div>
       )}
 

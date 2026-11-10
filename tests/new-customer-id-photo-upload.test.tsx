@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({}) }))
-vi.mock('@/features/customers/components/CustomerLineLink', () => ({ CustomerLineLink: () => null }))
 vi.mock('@/features/customers/components/IDCardScannerModal', () => ({
   IDCardScannerModal: () => <div role="dialog" aria-label="หน้าต่างกล้อง" />,
 }))

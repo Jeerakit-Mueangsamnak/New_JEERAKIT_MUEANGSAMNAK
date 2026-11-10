@@ -1,7 +1,9 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { Send } from 'lucide-react'
+import { JobSummaryCard } from '@/features/appointments/components/JobSummaryCard'
 import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { useToast } from '@/components/common/Toast'
@@ -71,6 +73,8 @@ export function AppointmentDispatchModal({
     [appointment?.driverId, drivers]
   )
   const selectedDriver = drivers.find((driver) => driver.id === driverId)
+  // Date / time in the summary: the job itself, or the one just created from the bill
+  const summaryJob = appointment || createdAppointment
   const dispatchButtonLabel = appointment
     ? isSubmitting
       ? 'กำลังสั่งงาน...'
@@ -198,16 +202,23 @@ export function AppointmentDispatchModal({
     <AppModal isOpen onClose={onClose} size="md">
       <AppModalHeader onClose={onClose} icon={<Send className="w-5 h-5 text-emerald-700 dark:text-emerald-400" />} title="สั่งงาน" />
       <AppModalBody className="space-y-4">
-        <div className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1">
-          <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100">
-            {appointment?.title || (sourceBill ? `งานจากบิล ${sourceBill.billNo}` : '')}
-          </h4>
-          <p><span className="font-semibold text-slate-800 dark:text-slate-200">ลูกค้า:</span> {appointment?.customerName || sourceBill?.customerName || '-'}</p>
-          {(appointment?.phone || sourceBill?.customerPhone) && <p><span className="font-semibold text-slate-800 dark:text-slate-200">โทร:</span> {appointment?.phone || sourceBill?.customerPhone}</p>}
-          <p><span className="font-semibold text-slate-800 dark:text-slate-200">สถานที่:</span> {appointment?.location || sourceBill?.siteName || sourceBill?.customerAddress || 'ไม่ได้ระบุสถานที่'}</p>
-          {appointment && <p><span className="font-semibold text-slate-800 dark:text-slate-200">วัน/เวลา:</span> {appointment.date} {appointment.startTime} - {appointment.endTime} น.</p>}
-          {createdAppointment && <p className="text-emerald-700 dark:text-emerald-300 font-semibold">สร้างนัดหมายแล้ว · {createdAppointment.date} {createdAppointment.startTime}</p>}
-        </div>
+        {/* Same job summary box as the job details panel (one shared component) */}
+        <JobSummaryCard
+          data-testid="dispatch-summary"
+          title={appointment?.title || (sourceBill ? `งานจากบิล ${sourceBill.billNo}` : '')}
+          badge={
+            createdAppointment ? (
+              <span className="shrink-0 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">สร้างนัดหมายแล้ว</span>
+            ) : undefined
+          }
+          customerName={appointment?.customerName || sourceBill?.customerName}
+          phone={appointment?.phone || sourceBill?.customerPhone}
+          location={appointment?.location || sourceBill?.siteName || sourceBill?.customerAddress}
+          // A job from a bill shows the date / time being chosen below until it is saved
+          date={summaryJob ? summaryJob.date : scheduledDate}
+          startTime={summaryJob ? summaryJob.startTime : scheduledStart}
+          endTime={summaryJob ? summaryJob.endTime : scheduledEnd}
+        />
 
         {sourceBill && !createdAppointment && (
           <>
@@ -241,7 +252,7 @@ export function AppointmentDispatchModal({
                       setWorkType(type)
                       setSelectedLineIds([])
                     }}
-                    className={`h-8 rounded-lg border text-xs font-bold ${workType === type ? 'bg-emerald-700 text-white border-emerald-600' : 'border-slate-300 dark:border-slate-700'}`}
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} border ${workType === type ? 'bg-emerald-700 text-white border-emerald-600' : 'border-slate-300 dark:border-slate-700'}`}
                   >
                     {type === 'DELIVERY' ? 'ส่งของ' : 'รับคืน'}
                   </button>
@@ -273,7 +284,8 @@ export function AppointmentDispatchModal({
             <CustomSelect
               value={driverId}
               onChange={(value) => setDriverId(String(value))}
-              options={activeDrivers.map((driver) => ({ value: driver.id, label: `${driver.id} ${driver.name}`, sublabel: driver.phone }))}
+              // The driver field lists driver names only
+              options={activeDrivers.map((driver) => ({ value: driver.id, label: driver.name }))}
               placeholder="เลือกคนขับ"
               searchable
             />
@@ -284,17 +296,6 @@ export function AppointmentDispatchModal({
             </div>
           )}
         </div>
-
-        <div className="space-y-1.5">
-          <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">ช่องทางส่งงาน</label>
-          <div className="flex items-center justify-between gap-2 p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 text-xs">
-            <span className="font-semibold text-slate-700 dark:text-slate-300">LINE OA ของร้าน</span>
-            <span className="text-[11px] text-slate-600 dark:text-slate-400 font-medium text-right">
-              ส่งเข้า LINE ของคนขับที่ผูกไว้ · ถ้ายังส่งไม่ได้ ระบบยังบันทึกการสั่งงาน ให้แจ้งคนขับทางโทรศัพท์
-              {selectedDriver?.phone ? ` ${selectedDriver.phone}` : ''}
-            </span>
-          </div>
-        </div>
       </AppModalBody>
       <AppModalFooter>
         {sourceBill && !createdAppointment && (
@@ -302,13 +303,13 @@ export function AppointmentDispatchModal({
             type="button"
             disabled={isSubmitting || !scheduledDate || !scheduledStart || !scheduledEnd || !workType || selectedLineIds.length === 0}
             onClick={() => void handleCreateAppointment()}
-            className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             {isSubmitting ? 'กำลังบันทึก...' : 'นัดหมาย'}
           </button>
         )}
         {(appointment || createdAppointment) && (
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+          <button type="button" onClick={onClose} className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer`}>
             ปิด
           </button>
         )}
@@ -316,7 +317,7 @@ export function AppointmentDispatchModal({
           type="button"
           disabled={!selectedDriver || isSubmitting || (!!sourceBill && !createdAppointment && (!workType || selectedLineIds.length === 0))}
           onClick={() => void handleDispatch()}
-          className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs cursor-pointer disabled:bg-slate-200 disabled:dark:bg-slate-800 disabled:text-slate-400 disabled:dark:text-slate-500 disabled:cursor-not-allowed border border-transparent disabled:border-slate-300 disabled:dark:border-slate-700 flex items-center gap-2"
+          className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-blue-600 hover:bg-blue-700 text-white cursor-pointer disabled:bg-slate-200 disabled:dark:bg-slate-800 disabled:text-slate-400 disabled:dark:text-slate-500 disabled:cursor-not-allowed border border-transparent disabled:border-slate-300 disabled:dark:border-slate-700 flex items-center`}
         >
           <Send className="w-3.5 h-3.5" />
           {dispatchButtonLabel}

@@ -22,6 +22,8 @@ export const EXPENSE_CATEGORIES: Array<{ code: string; label: string }> = [
 ]
 
 const METHOD_TH: Record<string, string> = { CASH: 'เงินสด', TRANSFER: 'โอนเงิน', QR: 'QR', CARD: 'บัตร', OTHER: 'อื่น ๆ' }
+/** Reference the server writes on a payment made from the deposit (migration 20261105223245). */
+const DEPOSIT_REFERENCE = 'หักจากมัดจำ'
 
 export function expenseCategoryCode(label: string): string {
   const t = (label || '').trim()
@@ -87,7 +89,8 @@ export async function fetchTransactionsFromSupabase(): Promise<StatementTransact
         incomeAmount: Number(p.amount),
         expenseAmount: 0,
         runningBalance: 0,
-        channel: METHOD_TH[p.method] || p.method,
+        // Paid from the deposit (bill_deposit_apply, owner 2026-11-06): no new money came in today
+        channel: p.method === 'OTHER' && p.reference === DEPOSIT_REFERENCE ? DEPOSIT_REFERENCE : METHOD_TH[p.method] || p.method,
         billId: p.bill_id,
         billNo: billMap.get(p.bill_id)?.bill_no || undefined,
         source: 'PAYMENT' as const,

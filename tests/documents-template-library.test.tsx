@@ -2,7 +2,6 @@
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { QUOTATION_STARTER_TEMPLATE } from '@/features/documents/constants/initialDocumentTemplates'
 import type { DocumentTemplate } from '@/lib/types/document'
 
 const mocks = vi.hoisted(() => ({
@@ -21,25 +20,37 @@ const mocks = vi.hoisted(() => ({
   server: new Map<string, Record<string, unknown>>(),
   createTemplate: vi.fn(),
   deleteTemplates: vi.fn(),
+  // Stand-in for Supabase document_names (the "หมวดหมู่เอกสาร" list, one per tab).
+  names: [] as { id: string; targetGroup: 'CUSTOMER' | 'BILL'; name: string }[],
+  addName: vi.fn(),
+  deleteName: vi.fn(),
 }))
 
 vi.mock('@/features/documents/api/template-library-repository', () => ({
   fetchDocumentTemplates: vi.fn(async () => Array.from(mocks.server.values())),
   createDocumentTemplate: mocks.createTemplate,
   deleteDocumentTemplates: mocks.deleteTemplates,
+  fetchDocumentNames: vi.fn(async () => [...mocks.names]),
+  addDocumentName: mocks.addName,
+  deleteDocumentName: mocks.deleteName,
 }))
 
-// A plain <select> stands in for the custom dropdown (label = its placeholder).
+// A plain <select> stands in for the custom dropdown (label = its placeholder); remove icons sit beside it.
 vi.mock('@/components/common/CustomSelect', () => ({
-  CustomSelect: ({ value, onChange, options, placeholder }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[]; placeholder?: string }) => (
-    <select aria-label={placeholder} value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="">{placeholder}</option>
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
+  CustomSelect: ({ value, onChange, options, placeholder, onRemoveOption }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[]; placeholder?: string; onRemoveOption?: (v: string) => void }) => (
+    <>
+      <select aria-label={placeholder} value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">{placeholder}</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      {onRemoveOption && options.map((o) => (
+        <button key={o.value} type="button" aria-label={`ลบ ${o.label}`} onClick={() => onRemoveOption(o.value)} />
       ))}
-    </select>
+    </>
   ),
 }))
 
@@ -67,7 +78,24 @@ import DocumentsPage from '@/app/documents/page'
 import { TemplateLibraryPanel, renderLibraryTemplate } from '@/features/documents/components/TemplateLibraryPanel'
 
 const business = { businessName: 'ร้านทดสอบ' }
-const QUOTE: DocumentTemplate = QUOTATION_STARTER_TEMPLATE
+// A shop quotation form as it is kept in Supabase (document_templates).
+const QUOTE: DocumentTemplate = {
+  id: 'tpl-quotation',
+  name: 'ใบเสนอราคาค่าเช่าและบริการ (Quotation)',
+  category: 'ใบเสนอราคา',
+  source: 'BUILTIN',
+  fileType: 'HTML',
+  version: 1,
+  paperSize: 'A4',
+  orientation: 'PORTRAIT',
+  pageCount: 1,
+  isDefault: true,
+  createdAt: '2026-01-01',
+  updatedAt: '2026-01-01',
+  createdBy: 'ระบบ',
+  defaultTerms: '1. ส่งมอบภายใน 3 วัน',
+  templateSchema: '<div><h1>{{business.name}}</h1><p>ใบเสนอราคา {{document.number}}</p><p>{{customer.name}}</p><p>{{document.custom_terms}}</p></div>',
+}
 const shopForm = (id: string, name: string, category: string): DocumentTemplate => ({
   ...QUOTE, id, name, category, isDefault: false, defaultTerms: '',
   templateSchema: `<div><h1>${name}</h1><p>เลขที่ {{document.number}}</p><p>ลูกค้า {{customer.name}}</p></div>`,
@@ -104,10 +132,23 @@ beforeEach(() => {
   // The shop's forms on the server: the quotation plus a few test forms (none is built into the code).
   for (const form of FORMS) mocks.server.set(form.id, { ...form })
   mocks.createTemplate.mockReset().mockImplementation(async (id: string, template: Record<string, unknown>) => {
-    // The table has no target column: the group comes back from the category, as on the server.
-    const { targetGroup: _targetGroup, ...row } = template
-    mocks.server.set(id, { ...row, id })
-    return { ...row, id }
+    // The server keeps the tab the form was saved under (document_templates.target_group).
+    mocks.server.set(id, { ...template, id })
+    return { ...template, id }
+  })
+  mocks.names = [
+    { id: 'n1', targetGroup: 'CUSTOMER', name: 'สัญญาเช่าสินค้า' },
+    { id: 'n2', targetGroup: 'CUSTOMER', name: 'หนังสือมอบอำนาจ' },
+    { id: 'n3', targetGroup: 'BILL', name: 'ใบเสนอราคา' },
+    { id: 'n4', targetGroup: 'BILL', name: 'ใบเสร็จรับเงิน' },
+  ]
+  mocks.addName.mockReset().mockImplementation(async (targetGroup: 'CUSTOMER' | 'BILL', name: string) => {
+    const row = { id: `n-${mocks.names.length + 1}`, targetGroup, name }
+    mocks.names.push(row)
+    return row
+  })
+  mocks.deleteName.mockReset().mockImplementation(async (id: string) => {
+    mocks.names = mocks.names.filter((n) => n.id !== id)
   })
   mocks.deleteTemplates.mockReset().mockImplementation(async (ids: string[]) => {
     ids.forEach((id) => mocks.server.delete(id))
@@ -141,29 +182,6 @@ describe('คลังแบบฟอร์ม', () => {
     expect(await screen.findByText('รายการแบบฟอร์มเอกสาร (0)')).toBeTruthy()
   })
 
-  it('previews only the blank quotation form from the supplied layout', () => {
-    const html = renderLibraryTemplate(QUOTE, business)
-    const rendered = document.createElement('div')
-    rendered.innerHTML = html
-
-    expect(rendered.textContent).toContain('ใบเสนอราคา / QUOTATION')
-    expect(rendered.textContent).toContain('เลขผู้เสียภาษี')
-    expect(rendered.textContent).toContain('หมายเหตุ / Terms & Conditions:')
-    expect(rendered.textContent).toContain('จำนวนเงินตัวอักษร:')
-    expect(rendered.textContent).toContain('ผู้ตรวจสอบ / ฝ่ายบริหาร')
-    // Shop name and logo come from the shop settings, not text written into the form.
-    expect(rendered.textContent).toContain('ร้านทดสอบ')
-    expect(rendered.textContent).toContain('แกะระยะแบบ(ฟรี)')
-    expect(rendered.querySelector('div[style*="height:297mm"]')?.getAttribute('style')).toContain('width:calc(100% + 64px)')
-    expect(rendered.querySelector('div[style*="height:297mm"]')?.getAttribute('style')).toContain('padding:5mm')
-    expect(rendered.querySelectorAll('table')[0].querySelectorAll('tbody tr')).toHaveLength(16)
-    expect(rendered.querySelectorAll('input, button, script')).toHaveLength(0)
-    expect(rendered.textContent).not.toContain('คุณสมชาย')
-    expect(rendered.textContent).not.toContain('นั่งร้านเหล็กมาตรฐาน')
-    expect(rendered.textContent).not.toContain('TPL-PREVIEW-001')
-    expect(rendered.querySelector('img[alt="โลโก้ร้าน"]')?.getAttribute('src')).toBe('/logo.png')
-  })
-
   it('every form, the quotation too, can be ticked, printed and deleted', async () => {
     render(<Harness />)
     await ready()
@@ -183,8 +201,10 @@ describe('คลังแบบฟอร์ม', () => {
     const target = FORMS[3]
     fireEvent.click(screen.getByTestId(`tpl-row-${target.id}`))
     expect(preview()).toBe(renderLibraryTemplate(target, business))
-    expect(within(screen.getByTestId(`tpl-row-${target.id}`)).getByText('พรีวิว')).toBeTruthy()
-    expect(within(screen.getByTestId(`tpl-row-${FORMS[0].id}`)).queryByText('พรีวิว')).toBeNull()
+    // No "พรีวิว" badge (owner 2026-11-07): the previewed row is shown by its highlight only
+    expect(screen.queryByText('พรีวิว')).toBeNull()
+    expect(screen.getByTestId(`tpl-row-${target.id}`).className).toContain('bg-purple-50')
+    expect(screen.getByTestId(`tpl-row-${FORMS[0].id}`).className).not.toContain('bg-purple-50')
   })
 
   it('print is disabled with nothing ticked and prints exactly the ticked forms', async () => {
@@ -274,11 +294,15 @@ describe('คลังแบบฟอร์ม', () => {
     await ready()
     fireEvent.click(screen.getByText('go-add'))
     fireEvent.change(screen.getByPlaceholderText('ชื่อแบบฟอร์ม / ชื่อเอกสาร'), { target: { value: 'แบบฟอร์มทดสอบใหม่' } })
-    fireEvent.click(screen.getByRole('button', { name: /บันทึก Template เข้าคลังระบบ/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มชื่อเอกสารในหมวดหมู่เอกสาร' }))
+    await waitFor(() => expect((screen.getByLabelText('ประเภทเอกสาร') as HTMLSelectElement).value).toBe('แบบฟอร์มทดสอบใหม่'))
+    fireEvent.click(screen.getByRole('button', { name: /บันทึกเข้าคลังระบบ/ }))
 
     expect(await screen.findByText(`รายการแบบฟอร์มเอกสาร (${FORMS.length + 1})`)).toBeTruthy()
     expect(preview()).toContain('แบบฟอร์มทดสอบใหม่')
     expect(mocks.createTemplate).toHaveBeenCalledTimes(1)
+    // One name only: the form is named by the name picked for its tab
+    expect(mocks.createTemplate.mock.calls[0][1]).toMatchObject({ name: 'แบบฟอร์มทดสอบใหม่', category: 'แบบฟอร์มทดสอบใหม่' })
     expect(window.localStorage.getItem('rental-pos:document-template-library:v1') || '').not.toContain('แบบฟอร์มทดสอบใหม่')
     unmount()
 
@@ -288,25 +312,27 @@ describe('คลังแบบฟอร์ม', () => {
     expect(await screen.findByText('แบบฟอร์มทดสอบใหม่')).toBeTruthy()
   })
 
-  it('a new quotation form starts from the quotation layout', async () => {
+  it('a new quotation form without a file starts as a plain page, like any other name', async () => {
     render(<Harness />)
     await ready()
     fireEvent.click(screen.getByText('go-add'))
     fireEvent.change(screen.getByPlaceholderText('ชื่อแบบฟอร์ม / ชื่อเอกสาร'), { target: { value: 'ใบเสนอราคาแบบใหม่' } })
     fireEvent.click(screen.getByRole('button', { name: /แบบฟอร์มบิล/ }))
     fireEvent.change(screen.getByLabelText('ประเภทเอกสาร'), { target: { value: 'ใบเสนอราคา' } })
-    fireEvent.click(screen.getByRole('button', { name: /บันทึก Template เข้าคลังระบบ/ }))
+    fireEvent.click(screen.getByRole('button', { name: /บันทึกเข้าคลังระบบ/ }))
     await waitFor(() => expect(mocks.createTemplate).toHaveBeenCalledTimes(1))
     const saved = mocks.createTemplate.mock.calls[0][1] as { templateSchema: string }
-    expect(saved.templateSchema).toBe(QUOTE.templateSchema)
+    expect(saved.templateSchema).toContain('<h1 class="text-xl font-black">ใบเสนอราคา</h1>')
+    expect(saved.templateSchema).not.toContain('{{items.rows_')
   })
 
   it('a failed save keeps the form screen open and never says it was saved', async () => {
     mocks.createTemplate.mockRejectedValueOnce(new Error('ไม่มีสิทธิ์เมนูเอกสาร'))
     render(<Harness />)
     fireEvent.click(screen.getByText('go-add'))
+    await waitFor(() => expect((screen.getByLabelText('ประเภทเอกสาร') as HTMLSelectElement).value).not.toBe(''))
     fireEvent.change(screen.getByPlaceholderText('ชื่อแบบฟอร์ม / ชื่อเอกสาร'), { target: { value: 'ฟอร์มที่บันทึกไม่ได้' } })
-    fireEvent.click(screen.getByRole('button', { name: /บันทึก Template เข้าคลังระบบ/ }))
+    fireEvent.click(screen.getByRole('button', { name: /บันทึกเข้าคลังระบบ/ }))
 
     await waitFor(() => expect(mocks.toast.showToast).toHaveBeenCalledWith('บันทึกไม่สำเร็จ', 'ไม่มีสิทธิ์เมนูเอกสาร', 'ERROR'))
     expect(mocks.toast.showToast).not.toHaveBeenCalledWith('บันทึก Template สำเร็จ', expect.anything(), 'SUCCESS')
@@ -319,7 +345,7 @@ describe('คลังแบบฟอร์ม', () => {
     fireEvent.click(screen.getByText('go-add'))
     fireEvent.change(screen.getByLabelText('ไฟล์ต้นฉบับแบบฟอร์ม'), { target: { files: [new File(['x'], 'big.pdf')] } })
     await waitFor(() => expect(preview()).toContain('ก'))
-    fireEvent.click(screen.getByRole('button', { name: /บันทึก Template เข้าคลังระบบ/ }))
+    fireEvent.click(screen.getByRole('button', { name: /บันทึกเข้าคลังระบบ/ }))
 
     expect(mocks.toast.showToast).toHaveBeenCalledWith('ไฟล์ใหญ่เกินไป', expect.stringContaining('1 MB'), 'ERROR')
     expect(mocks.createTemplate).not.toHaveBeenCalled()
@@ -339,6 +365,8 @@ describe('คลังแบบฟอร์ม', () => {
     render(<Harness />)
     fireEvent.click(screen.getByText('go-add'))
     fireEvent.change(screen.getByPlaceholderText('ชื่อแบบฟอร์ม / ชื่อเอกสาร'), { target: { value: 'เอกสารใหม่' } })
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มชื่อเอกสารในหมวดหมู่เอกสาร' }))
+    await waitFor(() => expect((screen.getByLabelText('ประเภทเอกสาร') as HTMLSelectElement).value).toBe('เอกสารใหม่'))
     const input = screen.getByLabelText('ไฟล์ต้นฉบับแบบฟอร์ม')
 
     fireEvent.change(input, { target: { files: [new File(['old'], 'good.txt', { type: 'text/plain' })] } })
@@ -348,7 +376,7 @@ describe('คลังแบบฟอร์ม', () => {
     fireEvent.change(input, { target: { files: [new File(['bad'], 'bad.txt', { type: 'text/plain' })] } })
     await waitFor(() => expect(mocks.toast.showToast).toHaveBeenCalledWith('ไม่สามารถแปลงไฟล์ได้', 'ไฟล์ไม่รองรับ', 'ERROR'))
 
-    fireEvent.click(screen.getByRole('button', { name: /บันทึก Template เข้าคลังระบบ/ }))
+    fireEvent.click(screen.getByRole('button', { name: /บันทึกเข้าคลังระบบ/ }))
     await waitFor(() => expect(preview()).toContain('เอกสารใหม่'))
     expect(preview()).not.toContain('Previous converted template')
   })
@@ -358,14 +386,17 @@ describe('คลังแบบฟอร์ม', () => {
     await ready()
     fireEvent.click(screen.getByText('go-add'))
 
-    expect(screen.getByText('เพิ่มไปที่')).toBeTruthy()
+    expect(screen.queryByText('เพิ่มไปที่')).toBeNull()
+    expect(screen.queryByText('หมวดหมู่เอกสาร')).toBeNull()
     expect(screen.getByRole('button', { name: /แบบฟอร์มลูกค้า/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: /แบบฟอร์มบิล/ })).toBeTruthy()
 
     // Add a bill form
-    fireEvent.change(screen.getByPlaceholderText('ชื่อแบบฟอร์ม / ชื่อเอกสาร'), { target: { value: 'ใบเสร็จรูปแบบพิเศษ' } })
     fireEvent.click(screen.getByRole('button', { name: /แบบฟอร์มบิล/ }))
-    fireEvent.click(screen.getByRole('button', { name: /บันทึก Template เข้าคลังระบบ/ }))
+    fireEvent.change(screen.getByPlaceholderText('ชื่อแบบฟอร์ม / ชื่อเอกสาร'), { target: { value: 'ใบเสร็จรูปแบบพิเศษ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มชื่อเอกสารในหมวดหมู่เอกสาร' }))
+    await waitFor(() => expect((screen.getByLabelText('ประเภทเอกสาร') as HTMLSelectElement).value).toBe('ใบเสร็จรูปแบบพิเศษ'))
+    fireEvent.click(screen.getByRole('button', { name: /บันทึกเข้าคลังระบบ/ }))
 
     expect(await screen.findByText('ใบเสร็จรูปแบบพิเศษ')).toBeTruthy()
 
@@ -378,6 +409,106 @@ describe('คลังแบบฟอร์ม', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^ทั้งหมด/ }))
     expect(screen.getByText('ใบเสร็จรูปแบบพิเศษ')).toBeTruthy()
+  })
+
+  it('a form keeps the tab it was saved under, even with a name the shop added itself', async () => {
+    render(<Harness />)
+    await ready()
+    fireEvent.click(screen.getByText('go-add'))
+    fireEvent.change(screen.getByPlaceholderText('ชื่อแบบฟอร์ม / ชื่อเอกสาร'), { target: { value: 'ใบส่งของ/ใบเสร็จรับเงิน' } })
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มชื่อเอกสารในหมวดหมู่เอกสาร' }))
+    await waitFor(() => expect((screen.getByLabelText('ประเภทเอกสาร') as HTMLSelectElement).value).toBe('ใบส่งของ/ใบเสร็จรับเงิน'))
+    fireEvent.click(screen.getByRole('button', { name: /บันทึกเข้าคลังระบบ/ }))
+    await waitFor(() => expect(mocks.createTemplate).toHaveBeenCalledTimes(1))
+    expect(mocks.server.get(mocks.createTemplate.mock.calls[0][0])).toMatchObject({ category: 'ใบส่งของ/ใบเสร็จรับเงิน' })
+    fireEvent.click(await screen.findByRole('button', { name: /^ฟอร์มลูกค้า/ }))
+    expect(screen.getByText('ใบส่งของ/ใบเสร็จรับเงิน')).toBeTruthy()
+  })
+})
+
+describe('เพิ่มแบบฟอร์ม › ชื่อเอกสาร', () => {
+  const optionsOf = () => Array.from((screen.getByLabelText('ประเภทเอกสาร') as HTMLSelectElement).options).map((o) => o.value).filter(Boolean)
+  const openAdd = async () => {
+    render(<Harness />)
+    await ready()
+    fireEvent.click(screen.getByText('go-add'))
+    await waitFor(() => expect(optionsOf()).toEqual(['สัญญาเช่าสินค้า', 'หนังสือมอบอำนาจ']))
+  }
+  const nameInput = () => screen.getByPlaceholderText('ชื่อแบบฟอร์ม / ชื่อเอกสาร')
+  const plus = () => screen.getByRole('button', { name: 'เพิ่มชื่อเอกสารในหมวดหมู่เอกสาร' })
+
+  it('the list comes from the server, one list per tab', async () => {
+    await openAdd()
+    expect(optionsOf()).toEqual(['สัญญาเช่าสินค้า', 'หนังสือมอบอำนาจ'])
+    fireEvent.click(screen.getByRole('button', { name: /แบบฟอร์มบิล/ }))
+    expect(optionsOf()).toEqual(['ใบเสนอราคา', 'ใบเสร็จรับเงิน'])
+    expect((screen.getByLabelText('ประเภทเอกสาร') as HTMLSelectElement).value).toBe('ใบเสนอราคา')
+  })
+
+  it('[+] adds the typed name to the open tab only, and picks it', async () => {
+    await openAdd()
+    fireEvent.click(screen.getByRole('button', { name: /แบบฟอร์มบิล/ }))
+    fireEvent.change(nameInput(), { target: { value: '  ใบส่งของ  ' } })
+    fireEvent.click(plus())
+    await waitFor(() => expect(mocks.addName).toHaveBeenCalledWith('BILL', 'ใบส่งของ'))
+    await waitFor(() => expect(optionsOf()).toEqual(['ใบเสนอราคา', 'ใบเสร็จรับเงิน', 'ใบส่งของ']))
+    expect((screen.getByLabelText('ประเภทเอกสาร') as HTMLSelectElement).value).toBe('ใบส่งของ')
+    fireEvent.click(screen.getByRole('button', { name: /แบบฟอร์มลูกค้า/ }))
+    expect(optionsOf()).not.toContain('ใบส่งของ')
+  })
+
+  it('[+] with an empty box or a name already listed does not add anything', async () => {
+    await openAdd()
+    fireEvent.click(plus())
+    fireEvent.change(nameInput(), { target: { value: 'หนังสือมอบอำนาจ' } })
+    fireEvent.click(plus())
+    expect(mocks.addName).not.toHaveBeenCalled()
+    expect((screen.getByLabelText('ประเภทเอกสาร') as HTMLSelectElement).value).toBe('หนังสือมอบอำนาจ')
+  })
+
+  it('the bin icon removes that name from the list (both tabs)', async () => {
+    await openAdd()
+    fireEvent.click(screen.getByRole('button', { name: 'ลบ สัญญาเช่าสินค้า' }))
+    await waitFor(() => expect(mocks.deleteName).toHaveBeenCalledWith('n1'))
+    await waitFor(() => expect(optionsOf()).toEqual(['หนังสือมอบอำนาจ']))
+    expect((screen.getByLabelText('ประเภทเอกสาร') as HTMLSelectElement).value).toBe('หนังสือมอบอำนาจ')
+
+    fireEvent.click(screen.getByRole('button', { name: /แบบฟอร์มบิล/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'ลบ ใบเสร็จรับเงิน' }))
+    await waitFor(() => expect(mocks.deleteName).toHaveBeenCalledWith('n4'))
+    await waitFor(() => expect(optionsOf()).toEqual(['ใบเสนอราคา']))
+  })
+
+  it('picking a name previews the form already saved under that tab + name, until a file is uploaded', async () => {
+    mocks.server.set('tpl-contract', { ...shopForm('tpl-contract', 'สัญญาเช่าสินค้า', 'สัญญาเช่าสินค้า'), targetGroup: 'CUSTOMER' })
+    render(<Harness />)
+    await screen.findByText(`รายการแบบฟอร์มเอกสาร (${FORMS.length + 1})`)
+    fireEvent.click(screen.getByText('go-add'))
+    await waitFor(() => expect(optionsOf()).toEqual(['สัญญาเช่าสินค้า', 'หนังสือมอบอำนาจ']))
+    // A name with no saved form shows nothing.
+    fireEvent.change(screen.getByLabelText('ประเภทเอกสาร'), { target: { value: 'หนังสือมอบอำนาจ' } })
+    expect(preview()).toBe('')
+    fireEvent.change(screen.getByLabelText('ประเภทเอกสาร'), { target: { value: 'สัญญาเช่าสินค้า' } })
+    expect(preview()).toContain('สัญญาเช่าสินค้า')
+    // An uploaded file takes over the preview.
+    fireEvent.change(screen.getByLabelText('ไฟล์ต้นฉบับแบบฟอร์ม'), { target: { files: [new File(['x'], 'good.txt', { type: 'text/plain' })] } })
+    await waitFor(() => expect(preview()).toContain('Previous converted template'))
+  })
+
+  it('ล้างเทมเพลต drops the uploaded file and its preview, keeping the name', async () => {
+    await openAdd()
+    const clear = screen.getByRole('button', { name: /ล้างเทมเพลต/ }) as HTMLButtonElement
+    expect(clear.disabled).toBe(true)
+    // The file name is not put in the name box (one name: the one picked from the list).
+    fireEvent.change(nameInput(), { target: { value: 'ฟอร์ม ก' } })
+    fireEvent.change(screen.getByLabelText('ไฟล์ต้นฉบับแบบฟอร์ม'), { target: { files: [new File(['x'], 'good.txt', { type: 'text/plain' })] } })
+    await waitFor(() => expect(preview()).toContain('Previous converted template'))
+    expect(screen.getByText(/good\.txt/)).toBeTruthy()
+    fireEvent.click(clear)
+    expect(preview()).toBe('')
+    expect(screen.queryByText(/good\.txt/)).toBeNull()
+    expect((nameInput() as HTMLInputElement).value).toBe('ฟอร์ม ก')
+    expect(clear.disabled).toBe(true)
   })
 })
 
@@ -455,7 +586,8 @@ describe('หน้าเอกสาร', () => {
     expect(counter()).toBe('เลือกแล้ว 0 / 2')
     const draftRow = screen.getAllByTestId(/doc-row-draft:/)[0]
     expect(draftRow.textContent).toContain('ยังไม่บันทึก')
-    expect(within(draftRow).getByText('พรีวิว')).toBeTruthy()
+    expect(within(draftRow).queryByText('พรีวิว')).toBeNull()
+    expect(draftRow.className).toContain('bg-blue-50')
     expect(screen.getAllByTestId('preview')[0].textContent).toContain('ช่างทองสุข')
 
     fireEvent.click(screen.getByRole('button', { name: /บันทึก \(1\)/ }))
@@ -532,5 +664,17 @@ describe('หน้าเอกสาร', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /สร้างเอกสาร/ }))
     expect(screen.getAllByTestId(/doc-row-draft:/)).toHaveLength(1)
+  })
+})
+
+describe('ตัวอย่างแบบฟอร์มในคลัง', () => {
+  it('ช่องที่เติมตอนพิมพ์จริง (ช่องในตาราง ยอดรับคืน ยอดค่าปรับ) เป็นช่องว่าง ไม่โชว์ {{...}} แต่เลขลำดับยังอยู่', () => {
+    const tpl = {
+      ...QUOTE,
+      templateSchema: '<table><tbody><tr><td>{{items.1.no}}</td><td>{{items.1.returned}}</td><td>{{items.1.damage_fee}}</td><td>{{items.1.fine_rate}}</td></tr></tbody></table><b>{{return.rent}}</b><b>{{fine.total}}</b>',
+    }
+    const html = renderLibraryTemplate(tpl, business)
+    expect(html).not.toMatch(/\{\{/)
+    expect(html).toContain('<td>1</td><td></td><td></td><td></td>')
   })
 })

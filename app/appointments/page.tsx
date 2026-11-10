@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import React, { useState, useEffect, useCallback } from 'react'
 import dynamic from 'next/dynamic'
-import { Plus, MapPin, Phone, User, Calendar, FileText, CheckSquare, Pencil, RefreshCw, Send } from 'lucide-react'
+import { Plus, Calendar, FileText, CheckSquare, Pencil, RefreshCw, Send } from 'lucide-react'
 import { Appointment, Customer, AppointmentStatus } from '@/lib/types/rental-pos'
 import { getLocalDateString, parseLocalDate } from '@/components/common/CustomDatePicker'
 import { AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
@@ -14,10 +14,10 @@ import {
   TAB_CONTAINER_CLASSES,
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
-  TAB_BUTTON_INACTIVE_CLASSES,
-} from '@/components/common/ActionButton'
+  TAB_BUTTON_INACTIVE_CLASSES, COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 import { useToast } from '@/components/common/Toast'
 import { logger } from '@/lib/utils/logger'
+import { JobSummaryCard } from '@/features/appointments/components/JobSummaryCard'
 import { AppointmentForm } from '@/features/appointments/components/AddAppointmentModal'
 import { deleteJob, fetchDriverTaskState, unassignDriver, type DriverTaskState, type DispatchOutcome } from '@/features/appointments/services/dispatch-service'
 import { AppointmentDispatchModal } from '@/features/appointments/components/AppointmentDispatchModal'
@@ -58,12 +58,6 @@ const showClock = (value?: string) => {
 
 /** Columns of the step table (header and rows share them so they line up). */
 const STAGE_GRID = 'grid grid-cols-[minmax(0,1fr)_3.5rem_7.5rem] items-center gap-2'
-
-/** YYYY-MM-DD -> DD/MM/BBBB (Buddhist year), e.g. 15/10/2569. */
-const thaiDate = (iso: string) => {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '')
-  return m ? `${m[3]}/${m[2]}/${Number(m[1]) + 543}` : iso
-}
 
 /** Step times are stored as ISO; older records kept a Thai display string, shown as-is. */
 const showTime = (value?: string) => {
@@ -294,15 +288,10 @@ export default function AppointmentsPage() {
       .sort((a, b) => a.startTime.localeCompare(b.startTime))
     return (
       <DataTableFrame
-        className="flex-1 min-h-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+        // Edge to edge in the white work area (no inner card), fills the height under the week strip
+        className="flex-1 min-h-0 rounded-none bg-transparent"
         fill
         rowCount={rows.length}
-        empty={rows.length === 0}
-        emptyState={
-          <div className="h-full min-h-[160px] flex items-center justify-center text-center text-slate-600 dark:text-slate-400 font-bold text-xs">
-            ไม่มีนัดหมายในวันนี้
-          </div>
-        }
       >
         <table className="w-full text-left border-collapse table-auto text-xs">
           <thead>
@@ -374,29 +363,29 @@ export default function AppointmentsPage() {
 
   return (
     <div className="h-full min-h-0 min-w-0 p-2 bg-slate-100 dark:bg-slate-900 flex flex-col overflow-hidden">
-      {/* Mini Dashboard */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2 shrink-0">
-        {[
-          // Products page card tones (light background, border, label and number in the card's colour)
-          { label: 'งานวันนี้', value: todayTasksCount, box: 'bg-blue-50 dark:bg-blue-950/30 border-blue-200/60 dark:border-blue-900/40', title: 'text-blue-700 dark:text-blue-300', num: 'text-blue-600 dark:text-blue-400' },
-          { label: `ใกล้ถึงกำหนด (${nearDays} วัน)`, value: nearTasksCount, box: 'bg-purple-50 dark:bg-purple-950/30 border-purple-200/60 dark:border-purple-900/40', title: 'text-purple-700 dark:text-purple-300', num: 'text-purple-600 dark:text-purple-400' },
-          { label: 'เลยกำหนด', value: overdueTasksCount, box: 'bg-orange-50 dark:bg-orange-950/30 border-orange-200/60 dark:border-orange-900/40', title: 'text-orange-700 dark:text-orange-300', num: 'text-orange-700 dark:text-orange-400' },
-          { label: 'งานเสร็จสิ้น', value: completedTasksCount, box: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200/60 dark:border-emerald-900/40', title: 'text-emerald-700 dark:text-emerald-300', num: 'text-emerald-700 dark:text-emerald-400' },
-        ].map((c) => (
-          <div
-            key={c.label}
-            data-testid="kpi-card"
-            className={`p-3 rounded-2xl border shadow-xs flex flex-col items-center justify-center ${c.box}`}
-          >
-            <span className={`text-[11px] font-semibold ${c.title}`}>{c.label}</span>
-            <span className={`text-xl font-black ${c.num}`}>{c.value}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Calendar (main area) + one side panel */}
+      {/* One white work area: summary cards + calendar (left) and the side panel (right) */}
       <div className="relative flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex overflow-hidden">
-        <div className="flex-1 min-w-0 min-h-0 p-1 flex flex-col">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+          {/* Mini Dashboard (same p-2 / gap-2 spacing as the toolbar below it) */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-2 pb-0 shrink-0">
+            {[
+              // Products page card tones (light background, border, label and number in the card's colour)
+              { label: 'งานวันนี้', value: todayTasksCount, box: 'bg-blue-50 dark:bg-blue-950/30 border-blue-200/60 dark:border-blue-900/40', title: 'text-blue-700 dark:text-blue-300', num: 'text-blue-600 dark:text-blue-400' },
+              { label: `ใกล้ถึงกำหนด (${nearDays} วัน)`, value: nearTasksCount, box: 'bg-purple-50 dark:bg-purple-950/30 border-purple-200/60 dark:border-purple-900/40', title: 'text-purple-700 dark:text-purple-300', num: 'text-purple-600 dark:text-purple-400' },
+              { label: 'เลยกำหนด', value: overdueTasksCount, box: 'bg-orange-50 dark:bg-orange-950/30 border-orange-200/60 dark:border-orange-900/40', title: 'text-orange-700 dark:text-orange-300', num: 'text-orange-700 dark:text-orange-400' },
+              { label: 'งานเสร็จสิ้น', value: completedTasksCount, box: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200/60 dark:border-emerald-900/40', title: 'text-emerald-700 dark:text-emerald-300', num: 'text-emerald-700 dark:text-emerald-400' },
+            ].map((c) => (
+              <div
+                key={c.label}
+                data-testid="kpi-card"
+                className={`min-w-0 px-2 py-1.5 rounded-xl border shadow-xs flex flex-col items-center justify-center ${c.box}`}
+              >
+                <span className={`max-w-full truncate text-[11px] font-semibold ${c.title}`}>{c.label}</span>
+                <span className={`text-lg leading-tight font-black ${c.num}`}>{c.value}</span>
+              </div>
+            ))}
+          </div>
+
           {isLoading ? (
             <div className="flex-1 min-h-0 p-6 flex flex-col items-center justify-center text-slate-600 dark:text-slate-400 gap-2">
               <RefreshCw className="w-6 h-6 animate-spin text-emerald-700 dark:text-emerald-400" />
@@ -413,7 +402,7 @@ export default function AppointmentsPage() {
                   <ActionButton
                     onClick={loadData}
                     variant="neutral"
-                    className="w-8 h-7 px-0"
+                    className="w-8 px-0"
                     title="รีเฟรชข้อมูล"
                     icon={<RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />}
                   />
@@ -423,7 +412,6 @@ export default function AppointmentsPage() {
                       setReasonStatus(null)
                     }}
                     variant="primary"
-                    className="h-7"
                     title="เพิ่มนัดหมายใหม่"
                     icon={<Plus className="w-4 h-4" />}
                   >
@@ -478,21 +466,23 @@ export default function AppointmentsPage() {
                 {(() => {
                   const job = JOB_STATUS_META[jobStatusOf(panelApt)]
                   const open = !isAppointmentClosed(panelApt.status)
+                  // One box: job name (+ status), customer, phone, delivery site, time — same as the สั่งงาน dialog
                   const header = (
-                    <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1.5">
-                      <div className="flex justify-between items-start gap-2">
-                        <h2 className="text-sm font-black text-slate-900 dark:text-slate-100 min-w-0 break-words">{panelApt.title}</h2>
+                    <JobSummaryCard
+                      data-testid="job-summary"
+                      title={panelApt.title}
+                      badge={
                         <span data-testid="job-status" className={`px-2 py-0.5 rounded-full font-bold text-[11px] shrink-0 ${job.badge}`}>
                           {job.label}
                         </span>
-                      </div>
-                      <p data-testid="job-schedule" className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
-                        <Calendar className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                        <span>
-                          กำหนดการ {panelApt.startTime} - {panelApt.endTime} น. {thaiDate(panelApt.date)}
-                        </span>
-                      </p>
-                    </div>
+                      }
+                      customerName={panelApt.customerName}
+                      phone={panelApt.phone}
+                      location={panelApt.location}
+                      date={panelApt.date}
+                      startTime={panelApt.startTime}
+                      endTime={panelApt.endTime}
+                    />
                   )
                   const box = 'p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1'
                   const boxTitle = 'flex items-center gap-1.5 font-bold text-slate-700 dark:text-slate-300'
@@ -518,7 +508,7 @@ export default function AppointmentsPage() {
                         <button
                           type="button"
                           onClick={() => setReasonStatus(null)}
-                          className="h-8 px-3 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-xs text-slate-700 dark:text-slate-300 cursor-pointer"
+                          className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer`}
                         >
                           ไม่ใช่ตอนนี้
                         </button>
@@ -526,7 +516,7 @@ export default function AppointmentsPage() {
                           type="button"
                           disabled={updatingStatusId === panelApt.id}
                           onClick={() => void handleConfirmReason()}
-                          className={`h-8 px-3 rounded-xl text-white font-bold text-xs cursor-pointer disabled:opacity-50 ${
+                          className={`${COMMAND_BUTTON_SIZE_CLASSES} text-white cursor-pointer disabled:opacity-50 ${
                             reasonStatus === 'COMPLETED' ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-red-600 hover:bg-red-700'
                           }`}
                         >
@@ -535,7 +525,7 @@ export default function AppointmentsPage() {
                       </div>
                     </div>
                   )
-                  const btn = 'h-8 px-3 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer border disabled:opacity-50 disabled:cursor-not-allowed'
+                  const btn = `${COMMAND_BUTTON_SIZE_CLASSES} flex items-center cursor-pointer border disabled:opacity-50 disabled:cursor-not-allowed`
                   // ยกเลิกงาน: details = delete the job · status tab = take the driver off (only while dispatched)
                   const cancelBtn = (kind: 'DELETE' | 'UNASSIGN') => (
                     <button
@@ -558,31 +548,6 @@ export default function AppointmentsPage() {
                       <>
                         <AppModalBody className="space-y-3">
                           {header}
-
-                          <div className={`${box} !space-y-0 grid grid-cols-[2fr_3fr] gap-3`}>
-                            <div className="min-w-0 space-y-1">
-                              <div className={boxTitle}>
-                                <User className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
-                                <span>ข้อมูลลูกค้า</span>
-                              </div>
-                              <p className="font-bold text-slate-900 dark:text-slate-100 break-words">{panelApt.customerName || '-'}</p>
-                              {panelApt.phone && (
-                                <p className="text-blue-600 dark:text-blue-400 font-mono font-bold flex items-center gap-1">
-                                  <Phone className="w-3 h-3" />
-                                  <span>{panelApt.phone}</span>
-                                </p>
-                              )}
-                            </div>
-                            <div className="min-w-0 space-y-1 border-l border-slate-200 dark:border-slate-700 pl-3">
-                              <div className={boxTitle}>
-                                <MapPin className="w-4 h-4 text-red-700 dark:text-red-400" />
-                                <span>สถานที่จัดส่ง</span>
-                              </div>
-                              <p className={panelApt.location ? 'text-slate-800 dark:text-slate-200 whitespace-pre-line break-words' : 'text-slate-600 dark:text-slate-400 italic'}>
-                                {panelApt.location || 'ไม่ได้ระบุสถานที่'}
-                              </p>
-                            </div>
-                          </div>
 
                           {items.length > 0 ? (
                             <DataTableFrame
@@ -637,8 +602,7 @@ export default function AppointmentsPage() {
                                     <ActionButton
                                       variant="outline"
                                       onClick={() => handleBillClick(panelApt)}
-                                      className="h-6 px-2 text-[11px] rounded-lg"
-                                      title={`เปิดบิล ${panelApt.billNo}`}
+                                                                            title={`เปิดบิล ${panelApt.billNo}`}
                                     >
                                       ดูบิล
                                     </ActionButton>

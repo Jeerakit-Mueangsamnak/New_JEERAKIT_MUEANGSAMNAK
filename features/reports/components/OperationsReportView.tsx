@@ -143,7 +143,6 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
                 กราฟจำนวนงานปฏิบัติการ (ส่งมอบ / รับคืน / จอง)
               </h3>
             </div>
-            <span className="text-[10px] text-slate-600 dark:text-slate-400">ตามช่วงเวลา</span>
           </div>
 
           <div className="flex-1 min-h-40">
@@ -313,7 +312,6 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
                 รายการงานปฏิบัติการย้อนหลัง ({data.historyRecords.length} งาน)
               </h3>
             </div>
-            <span className="text-[10px] text-slate-600 dark:text-slate-400">เรียงตามวันที่ล่าสุด</span>
           </div>
         }
       >

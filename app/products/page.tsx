@@ -9,7 +9,6 @@ import {
   MapPin,
   Edit,
   History,
-  Ban,
   PackagePlus,
   Settings,
   Layers,
@@ -34,7 +33,6 @@ import { DataTableFrame, DATA_TABLE_CLASSES } from '@/components/common/DataTabl
 import { loadBills, fetchBillsFromSupabase, type FullBill } from '@/features/bills/services/bill-storage'
 import { formatThaiDate } from '@/features/reports/services/report-data-common'
 import { ReportDonutChart } from '@/features/reports/components/ReportCharts'
-import * as XLSX from 'xlsx'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import {
   ActionButton,
@@ -42,9 +40,14 @@ import {
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
   TAB_BUTTON_INACTIVE_CLASSES,
+  COMMAND_BUTTON_SIZE_CLASSES,
+  SEARCH_INPUT_CLASSES,
+  SEARCH_ICON_CLASSES,
+  TABLE_TOOLBAR_CLASSES,
 } from '@/components/common/ActionButton'
 import { Product, Unit, RentalType } from '@/lib/types/rental-pos'
-import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
+import { AppModal, AppModalBody } from '@/components/common/AppModal'
+import { useDataActions } from '@/components/common/useDataActions'
 import { useToast } from '@/components/common/Toast'
 import { ProductStockCountView } from '@/features/products/components/ProductStockCountView'
 import { DamagedRestoreModal } from '@/features/products/components/DamagedRestoreModal'
@@ -58,11 +61,12 @@ import {
   addProductsAsync,
   updateProductAsync,
   deleteProductAsync,
+  hardDeleteProductAsync,
   reactivateProductAsync,
   syncProductsFromSupabase,
 } from '@/features/products/services/product-storage'
 import {
-  loadCategories,
+  loadAllCategories,
   addCategoryAsync,
   loadCompositeRules,
   addCompositeRuleAsync,
@@ -137,10 +141,7 @@ function ProductsContent() {
   const [products, setProducts] = useState<Product[]>([])
   const categories = Array.from(new Set(products.map((p) => p.category).filter(Boolean))).map((c) => ({ id: c, label: c }))
   const [isLoading, setIsLoading] = useState(false)
-
-  // Product Delete State
-  const [productToDelete, setProductToDelete] = useState<Product | null>(null)
-  const [isDeleting, setIsDeleting] = useState(false)
+  const { confirmSuspend, deleteOrSuspend } = useDataActions()
 
   const loadProducts = React.useCallback(async () => {
     setProducts(loadStorageProducts())
@@ -180,7 +181,8 @@ function ProductsContent() {
 
   useEffect(() => {
     setMasterUnits(loadUnits())
-    setProductCategories(loadCategories())
+    // All categories: ตั้งค่าสินค้า lists suspended ones too; new products get only active ones.
+    setProductCategories(loadAllCategories())
     setCompositeRules(loadCompositeRules())
     setCategoryRules(loadCategoryRules())
   }, [])
@@ -471,7 +473,7 @@ function ProductsContent() {
     overdue: productBillRows.filter((r) => r.overdue).length,
   }
 
-  const exportBillRows = (rows: typeof productBillRows, sheet: string) => {
+  const exportBillRows = async (rows: typeof productBillRows, sheet: string) => {
     if (!selectedProduct || rows.length === 0) {
       showToast('ไม่มีข้อมูล', 'ไม่มีรายการสำหรับส่งออก', 'ERROR')
       return
@@ -490,6 +492,7 @@ function ProductsContent() {
       รายได้: r.revenue,
       หมายเหตุ: r.bill.remark || '',
     }))
+    const XLSX = await import('xlsx')
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), sheet)
     XLSX.writeFile(wb, `${selectedProduct.code || selectedProduct.name}_${sheet}_${todayStr}.xlsx`)
@@ -500,22 +503,37 @@ function ProductsContent() {
   const [transformTargetProduct, setTransformTargetProduct] = useState<Product | null>(null)
 
 
-  // Deactivate product (never a hard delete — history stays; it can be switched on again)
-  const handleConfirmDeleteProduct = async () => {
-    if (!productToDelete) return
-    setIsDeleting(true)
+  // ระงับ (suspend): history stays; it can be switched on again.
+  const suspendProduct = async (product: Product) => {
+    setProducts(await deleteProductAsync(product.id))
+    showToast('ระงับการใช้งานสินค้าแล้ว', `"${product.name}" ไม่แสดงให้เลือกในบิลใหม่แล้ว เปิดใช้งานอีกครั้งได้จากรายการสินค้า`, 'SUCCESS')
+  }
+
+  const handleSuspendProduct = async (product: Product) => {
+    if (!(await confirmSuspend(`สินค้า "${product.name}"`))) return
     try {
-      const updated = await deleteProductAsync(productToDelete.id)
-      setProducts(updated)
-
-
-      showToast('ปิดใช้งานสินค้าแล้ว', `"${productToDelete.name}" ไม่แสดงในหน้าขาย/เช่าแล้ว เปิดใช้งานอีกครั้งได้จากรายการสินค้า`, 'SUCCESS')
-      setProductToDelete(null)
+      await suspendProduct(product)
     } catch (err: any) {
       logger.error('Failed to deactivate product:', err)
-      showToast('ปิดใช้งานสินค้าไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาดในการปิดใช้งานสินค้า', 'ERROR')
-    } finally {
-      setIsDeleting(false)
+      showToast('ระงับการใช้งานสินค้าไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
+    }
+  }
+
+  // ลบ (hard delete): only a product never used; a used one is blocked and may be suspended instead.
+  const handleHardDeleteProduct = async (product: Product) => {
+    try {
+      const outcome = await deleteOrSuspend({
+        name: `สินค้า "${product.name}"`,
+        remove: async () => setProducts(await hardDeleteProductAsync(product.id)),
+        suspend: product.status === 'INACTIVE' ? undefined : () => suspendProduct(product),
+      })
+      if (outcome === 'deleted') {
+        if (selectedProduct?.id === product.id) setSelectedProduct(null)
+        showToast('ลบสินค้าแล้ว', `ลบ "${product.name}" ออกจากระบบแล้ว`, 'SUCCESS')
+      }
+    } catch (err: any) {
+      logger.error('Failed to delete product:', err)
+      showToast('ลบสินค้าไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาดในการลบสินค้า', 'ERROR')
     }
   }
 
@@ -704,7 +722,8 @@ function ProductsContent() {
     showToast('บันทึกสำเร็จ', `อัปเดตข้อมูลสินค้า "${updated.name}" เรียบร้อยแล้ว`, 'SUCCESS')
     } catch (err: any) {
       logger.error('Failed to update product inline', err)
-      showToast('เกิดข้อผิดพลาด', 'ไม่สามารถบันทึกข้อมูลได้ โปรดลองอีกครั้ง', 'ERROR')
+      // Say what the server answered, so the shop knows what to fix.
+      showToast('บันทึกข้อมูลสินค้าไม่สำเร็จ', err?.message || 'ไม่สามารถบันทึกข้อมูลได้ โปรดลองอีกครั้ง', 'ERROR')
     } finally {
       setInlineSaving(false)
     }
@@ -715,7 +734,7 @@ function ProductsContent() {
       {/* AREA 1: การ์ดสรุปภาพรวม 7 ใบ (สต็อกรวม = พร้อมให้เช่า + จอง + อยู่ระหว่างเช่า + ชำรุด) */}
       <div className="shrink-0">
         {/* Stock Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
           <div
             role="button"
             tabIndex={0}
@@ -780,14 +799,16 @@ function ProductsContent() {
       {/* AREA 2: กรอบเดียว ครอบแถบ 4 ปุ่มหลัก + พื้นที่ทำงาน */}
       <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
         {/* Outer Row: p-2 border-b */}
-        <div className="p-2 border-b border-slate-200 dark:border-slate-700 flex items-center shrink-0 overflow-x-auto">
+        <div className={`${TABLE_TOOLBAR_CLASSES} flex items-center overflow-x-auto`}>
           <div className={TAB_CONTAINER_CLASSES}>
-            <ActionButton
+            <button
+              type="button"
               onClick={() => setActiveMainTab('LIST')}
-              size="sm"
-              variant={activeMainTab === 'LIST' ? 'active' : 'ghost'}
-              icon={<Layers className={`w-3.5 h-3.5 shrink-0 ${activeMainTab === 'LIST' ? 'text-blue-600 dark:text-blue-400' : 'text-blue-600/80 dark:text-blue-400/80'}`} />}
-              badge={
+              className={`${TAB_BUTTON_BASE_CLASSES} ${activeMainTab === 'LIST' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
+            >
+              {<Layers className={`w-3.5 h-3.5 shrink-0 ${activeMainTab === 'LIST' ? 'text-blue-600 dark:text-blue-400' : 'text-blue-600/80 dark:text-blue-400/80'}`} />}
+              <span>รายการสินค้า</span>
+              {
                 <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
                   activeMainTab === 'LIST'
                     ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60'
@@ -796,41 +817,39 @@ function ProductsContent() {
                   {products.length}
                 </span>
               }
-            >
-              รายการสินค้า
-            </ActionButton>
+            </button>
 
-            <ActionButton
+            <button
+              type="button"
               onClick={() => setActiveMainTab('ADD')}
-              size="sm"
-              variant={activeMainTab === 'ADD' ? 'active' : 'ghost'}
-              icon={<PackagePlus className={`w-3.5 h-3.5 shrink-0 ${activeMainTab === 'ADD' ? 'text-emerald-700 dark:text-emerald-400' : 'text-emerald-700/80 dark:text-emerald-400/80'}`} />}
-              badge={
+              className={`${TAB_BUTTON_BASE_CLASSES} ${activeMainTab === 'ADD' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
+            >
+              {<PackagePlus className={`w-3.5 h-3.5 shrink-0 ${activeMainTab === 'ADD' ? 'text-emerald-700 dark:text-emerald-400' : 'text-emerald-700/80 dark:text-emerald-400/80'}`} />}
+              <span>เพิ่มสินค้า</span>
+              {
                 createDraftRows.some((r) => r.name.trim() !== '') ? (
                   <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" title="มีแบบร่างค้างอยู่" />
                 ) : undefined
               }
-            >
-              เพิ่มสินค้า
-            </ActionButton>
+            </button>
 
-            <ActionButton
+            <button
+              type="button"
               onClick={() => setActiveMainTab('SETTINGS')}
-              size="sm"
-              variant={activeMainTab === 'SETTINGS' ? 'active' : 'ghost'}
-              icon={<Settings className={`w-3.5 h-3.5 shrink-0 ${activeMainTab === 'SETTINGS' ? 'text-purple-600 dark:text-purple-400' : 'text-purple-600/80 dark:text-purple-400/80'}`} />}
+              className={`${TAB_BUTTON_BASE_CLASSES} ${activeMainTab === 'SETTINGS' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
             >
-              ตั้งค่าเสริม
-            </ActionButton>
+              {<Settings className={`w-3.5 h-3.5 shrink-0 ${activeMainTab === 'SETTINGS' ? 'text-purple-600 dark:text-purple-400' : 'text-purple-600/80 dark:text-purple-400/80'}`} />}
+              <span>ตั้งค่าเสริม</span>
+            </button>
 
-            <ActionButton
+            <button
+              type="button"
               onClick={() => setActiveMainTab('COUNT')}
-              size="sm"
-              variant={activeMainTab === 'COUNT' ? 'active' : 'ghost'}
-              icon={<ClipboardList className={`w-3.5 h-3.5 shrink-0 ${activeMainTab === 'COUNT' ? 'text-purple-600 dark:text-purple-400' : 'text-purple-600/80 dark:text-purple-400/80'}`} />}
+              className={`${TAB_BUTTON_BASE_CLASSES} ${activeMainTab === 'COUNT' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
             >
-              นับสต็อก
-            </ActionButton>
+              {<ClipboardList className={`w-3.5 h-3.5 shrink-0 ${activeMainTab === 'COUNT' ? 'text-purple-600 dark:text-purple-400' : 'text-purple-600/80 dark:text-purple-400/80'}`} />}
+              <span>นับสต็อก</span>
+            </button>
           </div>
         </div>
 
@@ -853,8 +872,13 @@ function ProductsContent() {
             onTransformDamaged={(p) => setTransformTargetProduct(p)}
             canAdjustStock={canAction('STOCK_ADJUST')}
             onOpenHistory={(p) => openProductHistory(p, 'CURRENT')}
-            onDeleteProduct={(p) => setProductToDelete(p)}
+            onEditProduct={(p) => {
+              openProductHistory(p, 'CURRENT')
+              startInlineEdit(p)
+            }}
+            onDeleteProduct={(p) => void handleSuspendProduct(p)}
             onReactivateProduct={(p) => void handleReactivateProduct(p)}
+            onHardDeleteProduct={(p) => void handleHardDeleteProduct(p)}
             focusedProductId={focusedProductId}
             onRowDoubleClick={(p) => setFocusedProductId((cur) => (cur === p.id ? null : p.id))}
           />
@@ -864,7 +888,7 @@ function ProductsContent() {
           <ProductCreateView
             rows={createDraftRows}
             setRows={setCreateDraftRows}
-            categories={productCategories}
+            categories={productCategories.filter((c) => c.isActive !== false)}
             compositeRules={compositeRules}
             categoryRules={categoryRules}
             units={masterUnits}
@@ -985,7 +1009,7 @@ function ProductsContent() {
                         ))}
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        <ActionButton size="sm" variant="neutral" icon={<Edit />} onClick={() => startInlineEdit(selectedProduct)}>
+                        <ActionButton variant="neutral" icon={<Edit />} onClick={() => startInlineEdit(selectedProduct)}>
                           แก้ไขสินค้า
                         </ActionButton>
                         <button
@@ -996,7 +1020,7 @@ function ProductsContent() {
                           }}
                           aria-label="ปิดหน้าต่าง"
                           title="ปิดหน้าต่าง"
-                          className="shrink-0 p-1.5 rounded-full text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                          className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer`}
                         >
                           <X className="w-4 h-4" />
                         </button>
@@ -1019,7 +1043,7 @@ function ProductsContent() {
                         }}
                         aria-label="ปิดหน้าต่าง"
                         title="ปิดหน้าต่าง"
-                        className="shrink-0 p-1.5 rounded-full text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer`}
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -1196,7 +1220,7 @@ function ProductsContent() {
                       <button
                         type="button"
                         onClick={() => setIsEditingInline(false)}
-                        className="h-9 px-4 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors cursor-pointer"
+                        className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer`}
                       >
                         ยกเลิก
                       </button>
@@ -1204,7 +1228,7 @@ function ProductsContent() {
                         type="button"
                         onClick={handleSaveInlineEdit}
                         disabled={inlineSaving}
-                        className="h-9 px-5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs shadow-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait"
+                        className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 text-white shadow-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait`}
                       >
                         {inlineSaving ? 'กำลังบันทึก...' : 'บันทึก'}
                       </button>
@@ -1256,7 +1280,6 @@ function ProductsContent() {
                               <MapPin className="w-5 h-5 text-rose-700 dark:text-rose-400 shrink-0 mt-0.5" />
                               <div className="min-w-0">
                                 <h4 className="font-black text-sm sm:text-base text-slate-900 dark:text-slate-100">รายการลูกค้าที่เช่าสินค้าอยู่ในขณะนี้</h4>
-                                <p className="text-[11px] text-slate-600 dark:text-slate-400">ลูกค้าที่มีสินค้า &quot;{selectedProduct.name}&quot; อยู่ในการเช่า ยังไม่คืนครบ</p>
                               </div>
                             </div>
                             <div className="flex items-center gap-3 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
@@ -1277,15 +1300,15 @@ function ProductsContent() {
                               </div>
                             </div>
                           </div>
-                          <div className="flex flex-wrap items-center gap-1.5">
+                          <div className="flex flex-wrap items-center gap-2">
                             <div className="relative flex-1 min-w-[160px]">
-                              <Search className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                              <Search className={SEARCH_ICON_CLASSES} />
                               <input
                                 value={holderSearch}
                                 onChange={(e) => setHolderSearch(e.target.value)}
                                 placeholder="ค้นชื่อลูกค้า, เลขบิล, เบอร์โทร..."
                                 type="text"
-                                className="w-full h-9 pl-9 pr-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+                                className={SEARCH_INPUT_CLASSES}
                               />
                             </div>
                             <div className="w-36">
@@ -1303,7 +1326,6 @@ function ProductsContent() {
                                   ...HOLDING_RENTAL_STATUSES.map((st) => ({ value: st, label: RENTAL_STATUS_LABEL[st] })),
                                   { value: 'OVERDUE', label: 'เกินกำหนดคืน' },
                                 ]}
-                                buttonClassName="h-9 px-2.5 rounded-xl"
                               />
                             </div>
                             <ActionButton variant="neutral" icon={<RotateCcw />} onClick={() => { setHolderSearch(''); setHolderStatus('ALL'); setHolderStartFrom(''); setHolderDueTo('') }}>
@@ -1323,7 +1345,7 @@ function ProductsContent() {
                       <table className={`${DATA_TABLE_CLASSES} text-xs`}>
                         <thead className="text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
                           <tr>
-                            <th className="px-2 text-center w-10">#</th>
+                            <th className="px-2 text-center w-10">ลำดับ</th>
                             <th className="px-2">ลูกค้า</th>
                             <th className="px-2">เลขที่บิล</th>
                             <th className="px-2 text-center">จำนวน ({selectedProduct.unit})</th>
@@ -1381,7 +1403,6 @@ function ProductsContent() {
                             <Clock className="w-5 h-5 text-rose-700 dark:text-rose-400 shrink-0 mt-0.5" />
                             <div className="min-w-0">
                               <h4 className="font-black text-sm sm:text-base text-slate-900 dark:text-slate-100">ประวัติการเช่าทั้งหมด</h4>
-                              <p className="text-[11px] text-slate-600 dark:text-slate-400">รายการประวัติการเช่า &quot;{selectedProduct.name}&quot; ทุกครั้งที่ผ่านมา</p>
                             </div>
                           </div>
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
@@ -1401,15 +1422,15 @@ function ProductsContent() {
                             ))}
                           </div>
                         </div>
-                        <div className="flex flex-wrap items-center gap-1.5">
+                        <div className="flex flex-wrap items-center gap-2">
                           <div className="relative flex-1 min-w-[160px]">
-                            <Search className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                            <Search className={SEARCH_ICON_CLASSES} />
                             <input
                               value={historySearch}
                               onChange={(e) => setHistorySearch(e.target.value)}
                               placeholder="ค้นชื่อลูกค้า, เลขบิล, เบอร์โทร..."
                               type="text"
-                              className="w-full h-9 pl-9 pr-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+                              className={SEARCH_INPUT_CLASSES}
                             />
                           </div>
                           <div className="w-36">
@@ -1428,7 +1449,6 @@ function ProductsContent() {
                                 { value: 'HOLDING', label: 'กำลังเช่าอยู่' },
                                 { value: 'OVERDUE', label: 'เกินกำหนดคืน' },
                               ]}
-                              buttonClassName="h-9 px-2.5 rounded-xl"
                             />
                           </div>
                           <ActionButton variant="neutral" icon={<RotateCcw />} onClick={() => { setHistorySearch(''); setHistoryStatus('ALL'); setHistoryFrom(''); setHistoryTo('') }}>
@@ -1448,7 +1468,7 @@ function ProductsContent() {
                     <table className={`${DATA_TABLE_CLASSES} text-xs`}>
                       <thead className="text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
                         <tr>
-                          <th className="px-2 text-center w-10">#</th>
+                          <th className="px-2 text-center w-10">ลำดับ</th>
                           <th className="px-2">วันที่</th>
                           <th className="px-2">เลขที่บิล</th>
                           <th className="px-2">ลูกค้า</th>
@@ -1578,42 +1598,6 @@ function ProductsContent() {
 
           </>
         )}
-      </AppModal>
-
-      {/* Delete Product Confirmation Modal */}
-      <AppModal
-        isOpen={!!productToDelete}
-        onClose={() => {
-          if (!isDeleting) setProductToDelete(null)
-        }}
-        size="sm"
-      >
-        <AppModalHeader
-          title="ปิดใช้งานสินค้า"
-          icon={<Ban className="w-5 h-5 text-red-700 dark:text-red-400" />}
-          onClose={() => {
-            if (!isDeleting) setProductToDelete(null)
-          }}
-        />
-        <AppModalBody className="space-y-3 text-xs py-3">
-          <p className="text-slate-700 dark:text-slate-300">
-            ปิดใช้งานสินค้า <strong className="text-slate-900 dark:text-slate-100 font-bold">&quot;{productToDelete?.name}&quot;</strong> หรือไม่?
-          </p>
-          <div className="p-2.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl text-red-700 dark:text-red-400 text-[11px] leading-relaxed">
-            * สินค้าจะไม่แสดงในหน้าขาย/เช่าและใบเสนอราคา แต่ข้อมูลและประวัติเดิมยังอยู่ครบ เปิดใช้งานอีกครั้งได้จากรายการสินค้า (ตัวกรอง &quot;สินค้าปิดใช้งาน&quot;)
-          </div>
-        </AppModalBody>
-        <AppModalFooter
-          onCancel={() => {
-                  setProductToDelete(null)
-          }}
-          cancelText="ยกเลิก"
-          onConfirm={handleConfirmDeleteProduct}
-          confirmText={isDeleting ? 'กำลังปิดใช้งาน...' : 'ยืนยันปิดใช้งาน'}
-          confirmButtonColor="red"
-          isConfirmDisabled={isDeleting}
-          isConfirmLoading={isDeleting}
-        />
       </AppModal>
 
     </div>

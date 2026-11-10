@@ -22,8 +22,7 @@ import {
   TAB_BUTTON_ACTIVE_CLASSES,
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_INACTIVE_CLASSES,
-  TAB_CONTAINER_CLASSES,
-} from '@/components/common/ActionButton'
+  TAB_CONTAINER_CLASSES, COMMAND_BUTTON_SIZE_CLASSES, TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
 import { LineChatPreview, type LineChatBubble } from '@/features/settings/components/LineChatPreview'
 import { LineSchedulePanel } from '@/features/settings/components/LineSchedulePanel'
 import { LineRemindersPanel } from '@/features/settings/components/LineRemindersPanel'
@@ -34,7 +33,7 @@ import { LineDeliveryLogPanel } from '@/features/settings/components/LineDeliver
  * - OA connection (Channel Secret / Access Token): saved straight to Vault by its own buttons,
  *   never shown back, never part of the section draft.
  * - policies.line (which notices go to staff LINE, the customer reminder schedule, the message
- *   texts): the section draft, saved with the page's บันทึก button like every other section.
+ *   texts): the draft of LineSettingsWorkspace, saved one sub-page at a time.
  * - Manual reminders and the send history act at once (own buttons).
  * People (friends waiting for the shop, drivers, linked customers) have their own page: คนใน LINE (/line).
  * Every list on these screens comes from lib/line/config.ts.
@@ -138,6 +137,9 @@ function WithPreview({ children, preview }: { children: React.ReactNode; preview
 interface LineSettingsPanelProps {
   config: SystemConfig
   setConfig: Dispatch<SetStateAction<SystemConfig>>
+  /** The open sub-page, when the Settings page needs it (บันทึก saves only that sub-page). */
+  view?: LineSettingsView
+  onViewChange?: (view: LineSettingsView) => void
 }
 
 function ConnectionSection() {
@@ -267,13 +269,12 @@ function ConnectionSection() {
           />
         </div>
       </div>
-      <p className={SETTINGS_HELPER}>ค่าที่บันทึกแล้วจะไม่แสดงกลับมาอีก · กรอกช่องเดียวได้ถ้าต้องการเปลี่ยนแค่ค่านั้น</p>
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
           onClick={() => void save()}
           disabled={busy || !status?.available || (!secret && !token)}
-          className="h-8 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 disabled:opacity-50"
+          className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-blue-600 hover:bg-blue-700 text-white flex items-center disabled:opacity-50`}
         >
           <KeyRound className="w-3.5 h-3.5" />
           <span>บันทึกการเชื่อมต่อ</span>
@@ -283,7 +284,7 @@ function ConnectionSection() {
             type="button"
             onClick={() => void clear()}
             disabled={busy}
-            className="h-8 px-3 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 font-bold text-xs flex items-center gap-1.5 disabled:opacity-50"
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 flex items-center disabled:opacity-50`}
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>ล้างการเชื่อมต่อ</span>
@@ -298,20 +299,24 @@ function ConnectionSection() {
           <button
             type="button"
             onClick={() => void copyWebhook()}
-            className="h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-xs flex items-center gap-1.5 shrink-0"
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 flex items-center shrink-0`}
           >
             <Copy className="w-3.5 h-3.5" />
             <span>คัดลอก</span>
           </button>
         </div>
-        <p className={SETTINGS_HELPER}>LINE ต้องเรียกผ่าน https จึงต้องเป็นโดเมนจริงของร้าน (ใช้ localhost ไม่ได้)</p>
       </div>
     </div>
   )
 }
 
-export function LineSettingsPanel({ config, setConfig }: LineSettingsPanelProps) {
-  const [view, setView] = useState<LineSettingsView>('CONNECTION')
+export function LineSettingsPanel({ config, setConfig, view: viewProp, onViewChange }: LineSettingsPanelProps) {
+  const [ownView, setOwnView] = useState<LineSettingsView>('CONNECTION')
+  const view = viewProp ?? ownView
+  const setView = (v: LineSettingsView) => {
+    setOwnView(v)
+    onViewChange?.(v)
+  }
   const [focusEvent, setFocusEvent] = useState<LineNotifyEventType>(LINE_NOTIFY_EVENTS[0].type)
   const [tplKey, setTplKey] = useState<LineTemplateKey>(LINE_EDITABLE_TEMPLATES[0].key)
   const tplRef = useRef<HTMLTextAreaElement>(null)
@@ -346,7 +351,8 @@ export function LineSettingsPanel({ config, setConfig }: LineSettingsPanelProps)
 
   return (
     <>
-      <div className="px-3 sm:px-4 pt-3 overflow-x-auto no-scrollbar">
+      {/* second row under the คนใน LINE tabs: same padding as that toolbar, stays put while the page scrolls */}
+      <div className={`${TABLE_TOOLBAR_CLASSES} sticky top-0 z-10 overflow-x-auto no-scrollbar bg-white dark:bg-slate-800`}>
         <div className={TAB_CONTAINER_CLASSES} role="tablist" aria-label="LINE">
           {LINE_SETTINGS_VIEWS.map((v) => (
             <button
@@ -360,14 +366,6 @@ export function LineSettingsPanel({ config, setConfig }: LineSettingsPanelProps)
               {v.label}
             </button>
           ))}
-        </div>
-      </div>
-
-      <div className="px-4 sm:px-5 pt-4 pb-2 flex items-center gap-3 border-b border-slate-100 dark:border-slate-800">
-        <div className="w-12 h-12 rounded-2xl bg-green-500 flex items-center justify-center text-white font-black text-sm shadow-sm">LINE</div>
-        <div className="min-w-0">
-          <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white">LINE Official Account</h2>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">เชื่อมต่อบัญชี LINE ของร้าน และตั้งค่าการแจ้งเตือนต่าง ๆ</p>
         </div>
       </div>
 
@@ -399,15 +397,12 @@ export function LineSettingsPanel({ config, setConfig }: LineSettingsPanelProps)
         >
           <div className={SETTINGS_SECTION}>
             <h4 className={SETTINGS_SECTION_TITLE}>
-              <BellRing className="w-3.5 h-3.5 text-teal-700 dark:text-teal-400" />
+              <BellRing className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
               <span>แจ้งเตือนพนักงานทาง LINE</span>
               <span className="font-semibold text-[11px] text-slate-500 dark:text-slate-400">
                 เปิดอยู่ {onCount} จาก {LINE_NOTIFY_EVENTS.length}
               </span>
             </h4>
-            <p className={SETTINGS_HELPER}>
-              เลือกว่าการแจ้งเตือนในระบบแบบไหนให้ส่งเข้า LINE ของพนักงานด้วย · ส่งถึงพนักงานที่ผูก LINE แล้วและมีสิทธิ์เมนูนั้น
-            </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
               {LINE_NOTIFY_EVENTS.map((ev) => (
                 <label
@@ -430,18 +425,14 @@ export function LineSettingsPanel({ config, setConfig }: LineSettingsPanelProps)
                       setFocusEvent(ev.type)
                       setLine({ notify })
                     }}
-                    className="mt-0.5 w-4 h-4 text-teal-700 dark:text-teal-400 rounded"
+                    className="mt-0.5 w-4 h-4 text-emerald-700 dark:text-emerald-400 rounded"
                   />
                   <span>
                     <span className="block text-xs font-bold text-slate-800 dark:text-slate-200">{ev.label}</span>
-                    <span className={SETTINGS_HELPER}>{ev.hint}</span>
                   </span>
                 </label>
               ))}
             </div>
-            <p className={SETTINGS_HELPER}>
-              ส่งแบบรายคน (แชตส่วนตัวกับ LINE ร้าน ไม่ส่งเข้ากลุ่ม) · การเตือนลูกค้าตั้งที่แท็บตารางเตือนลูกค้า · ใส่ LINE ID ของร้านที่แท็บกิจการเพื่อให้มีปุ่มแชทกับร้าน
-            </p>
           </div>
           <LineMembersPanel />
         </WithPreview>
@@ -466,7 +457,6 @@ export function LineSettingsPanel({ config, setConfig }: LineSettingsPanelProps)
               <MessageSquareText className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
               <span>ข้อความที่ส่งทาง LINE</span>
             </h4>
-            <p className={SETTINGS_HELPER}>เว้นว่างไว้ = ใช้ข้อความมาตรฐาน · กดชื่อข้อมูลเพื่อแทรกลงในข้อความ</p>
             <div className="grid grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)] rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
               <ul
                 className="p-1.5 bg-slate-50 dark:bg-slate-900/40 border-b md:border-b-0 md:border-r border-slate-200 dark:border-slate-700 flex md:flex-col gap-0.5 overflow-x-auto md:overflow-x-visible md:max-h-[420px] md:overflow-y-auto"
@@ -522,7 +512,7 @@ export function LineSettingsPanel({ config, setConfig }: LineSettingsPanelProps)
                         key={v}
                         type="button"
                         onClick={() => insertVar(v)}
-                        className="px-2 py-0.5 rounded-md border border-dashed border-emerald-700 dark:border-emerald-400 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                        className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-dashed border-emerald-700 dark:border-emerald-400 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40`}
                       >
                         {`{${v}}`}
                       </button>
@@ -538,7 +528,7 @@ export function LineSettingsPanel({ config, setConfig }: LineSettingsPanelProps)
                   <button
                     type="button"
                     onClick={() => setTemplate(tpl.key, '')}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 hover:underline"
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center text-emerald-700 dark:text-emerald-400 hover:underline`}
                   >
                     <RotateCcw className="w-3 h-3" /> กลับไปใช้ข้อความมาตรฐาน
                   </button>

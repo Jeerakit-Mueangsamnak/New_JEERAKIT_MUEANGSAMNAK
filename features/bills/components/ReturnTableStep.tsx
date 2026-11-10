@@ -2,6 +2,7 @@
 
 import React from 'react'
 import type { FullBill, ReturnInspectionItem } from '@/lib/types/rental-return'
+import { ActionButton } from '@/components/common/ActionButton'
 import { NumericInput } from '@/components/common/NumericInput'
 import { CustomDatePicker, getLocalDateString, parseLocalDate } from '@/components/common/CustomDatePicker'
 import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
@@ -86,10 +87,21 @@ export function ReturnTableStep({
   const today = getLocalDateString(new Date())
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col space-y-2 overflow-hidden">
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      {/* owner 2026-11-07: the table runs to the bottom; ย้อนกลับ / ถัดไป sit in its bottom bar, the count in the middle */}
       <DataTableFrame
         fill
         rowCount={items.length}
+        countBarStart={
+          <ActionButton type="button" onClick={onBack} variant="outline">
+            ย้อนกลับ
+          </ActionButton>
+        }
+        countBarEnd={
+          <ActionButton type="button" onClick={onNext} disabled={!canNext} variant="primary">
+            ถัดไป
+          </ActionButton>
+        }
         className="flex-1 min-h-0 min-w-0 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
       >
         <table className={`${DATA_TABLE_CLASSES} text-[10px] leading-tight`}>
@@ -155,7 +167,8 @@ export function ReturnTableStep({
                       actualReturnDate: dateShown,
                     }).actualRentalDays
                   : null
-              const rounds = periods + (continuing ? Math.max(0, item.continueRounds || 0) : 0)
+              // Rounds beyond the bill: the เช่าต่อ bill's rounds, or rounds already used by goods coming back now.
+              const rounds = periods + Math.max(0, item.continueRounds || 0)
 
               return (
                 <tr
@@ -262,7 +275,7 @@ export function ReturnTableStep({
                         allowDecimals={false}
                         allowNegative={false}
                         placeholder=""
-                        aria-label="เช่าต่ออีกกี่รอบ"
+                        aria-label="รอบที่เพิ่ม"
                         className={`${numberBox} border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 focus:ring-blue-500`}
                       />
                     )}
@@ -276,26 +289,6 @@ export function ReturnTableStep({
           </tbody>
         </table>
       </DataTableFrame>
-
-      <div className="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-slate-700 shrink-0">
-        <button
-          type="button"
-          onClick={onBack}
-          className="px-4 sm:px-5 py-2 rounded-xl font-bold border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 transition-all text-xs cursor-pointer"
-        >
-          ย้อนกลับ
-        </button>
-        <button
-          type="button"
-          onClick={onNext}
-          disabled={!canNext}
-          className={`px-5 py-2 rounded-xl font-bold text-white transition-all text-xs ${
-            canNext ? 'bg-emerald-700 hover:bg-emerald-800 cursor-pointer shadow-sm' : 'bg-slate-300 cursor-not-allowed'
-          }`}
-        >
-          ถัดไป
-        </button>
-      </div>
     </div>
   )
 }

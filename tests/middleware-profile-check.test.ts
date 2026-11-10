@@ -6,27 +6,32 @@ type ProfileReply = { data: { status: string; is_approved?: boolean | null } | n
 const fake = vi.hoisted(() => ({
   user: null as { id: string } | null,
   profile: { data: { status: 'ACTIVE', is_approved: true }, error: null } as ProfileReply,
-  auth: 'ok' as 'ok' | 'error' | 'throw' | 'hang',
+  auth: 'ok' as 'ok' | 'error' | 'throw' | 'hang' | 'invalid',
+  supabaseUrl: 'https://project.supabase.co',
+  supabasePublicKey: 'sb_publishable_test',
+  profileQueries: 0,
   signOut: vi.fn(async () => ({ error: null })),
   refreshedCookie: false,
 }))
 
 vi.mock('@/lib/supabase/env', async (orig) => ({
   ...(await orig<object>()),
-  getSupabaseUrl: () => 'https://project.supabase.co',
-  getSupabasePublicKey: () => 'sb_publishable_test',
+  getSupabaseUrl: () => fake.supabaseUrl,
+  getSupabasePublicKey: () => fake.supabasePublicKey,
 }))
 
 vi.mock('@supabase/ssr', () => ({
   createServerClient: (_url: string, _key: string, opts: { cookies: { setAll: (c: { name: string; value: string; options?: object }[]) => void } }) => ({
     auth: {
-      getUser: async () => {
+      getClaims: async () => {
         if (fake.auth === 'throw') throw new TypeError('fetch failed')
         if (fake.auth === 'hang') return new Promise(() => {})
-        if (fake.auth === 'error') return { data: { user: null }, error: { name: 'AuthRetryableFetchError', status: 0 } }
-        // getUser may refresh the token and write new cookies; they must reach the response
+        if (fake.auth === 'error') return { data: null, error: { name: 'AuthRetryableFetchError', status: 0 } }
+        // A forged / broken token: verified locally, no status code
+        if (fake.auth === 'invalid') return { data: null, error: { name: 'AuthInvalidJwtError' } }
+        // getClaims may refresh an expired token and write new cookies; they must reach the response
         if (fake.refreshedCookie) opts.cookies.setAll([{ name: 'sb-test-auth-token', value: 'refreshed', options: { path: '/' } }])
-        return { data: { user: fake.user }, error: fake.user ? null : { name: 'AuthSessionMissingError', status: 400 } }
+        return { data: fake.user ? { claims: { sub: fake.user.id } } : null, error: null }
       },
       signOut: fake.signOut,
     },
@@ -40,6 +45,7 @@ vi.mock('@supabase/ssr', () => ({
           return builder
         },
         maybeSingle: () => {
+          fake.profileQueries += 1
           const reply = fake.profile
           if (reply === 'throw') return Promise.reject(new TypeError('fetch failed'))
           if (reply === 'hang') {
@@ -55,7 +61,7 @@ vi.mock('@supabase/ssr', () => ({
   }),
 }))
 
-import { updateSession } from '@/lib/supabase/middleware'
+import { clearMemberStatusCache, updateSession } from '@/lib/supabase/middleware'
 
 const page = (path: string) => new NextRequest(`http://localhost:3000${path}`, { headers: { accept: 'text/html' } })
 const isPassThrough = (res: Response) => res.status === 200 && res.headers.get('x-middleware-next') === '1'
@@ -65,11 +71,27 @@ beforeEach(() => {
   fake.user = { id: 'user-a' }
   fake.profile = { data: { status: 'ACTIVE', is_approved: true }, error: null }
   fake.auth = 'ok'
+  fake.supabaseUrl = 'https://project.supabase.co'
+  fake.supabasePublicKey = 'sb_publishable_test'
   fake.signOut.mockClear()
   fake.refreshedCookie = false
+  fake.profileQueries = 0
+  clearMemberStatusCache()
 })
 
 describe('P1-A2 middleware member check', () => {
+  it('missing Supabase configuration blocks protected pages but leaves public pages reachable', async () => {
+    fake.supabasePublicKey = ''
+    const protectedResponse = await updateSession(page('/bills'))
+    expect(protectedResponse.status).toBe(503)
+    expect(isPassThrough(protectedResponse)).toBe(false)
+    expect(await protectedResponse.text()).toContain('การเชื่อมต่อไม่ครบถ้วน')
+    expect(fake.profileQueries).toBe(0)
+
+    const publicResponse = await updateSession(page('/login'))
+    expect(isPassThrough(publicResponse)).toBe(true)
+  })
+
   it('profile query error: no sign-out, and the protected page is not served (503, retry)', async () => {
     fake.profile = { data: null, error: { message: 'connection reset' } }
     const res = await updateSession(page('/bills'))
@@ -152,8 +174,52 @@ describe('P1-A2 middleware member check', () => {
   })
 })
 
-describe('auth server unreachable (getUser)', () => {
-  it.each(['error', 'throw'] as const)('getUser %s on a protected page: 503, no sign-out, not served', async (mode) => {
+describe('faster page switches: member status kept for 30 s', () => {
+  it('the next page within 30 s does not ask the database again', async () => {
+    expect(isPassThrough(await updateSession(page('/bills')))).toBe(true)
+    fake.profile = 'throw'
+    expect(isPassThrough(await updateSession(page('/pos')))).toBe(true)
+    expect(fake.profileQueries).toBe(1)
+  })
+
+  it('a member suspended meanwhile is cut off once the 30 s are over', async () => {
+    vi.useFakeTimers()
+    try {
+      expect(isPassThrough(await updateSession(page('/bills')))).toBe(true)
+      fake.profile = { data: { status: 'SUSPENDED', is_approved: true }, error: null }
+      vi.advanceTimersByTime(30_001)
+      const res = await updateSession(page('/bills'))
+      expect(fake.signOut).toHaveBeenCalledOnce()
+      expect(loginRedirect(res)).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a refusal is never kept: a suspended member is checked again on the next request', async () => {
+    fake.profile = { data: { status: 'SUSPENDED', is_approved: true }, error: null }
+    expect(loginRedirect(await updateSession(page('/bills')))).toBe(true)
+    expect(loginRedirect(await updateSession(page('/bills')))).toBe(true)
+    expect(fake.profileQueries).toBe(2)
+  })
+
+  it('another user is checked for themselves', async () => {
+    await updateSession(page('/bills'))
+    fake.user = { id: 'user-b' }
+    fake.profile = { data: { status: 'PENDING', is_approved: false }, error: null }
+    expect(loginRedirect(await updateSession(page('/bills')))).toBe(true)
+  })
+
+  it('an invalid token goes to login (not 503) and never reaches the member check', async () => {
+    fake.auth = 'invalid'
+    const res = await updateSession(page('/bills'))
+    expect(loginRedirect(res)).toBe(true)
+    expect(fake.profileQueries).toBe(0)
+  })
+})
+
+describe('auth server unreachable (getClaims)', () => {
+  it.each(['error', 'throw'] as const)('getClaims %s on a protected page: 503, no sign-out, not served', async (mode) => {
     fake.auth = mode
     const res = await updateSession(page('/bills'))
     expect(res.status).toBe(503)
@@ -161,7 +227,7 @@ describe('auth server unreachable (getUser)', () => {
     expect(fake.signOut).not.toHaveBeenCalled()
   })
 
-  it('getUser that hangs times out into 503', async () => {
+  it('getClaims that hangs times out into 503', async () => {
     vi.useFakeTimers()
     try {
       fake.auth = 'hang'
@@ -175,7 +241,7 @@ describe('auth server unreachable (getUser)', () => {
     }
   })
 
-  it.each(['error', 'throw'] as const)('getUser %s on a public route still lets the page open', async (mode) => {
+  it.each(['error', 'throw'] as const)('getClaims %s on a public route still lets the page open', async (mode) => {
     fake.auth = mode
     const res = await updateSession(page('/login'))
     expect(isPassThrough(res)).toBe(true)

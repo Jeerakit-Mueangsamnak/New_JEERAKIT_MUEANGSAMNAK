@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import React, { useEffect, useMemo, useState } from 'react'
@@ -24,6 +25,8 @@ import { loadProducts } from '@/features/products/services/product-storage'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { adjustBill, createContinuation } from '@/features/bills/services/bill-service'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
+import { dbErrorMessage } from '@/lib/db/rpc'
+import { isNoChargeBillLine, isNoChargeRental } from '@/features/pos/services/accessory-rules'
 
 export type BillRevisionMode = 'CORRECTION' | 'EXTENSION'
 
@@ -50,6 +53,8 @@ interface EditableItem {
   action: 'UPDATE' | 'ADD' | 'REMOVE'
   addRounds: number
   unitName?: string
+  /** Rental method "ไม่คิดเงิน": ราคา/หน่วย and รอบ print "-" and cannot be typed (owner 2026-11-09). */
+  isNoCharge?: boolean
 }
 
 interface ProductOption {
@@ -61,6 +66,7 @@ interface ProductOption {
   dailyPrice: number
   salePrice: number
   unitName?: string
+  isNoCharge?: boolean
 }
 
 function uuid() {
@@ -149,6 +155,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
         action: 'UPDATE',
         addRounds: 0,
         unitName: item.unit || 'ชิ้น',
+        isNoCharge: isNoChargeBillLine(item),
       }))
     )
   }, [bill, mode])
@@ -166,6 +173,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
         dailyPrice: p.dailyPrice,
         salePrice: p.salePrice ?? 0,
         unitName: p.unit,
+        isNoCharge: p.rentalType !== 'SALE' && isNoChargeRental(p),
       }))
     )
   }, [])
@@ -261,6 +269,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
         action: 'ADD',
         addRounds: 0,
         unitName: product.unitName || 'ชิ้น',
+        isNoCharge: product.isNoCharge,
       },
     ])
     setSelectedProductId('')
@@ -355,7 +364,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
       await onSaved()
     } catch (err: any) {
       if (isPinCancelled(err)) return
-      showToast('เกิดข้อผิดพลาดในการแก้ไขบิล', err?.message || 'ไม่สามารถบันทึกการแก้ไขบิลได้', 'ERROR')
+      showToast('เกิดข้อผิดพลาดในการแก้ไขบิล', dbErrorMessage(err?.message || '') || 'ไม่สามารถบันทึกการแก้ไขบิลได้', 'ERROR')
     } finally {
       setIsSaving(false)
     }
@@ -369,7 +378,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 sm:p-2 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 transition-colors flex items-center gap-1 text-xs font-bold shrink-0 cursor-pointer"
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} sm:p-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 transition-colors flex items-center shrink-0 cursor-pointer`}
           >
             <ChevronLeft className="w-4 h-4" />
             <span className="hidden sm:inline">กลับ</span>
@@ -399,7 +408,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer"
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer`}
           >
             ยกเลิก
           </button>
@@ -407,7 +416,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
             type="button"
             disabled={isSaving}
             onClick={() => void handleSave()}
-            className={`px-4 py-1.5 rounded-xl font-extrabold text-xs text-white shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} text-white shadow-md transition-all flex items-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
               mode === 'EXTENSION'
                 ? 'bg-cyan-700 hover:bg-cyan-800 shadow-cyan-600/25'
                 : 'bg-emerald-700 hover:bg-emerald-800 shadow-emerald-600/25'
@@ -462,7 +471,6 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                 value={discountAmount === 0 ? '' : discountAmount}
                 defaultValueOnBlur={0}
                 onChange={(val) => setDiscountAmount(val === '' ? 0 : Number(val))}
-                placeholder="0.00"
                 className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-1 text-xs font-mono font-bold text-right focus:outline-none focus:ring-2 focus:ring-emerald-500 min-w-0"
               />
             </div>
@@ -479,7 +487,6 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                 value={shippingFee === 0 ? '' : shippingFee}
                 defaultValueOnBlur={0}
                 onChange={(val) => setShippingFee(val === '' ? 0 : Number(val))}
-                placeholder="0.00"
                 className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-1 text-xs font-mono font-bold text-right focus:outline-none focus:ring-2 focus:ring-emerald-500 min-w-0"
               />
             </div>
@@ -502,7 +509,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
             type="button"
             disabled={!selectedProductId}
             onClick={addProduct}
-            className="h-9 px-3.5 py-0 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-slate-200 text-white dark:text-slate-900 font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-slate-200 text-white dark:text-slate-900 flex items-center justify-center transition-all shadow-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0`}
           >
             <Plus className="w-4 h-4" />
             <span>เพิ่มสินค้าในบิล</span>
@@ -525,7 +532,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                 <col className="w-[40px] sm:w-[48px]" />
                 <col className="w-[38px] sm:w-[44px]" />
               </colgroup>
-              <thead className="bg-[#E3E3E3] dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-xs">
+              <thead className="bg-[#749bfc] border-b border-slate-200 dark:border-slate-700 text-slate-900 font-bold uppercase tracking-wider text-xs">
                 <tr>
                   <th className="px-1.5 py-2 whitespace-nowrap">รายการสินค้า</th>
                   <th className="px-1 py-2 text-right whitespace-nowrap">คืนแล้ว</th>
@@ -621,19 +628,23 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                         />
                       </td>
 
-                      {/* Unit Price */}
+                      {/* Unit Price — a "ไม่คิดเงิน" line has none: "-" like its รอบ */}
                       <td className="px-1 py-1">
-                        <NumericInput
-                          disabled={isRemoved}
-                          min={0}
-                          allowDecimals={true}
-                          value={item.unitPrice === 0 ? '' : item.unitPrice}
-                          defaultValueOnBlur={0}
-                          onChange={(val) =>
-                            updateItem(index, { unitPrice: val === '' ? 0 : Number(val) })
-                          }
-                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-1 py-1 text-right font-mono font-bold text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none disabled:opacity-50 min-w-0"
-                        />
+                        {item.isNoCharge ? (
+                          <span className="text-slate-600 dark:text-slate-400 font-mono text-center block">-</span>
+                        ) : (
+                          <NumericInput
+                            disabled={isRemoved}
+                            min={0}
+                            allowDecimals={true}
+                            value={item.unitPrice === 0 ? '' : item.unitPrice}
+                            defaultValueOnBlur={0}
+                            onChange={(val) =>
+                              updateItem(index, { unitPrice: val === '' ? 0 : Number(val) })
+                            }
+                            className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-1 py-1 text-right font-mono font-bold text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none disabled:opacity-50 min-w-0"
+                          />
+                        )}
                       </td>
 
                       {/* Daily Start Date (Calendar Popover - Editable ONLY for DAILY) */}
@@ -671,7 +682,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
 
                       {/* Usage Count / รอบ (For NORMAL items) */}
                       <td className="px-1 py-1 text-center">
-                        {isNormal && !isRemoved ? (
+                        {isNormal && !isRemoved && !item.isNoCharge ? (
                           <NumericInput
                             disabled={isRemoved}
                             min={1}

@@ -8,6 +8,8 @@ import {
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
   TAB_BUTTON_INACTIVE_CLASSES,
+  COMMAND_BUTTON_SIZE_CLASSES,
+  TABLE_TOOLBAR_CLASSES,
 } from '@/components/common/ActionButton'
 import { isBuddhistHolyDay } from '@/features/appointments/utils/thai-lunar'
 
@@ -104,12 +106,12 @@ export function CalendarView({ events, onEventClick, renderDay, actions, onDateC
   }
 
   const navButtonClasses =
-    'h-7 w-7 rounded-lg inline-flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer'
+    `${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer`
 
   return (
-    <div className="w-full h-full min-h-0 min-w-0 flex flex-col gap-2 text-xs">
-      {/* Toolbar: month title | วัน / เดือน | prev / today / next | page actions */}
-      <div className="flex items-center gap-2 shrink-0 min-w-0">
+    <div className="w-full flex-1 min-h-0 min-w-0 flex flex-col text-xs">
+      {/* Toolbar: month title | วัน / เดือน | prev / today / next | page actions (shared toolbar spacing) */}
+      <div className={`${TABLE_TOOLBAR_CLASSES} flex items-center min-w-0`}>
         <h2 className="min-w-0 truncate text-lg font-black text-slate-900 dark:text-slate-100">
           {fmt(anchor, { month: 'long', year: 'numeric' })}
         </h2>
@@ -132,7 +134,7 @@ export function CalendarView({ events, onEventClick, renderDay, actions, onDateC
           <button
             type="button"
             onClick={goToday}
-            className="h-7 px-3 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer whitespace-nowrap"
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer whitespace-nowrap`}
           >
             วันนี้
           </button>
@@ -146,7 +148,7 @@ export function CalendarView({ events, onEventClick, renderDay, actions, onDateC
       {mode === 'MONTH' ? (
         <MonthView anchor={anchor} todayKey={todayKey} eventsByDate={eventsByDate} onOpenDay={openDay} onEventClick={onEventClick} />
       ) : (
-        <div className="flex-1 min-h-0 flex flex-col gap-2">
+        <div className="flex-1 min-h-0 flex flex-col">
           <WeekStrip anchor={anchor} todayKey={todayKey} eventsByDate={eventsByDate} onSelect={setAnchor} />
           <div className="flex-1 min-h-0 flex flex-col">{renderDay?.(anchor)}</div>
         </div>
@@ -225,7 +227,8 @@ function MonthView({
   const days = Array.from({ length: weeks * 7 }, (_, i) => addDays(gridStart, i))
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+    // Fills the white work area edge to edge (no inner card); the last column has no right border
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
       <div className="grid grid-cols-7 shrink-0 border-b border-slate-200 dark:border-slate-700">
         {WEEKDAY_LABELS.map((label, i) => (
           <div
@@ -238,7 +241,7 @@ function MonthView({
           </div>
         ))}
       </div>
-      <div className="flex-1 min-h-0 grid grid-cols-7" style={{ gridTemplateRows: `repeat(${weeks}, minmax(0, 1fr))` }}>
+      <div className="flex-1 min-h-0 grid grid-cols-7 [&>*:nth-child(7n)]:border-r-0" style={{ gridTemplateRows: `repeat(${weeks}, minmax(0, 1fr))` }}>
         {days.map((day) => {
           const key = toKey(day)
           const inMonth = day.getMonth() === month

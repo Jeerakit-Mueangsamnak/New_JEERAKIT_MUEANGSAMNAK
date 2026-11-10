@@ -77,6 +77,30 @@ describe('sendBillViaLine (server action)', () => {
     expect(m.claim).not.toHaveBeenCalled()
   })
 
+  it('Flex Card: the server builds the card (no buttons) and queues it with line_bill_send_card', async () => {
+    m.rpc.mockResolvedValueOnce({ data: { delivery_id: 'd9', status: 'PENDING', duplicate: false }, error: null })
+    const { sendBillViaLine } = await import('@/app/actions/line')
+    const r = await sendBillViaLine({
+      billId: BILL,
+      text: 'กรุณาชำระ',
+      idempotencyKey: 'bill-00000009',
+      card: { title: 'แจ้งยอดค้างชำระ', rows: [{ label: 'ยอดค้าง', value: '1,500.00 บาท' }] },
+    })
+    expect(r.success).toBe(true)
+    const [fn, args] = m.rpc.mock.calls[0]
+    expect(fn).toBe('line_bill_send_card')
+    expect(args.p_messages[0]).toMatchObject({ type: 'flex', altText: 'แจ้งยอดค้างชำระ', contents: { type: 'bubble' } })
+    expect(JSON.stringify(args.p_messages)).toContain('1,500.00 บาท')
+    expect(JSON.stringify(args.p_messages)).not.toContain('"action"')
+  })
+
+  it('a card without a title never reaches the database', async () => {
+    const { sendBillViaLine } = await import('@/app/actions/line')
+    const r = await sendBillViaLine({ billId: BILL, text: '', idempotencyKey: 'bill-00000010', card: { title: ' ', rows: [] } })
+    expect(r.success).toBe(false)
+    expect(m.rpc).not.toHaveBeenCalled()
+  })
+
   it('bad input never reaches the database', async () => {
     const { sendBillViaLine, getBillLineRecipient } = await import('@/app/actions/line')
     expect((await sendBillViaLine({ billId: 'x', text: 'a', idempotencyKey: 'bill-00000003' })).success).toBe(false)
@@ -159,12 +183,33 @@ describe('LineNotifyModal (bill screen)', () => {
     expect(m.toast).toHaveBeenCalledWith('ส่งบิลทาง LINE แล้ว', expect.stringContaining('สมชาย'), 'SUCCESS')
   })
 
-  it('Flex Card is switched off (not sent as text under a Flex label); "สรุปบิล" sends the summary text', async () => {
+  it('Flex Card (owner 2026-11-05): the bill goes as a card — title, note and the stored bill rows', async () => {
+    m.recipient.mockResolvedValue({ success: true, data: { state: 'LINKED', customer_id: CUSTOMER } })
+    m.send.mockResolvedValue({ success: true, data: { delivery_id: 'd1', status: 'SENT', duplicate: false, mode: 'live' } })
+    await open()
+    await screen.findByText(/ลูกค้าผูก LINE กับร้านแล้ว/)
+    fireEvent.click(screen.getByRole('button', { name: /Flex Card/ }))
+    fireEvent.click(screen.getByRole('button', { name: /ยอดค้าง/ }))
+    expect(screen.getByLabelText('ตัวอย่าง Flex Card').textContent).toContain('แจ้งยอดค้างชำระ')
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /ส่งทาง LINE/ }))
+    })
+    const sent = m.send.mock.calls[0][0]
+    expect(sent.text).toBe('กรุณาชำระยอดค้างหรือติดต่อร้าน')
+    expect(sent.card.title).toBe('แจ้งยอดค้างชำระ')
+    expect(sent.card.rows).toEqual(
+      expect.arrayContaining([
+        { label: 'เลขที่บิล', value: 'B-0001' },
+        { label: 'ยอดค้าง', value: '1,500.00 บาท' },
+      ])
+    )
+  })
+
+  it('"สรุปบิล" as text sends the summary text', async () => {
     m.recipient.mockResolvedValue({ success: true, data: { state: 'LINKED', customer_id: CUSTOMER } })
     m.send.mockResolvedValue({ success: true, data: { delivery_id: 'd1', status: 'QUEUED', duplicate: false, mode: 'live' } })
     await open()
     await screen.findByText(/ลูกค้าผูก LINE กับร้านแล้ว/)
-    expect((screen.getByRole('button', { name: /Flex Card/ }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: /สรุปบิล/ }))
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /ส่งทาง LINE/ }))

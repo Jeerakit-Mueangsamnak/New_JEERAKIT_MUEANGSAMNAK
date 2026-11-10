@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { QUOTATION_STARTER_TEMPLATE } from '@/features/documents/constants/initialDocumentTemplates'
 import {
-  isQuotationPrintTemplate,
+  isQuotationFormTemplate,
   pickQuotationPrintTemplate,
   renderQuotationA4PagesHtml,
 } from '@/features/documents/utils/transaction-print'
+import type { DocumentTemplate } from '@/lib/types/document'
 import type { Quotation } from '@/lib/types/rental-pos'
 
 function quotation(itemCount: number): Quotation {
@@ -22,58 +22,47 @@ function quotation(itemCount: number): Quotation {
   } as Quotation
 }
 
-const business = {
-  businessName: 'ร้านทดสอบ', address: 'อุตรดิตถ์', phone: '080-000-0000', taxId: '0000000000000',
-}
+const business = { businessName: 'ร้านทดสอบ' }
 
-describe('quotation A4 printing with live templates and unlimited items', () => {
+// The shop's quotation form: 20 drawn rows, one field per cell, totals once.
+const shopQuotation = (over: Partial<DocumentTemplate> = {}): DocumentTemplate => ({
+  id: 'tpl-q', name: 'ใบเสนอราคา', category: 'ใบเสนอราคา', targetGroup: 'BILL', source: 'CONVERTED_IMPORT', fileType: 'HTML',
+  paperSize: 'A4', orientation: 'PORTRAIT', pageCount: 1, version: 1, isDefault: false,
+  templateSchema: '<div>{{business.name}} {{document.number}}<table><tbody>'
+    + Array.from({ length: 20 }, (_, i) => `<tr><td>{{items.${i + 1}.no}}</td><td>{{items.${i + 1}.name}}</td></tr>`).join('')
+    + '</tbody></table><b id="total">{{bill.grand_total}}</b><span id="page">{{document.page}}</span></div>',
+  ...over,
+}) as DocumentTemplate
+
+describe('quotation A4 printing on the shop form with unlimited items', () => {
   it.each([
-    [0, 1], [1, 1], [16, 1], [17, 2], [30, 2], [33, 3],
+    [0, 1], [1, 1], [20, 1], [21, 2], [40, 2], [41, 3],
   ])('%i items print across %i pages, all items and totals once', (count, expectedPages) => {
-    const pages = renderQuotationA4PagesHtml(quotation(count), business, QUOTATION_STARTER_TEMPLATE)
+    const pages = renderQuotationA4PagesHtml(quotation(count), business, shopQuotation())
     expect(pages).toHaveLength(expectedPages)
     for (let index = 0; index < count; index++) {
-      expect(pages[Math.floor(index / 16)]).toContain(`ทดสอบสินค้า ${index + 1}`)
+      expect(pages[Math.floor(index / 20)]).toContain(`ทดสอบสินค้า ${index + 1}<`)
     }
-    for (let index = 0; index < pages.length; index++) {
-      expect(pages[index]).toContain('QT-TEST-001')
-      expect(pages[index]).toContain('ร้านทดสอบ')
-      expect(pages[index].includes('จำนวนเงินรวมทั้งสิ้น')).toBe(index === pages.length - 1)
-    }
-    if (count > 16) {
-      expect(pages[1]).toMatch(/>17<\/td>/)
-      expect(pages[1]).toContain(`หน้า 2 / ${expectedPages}`)
-    }
+    pages.forEach((page, index) => {
+      expect(page).toContain('QT-TEST-001')
+      expect(page).toContain('ร้านทดสอบ')
+      expect(page).toContain(`<span id="page">${index + 1}/${expectedPages}</span>`)
+      expect(page.includes(`<b id="total">${(count * 10).toFixed(2)}</b>`)).toBe(index === pages.length - 1)
+    })
+    if (count > 20) expect(pages[1]).toContain('<tr><td>21</td><td>ทดสอบสินค้า 21</td></tr>')
   })
 
-  it('renders a selected, data-bound store template rather than always using the builtin', () => {
-    const builtin = QUOTATION_STARTER_TEMPLATE
-    const custom = {
-      ...builtin,
-      id: 'tpl-custom-print',
-      templateSchema: builtin.templateSchema.replace('ใบเสนอราคา / QUOTATION', 'ใบเสนอราคาฉบับร้าน'),
-    }
-    expect(isQuotationPrintTemplate(custom)).toBe(true)
-    expect(renderQuotationA4PagesHtml(quotation(1), business, custom)[0]).toContain('ใบเสนอราคาฉบับร้าน')
-    expect(isQuotationPrintTemplate({ ...builtin, templateSchema: '<img src="/form.png" />' })).toBe(false)
-  })
-
-  it('refuses to repeat financial summary on continuation pages for incompatible imported templates', () => {
-    const builtin = QUOTATION_STARTER_TEMPLATE
-    const custom = {
-      ...builtin,
-      id: 'tpl-no-page-boundary',
-      templateSchema: builtin.templateSchema
-        .replace('<!-- QUOTATION_FINAL_START -->', '')
-        .replace('<!-- QUOTATION_FINAL_END -->', ''),
-    }
-    expect(renderQuotationA4PagesHtml(quotation(17), business, custom)).toEqual([])
+  it('only the shop form with live fields prints; a picture-only form or another name does not', () => {
+    expect(isQuotationFormTemplate(shopQuotation())).toBe(true)
+    expect(isQuotationFormTemplate(shopQuotation({ templateSchema: '<img src="/form.png" />' }))).toBe(false)
+    expect(isQuotationFormTemplate(shopQuotation({ name: 'ใบแจ้งหนี้' }))).toBe(false)
+    expect(renderQuotationA4PagesHtml(quotation(1), business, shopQuotation({ name: 'ใบแจ้งหนี้' }))).toEqual([])
   })
 
   it('prints with the shop quotation form marked default, else the first usable one', () => {
-    const a = { ...QUOTATION_STARTER_TEMPLATE, id: 'tpl-a', isDefault: false }
-    const b = { ...QUOTATION_STARTER_TEMPLATE, id: 'tpl-b', isDefault: true }
-    const blank = { ...QUOTATION_STARTER_TEMPLATE, id: 'tpl-blank', isDefault: true, templateSchema: '<p>blank</p>' }
+    const a = shopQuotation({ id: 'tpl-a' })
+    const b = shopQuotation({ id: 'tpl-b', isDefault: true })
+    const blank = shopQuotation({ id: 'tpl-blank', isDefault: true, templateSchema: '<p>blank</p>' })
     expect(pickQuotationPrintTemplate([a, b])?.id).toBe('tpl-b')
     expect(pickQuotationPrintTemplate([blank, a])?.id).toBe('tpl-a')
     expect(pickQuotationPrintTemplate([blank])).toBeUndefined()

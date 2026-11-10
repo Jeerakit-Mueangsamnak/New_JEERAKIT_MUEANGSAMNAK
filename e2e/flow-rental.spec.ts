@@ -26,7 +26,9 @@ async function openProduct(page: Page) {
 
 test('รับสินค้าเข้าสต็อกจากหน้าแก้ไขสินค้า (ไม่ถาม PIN)', async ({ page }) => {
   before = stockBySku(SKU);
-  const total = Object.values(before).reduce((a, b) => a + b, 0);
+  // "จำนวนทั้งหมด" on the product counts goods still owned: lost / sold / written-off are not in it
+  const notOwned = new Set(['LOST', 'SOLD', 'WRITTEN_OFF', 'INACTIVE']);
+  const total = Object.entries(before).reduce((a, [state, n]) => (notOwned.has(state) ? a : a + n), 0);
   const dialog = await openProduct(page);
   await dialog.getByRole('button', { name: 'แก้ไขสินค้า' }).click();
   const qty = dialog.locator('div').filter({ has: page.locator('label', { hasText: 'จำนวนทั้งหมด' }) }).last().locator('input');

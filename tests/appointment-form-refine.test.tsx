@@ -85,6 +85,27 @@ describe('ฟอร์มนัดหมาย (ข้อ 1–7)', () => {
     expect(location.value).toBe('ไซต์งานบางนา')
   })
 
+  it('ช่องชื่อลูกค้าแสดงแค่ชื่อ (ค้นด้วยเบอร์ได้) และเลือกแล้วเติมเบอร์ xxx-xxx-xxxx; พิมพ์เบอร์เองก็ใส่ขีดให้', async () => {
+    const onSubmit = renderForm()
+    const search = screen.getByPlaceholderText('พิมพ์ค้นหาชื่อลูกค้า, บริษัท, เบอร์โทร...')
+    fireEvent.change(search, { target: { value: '0811' } })
+    const option = screen.getByRole('button', { name: 'บริษัท ทดสอบ จำกัด' })
+    expect(option.textContent).toBe('บริษัท ทดสอบ จำกัด') // no code / phone / address in the list
+    fireEvent.click(option)
+    const phone = screen.getByLabelText('เบอร์โทรติดต่อ') as HTMLInputElement
+    expect(phone.value).toBe('081-111-1111')
+
+    fireEvent.change(phone, { target: { value: '0932' } })
+    expect(phone.value).toBe('093-2')
+    fireEvent.change(phone, { target: { value: '09328285171234' } })
+    expect(phone.value).toBe('093-282-8517')
+
+    typeTitle('ส่งแบบ')
+    save()
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect((onSubmit.mock.calls[0][0] as Appointment).phone).toBe('093-282-8517')
+  })
+
   it('ชื่อประเภทเดิมของงานเก่ายังอ่านกลับมาได้ (ข้อมูลเดิมไม่หาย)', async () => {
     const apt = {
       id: 'x', title: 'งาน', customerName: 'ก', date: '2026-10-10', startTime: '09:00', endTime: '10:00', status: 'SCHEDULED',
@@ -134,7 +155,9 @@ describe('ฟอร์มนัดหมาย (ข้อ 1–7)', () => {
 
   it('สินค้า: หมวดหมู่กรองสินค้า, เลือกหลายรายการ, แก้จำนวน, ลบ, กันซ้ำ และจำนวนต้องมากกว่า 0', async () => {
     const onSubmit = renderForm()
-    expect(screen.getByText('ยังไม่ได้เลือกสินค้า')).toBeDefined() // no sample rows
+    // no sample rows: the table shows its header only
+    const itemTable = screen.getByRole('columnheader', { name: 'รายการ' }).closest('table') as HTMLTableElement
+    expect(itemTable.querySelectorAll('tbody tr')).toHaveLength(0)
 
     fireEvent.click(screen.getByRole('button', { name: 'ทุกหมวดหมู่' }))
     fireEvent.click(screen.getByRole('option', { name: 'นั่งร้าน' }))

@@ -52,6 +52,14 @@ describe('POS cart: fields moved to the payment page / contact phone', () => {
     expect(box.value).toBe('081-222-3333 ')
   })
 
+  it('a customer with a second phone starts with both numbers (owner 2026-11-08)', () => {
+    mount({ customer: { ...customer, phone2: '0822222222' } })
+    const box = screen.getByLabelText('เบอร์โทรติดต่อ') as HTMLInputElement
+    expect(box.value).toBe('0811111111, 0822222222')
+    fireEvent.change(box, { target: { value: '0811111111, 0833333333' } })
+    expect(box.value).toBe('0811111111, 0833333333')
+  })
+
   it('a restored contact phone is not overwritten by the customer phone', () => {
     mount({ initialContactPhone: '0899999999' })
     expect((screen.getByLabelText('เบอร์โทรติดต่อ') as HTMLInputElement).value).toBe('0899999999')

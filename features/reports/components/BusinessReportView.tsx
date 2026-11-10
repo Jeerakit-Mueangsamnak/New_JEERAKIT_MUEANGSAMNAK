@@ -166,7 +166,6 @@ export function BusinessReportView({ data }: { data: BusinessReportData }) {
               ลูกค้าหลักที่สร้างรายได้สูงสุด (Top Customers Ranking)
             </h3>
           </div>
-          <span className="text-[10px] text-slate-600 dark:text-slate-400">เรียงตามยอดใช้จ่ายรวม</span>
         </div>
 
         {data.topCustomers.length === 0 ? (
@@ -236,7 +235,6 @@ export function BusinessReportView({ data }: { data: BusinessReportData }) {
                 ตารางจัดอันดับลูกค้าและวิเคราะห์ย้อนหลัง ({data.customerRankings.length} รายการ)
               </h3>
             </div>
-            <span className="text-[10px] text-slate-600 dark:text-slate-400">จัดอันดับตามมูลค่าการใช้บริการ</span>
           </div>
         }
       >
@@ -248,10 +246,10 @@ export function BusinessReportView({ data }: { data: BusinessReportData }) {
               <th className="px-2">เบอร์โทร</th>
               <th className="px-2">สถานที่ / หน่วยงาน</th>
               <th className="px-2 text-center">จำนวนบิล</th>
-              <th className="px-2 text-right text-emerald-800 dark:text-emerald-400">
+              <th className="px-2 text-right">
                 ยอดใช้จ่ายรวม
               </th>
-              <th className="px-2 text-right text-amber-800 dark:text-amber-400">
+              <th className="px-2 text-right">
                 หนี้ค้างชำระ
               </th>
               <th className="px-2">ทำรายการล่าสุด</th>

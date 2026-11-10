@@ -31,10 +31,6 @@ export function isMenuCode(value: unknown): value is MenuCode {
 
 /** Menus every ACTIVE member holds (all but the OWNER-only member management). */
 export const GRANTABLE_MENUS = MENU_CATALOG.filter((m) => !m.ownerOnly)
-
-
-export const MEMBER_STATUSES: readonly MemberStatus[] = ['PENDING', 'ACTIVE', 'SUSPENDED']
-
 export function normalizeMemberStatus(status: unknown, isApproved: unknown): MemberStatus {
   if (status === 'SUSPENDED') return 'SUSPENDED'
   if (status === 'ACTIVE' && isApproved === true) return 'ACTIVE'

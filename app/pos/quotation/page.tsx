@@ -45,7 +45,7 @@ export default function QuotationSummaryPage() {
   // Load the cart once (the router object is not a reason to load it again).
   const routerRef = useRef(router)
   useEffect(() => {
-    const saved = loadActiveCart()
+    const saved = loadActiveCart('QUOTATION')
     if (!saved || !saved.quotationMode || !saved.items?.length) {
       routerRef.current.replace('/pos?mode=quotation')
       return
@@ -80,7 +80,7 @@ export default function QuotationSummaryPage() {
   // Keep what is typed here in the saved cart, so going back to POS and forward again keeps it.
   useEffect(() => {
     if (!cartLoadedRef.current) return
-    const saved = loadActiveCart()
+    const saved = loadActiveCart('QUOTATION')
     if (saved) saveActiveCart({ ...saved, discount, shippingFee, depositAmount, vatEnabled: effectiveVatMode !== null, vatMode: effectiveVatMode })
   }, [discount, shippingFee, depositAmount, effectiveVatMode])
 
@@ -138,7 +138,7 @@ export default function QuotationSummaryPage() {
       if (editing && !getQuotationById(editing.id)) await fetchQuotationsFromSupabase()
       const savedId = await addQuotation(quotation)
       const no = getQuotationById(savedId)?.quotationNo
-      clearActiveCart()
+      clearActiveCart('QUOTATION')
       showToast('บันทึกใบเสนอราคาสำเร็จ', no ? `ใบเสนอราคา ${no}` : 'บันทึกเรียบร้อยแล้ว', 'SUCCESS')
       router.push('/quotations')
     } catch (err) {
@@ -182,10 +182,10 @@ export default function QuotationSummaryPage() {
         vatRate={settings.taxDiscount?.vatRate}
         vatMode={vatOn ? effectiveVatMode : null}
         onToggleVat={toggleVatMode}
-        // A quotation total does not include the deposit (it is only proposed), as before.
+        // ยอดที่ต้องชำระ = total + deposit, the same as the quotation form prints it (owner 2026-11-07).
         rows={documentSummaryRows({ totals, vatInclusive, depositAmount: totals.depositAmount, depositLabel: 'เงินมัดจำประกันความเสียหาย' })}
-        totalLabel="ยอดรวมใบเสนอราคา"
-        totalAmount={totals.grandTotal}
+        totalLabel="ยอดที่ต้องชำระ"
+        totalAmount={totals.totalPayableWithDeposit}
         footer={
           <button
             type="button"

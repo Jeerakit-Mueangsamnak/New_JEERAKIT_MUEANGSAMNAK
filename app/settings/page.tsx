@@ -1,4 +1,11 @@
 'use client'
+import {
+  COMMAND_BUTTON_SIZE_CLASSES,
+  TAB_BAR_SURFACE_CLASSES,
+  TAB_BUTTON_BASE_CLASSES,
+  TAB_BUTTON_ACTIVE_CLASSES,
+  TAB_BUTTON_INACTIVE_CLASSES,
+} from '@/components/common/ActionButton'
 
 import {
   SETTINGS_HELPER,
@@ -24,13 +31,12 @@ import {
   Image as ImageIcon,
   AlertTriangle,
   Lock,
-  MessageCircle,
   UserRound, User, Bell, Monitor, ChevronRight, Settings as SettingsIcon, LockKeyhole,
+  MessageCircle, Users,
 } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { NumericInput } from '@/components/common/NumericInput'
 import { DocumentNumberingPanel } from '@/features/settings/components/DocumentNumberingPanel'
-import { LineSettingsPanel } from '@/features/settings/components/LineSettingsPanel'
 import {
   AUTO_LOCK_CHOICES_SECONDS,
   type SettingsSection,
@@ -51,23 +57,60 @@ import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { MyAccountPanel, type MyAccountTab } from '@/features/settings/components/MyAccountPanel'
+import { LinePeoplePage } from '@/features/settings/components/LinePeoplePage'
+import OwnerPermissionsPage from '@/app/owner-permissions/page'
 
-const TABS: Array<{ id: SettingsSection; label: string; description: string; icon: React.ComponentType<{ className?: string }> }> = [
-  { id: 'business', label: 'ข้อมูลกิจการ', description: 'ข้อมูลร้านค้าและข้อมูลติดต่อ', icon: Building },
-  { id: 'documentNumbering', label: 'เอกสารและเทมเพลต', description: 'รูปแบบเอกสารและเลขที่เอกสาร', icon: FileText },
-  { id: 'taxDiscount', label: 'ภาษีและส่วนลด', description: 'VAT และเงื่อนไขส่วนลด', icon: Percent },
-  { id: 'payment', label: 'การชำระเงิน', description: 'ช่องทางรับชำระและบัญชี', icon: CreditCard },
-  { id: 'salesRental', label: 'การขายและการเช่า', description: 'รูปแบบขาย เช่า และจอง', icon: CalendarDays },
-  { id: 'product', label: 'สินค้าและสต็อก', description: 'ค่าเริ่มต้นและการจัดการสต็อก', icon: Package },
-  { id: 'shopSecurity', label: 'ความปลอดภัยร้าน', description: 'PIN และการล็อกหน้าจอ', icon: ShieldCheck },
-  { id: 'line', label: 'LINE Official Account', description: 'เชื่อมต่อและตั้งค่าการแจ้งเตือน', icon: MessageCircle },
+const TABS: Array<{ id: SettingsSection; label: string; description?: string; icon: React.ComponentType<{ className?: string }> }> = [
+  { id: 'business', label: 'ข้อมูลกิจการ', icon: Building },
+  { id: 'documentNumbering', label: 'เอกสารและเทมเพลต', icon: FileText },
+  { id: 'taxDiscount', label: 'ภาษีและส่วนลด', icon: Percent },
+  { id: 'payment', label: 'การชำระเงิน', icon: CreditCard },
+  { id: 'salesRental', label: 'การขายและการเช่า', icon: CalendarDays },
+  { id: 'product', label: 'สินค้าและสต็อก', icon: Package },
+  { id: 'shopSecurity', label: 'ความปลอดภัยร้าน', icon: ShieldCheck },
 ]
 
-const PERSONAL_TABS: Array<{ id: MyAccountTab; label: string; description: string; icon: React.ComponentType<{ className?: string }> }> = [
-  { id: 'PROFILE', label: 'โปรไฟล์ของฉัน', description: 'ข้อมูลบัญชีและรูปโปรไฟล์', icon: User },
-  { id: 'SECURITY', label: 'บัญชีและความปลอดภัย', description: 'รหัสผ่าน PIN และเซสชัน', icon: LockKeyhole },
-  { id: 'NOTIFICATIONS', label: 'การแจ้งเตือนส่วนตัว', description: 'เลือกรับการแจ้งเตือนของคุณ', icon: Bell },
-  { id: 'APPEARANCE', label: 'การแสดงผล', description: 'ธีมและรูปแบบหน้าจอ', icon: Monitor },
+const PERSONAL_TABS: Array<{ id: MyAccountTab; label: string; description?: string; icon: React.ComponentType<{ className?: string }> }> = [
+  { id: 'PROFILE', label: 'โปรไฟล์ของฉัน', icon: User },
+  { id: 'SECURITY', label: 'บัญชีและความปลอดภัย', icon: LockKeyhole },
+  { id: 'NOTIFICATIONS', label: 'การแจ้งเตือนส่วนตัว', icon: Bell },
+  { id: 'APPEARANCE', label: 'การแสดงผล', icon: Monitor },
+]
+
+type SystemView = SettingsSection | 'line' | 'members'
+type SettingsMenuItem = {
+  id: SystemView | MyAccountTab
+  label: string
+  description?: string
+  icon: React.ComponentType<{ className?: string }>
+}
+type SettingsMenuGroup = { id: string; label: string; items: SettingsMenuItem[] }
+
+const LINE_SETTINGS_ITEM = {
+  id: 'line',
+  label: 'คนใน LINE',
+  description: 'รายชื่อ การเชื่อมต่อ และการตั้งค่า LINE',
+  icon: MessageCircle,
+} as const
+
+const MEMBER_SETTINGS_ITEM = {
+  id: 'members',
+  label: 'สิทธิ์และประวัติ',
+  description: 'จัดการสมาชิกและตรวจสอบรายการ',
+  icon: Users,
+} as const
+
+const PERSONAL_MENU_GROUPS: SettingsMenuGroup[] = [
+  { id: 'account', label: 'บัญชีของฉัน', items: PERSONAL_TABS.filter((item) => item.id === 'PROFILE' || item.id === 'SECURITY') },
+  { id: 'experience', label: 'ประสบการณ์ใช้งาน', items: PERSONAL_TABS.filter((item) => item.id === 'NOTIFICATIONS' || item.id === 'APPEARANCE') },
+]
+
+const SYSTEM_MENU_GROUPS: SettingsMenuGroup[] = [
+  { id: 'business', label: 'ข้อมูลกิจการและเอกสาร', items: TABS.filter((item) => item.id === 'business' || item.id === 'documentNumbering') },
+  { id: 'operations', label: 'การทำงานและสินค้า', items: TABS.filter((item) => item.id === 'taxDiscount' || item.id === 'payment' || item.id === 'salesRental' || item.id === 'product') },
+  { id: 'security', label: 'ความปลอดภัย', items: TABS.filter((item) => item.id === 'shopSecurity') },
+  { id: 'line', label: 'การเชื่อมต่อ', items: [LINE_SETTINGS_ITEM] },
+  { id: 'members', label: 'ผู้ใช้งานและประวัติ', items: [MEMBER_SETTINGS_ITEM] },
 ]
 
 const MAX_IMAGE_BYTES = 500 * 1024
@@ -80,13 +123,12 @@ const readFileAsDataUrl = (file: File): Promise<string> =>
     reader.readAsDataURL(file)
   })
 
-function Toggle({ checked, onChange, label, hint }: { checked: boolean; onChange: (v: boolean) => void; label: string; hint?: string }) {
+function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
     <label className="flex items-start gap-2.5 py-1.5 cursor-pointer">
       <input type="checkbox" role="switch" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 w-4 h-4 text-blue-600 dark:text-blue-400 rounded" />
       <span>
         <span className="block text-xs font-bold text-slate-800 dark:text-slate-200">{label}</span>
-        {hint && <span className={SETTINGS_HELPER}>{hint}</span>}
       </span>
     </label>
   )
@@ -127,7 +169,7 @@ function TextField({
 }
 
 /** Picks an image into the section draft (saved with the section, never on its own). */
-function ImageField({ label, value, onChange, hint }: { label: string; value?: string; onChange: (v: string) => void; hint: string }) {
+function ImageField({ label, value, onChange }: { label: string; value?: string; onChange: (v: string) => void }) {
   const ref = useRef<HTMLInputElement>(null)
   const { showToast } = useToast()
   const pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -157,7 +199,7 @@ function ImageField({ label, value, onChange, hint }: { label: string; value?: s
           <button
             type="button"
             onClick={() => ref.current?.click()}
-            className="h-8 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5"
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-blue-600 hover:bg-blue-700 text-white flex items-center`}
           >
             <Upload className="w-3.5 h-3.5" />
             <span>{value ? 'เปลี่ยนรูป' : 'อัปโหลดรูป'}</span>
@@ -166,14 +208,13 @@ function ImageField({ label, value, onChange, hint }: { label: string; value?: s
             <button
               type="button"
               onClick={() => onChange('')}
-              className="h-8 px-3 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 font-bold text-xs flex items-center gap-1.5"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 flex items-center`}
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span>ลบรูป</span>
             </button>
           )}
         </div>
-        <p className={SETTINGS_HELPER}>{hint}</p>
       </div>
     </div>
   )
@@ -191,7 +232,6 @@ function BusinessSection({ cfg, set }: { cfg: SystemConfig; set: SetDraft }) {
           label="โลโก้กิจการ (พิมพ์บนเอกสาร)"
           value={b.logoDataUrl}
           onChange={(v) => setB({ logoDataUrl: v })}
-          hint="PNG, JPG, WebP ไม่เกิน 500 KB · บันทึกพร้อมข้อมูลกิจการ"
         />
       </div>
       <div className={SETTINGS_SECTION}>
@@ -214,7 +254,6 @@ function BusinessSection({ cfg, set }: { cfg: SystemConfig; set: SetDraft }) {
           <div>
             <label className={SETTINGS_LABEL}>เขตเวลาของร้าน</label>
             <input value={cfg.timezone} readOnly disabled className={SETTINGS_INPUT_MONO} />
-            <p className={SETTINGS_HELPER}>ใช้กับวันที่บนเอกสารและเลขเอกสาร (ยังแก้ไม่ได้)</p>
           </div>
         </div>
       </div>
@@ -232,9 +271,6 @@ function TaxDiscountSection({ cfg, set }: { cfg: SystemConfig; set: SetDraft }) 
           <Percent className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
           <span>ภาษีมูลค่าเพิ่ม (VAT)</span>
         </h4>
-        <p className={SETTINGS_HELPER}>
-          ที่นี่ตั้งเฉพาะอัตรา VAT · การคิด VAT (รวม VAT / ไม่รวม VAT) เลือกที่หน้า POS ทีละบิลและทีละใบเสนอราคา · เอกสารจะเก็บค่าที่ใช้ไว้ตอนบันทึก
-        </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
           <div>
             <label className={SETTINGS_LABEL}>อัตรา VAT (%)</label>
@@ -259,7 +295,6 @@ function TaxDiscountSection({ cfg, set }: { cfg: SystemConfig; set: SetDraft }) 
           checked={t.discountLimitEnabled}
           onChange={(v) => setT({ discountLimitEnabled: v, discountLimitPercent: v ? t.discountLimitPercent : null })}
           label="จำกัดส่วนลดสูงสุด"
-          hint="ส่วนลดที่เกินเพดานต้องยืนยันด้วย PIN และระบุเหตุผล"
         />
         {t.discountLimitEnabled && (
           <div className="max-w-[200px]">
@@ -316,14 +351,13 @@ function PaymentSection({ cfg, set }: { cfg: SystemConfig; set: SetDraft }) {
         </div>
       </div>
       <div className={SETTINGS_SECTION}>
-        <ImageField label="รูป QR รับเงิน" value={b.bankQrDataUrl} onChange={(v) => setB({ bankQrDataUrl: v })} hint="แสดงบนบิลเมื่อมียอดค้างชำระ · ไม่เกิน 500 KB" />
+        <ImageField label="รูป QR รับเงิน" value={b.bankQrDataUrl} onChange={(v) => setB({ bankQrDataUrl: v })}  />
       </div>
       <div className={SETTINGS_SECTION}>
         <Toggle
           checked={cfg.payment.allowOverpayment}
           onChange={(v) => set((p) => ({ ...p, payment: { allowOverpayment: v } }))}
           label="รับเงินเกินยอดค้างได้"
-          hint="ปิด = ระบบไม่รับเงินเกินยอดค้างของบิล · ช่องทางชำระเงินทุกแบบที่ระบบรองรับเปิดใช้เสมอ"
         />
       </div>
     </>
@@ -339,13 +373,11 @@ function SalesRentalSection({ cfg, set }: { cfg: SystemConfig; set: SetDraft }) 
         checked={s.allowBackorder}
         onChange={(v) => setS({ allowBackorder: v })}
         label="ยืนยันบิลได้แม้สต็อกไม่พอ (ค้างส่ง)"
-        hint="ปิด = ยืนยันบิลไม่ได้ถ้าสินค้าพร้อมใช้ไม่พอ"
       />
       <Toggle
         checked={s.reservationAutoRelease}
         onChange={(v) => setS({ reservationAutoRelease: v })}
         label="ปล่อยของที่จองไว้อัตโนมัติเมื่อหมดอายุ"
-        hint="ปิด = การจองที่หมดอายุยังกันของไว้จนกว่าจะปล่อยเอง"
       />
     </div>
   )
@@ -364,9 +396,6 @@ function ProductSection({ cfg, set }: { cfg: SystemConfig; set: SetDraft }) {
           className={SETTINGS_INPUT_MONO}
         />
       </div>
-      <p className={SETTINGS_HELPER}>
-        ใช้เป็นค่าเริ่มต้นตอนเพิ่มสินค้าใหม่ · สต็อกต่ำดูจากจุดสั่งซื้อของสินค้าแต่ละตัว · หมวดหมู่และหน่วยนับจัดการที่หน้า สินค้า/สต็อก
-      </p>
     </div>
   )
 }
@@ -386,7 +415,6 @@ function ShopSecuritySection({ cfg, set }: { cfg: SystemConfig; set: SetDraft })
         <Lock className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
         <span>ล็อกแอปอัตโนมัติ</span>
       </h4>
-      <p className={SETTINGS_HELPER}>เลือกเวลาที่ผู้ใช้เลือกได้ แต่ละคนตั้งเวลาของตัวเองที่ ตั้งค่าส่วนตัว &rsaquo; ความปลอดภัย</p>
       <div className="flex flex-wrap gap-x-4 gap-y-1">
         {AUTO_LOCK_CHOICES_SECONDS.map((sec) => (
           <label key={sec} className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
@@ -415,6 +443,7 @@ export default function SettingsPage() {
   const { settings, saveSection } = useSystemSettings()
   const [drafts, setDrafts] = useState<SectionDrafts>(() => initSectionDrafts(settings))
   const [activeTab, setActiveTab] = useState<SettingsSection>('business')
+  const [systemView, setSystemView] = useState<SystemView>('business')
   const [mainTab, setMainTab] = useState<'personal' | 'system'>('personal')
   const [personalTab, setPersonalTab] = useState<MyAccountTab>('PROFILE')
   const [saving, setSaving] = useState(false)
@@ -425,8 +454,24 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const wanted = new URLSearchParams(window.location.search).get('tab')
+    if (wanted === 'line') {
+      setSystemView('line')
+      setMainTab('system')
+      return
+    }
+    if (wanted === 'members') {
+      if (isOwner) {
+        setSystemView('members')
+        setMainTab('system')
+      }
+      return
+    }
     const match = TABS.find((t) => t.id === wanted)
-    if (match && isOwner) { setActiveTab(match.id); setMainTab('system') }
+    if (match && isOwner) {
+      setActiveTab(match.id)
+      setSystemView(match.id)
+      setMainTab('system')
+    }
   }, [isOwner])
 
   useEffect(() => { setDrafts((d) => applyServerUpdate(d, settings)) }, [settings])
@@ -456,40 +501,75 @@ export default function SettingsPage() {
 
   const handleCancel = () => setDrafts((d) => resetSection(d, activeTab, settings))
   const cfg = section.draft
-  const menuItems = mainTab === 'personal' ? PERSONAL_TABS : TABS
-  const selectedItem = mainTab === 'personal' ? PERSONAL_TABS.find((t) => t.id === personalTab) : TABS.find((t) => t.id === activeTab)
+  const menuGroups: SettingsMenuGroup[] = mainTab === 'personal'
+    ? PERSONAL_MENU_GROUPS
+    : isOwner
+      ? SYSTEM_MENU_GROUPS
+      : SYSTEM_MENU_GROUPS.filter((group) => group.id === 'line')
+  const selectedItem: SettingsMenuItem | undefined = mainTab === 'personal'
+    ? PERSONAL_TABS.find((t) => t.id === personalTab)
+    : SYSTEM_MENU_GROUPS.flatMap((group) => group.items).find((item) => item.id === systemView)
+  const selectSystemView = (view: SystemView) => {
+    setSystemView(view)
+    if (TABS.some((item) => item.id === view)) setActiveTab(view as SettingsSection)
+  }
 
   return (
-    <div className="h-full min-h-0 flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-950 text-xs p-2 sm:p-3">
-      <div className="flex-1 min-h-0 min-w-0 rounded-2xl border border-blue-100 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
-        <div className="h-full min-h-0 grid grid-cols-1 grid-rows-[minmax(220px,38%)_minmax(0,1fr)] lg:grid-rows-1 lg:grid-cols-[minmax(280px,26%)_minmax(0,1fr)]">
-          <aside className="min-h-0 flex flex-col border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
-            <div className="p-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
-              <div className="flex rounded-2xl bg-slate-100 dark:bg-slate-800 p-1 gap-1" role="tablist" aria-label="ประเภทการตั้งค่า">
-                <button type="button" role="tab" aria-selected={mainTab === 'personal'} onClick={() => setMainTab('personal')} className={`flex-1 h-11 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition ${mainTab === 'personal' ? 'bg-white dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-sm ring-1 ring-blue-100 dark:ring-slate-600' : 'text-slate-600 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-slate-700/60'}`}><UserRound className="w-4 h-4"/>ตั้งค่าส่วนตัว</button>
-                {isOwner && <button type="button" role="tab" aria-selected={mainTab === 'system'} onClick={() => setMainTab('system')} className={`flex-1 h-11 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition ${mainTab === 'system' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-slate-700/60'}`}><ShieldCheck className="w-4 h-4"/>ตั้งค่าระบบ</button>}
-              </div>
+    <div className="h-full min-h-0 flex flex-col gap-2 overflow-hidden bg-slate-100 dark:bg-slate-950 text-xs p-2 sm:p-3">
+      <header className="shrink-0 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm px-3 py-3 sm:px-5 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center shrink-0">
+            <SettingsIcon className="w-5 h-5 text-blue-700 dark:text-blue-400" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white">ตั้งค่า</h1>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">จัดการบัญชีส่วนตัวและการตั้งค่าของร้านในที่เดียว</p>
+          </div>
+        </div>
+        <div className={`${TAB_BAR_SURFACE_CLASSES} flex w-full sm:w-auto`} role="tablist" aria-label="ประเภทการตั้งค่า">
+          <button type="button" role="tab" aria-selected={mainTab === 'personal'} onClick={() => setMainTab('personal')} className={`${TAB_BUTTON_BASE_CLASSES} flex-1 sm:flex-none ${mainTab === 'personal' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}><UserRound className="w-3.5 h-3.5"/>ตั้งค่าส่วนตัว</button>
+          <button type="button" role="tab" aria-selected={mainTab === 'system'} onClick={() => { setMainTab('system'); if (!isOwner) selectSystemView('line') }} className={`${TAB_BUTTON_BASE_CLASSES} flex-1 sm:flex-none ${mainTab === 'system' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}><ShieldCheck className="w-3.5 h-3.5"/>ตั้งค่าระบบ</button>
+        </div>
+      </header>
+
+      <div className="flex-1 min-h-0 min-w-0 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
+        <div className="h-full min-h-0 grid grid-cols-1 grid-rows-[minmax(150px,34%)_minmax(0,1fr)] lg:grid-rows-1 lg:grid-cols-[minmax(260px,25%)_minmax(0,1fr)]">
+          <aside className="min-h-0 flex flex-col border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-700 bg-[#d6e4ff] dark:bg-slate-900/70">
+            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-blue-700 dark:text-blue-400">{mainTab === 'personal' ? 'ตั้งค่าส่วนตัว' : 'ตั้งค่าระบบ'}</p>
+              <p className="mt-0.5 text-xs font-bold text-slate-800 dark:text-slate-100">เลือกหมวดที่ต้องการ</p>
             </div>
-            <div className="px-4 py-3 flex items-center gap-2 font-extrabold text-slate-800 dark:text-slate-100 shrink-0"><SettingsIcon className="w-5 h-5 text-blue-700 dark:text-blue-400"/>{mainTab === 'personal' ? 'เมนูตั้งค่าส่วนตัว' : 'เมนูตั้งค่าระบบ'}</div>
-            <nav className="flex-1 min-h-0 overflow-y-auto px-2 pb-3 space-y-1" aria-label={mainTab === 'personal' ? 'ตั้งค่าส่วนตัว' : 'ตั้งค่าระบบ'}>
-              {menuItems.map((item) => {
-                const Icon = item.icon
-                const selected = mainTab === 'personal' ? personalTab === item.id : activeTab === item.id
-                const dirtyItem = mainTab === 'system' && isSectionDirty(drafts[item.id as SettingsSection], item.id as SettingsSection)
-                return <button key={item.id} type="button" onClick={() => mainTab === 'personal' ? setPersonalTab(item.id as MyAccountTab) : setActiveTab(item.id as SettingsSection)} aria-current={selected ? 'page' : undefined} className={`w-full min-h-[58px] rounded-xl px-3 py-2 flex items-center gap-3 text-left transition ${selected ? 'bg-blue-600 text-white shadow-sm' : 'border border-slate-100 dark:border-slate-800 text-slate-800 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-slate-800 hover:border-blue-100'}`}>
-                  <Icon className={`w-5 h-5 shrink-0 ${selected ? 'text-white' : 'text-slate-700 dark:text-slate-300'}`}/>
-                  <span className="min-w-0 flex-1"><span className="block font-bold text-xs leading-5">{item.label}</span><span className={`block text-[10px] leading-4 ${selected ? 'text-blue-100' : 'text-slate-500 dark:text-slate-400'}`}>{item.description}</span></span>
-                  {dirtyItem && <span className="w-2 h-2 rounded-full bg-amber-400"/>}<ChevronRight className={`w-4 h-4 shrink-0 ${selected ? 'text-white' : 'text-blue-600'}`}/>
-                </button>
-              })}
+            <nav className="flex-1 min-h-0 overflow-y-auto p-2 sm:p-3 space-y-2" aria-label={mainTab === 'personal' ? 'ตั้งค่าส่วนตัว' : 'ตั้งค่าระบบ'}>
+              {menuGroups.map((group) => (
+                <section key={group.id}>
+                  <h3 className="px-2 pb-1.5 text-[10px] font-extrabold text-slate-500 dark:text-slate-400">{group.label}</h3>
+                  <div className="space-y-1">
+                    {group.items.map((item) => {
+                      const Icon = item.icon
+                      const selected = mainTab === 'personal' ? personalTab === item.id : systemView === item.id
+                      const setting = TABS.find((tab) => tab.id === item.id)
+                      const dirtyItem = Boolean(setting && isSectionDirty(drafts[setting.id], setting.id))
+                      return <button key={item.id} type="button" onClick={() => mainTab === 'personal' ? setPersonalTab(item.id as MyAccountTab) : selectSystemView(item.id as SystemView)} aria-current={selected ? 'page' : undefined} className={`w-full min-h-12 rounded-xl px-2.5 py-2 flex items-center gap-2.5 text-left transition ${selected ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-800 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700'}`}>
+                        <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${selected ? 'bg-white/15' : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700'}`}><Icon className={`w-4 h-4 ${selected ? 'text-white' : 'text-slate-600 dark:text-slate-300'}`}/></span>
+                        <span className="min-w-0 flex-1"><span className="block font-bold text-xs leading-5">{item.label}</span>{item.description && <span className={`block text-[10px] leading-4 ${selected ? 'text-blue-100' : 'text-slate-500 dark:text-slate-400'}`}>{item.description}</span>}</span>
+                        {dirtyItem && <span className="w-2 h-2 rounded-full bg-amber-400"/>}<ChevronRight className={`w-4 h-4 shrink-0 ${selected ? 'text-white' : 'text-blue-600'}`}/>
+                      </button>
+                    })}
+                  </div>
+                </section>
+              ))}
             </nav>
           </aside>
 
           <section className="min-w-0 min-h-0 flex flex-col bg-white dark:bg-slate-900">
-            {mainTab === 'personal' ? <MyAccountPanel key={personalTab} initialTab={personalTab} embedded /> : <>
+            {mainTab === 'personal' ? <MyAccountPanel key={personalTab} initialTab={personalTab} embedded /> : systemView === 'line' ? (
+              <div className="flex-1 min-h-0 overflow-hidden"><LinePeoplePage /></div>
+            ) : systemView === 'members' ? (
+              <div className="flex-1 min-h-0 overflow-hidden"><OwnerPermissionsPage /></div>
+            ) : <>
                 <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5">
-                {activeTab !== 'line' && <div className="mb-4"><h2 className="text-lg font-extrabold text-slate-900 dark:text-white">{selectedItem?.label}</h2><p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{selectedItem?.description}</p></div>}
-                {section.conflict && <div className="mb-3 p-2.5 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 text-amber-800 dark:text-amber-200 flex flex-wrap items-center gap-2"><AlertTriangle className="w-4 h-4 shrink-0"/><span className="flex-1 min-w-0">ค่าของหัวข้อนี้ถูกเปลี่ยนจากที่อื่นระหว่างที่คุณแก้ไข · ค่าที่คุณกรอกยังอยู่</span><button type="button" onClick={handleCancel} className="h-7 px-2.5 rounded-lg border border-amber-400 font-bold">โหลดค่าล่าสุด</button></div>}
+                <div className="mb-4"><h2 className="text-lg font-extrabold text-slate-900 dark:text-white">{selectedItem?.label}</h2>{selectedItem?.description && <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{selectedItem.description}</p>}</div>
+                {section.conflict && <div className="mb-3 p-2.5 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 text-amber-800 dark:text-amber-200 flex flex-wrap items-center gap-2"><AlertTriangle className="w-4 h-4 shrink-0"/><span className="flex-1 min-w-0">ค่าของหัวข้อนี้ถูกเปลี่ยนจากที่อื่นระหว่างที่คุณแก้ไข · ค่าที่คุณกรอกยังอยู่</span><button type="button" onClick={handleCancel} className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-amber-400`}>โหลดค่าล่าสุด</button></div>}
                 {activeTab === 'business' && <BusinessSection cfg={cfg} set={setDraft} />}
                 {activeTab === 'taxDiscount' && <TaxDiscountSection cfg={cfg} set={setDraft} />}
                 {activeTab === 'payment' && <PaymentSection cfg={cfg} set={setDraft} />}
@@ -497,13 +577,11 @@ export default function SettingsPage() {
                 {activeTab === 'product' && <ProductSection cfg={cfg} set={setDraft} />}
                 {activeTab === 'documentNumbering' && <div className={SETTINGS_SECTION}><DocumentNumberingPanel config={cfg} setConfig={setDraft} /></div>}
                 {activeTab === 'shopSecurity' && <ShopSecuritySection cfg={cfg} set={setDraft} />}
-                {activeTab === 'line' && <LineSettingsPanel config={cfg} setConfig={setDraft} />}
               </div>
               <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 shrink-0 bg-white dark:bg-slate-900">
-                <span className={SETTINGS_HELPER}>{dirty ? 'มีการแก้ไขที่ยังไม่บันทึก' : 'บันทึกแยกทีละหัวข้อ'}</span>
                 <div className="flex gap-2">
-                  <button type="button" onClick={handleCancel} disabled={!dirty || saving} className="h-9 px-3.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center gap-1.5 disabled:opacity-50"><RotateCcw className="w-4 h-4"/><span>คืนค่าที่บันทึกไว้</span></button>
-                  <button type="button" onClick={() => void handleSave()} disabled={!dirty || saving} className="h-9 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs flex items-center gap-1.5 disabled:opacity-50"><Save className="w-4 h-4"/><span>{saving ? 'กำลังบันทึก…' : 'บันทึกการตั้งค่า'}</span></button>
+                  <button type="button" onClick={handleCancel} disabled={!dirty || saving} className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center disabled:opacity-50`}><RotateCcw className="w-4 h-4"/><span>คืนค่าที่บันทึกไว้</span></button>
+                  <button type="button" onClick={() => void handleSave()} disabled={!dirty || saving} className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-blue-600 hover:bg-blue-700 text-white flex items-center disabled:opacity-50`}><Save className="w-4 h-4"/><span>{saving ? 'กำลังบันทึก…' : 'บันทึกการตั้งค่า'}</span></button>
                 </div>
               </div>
             </>}

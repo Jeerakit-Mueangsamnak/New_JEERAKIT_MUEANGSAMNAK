@@ -159,7 +159,12 @@ export async function getLatestIdCardUrl(customerId: string): Promise<string | n
   return latest?.storage_path ? getDocumentFileUrl(latest.storage_path) : null
 }
 
-/** Customers are never hard-deleted (history): deactivate / reactivate. */
+/** ระงับ / เปิดใช้งาน: history stays. */
 export async function setCustomerActive(id: string, active: boolean, reason: string): Promise<void> {
   await rpc('customer_set_active', { p_customer_id: id, p_active: active, p_reason: reason })
+}
+
+/** ลบถาวร: only a customer never used; otherwise refused with CUSTOMER_IN_USE: <records>. */
+export async function deleteCustomerFromSupabase(id: string): Promise<void> {
+  await rpc('customer_delete', { p_customer_id: id })
 }

@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
@@ -84,7 +85,6 @@ export default function VerifyEmailPage() {
           <div className="text-center py-6 space-y-3">
             <RefreshCw className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin mx-auto" />
             <p className="text-xs text-slate-700 dark:text-slate-300 font-semibold">กำลังตรวจสอบโทเค็นยืนยันอีเมล...</p>
-            <p className="text-[11px] text-slate-600 dark:text-slate-400">กรุณารอสักครู่ ระบบกำลังสื่อสารกับเซิร์ฟเวอร์</p>
           </div>
         )}
 
@@ -147,7 +147,7 @@ export default function VerifyEmailPage() {
                   type="button"
                   onClick={handleResend}
                   disabled={isResending || (!userEmail && !emailInput.trim())}
-                  className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 disabled:opacity-50"
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shadow-lg shadow-blue-500/20 disabled:opacity-50`}
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isResending ? 'animate-spin' : ''}`} />
                   <span>{isResending ? 'กำลังส่งอีเมล...' : 'ส่งอีเมลยืนยันใหม่อีกครั้ง'}</span>

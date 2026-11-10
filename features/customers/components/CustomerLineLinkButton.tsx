@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import { Copy, MessageCircle, RefreshCw } from 'lucide-react'
-import { ActionButton } from '@/components/common/ActionButton'
+import { ActionButton, COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 import { AppModal, AppModalBody, AppModalHeader } from '@/components/common/AppModal'
 import { useToast } from '@/components/common/Toast'
 import { createClient } from '@/lib/supabase/client'
@@ -23,7 +23,7 @@ interface Issued {
   qr: string | null
 }
 
-const BTN = 'px-2.5 py-1.5 font-bold text-xs rounded-xl flex items-center gap-1.5 border shadow-sm transition-all'
+const BTN = `${COMMAND_BUTTON_SIZE_CLASSES} flex items-center border shadow-sm transition-all`
 
 function leftText(ms: number) {
   const s = Math.max(0, Math.round(ms / 1000))
@@ -150,7 +150,7 @@ export function CustomerLineLinkButton({ customerId, customerName }: { customerI
                 'ลิงก์นี้หมดอายุแล้ว กดสร้างลิงก์ใหม่'
               )}
             </p>
-            <ActionButton size="sm" variant="outline" icon={<RefreshCw />} disabled={busy} onClick={() => void issue()}>
+            <ActionButton variant="outline" icon={<RefreshCw />} disabled={busy} onClick={() => void issue()}>
               สร้างลิงก์ใหม่
             </ActionButton>
           </AppModalBody>

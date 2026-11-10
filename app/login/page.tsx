@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useRef, useState, Suspense } from 'react'
 import Link from 'next/link'
@@ -159,7 +160,7 @@ function LoginForm() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-700 text-white font-extrabold text-xs rounded-xl border border-blue-500 flex items-center justify-center gap-2 transition-all disabled:opacity-50 mt-2 shadow-lg shadow-blue-500/20 cursor-pointer"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-700 text-white border border-blue-500 flex items-center justify-center transition-all disabled:opacity-50 mt-2 shadow-lg shadow-blue-500/20 cursor-pointer`}
             >
               {isLoading ? <span>กำลังเข้าสู่ระบบ...</span> : <><span>เข้าสู่ระบบ</span><ArrowRight className="w-4 h-4" /></>}
             </button>

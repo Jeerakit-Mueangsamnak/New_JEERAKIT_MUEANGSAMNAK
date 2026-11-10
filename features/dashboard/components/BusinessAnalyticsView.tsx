@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React from 'react'
 import Link from 'next/link'
@@ -34,7 +35,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
   return (
     <div className="space-y-2">
       {/* 1. TOP 5 KPI CARDS */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+      <div className="grid grid-cols-2 sm:flex sm:flex-wrap sm:*:grow sm:*:basis-[calc((100%_-_1rem)/3)] lg:grid lg:grid-cols-5 gap-2">
         {/* 1. การเติบโตของธุรกิจ */}
         <div className="p-2 bg-emerald-50/60 dark:bg-emerald-950/30 rounded-2xl border border-emerald-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
@@ -121,7 +122,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
                 <button
                   type="button"
                   onClick={onRefresh}
-                  className="p-1 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer`}
                   title="รีเฟรชข้อมูล"
                   aria-label="รีเฟรชข้อมูล"
                 >

@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
@@ -7,7 +8,7 @@ import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/compon
 import { useToast } from '@/components/common/Toast'
 import { getBillLineRecipient, sendBillViaLine, type BillLineRecipient } from '@/app/actions/line'
 
-/** FLEX stays off until the bill send can carry a Flex Message (the database accepts text only). */
+/** ข้อความ = plain text; Flex Card = the bill as a card (title, the note, the bill's rows). */
 export type LineMessageMode = 'TEXT' | 'FLEX'
 export type LineTextPreset = 'UPCOMING' | 'OVERDUE' | 'OUTSTANDING' | 'SUMMARY' | 'CUSTOM'
 
@@ -41,6 +42,35 @@ export function buildBillSummaryText(data: LineNotifyBillData) {
     `ยอดรวม: ${money(data.grandTotal)}`,
     `ยอดค้าง: ${money(data.outstandingAmount)}`,
   ].filter(Boolean).join('\n')
+}
+
+const CARD_TITLE: Record<LineTextPreset, string> = {
+  UPCOMING: 'แจ้งเตือนใกล้ครบกำหนดคืน',
+  OVERDUE: 'เลยกำหนดคืนสินค้า',
+  OUTSTANDING: 'แจ้งยอดค้างชำระ',
+  SUMMARY: 'สรุปบิลเช่า',
+  CUSTOM: 'ข้อความจากร้าน',
+}
+const CARD_NOTE: Record<LineTextPreset, string> = {
+  UPCOMING: 'กรุณาเตรียมสินค้าเพื่อส่งคืนตามกำหนด',
+  OVERDUE: 'กรุณาติดต่อร้านเพื่อนัดคืนสินค้า',
+  OUTSTANDING: 'กรุณาชำระยอดค้างหรือติดต่อร้าน',
+  SUMMARY: '',
+  CUSTOM: '',
+}
+
+/** Flex Card of a preset: title + rows from the stored bill numbers (nothing is recalculated here). */
+export function buildBillCard(data: LineNotifyBillData, preset: LineTextPreset) {
+  const money = (n: number) => `${n.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`
+  const rows = [
+    { label: 'เลขที่บิล', value: data.billNo },
+    { label: 'ลูกค้า', value: data.customerName },
+    { label: 'สถานะ', value: getThaiBillStatus(data.rentalStatus) },
+    { label: 'กำหนดคืน', value: data.returnDate || '' },
+    { label: 'ยอดรวม', value: money(data.grandTotal) },
+    { label: 'ยอดค้าง', value: money(data.outstandingAmount) },
+  ].filter((r) => r.value !== '')
+  return { title: CARD_TITLE[preset], note: CARD_NOTE[preset], rows }
 }
 
 const newKey = () => `bill-${crypto.randomUUID()}`
@@ -92,6 +122,7 @@ const presets: Array<{
 export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalProps) {
   const { showToast } = useToast()
   const [presetType, setPresetType] = useState<LineTextPreset>('UPCOMING')
+  const [mode, setMode] = useState<LineMessageMode>('TEXT')
   const [copied, setCopied] = useState(false)
   const [sending, setSending] = useState(false)
   const [message, setMessage] = useState('')
@@ -114,8 +145,8 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
 
   useEffect(() => {
     if (!billData) return
-    setMessage(buildBillTextMessage(billData, presetType))
-  }, [billData, presetType])
+    setMessage(mode === 'FLEX' ? buildBillCard(billData, presetType).note : buildBillTextMessage(billData, presetType))
+  }, [billData, presetType, mode])
 
   if (!isOpen || !billData) return null
 
@@ -128,16 +159,25 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
 
   const canSend = recipient?.state === 'LINKED'
   const outgoingText = message
+  const card = buildBillCard(billData, presetType)
+  // Copy-to-send-yourself: a card cannot be pasted, so its content goes out as text
+  const copyableText =
+    mode === 'FLEX' ? [card.title, message, ...card.rows.map((r) => `${r.label}: ${r.value}`)].filter(Boolean).join('\n') : outgoingText
 
   const handleSendLine = async () => {
-    if (!outgoingText.trim()) {
+    if (mode === 'TEXT' && !outgoingText.trim()) {
       showToast('ยังส่งไม่ได้', 'กรุณาระบุข้อความก่อนส่ง', 'ERROR')
       return
     }
     if (!canSend) return
     setSending(true)
     try {
-      const r = await sendBillViaLine({ billId: billData.id, text: outgoingText, idempotencyKey: newKey() })
+      const r = await sendBillViaLine({
+        billId: billData.id,
+        text: outgoingText,
+        idempotencyKey: newKey(),
+        ...(mode === 'FLEX' ? { card: { title: card.title, rows: card.rows } } : {}),
+      })
       if (!r.success || !r.data) {
         showToast('ส่งทาง LINE ไม่สำเร็จ', r.error || 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
         return
@@ -172,7 +212,6 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
             <span>ส่งบิลทาง LINE ถึงลูกค้า</span>
             <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-bold text-[10px]">LINE OA</span>
           </h3>
-          <p className="text-[11px] text-slate-600 dark:text-slate-400">ส่งข้อความติดตามหรือสรุปบิลให้ {billData.customerName}</p>
         </div>
       </AppModalHeader>
 
@@ -182,12 +221,24 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
         <div className="space-y-1.5">
           <label className="font-bold text-slate-700 dark:text-slate-300 block text-[11px]">รูปแบบการส่ง</label>
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" aria-pressed="true" className="p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
-              <MessageSquare className="w-4 h-4" /> ข้อความ
-            </button>
-            <button type="button" disabled title="ระบบยังส่ง Flex Message ไม่ได้ ใช้ข้อความหรือข้อความสำเร็จรูป &quot;สรุปบิล&quot; แทน" className="p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 cursor-not-allowed opacity-60">
-              <WalletCards className="w-4 h-4" /> Flex Card (ยังไม่รองรับ)
-            </button>
+            {([
+              { id: 'TEXT' as const, label: 'ข้อความ', icon: <MessageSquare className="w-4 h-4" /> },
+              { id: 'FLEX' as const, label: 'Flex Card', icon: <WalletCards className="w-4 h-4" /> },
+            ]).map((b) => (
+              <button
+                key={b.id}
+                type="button"
+                aria-pressed={mode === b.id}
+                onClick={() => setMode(b.id)}
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} border flex items-center justify-center ${
+                  mode === b.id
+                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
+                }`}
+              >
+                {b.icon} {b.label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -206,23 +257,40 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
 
             <div className="space-y-1.5">
               <div className="flex justify-between items-center">
-                <label className="font-bold text-slate-700 dark:text-slate-300">ข้อความที่จะส่ง</label>
-                <button type="button" onClick={handleCopy} className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1">
+                <label className="font-bold text-slate-700 dark:text-slate-300">{mode === 'FLEX' ? 'ข้อความใต้หัวการ์ด (ไม่ใส่ก็ได้)' : 'ข้อความที่จะส่ง'}</label>
+                <button type="button" onClick={handleCopy} className={`${COMMAND_BUTTON_SIZE_CLASSES} text-blue-600 dark:text-blue-400 hover:underline flex items-center`}>
                   <Copy className="w-3 h-3" /><span>{copied ? 'คัดลอกแล้ว' : 'คัดลอกข้อความ'}</span>
                 </button>
               </div>
               <textarea rows={7} maxLength={5000} value={message} onChange={(event) => setMessage(event.target.value)} className="w-full p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-inner" />
               <p className="text-right text-[10px] text-slate-600 dark:text-slate-400">{message.length}/5000</p>
             </div>
+            {mode === 'FLEX' && (
+              <div className="space-y-1.5">
+                <span className="font-bold text-slate-700 dark:text-slate-300 block text-[11px]">ตัวอย่างการ์ดที่ลูกค้าจะเห็น</span>
+                <div aria-label="ตัวอย่าง Flex Card" className="max-w-xs rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 shadow-sm space-y-1.5">
+                  <p className="font-bold text-sm text-slate-900 dark:text-slate-100">{card.title}</p>
+                  {message.trim() && <p className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{message}</p>}
+                  <div className="border-t border-slate-200 dark:border-slate-700 pt-1.5 space-y-0.5">
+                    {card.rows.map((r) => (
+                      <div key={r.label} className="flex gap-2 text-xs">
+                        <span className="w-16 shrink-0 text-slate-500 dark:text-slate-400">{r.label}</span>
+                        <span className="text-slate-900 dark:text-slate-100">{r.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
         </>
       </AppModalBody>
 
       <AppModalFooter>
-        <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 font-semibold text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">ยกเลิก</button>
-        <button type="button" onClick={() => copyText(outgoingText, 'นำไปวางในแชต LINE ของลูกค้าได้เลย')} className="px-4 py-2.5 rounded-xl border border-emerald-300 dark:border-emerald-800 font-semibold text-xs text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950 flex items-center gap-1.5">
+        <button type="button" onClick={onClose} className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800`}>ยกเลิก</button>
+        <button type="button" onClick={() => copyText(copyableText, 'นำไปวางในแชต LINE ของลูกค้าได้เลย')} className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950 flex items-center`}>
           <Copy className="w-4 h-4" />คัดลอกไปส่งเอง
         </button>
-        <button type="button" onClick={handleSendLine} disabled={sending || !canSend || !outgoingText.trim()} title={canSend ? undefined : 'ลูกค้ายังไม่ได้ผูก LINE กับร้าน'} className="px-6 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-extrabold text-xs shadow-lg shadow-emerald-500/30 flex items-center gap-2 transition-all">
+        <button type="button" onClick={handleSendLine} disabled={sending || !canSend || (mode === 'TEXT' && !outgoingText.trim())} title={canSend ? undefined : 'ลูกค้ายังไม่ได้ผูก LINE กับร้าน'} className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white shadow-lg shadow-emerald-500/30 flex items-center transition-all`}>
           {sending ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />กำลังส่ง...</> : <><Send className="w-4 h-4" />ส่งทาง LINE</>}
         </button>
       </AppModalFooter>

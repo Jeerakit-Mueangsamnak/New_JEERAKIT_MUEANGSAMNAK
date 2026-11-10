@@ -9,6 +9,7 @@ import { lineOaAddFriendUrl, lineOaMessageUrl } from '@/lib/line/oa-link'
 import { createLineProvider, lineDeliveryMode } from '@/lib/line/provider'
 import { formatThaiDate, reminderMessages, type CronShop, type ReminderRow } from '@/lib/line/cron'
 import { type LineInviteKind } from '@/lib/line/config'
+import { cardMessage } from '@/lib/line/flex'
 
 /**
  * LINE actions for screens. Every call runs with the signed-in user's own session, so the
@@ -181,23 +182,45 @@ export async function sendBillViaLine(input: {
   billId: string
   text: string
   idempotencyKey: string
+  /** Flex Card (owner 2026-11-05): a title and label/value rows from the stored bill; the text goes under the title. */
+  card?: { title: string; rows: Array<{ label: string; value: string }> }
 }): Promise<LineActionResult<{ delivery_id: string; status: string; duplicate: boolean; mode: 'mock' | 'live' }>> {
   if (!input || !UUID.test(input.billId || '')) return bad('ไม่พบบิลนี้')
   if (!KEY.test(input.idempotencyKey || '')) return bad('คำขอไม่สมบูรณ์ กรุณาลองใหม่')
   const text = (input.text ?? '').trim()
+  let messages: LineMessage[]
   try {
-    assertValidMessages([{ type: 'text', text }])
+    messages = input.card ? [billCard(input.card, text)] : [{ type: 'text', text }]
+    assertValidMessages(messages)
   } catch {
     return bad('ข้อความไม่ถูกต้องหรือยาวเกินกำหนด')
   }
-  const queued = await callRpc<{ delivery_id: string; status: string; duplicate: boolean }>('line_bill_send', {
-    p_bill_id: input.billId,
-    p_text: text,
-    p_idempotency_key: input.idempotencyKey,
-  })
+  const queued = input.card
+    ? await callRpc<{ delivery_id: string; status: string; duplicate: boolean }>('line_bill_send_card', {
+        p_bill_id: input.billId,
+        p_messages: messages,
+        p_idempotency_key: input.idempotencyKey,
+      })
+    : await callRpc<{ delivery_id: string; status: string; duplicate: boolean }>('line_bill_send', {
+        p_bill_id: input.billId,
+        p_text: text,
+        p_idempotency_key: input.idempotencyKey,
+      })
   if (!queued.success || !queued.data) return { success: false, error: queued.error }
   const status = await runOutboxOnce({ id: queued.data.delivery_id })
   return { success: true, data: { ...queued.data, status: status ?? queued.data.status, mode: lineDeliveryMode() } }
+}
+
+/** The bill as a Flex Card: no buttons or links (the database refuses them from a screen). */
+function billCard(card: { title: string; rows: Array<{ label: string; value: string }> }, text: string) {
+  const title = typeof card?.title === 'string' ? card.title.trim() : ''
+  const rows = Array.isArray(card?.rows) ? card.rows : []
+  if (!title || rows.length > 10) throw new LineMessageError('LINE_MESSAGE_SHAPE')
+  const clean = rows.map((r) => {
+    if (!r || typeof r.label !== 'string' || typeof r.value !== 'string') throw new LineMessageError('LINE_MESSAGE_SHAPE')
+    return { label: r.label.trim().slice(0, 40), value: r.value.trim().slice(0, 200) }
+  })
+  return cardMessage({ altText: title, title, text: text || undefined, rows: clean })
 }
 
 /**

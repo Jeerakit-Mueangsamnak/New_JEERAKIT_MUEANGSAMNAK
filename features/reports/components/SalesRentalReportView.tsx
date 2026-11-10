@@ -165,7 +165,6 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
                 Bar เปรียบเทียบ ยอดขายสินค้า vs รายได้จากการเช่า
               </h3>
             </div>
-            <span className="text-[10px] text-slate-600 dark:text-slate-400">ตามช่วงเวลา</span>
           </div>
 
           <div className="flex-1 min-h-40">
@@ -347,7 +346,6 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
                 ตารางรายละเอียดบิลและใบเสนอราคา ({data.detailedRecords.length} ฉบับ)
               </h3>
             </div>
-            <span className="text-[10px] text-slate-600 dark:text-slate-400">เรียงตามวันที่ล่าสุด</span>
           </div>
         }
       >

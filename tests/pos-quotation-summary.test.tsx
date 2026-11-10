@@ -63,7 +63,7 @@ describe('สรุปใบเสนอราคา uses the central summary pa
   it('has the same parts as ชำระเงิน but no payment: amounts, รวม/ไม่รวม VAT (none pressed), total, one save button', () => {
     mount()
     expect(screen.getByRole('heading', { name: 'สรุปใบเสนอราคา' })).toBeTruthy()
-    for (const label of ['ส่วนลด (บาท)', 'ค่าขนส่ง (บาท)', 'เงินมัดจำ (บาท)', 'ยอดรวมใบเสนอราคา', 'VAT 7%']) {
+    for (const label of ['ส่วนลด (บาท)', 'ค่าขนส่ง (บาท)', 'เงินมัดจำ (บาท)', 'ยอดที่ต้องชำระ', 'VAT 7%']) {
       expect(screen.getByText(label)).toBeTruthy()
     }
     expect(screen.getByRole('button', { name: 'รวม VAT' }).getAttribute('aria-pressed')).toBe('false')
@@ -88,7 +88,7 @@ describe('สรุปใบเสนอราคา uses the central summary pa
 
   it('no button pressed = no VAT; discount / shipping / deposit typed here are saved, deposit stays out of the total', async () => {
     mount()
-    const [disc, ship, dep] = screen.getAllByPlaceholderText('0')
+    const [disc, ship, dep] = ['ส่วนลด (บาท)', 'ค่าขนส่ง (บาท)', 'เงินมัดจำ (บาท)'].map((label) => screen.getByLabelText(label))
     fireEvent.change(disc, { target: { value: '10' } })
     fireEvent.change(ship, { target: { value: '20' } })
     fireEvent.change(dep, { target: { value: '50' } })

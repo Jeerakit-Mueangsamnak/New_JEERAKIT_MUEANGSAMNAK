@@ -78,7 +78,7 @@ export function getPageMeta(
     return { name: 'คนใน LINE', icon: MessageCircle, colorClass: 'text-emerald-700 dark:text-emerald-400', dotClass: 'bg-emerald-500' }
   }
   if (pathname === '/settings' || pathname.startsWith('/settings/')) {
-    return { name: 'ตั้งค่าระบบ', icon: Settings, colorClass: 'text-slate-700 dark:text-slate-300', dotClass: 'bg-slate-500' }
+    return { name: 'ตั้งค่า', icon: Settings, colorClass: 'text-slate-700 dark:text-slate-300', dotClass: 'bg-slate-500' }
   }
   if (pathname === '/owner-permissions' || pathname.startsWith('/owner-permissions/')) {
     return { name: 'จัดการสิทธิ์ & รายงาน', icon: ShieldCheck, colorClass: 'text-amber-700 dark:text-amber-400', dotClass: 'bg-amber-500' }

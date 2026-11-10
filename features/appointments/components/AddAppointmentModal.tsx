@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { Calendar, RefreshCw, Trash2 } from 'lucide-react'
@@ -14,6 +15,7 @@ import { logger } from '@/lib/utils/logger'
 import { loadProducts } from '@/features/products/services/product-storage'
 import { loadCategories } from '@/lib/category-rules-storage'
 import { TimeField } from '@/features/appointments/components/AppointmentFormFields'
+import { formatPhoneNumber } from '@/lib/utils/format'
 
 export const getInitialAppointmentFormData = (dateStr?: string): Partial<Appointment> => ({
   type: 'DELIVERY',
@@ -58,7 +60,7 @@ const formFromAppointment = (apt: Appointment): Partial<Appointment> => ({
   startTime: apt.startTime,
   endTime: apt.endTime,
   location: apt.location || '',
-  phone: apt.phone || '',
+  phone: formatPhoneNumber(apt.phone),
   details: apt.details || '',
   status: apt.status,
   items: (apt.items ?? []).map((i) => ({ ...i })),
@@ -92,7 +94,8 @@ export function AppointmentForm({ initial, initialDate, customers = [], onSubmit
   const selectedCategory = categories.find((c) => c.id === categoryId)
   const productOptions = products
     .filter((p) => !selectedCategory || p.categoryId === selectedCategory.id || p.category === selectedCategory.name)
-    .map((p) => ({ value: p.id, label: p.name, sublabel: p.unit || undefined }))
+    // The product field lists product names only (the unit shows in the item table once added)
+    .map((p) => ({ value: p.id, label: p.name }))
   const addItem = (productId: string) => {
     const p = products.find((x) => x.id === productId)
     if (!p) return
@@ -171,7 +174,8 @@ export function AppointmentForm({ initial, initialDate, customers = [], onSubmit
               onChange={(cust, customName) => {
                 // The site is typed by the user only: changing the customer never touches it.
                 if (cust) {
-                  setFormData((prev) => ({ ...prev, customerId: cust.id, customerName: cust.customerName, phone: cust.phone || prev.phone }))
+                  // The customer's number is filled in the same xxx-xxx-xxxx form; it stays editable
+                  setFormData((prev) => ({ ...prev, customerId: cust.id, customerName: cust.customerName, phone: formatPhoneNumber(cust.phone || prev.phone) }))
                 } else {
                   setFormData((prev) => ({ ...prev, customerId: undefined, customerName: customName || '' }))
                 }
@@ -182,10 +186,17 @@ export function AppointmentForm({ initial, initialDate, customers = [], onSubmit
           <div>
             <label className={LABEL}>เบอร์โทรติดต่อ</label>
             <input
-              type="text"
+              type="tel"
+              inputMode="tel"
+              autoComplete="off"
+              aria-label="เบอร์โทรติดต่อ"
               placeholder="081-xxx-xxxx"
-              value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              maxLength={12}
+              value={formatPhoneNumber(formData.phone)}
+              onChange={(e) => {
+                const phone = formatPhoneNumber(e.target.value)
+                setFormData((prev) => ({ ...prev, phone }))
+              }}
               className={`${INPUT} font-mono`}
             />
           </div>
@@ -252,8 +263,6 @@ export function AppointmentForm({ initial, initialDate, customers = [], onSubmit
           <DataTableFrame
             className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
             bodyClassName="!min-h-0 !max-h-56"
-            empty={items.length === 0}
-            emptyState={<p className="py-3 text-center text-[11px] text-slate-600 dark:text-slate-400">ยังไม่ได้เลือกสินค้า</p>}
           >
             <table className="w-full text-left border-collapse table-auto text-xs">
               <thead>
@@ -318,14 +327,14 @@ export function AppointmentForm({ initial, initialDate, customers = [], onSubmit
           type="button"
           disabled={isSubmitting}
           onClick={onCancel}
-          className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+          className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer`}
         >
           ยกเลิก
         </button>
         <button
           type="submit"
           disabled={isSubmitting}
-          className="px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+          className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 text-white shadow-md flex items-center cursor-pointer disabled:opacity-50`}
         >
           {isSubmitting ? (
             <>

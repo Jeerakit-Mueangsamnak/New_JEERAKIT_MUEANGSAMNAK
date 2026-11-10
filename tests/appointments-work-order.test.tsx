@@ -161,7 +161,8 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
     expect(screen.queryByText('งานค้าง')).toBeNull()
 
     const panel = await openJob('เลยเวลาไม่สั่งงาน')
-    expect(within(panel).getByTestId('job-schedule').textContent).toBe('กำหนดการ 09:00 - 10:00 น. 25/09/2569')
+    expect(within(panel).getByTestId('job-date').textContent).toBe('25/09/2569')
+    expect(within(panel).getByTestId('job-time').textContent).toBe('09:00 - 10:00 น.')
     fireEvent.click(within(panel).getByRole('button', { name: 'สถานะ' }))
     expect(within(panel).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['ขั้นตอนงาน', 'เวลา', 'สถานะ'])
     expect(within(panel).getAllByText('ยังไม่มีข้อมูล').length).toBe(9)
@@ -215,9 +216,12 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
 
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByText('ยังไม่มีข้อมูลพนักงาน')).toBeDefined()
-    // LINE is not presented as working, and LINE Notify (closed) is not offered
-    expect(within(dialog).getByText(/ยังส่งไม่ได้/)).toBeDefined()
+    // The สั่งงาน button itself sends to LINE: no separate "ช่องทางส่งงาน" box (owner 2026-11-10), no LINE Notify
+    expect(within(dialog).queryByText('ช่องทางส่งงาน')).toBeNull()
     expect(within(dialog).queryByText(/LINE Notify/)).toBeNull()
+    // Summary box: name, phone, site, then date | time
+    expect(within(dialog).getByTestId('job-date').textContent).toBe('25/09/2569')
+    expect(within(dialog).getByTestId('job-time').textContent).toBe('09:00 - 11:00 น.')
 
     const modalDispatchBtn = within(dialog).getByRole('button', { name: /สั่งงาน \(ยังไม่มีข้อมูลพนักงาน\)/ }) as HTMLButtonElement
     expect(modalDispatchBtn.disabled).toBe(true)
@@ -390,8 +394,8 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
 
     const dialog = screen.getByRole('dialog')
     fireEvent.click(await within(dialog).findByText('เลือกคนขับ'))
-    expect(screen.queryByText('D002 ปิดแล้ว')).toBeNull() // switched-off drivers are not offered
-    fireEvent.click(await screen.findByText('D001 สมชาย'))
+    expect(screen.queryByText('ปิดแล้ว')).toBeNull() // switched-off drivers are not offered
+    fireEvent.click(await screen.findByText('สมชาย'))
     const send = within(dialog).getByRole('button', { name: 'สั่งงาน' }) as HTMLButtonElement
     expect(send.disabled).toBe(false)
     fireEvent.click(send)

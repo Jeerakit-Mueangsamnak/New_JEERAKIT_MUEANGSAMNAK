@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx'
 import { PaperSize, Orientation } from '@/lib/types/document'
 import { escapeDocumentHtml, sanitizeDocumentHtml } from '@/features/documents/utils/document-html'
 
@@ -68,13 +67,24 @@ export const AVAILABLE_PLACEHOLDERS = [
   '{{bill.paid_amount}}',
   '{{bill.outstanding_amount}}',
   '{{bill.refund_amount}}',
-  '{{bill.late_fee}}',
   '{{bill.damage_fee}}',
   '{{bill.payment_method}}',
-  '{{items.rows_standard_20}}',
-  '{{items.rows_delivery_20}}',
-  '{{items.rows_return_20}}',
-  '{{items.rows_statement_20}}',
+  '{{bill.total_payable}}',
+  '{{bill.total_payable_text}}',
+  '{{document.page}}',
+  // ใบรับคืนบางส่วน totals (renderReturnFormPagesHtml)
+  '{{return.rent}}',
+  '{{return.damage}}',
+  '{{return.paid_before}}',
+  '{{return.deposit_applied}}',
+  '{{return.total_payable}}',
+  '{{return.total_payable_text}}',
+  '{{return.collected}}',
+  // ใบชำระค่าปรับ totals (renderFineFormPagesHtml)
+  '{{fine.damage}}',
+  '{{fine.lost}}',
+  '{{fine.total}}',
+  '{{fine.total_text}}',
 ]
 
 export interface ConversionDeps {
@@ -105,7 +115,8 @@ function wrapConverted(bodyHtml: string, pageCount: number, detectedFields: stri
 }
 
 /** Every sheet becomes one table; each sheet after the first starts on a new page. */
-function parseExcel(buffer: ArrayBuffer): ConversionResult {
+async function parseExcel(buffer: ArrayBuffer): Promise<ConversionResult> {
+  const XLSX = await import('xlsx')
   const workbook = XLSX.read(buffer, { type: 'array' })
   if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
     return { success: false, error: 'ไม่พบ Sheet ในไฟล์ Excel' }

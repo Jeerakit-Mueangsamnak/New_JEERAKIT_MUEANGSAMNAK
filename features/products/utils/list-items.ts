@@ -89,17 +89,3 @@ export async function deleteCategoryListItemAsync(categoryId: string, name: stri
   if (inUse) throw new Error(`รายการ "${name}" มีสินค้าใช้อยู่ ลบไม่ได้`)
   await saveItems(categoryId, getCategoryListItems(categoryId).filter((i) => i.name !== name))
 }
-
-/** Default pricing type / unit of one item (ตารางประกอบข้อมูล); only fills the add-product form. */
-export async function setCategoryListItemRuleAsync(
-  categoryId: string,
-  name: string,
-  rule: { calculationType?: string; unitId?: string }
-): Promise<void> {
-  const items = getCategoryListItems(categoryId)
-  if (!items.some((i) => i.name === name)) throw new Error(`ไม่พบรายการ "${name}" ในหมวดหมู่นี้`)
-  await saveItems(
-    categoryId,
-    items.map((i) => (i.name === name ? { ...i, calculationType: rule.calculationType, unitId: rule.unitId || undefined } : i))
-  )
-}

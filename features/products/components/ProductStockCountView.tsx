@@ -10,7 +10,13 @@ import {
 } from 'lucide-react'
 import { NumericInput } from '@/components/common/NumericInput'
 import { CustomSelect } from '@/components/common/CustomSelect'
-import { ActionButton } from '@/components/common/ActionButton'
+import {
+  ActionButton,
+  COMMAND_BUTTON_SIZE_CLASSES,
+  SEARCH_INPUT_CLASSES,
+  SEARCH_ICON_CLASSES,
+  TABLE_TOOLBAR_CLASSES,
+} from '@/components/common/ActionButton'
 import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { Product } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
@@ -247,17 +253,17 @@ export function ProductStockCountView({
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
       {/* Table Toolbar */}
-      <div className="p-2 sm:p-2.5 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0">
-        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 flex-1 min-w-0">
+      <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-col sm:flex-row items-stretch sm:items-center justify-between`}>
+        <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
           {/* Search Box */}
           <div className="relative min-w-[140px] flex-1 max-w-xs">
-            <Search className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <Search className={SEARCH_ICON_CLASSES} />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="ค้นหาชื่อสินค้าที่ต้องการนับ..."
-              className="w-full h-9 pl-9 pr-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-purple-500 transition-all placeholder:text-slate-400"
+              className={SEARCH_INPUT_CLASSES}
             />
           </div>
 
@@ -267,7 +273,6 @@ export function ProductStockCountView({
               value={selectedCategory}
               onChange={(val) => setSelectedCategory(val)}
               options={categoryOptions}
-              buttonClassName="h-9 px-2.5 py-0 rounded-xl"
             />
           </div>
 
@@ -282,7 +287,7 @@ export function ProductStockCountView({
         </div>
 
         {/* Action Buttons: Clear, Print, Save */}
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           {modifiedItems.length > 0 && (
             <ActionButton
               type="button"
@@ -290,7 +295,7 @@ export function ProductStockCountView({
               disabled={isSubmitting}
               variant="outline"
               icon={<RotateCcw />}
-              className="h-9 !py-0 px-3.5 text-xs rounded-xl"
+              className=""
             >
               ล้างค่า
             </ActionButton>
@@ -302,7 +307,7 @@ export function ProductStockCountView({
             disabled={isSubmitting}
             variant="outline"
             icon={<Printer />}
-            className="h-9 !py-0 px-3.5 text-xs rounded-xl"
+            className=""
           >
             พิมพ์ตารางตรวจนับ
           </ActionButton>
@@ -313,7 +318,7 @@ export function ProductStockCountView({
             disabled={isSubmitting || modifiedItems.length === 0}
             variant="primary"
             icon={isSubmitting ? undefined : <CheckCircle2 />}
-            className="h-9 !py-0 px-3.5 text-xs rounded-xl"
+            className=""
             badge={
               !isSubmitting && modifiedItems.length > 0 ? (
                 <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/20 text-white font-mono font-black">
@@ -344,10 +349,10 @@ export function ProductStockCountView({
                 <th className="w-9 sm:w-10 py-2 px-2 text-center whitespace-nowrap">ลำดับ</th>
                 <th className="py-2 px-3 text-left whitespace-nowrap">ชื่อสินค้า</th>
                 <th className="w-14 sm:w-16 py-2 px-1.5 text-center whitespace-nowrap">ยอดเดิม</th>
-                <th className="w-14 sm:w-16 py-2 px-1 text-center text-emerald-700 dark:text-emerald-400 whitespace-nowrap">ปกติ</th>
-                <th className="w-14 sm:w-16 py-2 px-1 text-center text-red-700 dark:text-red-400 whitespace-nowrap">สูญหาย</th>
-                <th className="w-14 sm:w-16 py-2 px-1 text-center text-amber-700 dark:text-amber-400 whitespace-nowrap">ชำรุด</th>
-                <th className="w-14 sm:w-16 py-2 px-1 text-center text-purple-600 dark:text-purple-400 whitespace-nowrap">ขายออก</th>
+                <th className="w-14 sm:w-16 py-2 px-1 text-center whitespace-nowrap">ปกติ</th>
+                <th className="w-14 sm:w-16 py-2 px-1 text-center whitespace-nowrap">สูญหาย</th>
+                <th className="w-14 sm:w-16 py-2 px-1 text-center whitespace-nowrap">ชำรุด</th>
+                <th className="w-14 sm:w-16 py-2 px-1 text-center whitespace-nowrap">ขายออก</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 bg-white dark:bg-slate-900">
@@ -356,7 +361,6 @@ export function ProductStockCountView({
                   <td colSpan={7} className="p-12 text-center text-slate-600 dark:text-slate-400">
                     <Package className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-400 mb-2 opacity-60" />
                     <p className="font-bold text-sm">ไม่พบรายการสินค้าที่ค้นหา</p>
-                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">ลองเปลี่ยนคำค้นหาหรือตัวกรองหมวดหมู่</p>
                   </td>
                 </tr>
               ) : (
@@ -452,12 +456,12 @@ export function ProductStockCountView({
             )}
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={handleConfirmStockCount}
               disabled={isSubmitting || modifiedItems.length === 0}
-              className={`px-3 py-1.5 rounded-xl font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-xs whitespace-nowrap ${
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} flex items-center transition-all cursor-pointer shadow-xs whitespace-nowrap ${
                 modifiedItems.length > 0
                   ? 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-emerald-600/30'
                   : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 cursor-not-allowed shadow-none'

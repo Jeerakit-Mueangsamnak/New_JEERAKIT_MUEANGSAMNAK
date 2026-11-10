@@ -1,8 +1,19 @@
 'use client'
 
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
+import { useDataActions } from '@/components/common/useDataActions'
 import { SETTINGS_INPUT } from '@/features/settings/components/settings-ui'
-import { ActionButton, TAB_BUTTON_ACTIVE_CLASSES, TAB_BUTTON_BASE_CLASSES, TAB_BUTTON_INACTIVE_CLASSES, TAB_CONTAINER_CLASSES } from '@/components/common/ActionButton'
+import {
+  ActionButton,
+  TAB_BUTTON_ACTIVE_CLASSES,
+  TAB_BUTTON_BASE_CLASSES,
+  TAB_BUTTON_INACTIVE_CLASSES,
+  TAB_CONTAINER_CLASSES,
+  SEARCH_INPUT_CLASSES,
+  SEARCH_ICON_CLASSES,
+  TABLE_TOOLBAR_CLASSES,
+  ROW_ICON_BUTTON_CLASSES,
+} from '@/components/common/ActionButton'
 import { DataTableFrame, DATA_TABLE_CLASSES } from '@/components/common/DataTableFrame'
 import React, { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
@@ -11,7 +22,6 @@ import {
   Users,
   Activity,
   CheckCircle2,
-  AlertTriangle,
   UserX,
   RefreshCw,
   Search,
@@ -21,11 +31,12 @@ import {
   Trash2,
   Lock,
   FileText,
+  KeyRound,
 } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import { CustomSelect, SelectOption } from '@/components/common/CustomSelect'
-import { listMembers, resetMemberPin, setMemberRole, setMemberStatus } from '@/app/actions/members'
+import { deletePendingMember, listMembers, resetMemberPin, setMemberRole, setMemberStatus } from '@/app/actions/members'
 import { auditCategoryOf, fetchAuditLogs } from '@/features/audits/services/audit-storage'
+import { useToast } from '@/components/common/Toast'
 
 type ActivityLogCategory = 'BILL' | 'STOCK' | 'SYSTEM' | 'CUSTOMER' | 'MEMBER' | 'FINANCE'
 
@@ -80,6 +91,8 @@ import { getCurrentUser } from '@/app/actions/auth'
 export default function OwnerPermissionsPage() {
   // Member changes are audited by the database; no reason is asked (owner decision 2026-10-22).
   const confirm = useConfirm()
+  const { showToast } = useToast()
+  const { confirmSuspend } = useDataActions()
   const router = useRouter()
   const [user, setUser] = useState<{ id: string; role: string } | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
@@ -116,18 +129,10 @@ export default function OwnerPermissionsPage() {
   const [selectedActorId, setSelectedActorId] = useState<string>('ALL')
   const [searchTerm, setSearchTerm] = useState('')
 
-  // Toast / Feedback message
-  const [feedback, setFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
-
   // Modal states for delete confirmation
 
   // Permission matrix of the selected member (menus are the only stored grant)
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null)
-
-  const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
-    setFeedback({ message, type })
-    setTimeout(() => setFeedback(null), 4000)
-  }
 
   // Load members
   const loadMembers = useCallback(async () => {
@@ -135,7 +140,7 @@ export default function OwnerPermissionsPage() {
     try {
       const result = await listMembers()
       if (!result.success || !result.data) {
-        setFeedback({ message: result.error || 'โหลดรายชื่อผู้ใช้งานไม่สำเร็จ', type: 'error' })
+        showToast(result.error || 'โหลดรายชื่อผู้ใช้งานไม่สำเร็จ', undefined, 'ERROR')
         return
       }
       setMembers(
@@ -158,7 +163,7 @@ export default function OwnerPermissionsPage() {
     } finally {
       setLoadingMembers(false)
     }
-  }, [])
+  }, [showToast])
 
   // Load audit logs
   // Audit trail written by the database (append-only, OWNER read only — Master §29).
@@ -181,11 +186,11 @@ export default function OwnerPermissionsPage() {
         }))
       )
     } catch (err) {
-      setFeedback({ message: err instanceof Error ? err.message : 'โหลดประวัติไม่สำเร็จ', type: 'error' })
+      showToast(err instanceof Error ? err.message : 'โหลดประวัติไม่สำเร็จ', undefined, 'ERROR')
     } finally {
       setLoadingLogs(false)
     }
-  }, [selectedActorId])
+  }, [selectedActorId, showToast])
 
   useEffect(() => {
     loadMembers()
@@ -200,17 +205,17 @@ export default function OwnerPermissionsPage() {
   // Member Actions: each one is checked, audited, and applied by the database RPC
   const runMemberAction = async (
     member: BusinessMemberUser,
-    action: () => Promise<{ success: boolean; error?: string }>,
+    action: () => Promise<{ success: boolean; error?: string; warning?: string }>,
     successMessage: string
   ) => {
     setActionLoading(member.id)
     try {
       const result = await action()
       if (!result.success) {
-        showNotification(result.error || 'ทำรายการไม่สำเร็จ', 'error')
+        showToast(result.error || 'ทำรายการไม่สำเร็จ', undefined, 'ERROR')
         return
       }
-      showNotification(successMessage)
+      showToast(result.warning || successMessage, undefined, result.warning ? 'ERROR' : 'SUCCESS')
       await loadMembers()
     } finally {
       setActionLoading(null)
@@ -222,7 +227,7 @@ export default function OwnerPermissionsPage() {
   }
 
   const handleSuspend = async (member: BusinessMemberUser) => {
-    if (!(await confirm({ title: `ระงับการใช้งาน ${member.profile?.fullName || member.profile?.username || ''}`.trim(), danger: true }))) return
+    if (!(await confirmSuspend(`ผู้ใช้งาน "${member.profile?.fullName || member.profile?.username || ''}"`))) return
     await runMemberAction(member, () => setMemberStatus(member.id, 'SUSPENDED'), 'ระงับการใช้งานแล้ว')
   }
 
@@ -245,15 +250,15 @@ export default function OwnerPermissionsPage() {
   }
 
   const handleDeleteMember = async (member: BusinessMemberUser) => {
+    if (member.status !== 'PENDING' || member.role !== 'USER' || member.userId === user?.id) return
     const ok = await confirm({
-      title: 'ยืนยันการลบผู้ใช้งาน',
-      message: `คุณต้องการลบผู้ใช้งาน ${member.profile?.fullName || member.profile?.username || ''} ออกจากร้านใช่หรือไม่? พนักงานคนนี้จะไม่สามารถล็อกอินเข้าสู่ระบบได้อีกต่อไป`,
+      title: 'ลบบัญชีที่รออนุมัติ',
+      message: `ลบบัญชี ${member.profile?.fullName || member.profile?.username || ''} อย่างถาวรหรือไม่? บัญชีนี้ยังไม่เคยได้รับอนุมัติและจะไม่สามารถเข้าสู่ระบบได้อีก`,
       confirmLabel: 'ยืนยันการลบ',
       danger: true,
     })
     if (!ok) return
-    // Master §3.3: users with history are never hard-deleted
-    showNotification('ลบผู้ใช้งานไม่ได้เพราะต้องเก็บประวัติการทำรายการ กรุณาใช้ "ระงับสิทธิ์" แทน', 'error')
+    await runMemberAction(member, () => deletePendingMember(member.id), 'ลบบัญชีที่รออนุมัติแล้ว')
   }
 
 
@@ -280,9 +285,9 @@ export default function OwnerPermissionsPage() {
   )
 
   // Export audit logs to Excel
-  const handleExportAuditExcel = () => {
+  const handleExportAuditExcel = async () => {
     if (visibleLogs.length === 0) {
-      showNotification('ไม่มีข้อมูลสำหรับส่งออก', 'error')
+      showToast('ไม่มีข้อมูลสำหรับส่งออก', undefined, 'ERROR')
       return
     }
 
@@ -296,12 +301,13 @@ export default function OwnerPermissionsPage() {
     }))
 
 
+    const XLSX = await import('xlsx')
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.json_to_sheet(exportData)
     XLSX.utils.book_append_sheet(wb, ws, auditSubTab)
     const filename = `${categoryNames[auditSubTab]}_${new Date().toISOString().slice(0, 10)}.xlsx`
     XLSX.writeFile(wb, filename)
-    showNotification('ส่งออกไฟล์ Excel สำเร็จ')
+    showToast('ส่งออกไฟล์ Excel สำเร็จ')
   }
 
   if (authLoading || (user && user.role !== 'OWNER')) {
@@ -336,7 +342,7 @@ export default function OwnerPermissionsPage() {
     <div className="h-full min-h-0 p-2 bg-slate-100 dark:bg-slate-900 flex flex-col overflow-hidden text-xs">
       <div className="w-full flex-1 min-h-0 min-w-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col">
         {/* Toolbar: tabs + the active tab's actions (same pattern as the appointments page) */}
-        <div className="p-2 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0">
+        <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-col sm:flex-row items-stretch sm:items-center justify-between`}>
           <div className={TAB_CONTAINER_CLASSES}>
             <button
               type="button"
@@ -352,19 +358,18 @@ export default function OwnerPermissionsPage() {
               className={`${TAB_BUTTON_BASE_CLASSES} ${activeTab !== 'PERMISSIONS' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
             >
               <FileText className="w-3.5 h-3.5 shrink-0" />
-              <span>ประวัติการทำรายการ (Audit Log)</span>
+              <span>ประวัติการทำรายการ</span>
             </button>
           </div>
           <div className="flex items-center gap-1.5 justify-end">
             {activeTab !== 'PERMISSIONS' && (
-              <ActionButton size="sm" variant="neutral" onClick={handleExportAuditExcel} disabled={visibleLogs.length === 0} icon={<FileSpreadsheet />}>
+              <ActionButton variant="neutral" onClick={handleExportAuditExcel} disabled={visibleLogs.length === 0} icon={<FileSpreadsheet />}>
                 Export
               </ActionButton>
             )}
             <ActionButton
-              size="sm"
               variant="neutral"
-              className="w-9 px-0"
+              className="w-8 px-0"
               title="รีเฟรชข้อมูล"
               onClick={activeTab === 'PERMISSIONS' ? loadMembers : loadLogs}
               disabled={activeTab === 'PERMISSIONS' ? loadingMembers : loadingLogs}
@@ -372,24 +377,6 @@ export default function OwnerPermissionsPage() {
             />
           </div>
         </div>
-
-            {/* Feedback alert toast */}
-            {feedback && (
-              <div
-                className={`shrink-0 m-2 mb-0 px-3 py-1.5 rounded-lg text-xs font-bold animate-in fade-in slide-in-from-top-1 flex items-center gap-2 border ${
-                  feedback.type === 'success'
-                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800 dark:bg-emerald-950/80 dark:border-emerald-500 dark:text-emerald-200'
-                    : 'bg-rose-50 border-rose-300 text-rose-800 dark:bg-rose-950/80 dark:border-rose-500 dark:text-rose-200'
-                }`}
-              >
-                {feedback.type === 'success' ? (
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
-                ) : (
-                  <AlertTriangle className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400 shrink-0" />
-                )}
-                <span>{feedback.message}</span>
-              </div>
-            )}
 
         {/* ================= TAB 1: USERS + PERMISSION MATRIX ================= */}
         {activeTab === 'PERMISSIONS' && (
@@ -399,13 +386,14 @@ export default function OwnerPermissionsPage() {
 <table className={`${DATA_TABLE_CLASSES} text-xs`}>
                       <thead>
                         <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs">
+                          <th className="px-3 w-12 text-center">ลำดับ</th>
                           <th className="px-3 hidden 2xl:table-cell">รหัสผู้ใช้</th>
                           <th className="px-3">ชื่อแสดงผล</th>
                           <th className="px-3">Username</th>
                           <th className="px-3 text-center">ระดับสิทธิ์</th>
                           <th className="px-3 text-center">สถานะ</th>
                           <th className="px-3 hidden 2xl:table-cell">วันที่สร้าง</th>
-                          <th className="px-3 text-right sticky right-0 bg-[#E3E3E3] dark:bg-slate-800">จัดการ</th>
+                          <th className="px-3 text-center sticky right-0 bg-[#E3E3E3] dark:bg-slate-800">จัดการ</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700 font-medium">
@@ -425,9 +413,10 @@ export default function OwnerPermissionsPage() {
                             </td>
                           </tr>
                         ) : (
-                          members.map((member) => {
+                          members.map((member, index) => {
                             const isSelf = member.userId === user?.id
                             const isPending = member.status !== 'ACTIVE'
+                            const canDeletePendingMember = member.status === 'PENDING' && member.role === 'USER' && !isSelf
 
                             return (
                               <tr
@@ -440,6 +429,10 @@ export default function OwnerPermissionsPage() {
                                     : isPending ? 'bg-amber-50/70 dark:bg-amber-950/20' : ''
                                 }`}
                               >
+                                <td className="px-3 text-center text-slate-600 dark:text-slate-400 font-mono">
+                                  {index + 1}
+                                </td>
+
                                 {/* 1. User UUID */}
                                 <td className="px-3 font-mono text-[11px] text-slate-600 dark:text-slate-400 whitespace-nowrap hidden 2xl:table-cell">
                                   <span title={member.userId || '-'}>
@@ -449,17 +442,7 @@ export default function OwnerPermissionsPage() {
 
                                 {/* 2. Full Name */}
                                 <td className="px-3 font-bold text-slate-900 dark:text-slate-100">
-                                  <div className="flex items-center gap-1.5">
-                                    <div className="w-5 h-5 shrink-0 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 flex items-center justify-center text-[10px] font-bold">
-                                      {member.profile?.fullName?.[0] || 'U'}
-                                    </div>
-                                    <span className="truncate">{member.profile?.fullName || 'ไม่ระบุชื่อ'}</span>
-                                    {isSelf && (
-                                      <span className="px-1 py-px rounded bg-blue-50 dark:bg-blue-500/20 border border-blue-200 dark:border-blue-500/40 text-blue-700 dark:text-blue-300 text-[10px] font-bold">
-                                        คุณ
-                                      </span>
-                                    )}
-                                  </div>
+                                  <span className="truncate">{member.profile?.fullName || 'ไม่ระบุชื่อ'}</span>
                                 </td>
 
                                 {/* 3. Username / Email */}
@@ -507,57 +490,57 @@ export default function OwnerPermissionsPage() {
                                 </td>
 
                                 {/* 7. Action Buttons (pinned right so they stay visible on tablet widths) */}
-                                <td className={`px-3 text-right sticky right-0 ${isPending ? 'bg-amber-50 dark:bg-slate-800' : 'bg-white dark:bg-slate-800'}`}>
-                                  <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                <td className={`px-3 text-center sticky right-0 ${isPending ? 'bg-amber-50 dark:bg-slate-800' : 'bg-white dark:bg-slate-800'}`}>
+                                  <div className="flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
                                     {member.status !== 'ACTIVE' && (
-                                      <ActionButton
-                                        size="sm"
-                                        variant="primary"
+                                      <button
+                                        type="button"
+                                        className={`${ROW_ICON_BUTTON_CLASSES} bg-emerald-700 text-white hover:bg-emerald-800`}
                                         disabled={actionLoading === member.id}
                                         onClick={() => handleApprove(member)}
                                         title="อนุมัติให้เข้าใช้งาน"
-                                        icon={<CheckCircle2 />}
+                                        aria-label="อนุมัติให้เข้าใช้งาน"
                                       >
-                                        อนุมัติ
-                                      </ActionButton>
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                      </button>
                                     )}
 
                                     {member.role === 'USER' && member.status === 'ACTIVE' && !isSelf && (
-                                      <ActionButton
-                                        size="sm"
+                                      <button
+                                        type="button"
+                                        className={`${ROW_ICON_BUTTON_CLASSES} text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-600/20`}
                                         disabled={actionLoading === member.id}
                                         onClick={() => handleResetPin(member)}
-                                        className="bg-amber-50 hover:bg-amber-100 dark:bg-amber-600/20 border border-amber-200 dark:border-amber-500/40 text-amber-700 dark:text-amber-300"
                                         title="ล้าง PIN ที่ลืมหรือถูกล็อก"
+                                        aria-label="ล้าง PIN ที่ลืมหรือถูกล็อก"
                                       >
-                                        ล้าง PIN
-                                      </ActionButton>
+                                        <KeyRound className="w-3.5 h-3.5" />
+                                      </button>
                                     )}
 
                                     {member.status === 'ACTIVE' && !isSelf && (
-                                      <ActionButton
-                                        size="sm"
+                                      <button
+                                        type="button"
+                                        className={`${ROW_ICON_BUTTON_CLASSES} text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-600/20`}
                                         disabled={actionLoading === member.id}
                                         onClick={() => handleSuspend(member)}
-                                        className="bg-amber-50 hover:bg-amber-100 dark:bg-amber-600/20 dark:hover:bg-amber-600/30 border border-amber-200 dark:border-amber-500/40 text-amber-700 dark:text-amber-300"
                                         title="ระงับการใช้งานชั่วคราว"
-                                        icon={<UserX />}
+                                        aria-label="ระงับการใช้งานชั่วคราว"
                                       >
-                                        ระงับ
-                                      </ActionButton>
+                                        <UserX className="w-3.5 h-3.5" />
+                                      </button>
                                     )}
 
-                                    {!isSelf && (
-                                      <ActionButton
-                                        size="sm"
-                                        variant="ghost"
-                                        disabled={actionLoading === member.id}
-                                        onClick={() => handleDeleteMember(member)}
-                                        className="px-1.5 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                                        title="ลบผู้ใช้นี้ออกจากร้าน"
-                                        icon={<Trash2 />}
-                                      />
-                                    )}
+                                    <button
+                                      type="button"
+                                      disabled={actionLoading === member.id || !canDeletePendingMember}
+                                      onClick={() => handleDeleteMember(member)}
+                                      className={`${ROW_ICON_BUTTON_CLASSES} text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/60`}
+                                      title={canDeletePendingMember ? 'ลบบัญชีที่ยังรออนุมัติ' : 'ลบได้เฉพาะบัญชีพนักงานที่ยังรออนุมัติ'}
+                                      aria-label={canDeletePendingMember ? 'ลบบัญชีที่ยังรออนุมัติ' : 'ลบได้เฉพาะบัญชีพนักงานที่ยังรออนุมัติ'}
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
                                   </div>
                                 </td>
                               </tr>
@@ -574,7 +557,7 @@ export default function OwnerPermissionsPage() {
         {/* ================= TAB 2: AUDIT LOG ================= */}
         {activeTab !== 'PERMISSIONS' && (
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-            <div className="p-2 border-b border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row lg:items-center gap-2 shrink-0">
+            <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-col lg:flex-row lg:items-center`}>
                   <div className={`${TAB_CONTAINER_CLASSES} max-w-full`}>
                     {auditSubTabs.map((t) => {
                       const Icon = t.icon
@@ -604,9 +587,9 @@ export default function OwnerPermissionsPage() {
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         placeholder="ค้นหาเลขบิล, ลูกค้า, รหัสสินค้า..."
-                        className={`${SETTINGS_INPUT} pl-8`}
+                        className={SEARCH_INPUT_CLASSES}
                       />
-                      <Search className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                      <Search className={SEARCH_ICON_CLASSES} />
                     </div>
               </div>
             </div>
@@ -614,7 +597,7 @@ export default function OwnerPermissionsPage() {
 <table className={`${DATA_TABLE_CLASSES} text-xs`}>
                       <thead>
                         <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs">
-                          <th className="px-3 w-12 text-center">#</th>
+                          <th className="px-3 w-12 text-center">ลำดับ</th>
                           <th className="px-3 text-center">การกระทำ</th>
                           <th className="px-3">หมวดหมู่</th>
                           <th className="px-3">รายละเอียด</th>

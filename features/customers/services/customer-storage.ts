@@ -7,6 +7,7 @@ import {
   fetchCustomersFromSupabase,
   saveCustomerToSupabase,
   setCustomerActive,
+  deleteCustomerFromSupabase,
 } from '@/features/customers/api/customer-repository'
 
 let _cachedCustomers: Customer[] | null = null
@@ -19,24 +20,10 @@ export function loadCustomers(): Customer[] {
   if (typeof window === 'undefined') return _cachedCustomers || []
   return _cachedCustomers || []
 }
-
-/** Cache-only replace (tests / optimistic UI). */
-export function saveCustomers(customers: Customer[]): void {
-  _cachedCustomers = customers
-}
-
 export async function syncCustomersFromSupabase(): Promise<Customer[]> {
   _cachedCustomers = await fetchCustomersFromSupabase()
   return _cachedCustomers
 }
-
-/** Creates the customer (server assigns the id) and returns the fresh list. */
-export async function addCustomerAsync(incoming: Customer): Promise<Customer[]> {
-  const known = loadCustomers().some((c) => c.id === incoming.id)
-  await saveCustomerToSupabase(incoming, !known)
-  return syncCustomersFromSupabase()
-}
-
 /** The row was saved but the ID card photo upload failed (see saveCustomerToSupabase). */
 export function isIdCardUploadError(err: unknown): err is Error & { saved: Customer } {
   return (err as { tag?: string } | null)?.tag === 'ID_CARD_UPLOAD_FAILED'
@@ -74,8 +61,8 @@ export async function updateCustomerAsync(updated: Customer, reason?: string): P
   return syncCustomersFromSupabase()
 }
 
-/** Soft delete (history is kept): the customer is deactivated. */
-export async function deleteCustomerAsync(id: string, reason?: string): Promise<Customer[]> {
-  await setCustomerActive(id, false, reason?.trim() || 'ลบลูกค้าออกจากรายการ')
+/** ลบถาวร a customer never used (the server refuses a used one with CUSTOMER_IN_USE). */
+export async function deleteCustomerAsync(id: string): Promise<Customer[]> {
+  await deleteCustomerFromSupabase(id)
   return syncCustomersFromSupabase()
 }

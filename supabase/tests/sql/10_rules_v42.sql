@@ -150,7 +150,7 @@ SELECT t.check('STOCK', 'receive is audited (who / quantity) without a PIN',
              AND actor_id = t.u('owner')));
 SELECT t.ok('STOCK', 'receive 10 BK-003 with PIN', 'owner',
     format($q$select public.stock_receive(%L::uuid, 10, 'first count', 'key-recv-bk3', %L::uuid)$q$, t.v('bk3'), t.pin('owner', 'STOCK_RECEIVE')));
-SELECT t.check('SEED', 'units follow the owner list (กากบาท คู่ / ครอบ ตัว / ข้อต่อ ชุด)',
+SELECT t.check('SEED', 'units follow the owner list (กากบาท คู่ / ครอบ ตัว / ข้อต่อ ตัว)',
     (SELECT string_agg(p.sku || '=' || u.name, ',' ORDER BY p.sku) FROM public.products p JOIN public.units u ON u.id = p.unit_id
       WHERE p.sku IN ('ACC-CROSS', 'ACC-CAP', 'ACC-JOINT')) = 'ACC-CAP=ตัว,ACC-CROSS=คู่,ACC-JOINT=ชุด'
     AND (SELECT array_agg(name ORDER BY sort_order) FROM public.units) = ARRAY['แผ่น', 'ต้น', 'ชุด', 'ตัว', 'คู่']);
@@ -161,10 +161,12 @@ SELECT t.set('b1', (t.ok('BILL', 'cashier drafts a rental bill with deposit 500'
         'rental_end_at', now() + interval '3 days'))))$q$, t.v('c1'), t.v('bk1')))) ->> 'id');
 SELECT t.check('BILL', 'deposit is not part of grand total (2 × 10 = 20)',
     (SELECT grand_total = 20 AND deposit_amount = 500 FROM public.bills WHERE id = t.v('b1')::uuid));
-SELECT t.ok('BILL', 'checkout with CASH, no cash session, no contract', 'cashier',
-    format($q$select public.bill_confirm(%L::uuid, 'key-b1-confirm', '[{"method":"CASH","amount":20}]'::jsonb)$q$, t.v('b1')));
-SELECT t.check('BILL', 'bill ACTIVE + PAID; balance ignores deposit',
-    (SELECT status = 'ACTIVE' AND payment_status = 'PAID' AND balance_due = 0 FROM public.bills WHERE id = t.v('b1')::uuid));
+-- Owner 2026-11-11: the deposit is owed until it is paid, so the counter takes bill + deposit (20 + 500).
+SELECT t.ok('BILL', 'checkout with CASH 520 (bill 20 + deposit 500), no cash session, no contract', 'cashier',
+    format($q$select public.bill_confirm(%L::uuid, 'key-b1-confirm', '[{"method":"CASH","amount":520}]'::jsonb)$q$, t.v('b1')));
+SELECT t.check('BILL', 'bill ACTIVE + PAID; the bill got 20, the deposit 500 is received and held',
+    (SELECT status = 'ACTIVE' AND payment_status = 'PAID' AND balance_due = 0 AND paid_amount = 20
+            AND deposit_amount = 500 AND deposit_unpaid = 0 FROM public.bills WHERE id = t.v('b1')::uuid));
 SELECT t.check('BILL', 'payment audit records amount and channel CASH',
     EXISTS (SELECT 1 FROM public.audit_logs WHERE action = 'PAYMENT_RECEIVE' AND amount = 20 AND channel = 'CASH'));
 SELECT t.err('BILL', 'rental bill without customer still refused', 'cashier',

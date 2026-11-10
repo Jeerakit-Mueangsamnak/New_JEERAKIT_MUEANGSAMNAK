@@ -1,8 +1,12 @@
-import type { DocumentTemplate } from '@/lib/types/document'
+import type { DocumentTemplate, TemplateTargetGroup } from '@/lib/types/document'
 import {
+  addDocumentName,
   createDocumentTemplate,
+  deleteDocumentName,
   deleteDocumentTemplates,
+  fetchDocumentNames,
   fetchDocumentTemplates,
+  type DocumentName,
 } from '@/features/documents/api/template-library-repository'
 
 const STORAGE_KEY = 'rental-pos:document-template-library:v1'
@@ -56,7 +60,12 @@ export const templateBytes = (template: Pick<DocumentTemplate, 'templateSchema'>
  * moved up once (each stays local until its upload succeeds, e.g. one above the size limit).
  */
 export async function refreshSharedTemplates(): Promise<DocumentTemplate[]> {
-  let shared = await fetchDocumentTemplates()
+  // The names fill the หมวดหมู่เอกสาร dropdowns; a failed read keeps the last list and never blocks the forms.
+  const [fetched] = await Promise.all([
+    fetchDocumentTemplates(),
+    refreshDocumentNames().catch((err: unknown) => console.error('Reading the document names failed:', err)),
+  ])
+  let shared = fetched
   const sharedIds = new Set(shared.map((template) => template.id))
   const moved: string[] = []
   for (const template of loadLegacyCustomTemplates()) {
@@ -66,7 +75,7 @@ export async function refreshSharedTemplates(): Promise<DocumentTemplate[]> {
     }
     if (templateBytes(template) > TEMPLATE_MAX_BYTES) continue
     try {
-      await createDocumentTemplate(template.id, template)
+      await createDocumentTemplate(template.id, { ...template, targetGroup: getTemplateTarget(template) })
       moved.push(template.id)
     } catch (err) {
       console.error('Moving a browser-only form to the shop library failed:', template.id, err)
@@ -106,6 +115,29 @@ export function loadTemplateLibrary(
   return [...uniqueCustom.values()]
 }
 
+/** The shop's own document names (document_names), one list per tab of เพิ่มแบบฟอร์ม. */
+let documentNames: DocumentName[] = []
+
+export const loadDocumentNames = (): DocumentName[] => documentNames
+
+export async function refreshDocumentNames(): Promise<DocumentName[]> {
+  documentNames = await fetchDocumentNames()
+  return documentNames
+}
+
+export async function saveDocumentName(targetGroup: TemplateTargetGroup, name: string): Promise<DocumentName> {
+  const added = await addDocumentName(targetGroup, name)
+  documentNames = [...documentNames.filter((n) => n.id !== added.id), added]
+  return added
+}
+
+export async function removeDocumentName(id: string): Promise<DocumentName[]> {
+  await deleteDocumentName(id)
+  documentNames = documentNames.filter((n) => n.id !== id)
+  return documentNames
+}
+
+/** The tab a form was saved under; only forms an older version kept in this browser go by their name. */
 export function getTemplateTarget(template: DocumentTemplate): 'CUSTOMER' | 'BILL' {
   if (template.targetGroup) return template.targetGroup
   const customerCategories = [

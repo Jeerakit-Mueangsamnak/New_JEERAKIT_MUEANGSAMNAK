@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { CartPanel } from '@/features/pos/components/CartPanel'
 import CheckoutPage from '@/app/pos/checkout/page'
 import { SystemSettingsProvider } from '@/lib/contexts/SystemSettingsContext'
+import { ConfirmDialogProvider } from '@/components/common/ConfirmDialogProvider'
 import { DEFAULT_SYSTEM_CONFIG, loadSystemSettings, setCachedSystemSettings } from '@/features/settings/services/settings-storage'
 import { CartItem, loadActiveCart, saveActiveCart } from '@/features/pos/services/cart-storage'
 import { Customer } from '@/lib/types/rental-pos'
@@ -32,8 +33,19 @@ vi.mock('@/features/settings/api/settings-repository', () => ({ saveSettingsSect
 vi.mock('@/features/pos/components/CustomerUnifiedSelector', () => ({ CustomerUnifiedSelector: () => null }))
 vi.mock('@/features/customers/components/NewCustomerModal', () => ({ NewCustomerModal: () => null }))
 vi.mock('@/features/pos/components/A4FitPreview', () => ({ A4FitPreview: ({ children }: any) => children }))
-vi.mock('@/templates/rental-bill/RentalBillTemplate', () => ({
-  RentalBillTemplate: ({ data }: any) => <output data-testid="preview-tax">{data.taxAmount}</output>,
+// The bill is shown and printed on the shop's main bill form (จัดการเอกสาร › แบบฟอร์มบิล).
+vi.mock('@/features/documents/services/template-library-storage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/documents/services/template-library-storage')>()),
+  refreshSharedTemplates: vi.fn(async () => [{
+    id: 'tpl-main', name: 'ใบส่งของ/ใบเสร็จรับเงิน', category: 'ใบส่งของ/ใบเสร็จรับเงิน', targetGroup: 'BILL',
+    paperSize: 'A4', orientation: 'PORTRAIT', templateSchema: '<div>{{document.number}}</div>',
+  }]),
+  loadDocumentNames: () => [],
+}))
+vi.mock('@/features/documents/utils/transaction-print', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/documents/utils/transaction-print')>()),
+  pickBillFormTemplate: (templates: unknown[]) => templates[0],
+  renderBillFormPagesHtml: (data: any) => [`<output data-testid="preview-tax">${data.taxAmount}</output>`],
 }))
 vi.mock('@/features/pos/components/payment/PaymentDynamicContent', () => ({ PaymentDynamicContent: () => null }))
 vi.mock('@/components/common/PostSavePrintModal', () => ({ PostSavePrintModal: () => null }))
@@ -52,7 +64,7 @@ function mountCheckout(vatEnabled: boolean | undefined, vatMode?: 'INCLUSIVE' | 
     shippingAddress: '', documentType: 'บิลขาย', documentDate: '2026-10-07',
     headerRentalDate: '2026-10-07', headerReturnDate: '2026-10-07',
   })
-  return render(<SystemSettingsProvider><CheckoutPage /></SystemSettingsProvider>)
+  return render(<ConfirmDialogProvider><SystemSettingsProvider><CheckoutPage /></SystemSettingsProvider></ConfirmDialogProvider>)
 }
 
 beforeEach(() => {
@@ -72,11 +84,11 @@ describe('VAT is chosen per bill with รวม VAT / ไม่รวม VAT, no
     expect(inclusiveBtn().getAttribute('aria-pressed')).toBe('false')
     expect(exclusiveBtn().getAttribute('aria-pressed')).toBe('false')
     expect(screen.getByText('VAT 7%')).toBeTruthy()
-    expect(screen.getByTestId('preview-tax').textContent).toBe('0')
+    expect((await screen.findByTestId('preview-tax')).textContent).toBe('0')
     fireEvent.click(exclusiveBtn())
     await waitFor(() => expect(exclusiveBtn().getAttribute('aria-pressed')).toBe('true'))
     expect(inclusiveBtn().getAttribute('aria-pressed')).toBe('false')
-    expect(screen.getByTestId('preview-tax').textContent).toBe('7')
+    expect((await screen.findByTestId('preview-tax')).textContent).toBe('7')
     expect(screen.getByText('ภาษีมูลค่าเพิ่ม 7%')).toBeTruthy()
     expect(loadActiveCart()).toMatchObject({ vatEnabled: true, vatMode: 'EXCLUSIVE' })
     expect(mocks.saveSection).not.toHaveBeenCalled()
@@ -87,7 +99,7 @@ describe('VAT is chosen per bill with รวม VAT / ไม่รวม VAT, no
     mountCheckout(undefined)
     fireEvent.click(inclusiveBtn())
     await waitFor(() => expect(inclusiveBtn().getAttribute('aria-pressed')).toBe('true'))
-    expect(screen.getByTestId('preview-tax').textContent).toBe('6.54')
+    expect((await screen.findByTestId('preview-tax')).textContent).toBe('6.54')
     expect(screen.getByText('ภาษีมูลค่าเพิ่ม 7% (รวมในราคาแล้ว)')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'เงินสด' }))
     fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
@@ -104,7 +116,7 @@ describe('VAT is chosen per bill with รวม VAT / ไม่รวม VAT, no
     expect(exclusiveBtn().getAttribute('aria-pressed')).toBe('false')
     fireEvent.click(inclusiveBtn())
     await waitFor(() => expect(inclusiveBtn().getAttribute('aria-pressed')).toBe('false'))
-    expect(screen.getByTestId('preview-tax').textContent).toBe('0')
+    expect((await screen.findByTestId('preview-tax')).textContent).toBe('0')
     expect(loadActiveCart()).toMatchObject({ vatEnabled: false, vatMode: null })
   })
 
@@ -132,7 +144,7 @@ describe('VAT is chosen per bill with รวม VAT / ไม่รวม VAT, no
 
   it.each([true, false])('a bill that came with VAT %s but no mode keeps the shop price mode, is sent with the draft and the SERVER total is paid', async (on) => {
     mountCheckout(on)
-    expect(screen.getByTestId('preview-tax').textContent).toBe(on ? '7' : '0')
+    expect((await screen.findByTestId('preview-tax')).textContent).toBe(on ? '7' : '0')
     fireEvent.click(screen.getByRole('button', { name: 'เงินสด' }))
     fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledOnce())
@@ -143,7 +155,7 @@ describe('VAT is chosen per bill with รวม VAT / ไม่รวม VAT, no
 
   it('an old cart without a VAT choice is a bill with VAT off', async () => {
     mountCheckout(undefined)
-    expect(screen.getByTestId('preview-tax').textContent).toBe('0')
+    expect((await screen.findByTestId('preview-tax')).textContent).toBe('0')
     fireEvent.click(screen.getByRole('button', { name: 'บันทึกแบบร่าง' }))
     await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledOnce())
     expect(mocks.saveDraft.mock.calls[0][0]).toMatchObject({ vatEnabled: false, vatMode: null })
@@ -157,6 +169,7 @@ describe('VAT is chosen per bill with รวม VAT / ไม่รวม VAT, no
     expect(screen.queryByRole('button', { name: 'ไม่รวม VAT' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'สรุปใบเสนอราคา' }))
     expect(onCheckout).toHaveBeenCalledOnce()
-    expect(loadActiveCart()).toMatchObject({ quotationMode: true, items: [expect.objectContaining({ id: 'SALE' })] })
+    // The quotation cart has its own key: it never replaces a held bill cart.
+    expect(loadActiveCart('QUOTATION')).toMatchObject({ quotationMode: true, items: [expect.objectContaining({ id: 'SALE' })] })
   })
 })

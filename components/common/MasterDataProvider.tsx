@@ -1,6 +1,7 @@
 'use client'
 
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { RefreshCw } from 'lucide-react'
 import { setCachedProducts } from '@/features/products/services/product-storage'
 import { setCachedCategories, type CalculationType, type ProductCategoryItem } from '@/lib/category-rules-storage'
@@ -17,12 +18,13 @@ import { fetchCustomersFromSupabase } from '@/features/customers/api/customer-re
 import { fetchBillsFromSupabase, setCachedBills } from '@/features/bills/services/bill-storage'
 import { fetchQuotationsFromSupabase, setCachedQuotations } from '@/features/quotations/services/quotation-storage'
 import { fetchAppointmentsFromSupabase, setCachedAppointments } from '@/features/appointments/services/appointment-storage'
-import { fetchTransactionsFromSupabase, setCachedTransactions, setCachedRevenueLedger } from '@/features/finance/services/finance-storage'
+import { fetchTransactionsFromSupabase, setCachedTransactions, clearFinanceCache } from '@/features/finance/services/finance-storage'
 import { fetchNotificationsFromSupabase, setCachedNotifications, runNotificationScan } from '@/features/notifications/services/notification-storage'
 import { fetchSharedSystemConfig } from '@/features/settings/api/settings-repository'
 import { setCachedSystemSettings, resetSystemSettings } from '@/features/settings/services/settings-storage'
 import { getCategoryDefaults } from '@/lib/db/policies'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
+import { isPublicRoute } from '@/features/auth/services/public-routes'
 
 interface MasterDataContextType {
   isLoaded: boolean
@@ -30,11 +32,6 @@ interface MasterDataContextType {
 }
 
 const MasterDataContext = createContext<MasterDataContextType>({ isLoaded: false, error: null })
-
-export function useMasterData() {
-  return useContext(MasterDataContext)
-}
-
 /**
  * True when Supabase answers that the table is not in the database yet
  * (PostgREST PGRST205 / Postgres 42P01). Repositories either rethrow the raw
@@ -64,6 +61,7 @@ async function loadOrEmpty<T>(label: string, load: () => Promise<T[]>, set?: (ro
 
 function mapCategories(categories: CategoryRow[]): ProductCategoryItem[] {
   const defaults = getCategoryDefaults()
+  // Suspended categories are cached too: loadCategories() offers only active ones, ตั้งค่าสินค้า lists all.
   return categories.map((c) => ({
     id: c.id,
     name: c.name,
@@ -114,15 +112,19 @@ function clearAllBusinessData(): void {
   setCachedBills([])
   setCachedQuotations([])
   setCachedAppointments([])
-  setCachedTransactions([])
-  setCachedRevenueLedger([])
+  clearFinanceCache()
   setCachedNotifications([])
 }
 
 export function MasterDataProvider({ children }: { children: React.ReactNode }) {
   const [isLoaded, setIsLoaded] = useState(false)
   const [error, setError] = useState<Error | null>(null)
+  const [retryAttempt, setRetryAttempt] = useState(0)
   const { session, user, loading: authLoading } = useAuth()
+  // Public pages (login, register, ...) never wait for shop data: right after signing in the data
+  // loads while /pos is still opening, and covering the login page with the loading screen made it
+  // come back (re-mounted, form reset) before /pos arrived — it looked like a bounce to the login.
+  const onPublicPage = isPublicRoute(usePathname())
   // Shop data is only for ACTIVE members; PENDING/SUSPENDED sessions load nothing.
   const canLoadShopData = Boolean(session) && user?.status === 'ACTIVE'
   // Every auth event (TOKEN_REFRESHED, SIGNED_IN on tab focus, ...) hands out a new session
@@ -160,7 +162,7 @@ export function MasterDataProvider({ children }: { children: React.ReactNode }) 
     return () => {
       active = false
     }
-  }, [sessionUserId, authLoading, canLoadShopData])
+  }, [sessionUserId, authLoading, canLoadShopData, retryAttempt])
 
   // Other devices change data too: refresh when the tab comes back into view.
   useEffect(() => {
@@ -187,16 +189,23 @@ export function MasterDataProvider({ children }: { children: React.ReactNode }) 
     )
   }
 
-  if (error) {
+  if (error && !onPublicPage) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400 flex-col">
         <h2 className="text-2xl font-bold mb-4">เชื่อมต่อฐานข้อมูลล้มเหลว</h2>
         <p>{error.message}</p>
+        <button
+          type="button"
+          onClick={() => setRetryAttempt((attempt) => attempt + 1)}
+          className="mt-4 rounded-lg border border-red-300 bg-white px-4 py-2 font-semibold text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-slate-900 dark:text-red-300 dark:hover:bg-red-950"
+        >
+          ลองโหลดข้อมูลอีกครั้ง
+        </button>
       </div>
     )
   }
 
-  if (!isLoaded) {
+  if (!isLoaded && !onPublicPage) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400">
         <div className="flex flex-col items-center">

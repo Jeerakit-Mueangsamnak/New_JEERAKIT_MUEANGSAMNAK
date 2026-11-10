@@ -18,13 +18,6 @@ export function getSupabasePublicKey(): string {
     ''
   ).trim()
 }
-
-export function isSupabasePublicConfigValid(): boolean {
-  const url = getSupabaseUrl()
-  const key = getSupabasePublicKey()
-  return Boolean(url && key && !url.includes('placeholder') && !key.includes('placeholder'))
-}
-
 /**
  * Only allow same-site relative paths as post-auth destinations (blocks open redirects
  * such as `//evil.com` or `https://evil.com`).

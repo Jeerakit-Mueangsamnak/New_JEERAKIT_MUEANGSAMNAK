@@ -1,9 +1,10 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import { useCallback, useEffect, useState } from 'react'
 import { Copy, Link2Off, RefreshCw, UserRound } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
-import { DataTableFrame } from '@/components/common/DataTableFrame'
+import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_TH_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { createMyLineLinkCode } from '@/app/actions/line'
@@ -32,8 +33,8 @@ interface IssuedCode {
   expiresAt: string
 }
 
-const BTN = 'px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50 whitespace-nowrap'
-const TH = 'px-2'
+const BTN = `${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center justify-center cursor-pointer disabled:opacity-50 whitespace-nowrap`
+const TH = `px-2 ${DATA_TABLE_TH_CLASSES}`
 const TD = 'px-2'
 
 function LinkCell({ contact }: { contact?: Contact }) {
@@ -165,15 +166,12 @@ export function LineMembersPanel() {
   return (
     <div className={SETTINGS_SECTION}>
       <div className="flex items-center justify-between gap-2">
-        <p className={SETTINGS_HELPER}>
-          เจ้าของร้านกด &quot;ส่งลิงก์ผูก LINE&quot; แล้วส่งเข้า LINE ส่วนตัวของพนักงาน · หรือพนักงานออกรหัสของตัวเองแล้วพิมพ์ในแชต LINE ร้าน · ลิงก์และรหัสใช้ได้ครั้งเดียว
-        </p>
         <button
           type="button"
           onClick={() => void load()}
           disabled={loading}
           aria-label="รีเฟรชสถานะ LINE"
-          className="h-8 w-8 shrink-0 rounded-xl border border-slate-200 dark:border-slate-700 inline-flex items-center justify-center text-slate-600 dark:text-slate-400 cursor-pointer"
+          className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 cursor-pointer`}
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
@@ -186,11 +184,9 @@ export function LineMembersPanel() {
       </h4>
       <DataTableFrame
         rowCount={staff.length}
-        empty={staff.length === 0}
-        emptyState={<p className="py-6 text-center text-slate-600 dark:text-slate-400">{loading ? 'กำลังโหลด…' : 'ไม่พบรายชื่อพนักงาน'}</p>}
       >
-        <table className="w-full text-left border-collapse table-auto text-xs" aria-label="ตารางพนักงาน LINE">
-          <thead>
+        <table className={`${DATA_TABLE_CLASSES} text-xs`} aria-label="ตารางพนักงาน LINE">
+          <thead className={`${DATA_TABLE_THEAD_CLASSES} text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 text-xs`}>
             <tr>
               <th className={`${TH} w-10 text-center`}>ลำดับ</th>
               <th className={TH}>พนักงาน</th>

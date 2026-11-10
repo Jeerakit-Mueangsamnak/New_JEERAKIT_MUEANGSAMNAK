@@ -1,8 +1,9 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useState } from 'react'
 import Link from 'next/link'
-import { Lock, CheckCircle2, CircleDashed, KeyRound } from 'lucide-react'
+import { Lock, CheckCircle2, CircleDashed } from 'lucide-react'
 import { useAppLock } from '@/features/auth/contexts/AppLockContext'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { useToast } from '@/components/common/Toast'
@@ -56,7 +57,7 @@ export function SecuritySettings() {
       <button
         type="button"
         onClick={() => setDialog(pinSet ? 'change' : 'set')}
-        className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-sm font-bold"
+        className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-blue-600 hover:bg-blue-700 text-white`}
       >
         {pinSet ? 'เปลี่ยน PIN' : 'ตั้ง PIN'}
       </button>
@@ -65,14 +66,12 @@ export function SecuritySettings() {
           <Link href="/forgot-pin" className="text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline">
             ลืม PIN
           </Link>
-        ) : (
-          <span className="text-xs text-slate-600 dark:text-slate-400">ลืม PIN: ให้เจ้าของร้านล้าง PIN ให้ แล้วตั้งใหม่ที่นี่</span>
-        )
+        ) : null
       )}
     </div>
   )
 
-  const card = (icon: React.ReactNode, title: string, desc: string, extra?: React.ReactNode) => (
+  const card = (icon: React.ReactNode, title: string, extra?: React.ReactNode) => (
     <section className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 space-y-3">
       <div className="flex items-center gap-2.5">
         <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
@@ -80,7 +79,6 @@ export function SecuritySettings() {
         </div>
         <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">{title}</h3>
       </div>
-      <p className="text-sm text-slate-600 dark:text-slate-400">{desc}</p>
       <div>{statusBadge}</div>
       {actions}
       {extra}
@@ -89,20 +87,9 @@ export function SecuritySettings() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start gap-2.5 rounded-2xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/40 p-4">
-        <KeyRound className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-        <div className="text-sm text-slate-700 dark:text-slate-300">
-          <p className="font-bold text-slate-900 dark:text-white">บัญชีนี้มี PIN ชุดเดียว (1 บัญชี = 1 PIN)</p>
-          <p className="mt-0.5">
-            PIN ชุดนี้ใช้ล็อก/ปลดล็อกหน้าจออย่างเดียว — งานอื่น เช่น คืนเงิน ยกเลิกบิล ปรับสต็อก ไม่ถาม PIN แต่ระบบบันทึกประวัติให้อัตโนมัติ
-          </p>
-        </div>
-      </div>
-
       {card(
         <Lock className="w-4 h-4" />,
         'PIN สำหรับล็อก/ปลดล็อกหน้าจอ',
-        'ล็อกหน้าจอเมื่อไม่ได้ใช้งานหรือเมื่อกดล็อกเอง โดยไม่ต้องออกจากระบบ ปลดล็อกด้วย PIN แล้วกลับมาหน้าเดิม',
         pinSet && status ? (
           <div className="pt-3 border-t border-slate-100 dark:border-slate-700/60 text-sm font-semibold text-slate-700 dark:text-slate-300">
             ล็อกหน้าจออัตโนมัติเมื่อไม่ได้ใช้งาน

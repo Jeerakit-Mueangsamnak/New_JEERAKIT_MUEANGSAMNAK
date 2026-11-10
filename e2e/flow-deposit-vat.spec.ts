@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-import { amountBox, issuedBillNo } from './helpers';
+import { amountBox, fillCash, issuedBillNo } from './helpers';
 import { billByNo, sql } from './db';
 
 // Parts that had no browser test yet (2026-11-04): the รวม VAT / ไม่รวม VAT buttons on the payment page, and the
@@ -51,7 +51,7 @@ test('ปุ่ม ไม่รวม VAT หน้าชำระเงิน: 
   await expect(page.getByText('ภาษีมูลค่าเพิ่ม 7%')).toBeVisible();
 
   await page.getByRole('button', { name: 'เงินสด' }).click();
-  await amountBox(page, 'เงินสดที่รับมา (บาท)').fill('1000');
+  await fillCash(page, '1000');
   await page.getByRole('button', { name: 'ออกบิล' }).click();
   const billNo = await issuedBillNo(page);
 
@@ -84,7 +84,7 @@ test('ปุ่ม รวม VAT: VAT อยู่ในราคา ยอด�
   await expect(incl).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText('ภาษีมูลค่าเพิ่ม 7% (รวมในราคาแล้ว)')).toBeVisible();
   await page.getByRole('button', { name: 'เงินสด' }).click();
-  await amountBox(page, 'เงินสดที่รับมา (บาท)').fill('1000');
+  await fillCash(page, '1000');
   await page.getByRole('button', { name: 'ออกบิล' }).click();
   const billNo = await issuedBillNo(page);
 
@@ -111,7 +111,7 @@ test('ไม่กดปุ่ม VAT: บิลไม่มี VAT', async ({ p
   await expect(page.getByRole('button', { name: 'รวม VAT', exact: true })).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByRole('button', { name: 'ไม่รวม VAT' })).toHaveAttribute('aria-pressed', 'false');
   await page.getByRole('button', { name: 'เงินสด' }).click();
-  await amountBox(page, 'เงินสดที่รับมา (บาท)').fill('1000');
+  await fillCash(page, '1000');
   await page.getByRole('button', { name: 'ออกบิล' }).click();
   const billNo = await issuedBillNo(page);
 
@@ -169,7 +169,8 @@ test('ใบเสนอราคา: กด รวม VAT แล้วบัน
   await expect(page.getByRole('button', { name: 'ไม่รวม VAT' })).toHaveAttribute('aria-pressed', 'false');
 });
 
-async function rentWithDeposit(page: Page, deposit: number) {
+/** unpaid = ค้างชำระ with nothing taken; partialCash = that cash confirmed first, then ค้างชำระ. */
+async function rentWithDeposit(page: Page, deposit: number, unpaid = false, partialCash?: string) {
   const stamp = Date.now();
   await page.goto('/pos');
   await page.getByRole('button', { name: 'เช่าสินค้า' }).click();
@@ -187,17 +188,37 @@ async function rentWithDeposit(page: Page, deposit: number) {
   await page.getByRole('button', { name: 'ชำระเงิน' }).click();
   await page.waitForURL('**/pos/checkout');
   await amountBox(page, 'เงินมัดจำ (บาท)').fill(String(deposit));
-  await page.getByRole('button', { name: 'เงินสด' }).click();
-  await amountBox(page, 'เงินสดที่รับมา (บาท)').fill('1000');
+  if (partialCash) {
+    await page.getByRole('button', { name: 'เงินสด' }).click();
+    await fillCash(page, partialCash);
+    await page.getByRole('button', { name: 'ค้างชำระ' }).click();
+  } else if (unpaid) {
+    await page.getByRole('button', { name: 'ค้างชำระ' }).click();
+  } else {
+    await page.getByRole('button', { name: 'เงินสด' }).click();
+    await fillCash(page, '1000');
+  }
   await page.getByRole('button', { name: 'ออกบิล' }).click();
   return issuedBillNo(page);
 }
 
 test('เช่า 2 ชุด มัดจำ 500 จ่ายเงินสด: ยอดสุทธิที่หน้าชำระรวมมัดจำ', async ({ page }) => {
   depositBill = await rentWithDeposit(page, 500);
-  // The bill is 30; the 500 deposit is held on the bill, not part of the bill total.
-  expect(billByNo(depositBill)).toMatchObject({ grandTotal: 30, paymentStatus: 'PAID' });
-  expect(sql(`select deposit_amount from public.bills where bill_no = '${depositBill}'`)[0][0]).toBe('500.00');
+  // The bill is 30; the 500 deposit is received and held on the bill, not part of the bill total.
+  expect(billByNo(depositBill)).toMatchObject({ grandTotal: 30, paymentStatus: 'PAID', paid: 30, balance: 0 });
+  expect(sql(`select deposit_amount, deposit_unpaid from public.bills where bill_no = '${depositBill}'`)[0]).toEqual(['500.00', '0.00']);
+  // One payment cut in the owner's order (2026-11-11): มัดจำ 500, ค่าเช่า 30, nothing owed
+  expect(sql(`select a.deposit_amount, a.rental_amount, a.outstanding_after from public.bill_payment_allocations a
+    join public.bills b on b.id = a.bill_id where b.bill_no = '${depositBill}'`)).toEqual([['500.00', '30.00', '0.00']]);
+});
+
+test('จ่ายสด 300 แล้วกดค้างชำระ (มัดจำ 500 + ค่าเช่า 30): เงินตัดมัดจำก่อน ค้าง 230 สถานะชำระบางส่วน', async ({ page }) => {
+  const billNo = await rentWithDeposit(page, 500, true, '300');
+  // ค่าขนส่ง 0 → มัดจำ 300 of 500 → ค่าเช่า 0: the bill itself got nothing yet, 200 deposit + 30 rent owed
+  expect(billByNo(billNo)).toMatchObject({ paymentStatus: 'PARTIALLY_PAID', paid: 0, balance: 230 });
+  expect(sql(`select deposit_amount, deposit_unpaid from public.bills where bill_no = '${billNo}'`)[0]).toEqual(['500.00', '200.00']);
+  expect(sql(`select a.total_amount, a.deposit_amount, a.rental_amount, a.outstanding_after from public.bill_payment_allocations a
+    join public.bills b on b.id = a.bill_id where b.bill_no = '${billNo}'`)).toEqual([['300.00', '300.00', '0.00', '230.00']]);
 });
 
 test('รับคืน: คืนมัดจำ 300 จาก 500 — ตัวเลขบนหน้าจอและยอดสุทธิถูกต้อง', async ({ page }) => {
@@ -235,7 +256,41 @@ test('รับคืน: คืนมัดจำ 300 จาก 500 — ตั�
   await expect(done).toBeVisible({ timeout: 30000 });
   await done.getByRole('button', { name: 'ออก' }).click();
 
-  // 500 held - 300 handed back = 200 still held (the bill closes once everything is back).
+  // 500 held - 300 handed back = 200 still held: everything is back and paid, but the bill stays open
+  // until the deposit is given back (owner 2026-11-06).
   expect(sql(`select deposit_amount from public.bills where bill_no = '${depositBill}'`)[0][0]).toBe('200.00');
+  expect(billByNo(depositBill)?.status).toBe('ACTIVE');
+});
+
+/** จัดการบิล › ถัดไป with nothing to return: the payment page of the bill. */
+async function openPaymentPage(page: Page, billNo: string) {
+  await page.goto('/bills');
+  await page.getByRole('row', { name: new RegExp(billNo) }).click();
+  await page.getByRole('button', { name: 'จัดการบิล' }).click();
+  await page.getByRole('button', { name: 'ถัดไป' }).click();
+  await expect(page.getByRole('heading', { name: 'สรุปยอดและรับชำระเงิน' })).toBeVisible();
+}
+
+test('คืนมัดจำที่เหลือ 200 ที่หน้าชำระเงิน → บิลปิด', async ({ page }) => {
+  test.skip(!depositBill, 'needs the bill from the previous step');
+  await openPaymentPage(page, depositBill);
+  await expect(page.getByText('มัดจำคงเหลือ (ต้องคืนลูกค้า):').locator('..')).toContainText('200.00');
+  await page.getByLabel('คืน', { exact: true }).check();
+  await expect(page.getByRole('textbox', { name: 'จำนวนเงินมัดจำ' })).toHaveValue(/200/);
+  await page.getByRole('radio', { name: 'เงินสด' }).click();
+  await page.getByRole('button', { name: 'ออกบิล', exact: true }).click();
+  await expect(page.getByText('บันทึกมัดจำสำเร็จ').first()).toBeVisible({ timeout: 20000 });
+  expect(sql(`select deposit_amount from public.bills where bill_no = '${depositBill}'`)[0][0]).toBe('0.00');
   expect(billByNo(depositBill)?.status).toBe('CLOSED');
+});
+
+let unpaidDepositBill = '';
+
+test('บิลค้างชำระ 30 มีมัดจำ 500 ที่ยังไม่ได้รับ: ยอดค้าง 530 และหักชำระจากมัดจำไม่ได้', async ({ page }) => {
+  // Owner 2026-11-11: a deposit not paid is owed with the bill; nothing is held, so nothing can be deducted.
+  unpaidDepositBill = await rentWithDeposit(page, 500, true);
+  expect(billByNo(unpaidDepositBill)).toMatchObject({ paymentStatus: 'UNPAID', paid: 0, balance: 530 });
+  expect(sql(`select deposit_unpaid from public.bills where bill_no = '${unpaidDepositBill}'`)[0][0]).toBe('500.00');
+  await openPaymentPage(page, unpaidDepositBill);
+  await expect(page.getByRole('checkbox', { name: 'หักชำระ' })).toBeDisabled();
 });

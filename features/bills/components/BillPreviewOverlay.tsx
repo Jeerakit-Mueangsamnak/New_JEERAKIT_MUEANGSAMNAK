@@ -1,9 +1,11 @@
 'use client'
 
-import React, { useMemo } from 'react'
-import { A4FullPreviewOverlay } from '@/features/pos/components/A4FitPreview'
-import { RentalBillTemplate } from '@/templates/rental-bill/RentalBillTemplate'
-import { fullBillToTemplateData } from '@/features/documents/utils/rental-bill-print'
+import React, { useEffect, useMemo, useState } from 'react'
+import { QuotationPreviewOverlay } from '@/features/quotations/components/QuotationPreviewOverlay'
+import { fullBillToTemplateData, loadMainBillForm, MAIN_BILL_FORM_MISSING } from '@/features/documents/utils/rental-bill-print'
+import { renderBillFormPagesHtml } from '@/features/documents/utils/transaction-print'
+import { useToast } from '@/components/common/Toast'
+import type { DocumentTemplate } from '@/lib/types/document'
 import type { FullBill } from '@/lib/types/rental-return'
 import type { BusinessSettings } from '@/features/settings/types/settings-page.types'
 
@@ -13,13 +15,37 @@ interface BillPreviewOverlayProps {
   onClose: () => void
 }
 
-/** Full-screen A4 bill preview: the same rental-bill document checkout and print use. */
+/** Full-screen A4 bill preview: the shop's main bill form, the same pages the print button gives. */
 export function BillPreviewOverlay({ bill, business, onClose }: BillPreviewOverlayProps) {
-  const data = useMemo(() => (bill ? fullBillToTemplateData(bill, business) : null), [bill, business])
+  const { showToast } = useToast()
+  const [form, setForm] = useState<DocumentTemplate | null | undefined>(undefined)
 
-  return (
-    <A4FullPreviewOverlay open={!!data} onClose={onClose}>
-      {data && <RentalBillTemplate data={data} />}
-    </A4FullPreviewOverlay>
+  useEffect(() => {
+    if (!bill) return
+    let alive = true
+    loadMainBillForm()
+      .then((found) => alive && setForm(found ?? null))
+      .catch((err: unknown) => {
+        console.error('Reading the bill forms failed:', err)
+        if (alive) setForm(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [bill])
+
+  // No form to show the bill on: say which one to add, and close.
+  useEffect(() => {
+    if (bill && form === null) {
+      showToast('ดูตัวอย่างไม่ได้', MAIN_BILL_FORM_MISSING, 'ERROR')
+      onClose()
+    }
+  }, [bill, form, onClose, showToast])
+
+  const pages = useMemo(
+    () => (bill && form ? renderBillFormPagesHtml(fullBillToTemplateData(bill), business || {}, form) : []),
+    [bill, form, business]
   )
+
+  return <QuotationPreviewOverlay pages={pages} onClose={onClose} />
 }

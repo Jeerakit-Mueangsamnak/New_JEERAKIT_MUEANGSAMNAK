@@ -1,7 +1,14 @@
 'use client'
+import {
+  COMMAND_BUTTON_SIZE_CLASSES,
+  TAB_BAR_SURFACE_CLASSES,
+  TAB_BUTTON_BASE_CLASSES,
+  TAB_BUTTON_ACTIVE_CLASSES,
+  TAB_BUTTON_INACTIVE_CLASSES,
+} from '@/components/common/ActionButton'
 
 import React, { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, FileCode, Printer, Receipt, RefreshCw, Trash2, Upload, User } from 'lucide-react'
+import { CheckCircle2, FileCode, Plus, Printer, Receipt, RefreshCw, RotateCcw, Trash2, Upload, User } from 'lucide-react'
 
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { useToast } from '@/components/common/Toast'
@@ -11,17 +18,15 @@ import { renderDocumentTemplate } from '@/features/documents/utils/documentRende
 import { convertFileToInternalTemplate, TEMPLATE_UPLOAD_ACCEPT } from '@/features/documents/utils/documentConverter'
 import { A4DocumentWorkspace } from '@/features/documents/components/A4DocumentWorkspace'
 import { BatchDeleteModal } from '@/features/documents/components/BatchDeleteModal'
-import {
-  QUOTATION_STARTER_TEMPLATE,
-  INITIAL_DOC_CATEGORIES,
-  CUSTOMER_DOC_CATEGORIES,
-  BILL_DOC_CATEGORIES,
-} from '@/features/documents/constants/initialDocumentTemplates'
+import type { DocumentName } from '@/features/documents/api/template-library-repository'
 import {
   getTemplateTarget,
+  loadDocumentNames,
   loadTemplateLibrary,
   refreshSharedTemplates,
+  removeDocumentName,
   removeTemplates,
+  saveDocumentName,
   saveSharedTemplate,
   templateBytes,
   TEMPLATE_MAX_BYTES,
@@ -29,15 +34,16 @@ import {
 import { printDocuments } from '@/lib/print/print-service'
 
 export type TemplateLibraryMode = 'LIBRARY' | 'ADD'
-
-export const TEMPLATE_PREVIEW_DOC_NO = 'TPL-PREVIEW-001'
-
 const today = () => new Date().toISOString().slice(0, 10)
+
+// Fields filled only when a real paper is printed (item cells, return / fine totals): blank in the preview.
+// Row numbers ({{items.N.no}}) stay.
+const PRINT_ONLY_FIELDS = /\{\{\s*(?:items\.\d+\.(?!no\b)\w+|return\.\w+|fine\.\w+)\s*\}\}/g
 
 /** The exact blank HTML used for both the preview and printout of one library form. */
 export function renderLibraryTemplate(tpl: DocumentTemplate, business?: Partial<BusinessSettings> | null): string {
   return renderDocumentTemplate(
-    tpl.templateSchema,
+    tpl.templateSchema.replace(PRINT_ONLY_FIELDS, ''),
     {},
     '',
     '',
@@ -88,6 +94,8 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
   const [checkedIds, setCheckedIds] = useState<string[]>([])
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [libraryFilter, setLibraryFilter] = useState<'ALL' | 'CUSTOMER' | 'BILL'>('ALL')
+  // The shop's document names: the "หมวดหมู่เอกสาร" list, and what puts a form in its tab.
+  const [documentNames, setDocumentNames] = useState<DocumentName[]>(loadDocumentNames)
 
   // Every form is a shop form from the server (same on every device): the last list read shows at
   // once, then the server's list; the preview falls back to the first form once it has loaded.
@@ -100,6 +108,7 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
       .then((next) => {
         if (!active) return
         setTemplates(next)
+        setDocumentNames(loadDocumentNames())
         setPreviewId((id) => (id && next.some((t) => t.id === id) ? id : next[0]?.id ?? null))
       })
       .catch((err: unknown) => {
@@ -156,7 +165,7 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
   // ── เพิ่มแบบฟอร์ม ───────────────────────────────────────────────────────
   const [newFormName, setNewFormName] = useState('')
   const [newFormTarget, setNewFormTarget] = useState<TemplateTargetGroup>('CUSTOMER')
-  const [newFormCategory, setNewFormCategory] = useState<string>('สัญญาเช่าสินค้า')
+  const [newFormCategory, setNewFormCategory] = useState<string>('')
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [conversionProgress, setConversionProgress] = useState<string | null>(null)
   const [convertedSchema, setConvertedSchema] = useState<string | null>(null)
@@ -164,17 +173,50 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
   const [newFormOrientation, setNewFormOrientation] = useState<'PORTRAIT' | 'LANDSCAPE'>('PORTRAIT')
   const [isSaving, setIsSaving] = useState(false)
 
-  const handleTargetChange = (target: TemplateTargetGroup) => {
-    setNewFormTarget(target)
-    if (target === 'CUSTOMER') {
-      if (!CUSTOMER_DOC_CATEGORIES.includes(newFormCategory)) {
-        setNewFormCategory('สัญญาเช่าสินค้า')
-      }
-    } else {
-      if (!BILL_DOC_CATEGORIES.includes(newFormCategory)) {
-        setNewFormCategory('ใบเสนอราคา')
-      }
+  const targetNames = useMemo(
+    () => documentNames.filter((n) => n.targetGroup === newFormTarget),
+    [documentNames, newFormTarget]
+  )
+
+  // The chosen name always belongs to the open tab: switching tab or removing it picks that tab's first name.
+  useEffect(() => {
+    if (!targetNames.some((n) => n.name === newFormCategory)) setNewFormCategory(targetNames[0]?.name ?? '')
+  }, [targetNames, newFormCategory])
+
+  const handleAddDocumentName = async () => {
+    const name = newFormName.trim()
+    if (!name) return showToast('กรุณาระบุชื่อเอกสาร', 'พิมพ์ชื่อในช่องก่อนกด +', 'INFO')
+    if (targetNames.some((n) => n.name === name)) {
+      setNewFormCategory(name)
+      return showToast('มีชื่อนี้อยู่แล้ว', `"${name}" อยู่ในรายการแล้ว`, 'INFO')
     }
+    try {
+      const added = await saveDocumentName(newFormTarget, name)
+      setDocumentNames(loadDocumentNames())
+      setNewFormCategory(added.name)
+      showToast('เพิ่มชื่อเอกสารแล้ว', `เพิ่ม "${added.name}" ใน${newFormTarget === 'CUSTOMER' ? 'แบบฟอร์มลูกค้า' : 'แบบฟอร์มบิล'}`, 'SUCCESS')
+    } catch (err) {
+      showToast('เพิ่มชื่อเอกสารไม่สำเร็จ', err instanceof Error ? err.message : 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
+    }
+  }
+
+  const handleRemoveDocumentName = async (name: string) => {
+    const entry = targetNames.find((n) => n.name === name)
+    if (!entry) return
+    try {
+      setDocumentNames(await removeDocumentName(entry.id))
+      showToast('ลบชื่อเอกสารแล้ว', `ลบ "${entry.name}" ออกจากรายการ`, 'SUCCESS')
+    } catch (err) {
+      showToast('ลบชื่อเอกสารไม่สำเร็จ', err instanceof Error ? err.message : 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
+    }
+  }
+
+  const handleClearUpload = () => {
+    setUploadedFile(null)
+    setConvertedSchema(null)
+    setConvertedPageCount(1)
+    setNewFormOrientation('PORTRAIT')
+    setConversionProgress(null)
   }
 
   const handleFileUploadAndConvert = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -183,7 +225,6 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
     setUploadedFile(file)
     setConvertedSchema(null)
     setNewFormOrientation('PORTRAIT')
-    if (!newFormName) setNewFormName(file.name.replace(/\.[^/.]+$/, ''))
     setConversionProgress('กำลังอ่านไฟล์และแปลงทุกหน้า...')
     const result = await convertFileToInternalTemplate(file)
     setConversionProgress(null)
@@ -201,21 +242,19 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
   const handleSaveTemplate = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isSaving) return
-    const name = newFormName.trim()
-    if (!name) return showToast('กรุณาระบุชื่อแบบฟอร์ม', 'กรอกชื่อแบบฟอร์มก่อนบันทึก', 'INFO')
+    // One name only (owner 2026-11-07): a form is found by its tab + the name picked in หมวดหมู่เอกสาร.
+    const name = newFormCategory
+    if (!name) return showToast('กรุณาเลือกหมวดหมู่เอกสาร', 'เลือกหรือเพิ่มชื่อเอกสารก่อนบันทึก', 'INFO')
     const now = today()
     const saved: DocumentTemplate = {
       id: `tpl-${Date.now()}`,
       name,
-      category: newFormCategory,
+      category: name,
       targetGroup: newFormTarget,
       source: uploadedFile ? 'CONVERTED_IMPORT' : 'BUILTIN',
       fileType: uploadedFile ? uploadedFile.name.split('.').pop()?.toUpperCase() || 'DOC' : 'HTML',
       fileName: uploadedFile?.name,
-      // An empty quotation is a copy of the working data-bound A4 form, not a blank static page.
-      templateSchema: convertedSchema || (newFormTarget === 'BILL' && newFormCategory === 'ใบเสนอราคา'
-        ? QUOTATION_STARTER_TEMPLATE.templateSchema
-        : fallbackSchema(name, newFormCategory)),
+      templateSchema: convertedSchema || fallbackSchema(name, name),
       paperSize: 'A4',
       orientation: newFormOrientation,
       pageCount: uploadedFile ? convertedPageCount : 1,
@@ -225,9 +264,7 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
       updatedAt: now,
       createdBy: 'ผู้ใช้',
       description: `เทมเพลต${newFormTarget === 'CUSTOMER' ? 'แบบฟอร์มลูกค้า' : 'แบบฟอร์มบิล'}ที่สร้างใหม่ในระบบ`,
-      defaultTerms: newFormTarget === 'BILL' && newFormCategory === 'ใบเสนอราคา'
-        ? QUOTATION_STARTER_TEMPLATE.defaultTerms || ''
-        : DEFAULT_TERMS,
+      defaultTerms: DEFAULT_TERMS,
     }
     if (templateBytes(saved) > TEMPLATE_MAX_BYTES) {
       return showToast('ไฟล์ใหญ่เกินไป', 'แบบฟอร์มหนึ่งรายการเก็บได้ไม่เกิน 1 MB ลองลดจำนวนหน้าหรือใช้ไฟล์ Word แทน', 'ERROR')
@@ -244,16 +281,27 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
     onModeChange('LIBRARY')
     setNewFormName('')
     setNewFormTarget('CUSTOMER')
-    setNewFormCategory('สัญญาเช่าสินค้า')
+    setNewFormCategory('')
     setUploadedFile(null)
     setConvertedSchema(null)
     setNewFormOrientation('PORTRAIT')
     showToast('บันทึก Template สำเร็จ', `บันทึกแบบฟอร์ม "${saved.name}" เข้าคลังแล้ว`, 'SUCCESS')
   }
 
-  const addPreviewHtml = convertedSchema
-    ? renderDocumentTemplate(convertedSchema, {}, '', '', DEFAULT_TERMS, business, { items: [] })
-    : ''
+  // Before a file is uploaded, the preview shows the form already saved under the picked tab + name
+  // (the same form POS/bills print with: the default one first, otherwise the newest).
+  const savedFormForName = useMemo(() => {
+    const name = newFormCategory.trim()
+    if (!name) return null
+    const forms = templates.filter((t) => getTemplateTarget(t) === newFormTarget && t.name.trim() === name)
+    return forms.find((t) => t.isDefault) ?? forms[0] ?? null
+  }, [templates, newFormTarget, newFormCategory])
+
+  const addPreviewHtml = useMemo(() => {
+    if (convertedSchema) return renderDocumentTemplate(convertedSchema, {}, '', '', DEFAULT_TERMS, business, { items: [] })
+    return savedFormForName ? renderLibraryTemplate(savedFormForName, business) : ''
+  }, [convertedSchema, savedFormForName, business])
+  const addEmptyTitle = newFormCategory && !uploadedFile ? `ยังไม่มีแบบฟอร์ม "${newFormCategory}"` : undefined
 
   // Layout follows the original "จัดการเอกสาร" page: one card on the left (switchers → list/form → actions), A4 preview on the right.
   return (
@@ -272,37 +320,25 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
                   </span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-1 p-0.5 bg-slate-100 dark:bg-slate-900/60 rounded-lg text-[10px] font-bold shrink-0 border border-slate-200/60 dark:border-slate-700/60">
+                <div className={`${TAB_BAR_SURFACE_CLASSES} grid grid-cols-3 shrink-0`}>
                   <button
                     type="button"
                     onClick={() => setLibraryFilter('ALL')}
-                    className={`py-1 rounded-md transition-all ${
-                      libraryFilter === 'ALL'
-                        ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                    }`}
+                    className={`${TAB_BUTTON_BASE_CLASSES} ${libraryFilter === 'ALL' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
                   >
                     ทั้งหมด ({templates.length})
                   </button>
                   <button
                     type="button"
                     onClick={() => setLibraryFilter('CUSTOMER')}
-                    className={`py-1 rounded-md transition-all ${
-                      libraryFilter === 'CUSTOMER'
-                        ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                    }`}
+                    className={`${TAB_BUTTON_BASE_CLASSES} ${libraryFilter === 'CUSTOMER' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
                   >
                     ฟอร์มลูกค้า ({customerCount})
                   </button>
                   <button
                     type="button"
                     onClick={() => setLibraryFilter('BILL')}
-                    className={`py-1 rounded-md transition-all ${
-                      libraryFilter === 'BILL'
-                        ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                    }`}
+                    className={`${TAB_BUTTON_BASE_CLASSES} ${libraryFilter === 'BILL' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
                   >
                     ฟอร์มบิล ({billCount})
                   </button>
@@ -326,7 +362,6 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
                 <div className="flex-1 min-h-0 divide-y divide-slate-100 dark:divide-slate-700/60 overflow-y-auto pr-1">
                   {filteredTemplates.map((tpl) => {
                     const isPreview = previewId === tpl.id
-                    const isCustomerForm = getTemplateTarget(tpl) === 'CUSTOMER'
                     return (
                       <div
                         key={tpl.id}
@@ -350,27 +385,12 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="font-bold text-slate-900 dark:text-slate-100 text-[11px]">{tpl.name}</span>
-                              <span
-                                className={`px-1.5 rounded font-bold text-[10px] ${
-                                  isCustomerForm
-                                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-                                    : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                                }`}
-                              >
-                                {isCustomerForm ? 'ลูกค้า' : 'บิล'}
-                              </span>
                               {tpl.isDefault && (
                                 <span className="px-1.5 rounded bg-purple-600 text-white font-extrabold text-[10px]">Default</span>
                               )}
                             </div>
-                            <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono block">
-                              หมวด: {tpl.category} | v{tpl.version}
-                            </span>
                           </div>
                         </div>
-                        {isPreview && (
-                          <span className="px-1.5 py-0.5 rounded bg-purple-600 text-white font-extrabold text-[10px] shrink-0">พรีวิว</span>
-                        )}
                       </div>
                     )
                   })}
@@ -379,43 +399,43 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
             )}
 
             {mode === 'ADD' && (
-              <form onSubmit={handleSaveTemplate} className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-2.5 text-xs flex flex-col justify-between">
+              <form onSubmit={handleSaveTemplate} className="flex-1 min-h-0 overflow-y-auto p-0.5 pr-1 space-y-2.5 text-xs flex flex-col justify-between">
                 <div className="space-y-2.5">
                   <div>
-                    <label className="block font-bold text-slate-800 dark:text-slate-200 mb-1 text-[11px]">ชื่อแบบฟอร์ม / ชื่อเอกสาร</label>
-                    <input
-                      type="text"
-                      placeholder="ชื่อแบบฟอร์ม / ชื่อเอกสาร"
-                      value={newFormName}
-                      onChange={(e) => setNewFormName(e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-bold text-xs focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      required
-                    />
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="ชื่อแบบฟอร์ม / ชื่อเอกสาร"
+                        value={newFormName}
+                        onChange={(e) => setNewFormName(e.target.value)}
+                        className="w-full pl-3 pr-9 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-bold text-xs focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleAddDocumentName()}
+                        aria-label="เพิ่มชื่อเอกสารในหมวดหมู่เอกสาร"
+                        title="เพิ่มชื่อเอกสาร"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded-lg text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-950/60 transition-colors"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-800 dark:text-slate-200 mb-1 text-[11px]">เพิ่มไปที่</label>
-                    <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <div className={`${TAB_BAR_SURFACE_CLASSES} grid grid-cols-2`}>
                       <button
                         type="button"
-                        onClick={() => handleTargetChange('CUSTOMER')}
-                        className={`py-1.5 px-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
-                          newFormTarget === 'CUSTOMER'
-                            ? 'bg-purple-600 text-white shadow-xs'
-                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
-                        }`}
+                        onClick={() => setNewFormTarget('CUSTOMER')}
+                        className={`${TAB_BUTTON_BASE_CLASSES} ${newFormTarget === 'CUSTOMER' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
                       >
                         <User className="w-3.5 h-3.5 shrink-0" />
                         <span>แบบฟอร์มลูกค้า</span>
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleTargetChange('BILL')}
-                        className={`py-1.5 px-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
-                          newFormTarget === 'BILL'
-                            ? 'bg-purple-600 text-white shadow-xs'
-                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
-                        }`}
+                        onClick={() => setNewFormTarget('BILL')}
+                        className={`${TAB_BUTTON_BASE_CLASSES} ${newFormTarget === 'BILL' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
                       >
                         <Receipt className="w-3.5 h-3.5 shrink-0" />
                         <span>แบบฟอร์มบิล</span>
@@ -424,27 +444,28 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-800 dark:text-slate-200 mb-1 text-[11px]">หมวดหมู่เอกสาร</label>
                     <CustomSelect
                       value={newFormCategory}
                       placeholder="ประเภทเอกสาร"
                       onChange={(v) => setNewFormCategory(String(v))}
-                      options={(newFormTarget === 'CUSTOMER' ? CUSTOMER_DOC_CATEGORIES : BILL_DOC_CATEGORIES).map((c) => ({ value: c, label: c }))}
+                      options={targetNames.map((n) => ({ value: n.name, label: n.name }))}
+                      onRemoveOption={(v) => void handleRemoveDocumentName(String(v))}
                     />
                   </div>
 
                   <div>
                     <div className="p-3 border-2 border-dashed border-purple-300 dark:border-purple-800/80 rounded-xl bg-purple-50/40 dark:bg-purple-950/20 text-center space-y-1.5">
                       <Upload className="w-5 h-5 text-purple-600 dark:text-purple-400 mx-auto" />
-                      <p className="font-bold text-slate-700 dark:text-slate-200 text-[10px]">
-                        {uploadedFile ? <span className="text-purple-600 dark:text-purple-400 font-mono">📎 {uploadedFile.name}</span> : 'รองรับ PDF, DOCX, XLSX, CSV, HTML, TXT (ไฟล์ .doc รุ่นเก่าให้บันทึกเป็น .docx ก่อน)'}
-                      </p>
+                      {uploadedFile && (
+                        <p className="font-bold text-[10px] text-purple-600 dark:text-purple-400 font-mono">📎 {uploadedFile.name}</p>
+                      )}
+                      {/* The browser's own "no file chosen" text is hidden (owner 2026-11-07: no unneeded text). */}
                       <input
                         type="file"
                         aria-label="ไฟล์ต้นฉบับแบบฟอร์ม"
                         accept={TEMPLATE_UPLOAD_ACCEPT}
                         onChange={(e) => void handleFileUploadAndConvert(e)}
-                        className="block w-full text-[10px] text-slate-600 dark:text-slate-400 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-extrabold file:bg-purple-600 file:text-white hover:file:bg-purple-700 cursor-pointer"
+                        className="block w-full text-[10px] text-transparent file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-extrabold file:bg-purple-600 file:text-white hover:file:bg-purple-700 cursor-pointer"
                       />
                     </div>
                     {conversionProgress && (
@@ -456,14 +477,25 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={isSaving}
-                  className="w-full mt-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 text-xs transition-all disabled:opacity-60"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>{isSaving ? 'กำลังบันทึก...' : 'บันทึก Template เข้าคลังระบบ'}</span>
-                </button>
+                <div className="mt-3 flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleClearUpload}
+                    disabled={!uploadedFile || isSaving}
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 flex-1 flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed`}
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>ล้างเทมเพลต</span>
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSaving}
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} flex-1 bg-emerald-700 hover:bg-emerald-800 text-white shadow-md shadow-emerald-600/20 flex items-center justify-center transition-all disabled:opacity-60`}
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>{isSaving ? 'กำลังบันทึก...' : 'บันทึกเข้าคลังระบบ'}</span>
+                  </button>
+                </div>
               </form>
             )}
           </div>
@@ -474,7 +506,7 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
                 type="button"
                 onClick={handlePrint}
                 disabled={checked.length === 0}
-                className="py-1.5 px-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 text-white flex items-center justify-center shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed`}
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>พิมพ์ ({checked.length})</span>
@@ -483,7 +515,7 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
                 type="button"
                 onClick={() => setDeleteOpen(true)}
                 disabled={checked.length === 0}
-                className={`py-1.5 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} flex items-center justify-center transition-all ${
                   checked.length > 0
                     ? 'bg-red-600 text-white shadow-sm hover:bg-red-700'
                     : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400 cursor-not-allowed'

@@ -1,7 +1,9 @@
 'use client'
 
 /**
- * คนใน LINE (/line): who is on the shop's LINE OA.
+ * คนใน LINE (/line): who is on the shop's LINE OA, and (OWNER only) ตั้งค่า LINE, moved here from
+ * ตั้งค่าระบบ (owner 2026-11-06). Summary cards on top, then one card: tabs รอร้านตรวจ | ลูกค้าที่ผูก LINE |
+ * พนักงานส่งของ | ตั้งค่า LINE (OWNER); ตั้งค่า LINE shows its own tabs on a second row.
  * - รอร้านตรวจ: friends not linked yet — still not answered in the chat, or typed the phone of a
  *   customer who already has another LINE (or of several customers). The shop may type name +
  *   phone for them (same rule as the chat, decided by the database) or reject them.
@@ -11,11 +13,24 @@
  * The list refreshes when the screen comes back into view and every 30 s while it is shown
  * (no realtime: line_contacts carries the LINE user id, which never reaches a browser).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import QRCode from 'qrcode'
-import { CheckCircle2, Copy, Link2Off, MessageCircle, QrCode, RefreshCw, UserPlus, Users } from 'lucide-react'
-import { ActionButton } from '@/components/common/ActionButton'
+import { CheckCircle2, Copy, Link2Off, MessageCircle, QrCode, RefreshCw, Search, Settings2, UserPlus, Users, UserX } from 'lucide-react'
+import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
+import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_TH_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
+import {
+  ActionButton,
+  TAB_BUTTON_ACTIVE_CLASSES,
+  TAB_BUTTON_BASE_CLASSES,
+  TAB_BUTTON_INACTIVE_CLASSES,
+  TAB_CONTAINER_CLASSES,
+  COMMAND_BUTTON_SIZE_CLASSES,
+  SEARCH_INPUT_CLASSES,
+  SEARCH_ICON_CLASSES,
+  TABLE_TOOLBAR_CLASSES,
+} from '@/components/common/ActionButton'
+import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { createClient } from '@/lib/supabase/client'
@@ -24,9 +39,12 @@ import { LINE_TEMPLATES, type LineTemplateKey } from '@/lib/line/templates'
 import { getLineOaInfo, registerLineContactByShop, rejectLineContact, unlinkLineContact } from '@/app/actions/line'
 import { DeliveryDriversPanel } from '@/features/settings/components/DeliveryDriversPanel'
 import { LineChatPreview, type LineChatBubble } from '@/features/settings/components/LineChatPreview'
-import { SETTINGS_HELPER, SETTINGS_INPUT, SETTINGS_LABEL, SETTINGS_SECTION, SETTINGS_SECTION_TITLE } from '@/features/settings/components/settings-ui'
+import { LINE_SETTINGS_VIEWS, type LineSettingsView } from '@/features/settings/components/LineSettingsPanel'
+import { LineSettingsWorkspace } from '@/features/settings/components/LineSettingsWorkspace'
+import { SETTINGS_HELPER, SETTINGS_INPUT, SETTINGS_LABEL } from '@/features/settings/components/settings-ui'
 
 type RegisterStatus = 'WAITING' | 'PHONE_TAKEN' | 'DUPLICATE'
+type PeopleView = 'PENDING' | 'LINKED' | 'DRIVERS' | 'SETTINGS'
 
 interface PendingContact {
   id: string
@@ -57,7 +75,15 @@ const STATUS_LABEL: Record<RegisterStatus, string> = {
   PHONE_TAKEN: 'เบอร์นี้ผูก LINE อื่นแล้ว',
   DUPLICATE: 'เบอร์นี้มีลูกค้าหลายรายการ',
 }
-const PILL = 'inline-flex items-center h-5 px-2 rounded-full text-[10px] font-bold'
+const STATUS_TONE: Record<RegisterStatus, string> = {
+  WAITING: 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200',
+  PHONE_TAKEN: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+  DUPLICATE: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
+}
+const PILL = 'inline-flex items-center h-5 px-2 rounded-full text-[10px] font-bold whitespace-nowrap'
+/** Red text button in a table row (same look as the red actions on จัดการบิลเช่า). */
+const DANGER_TEXT_BUTTON =
+  `${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`
 const REFRESH_MS = 30_000
 const PLACEHOLDER = /\{([^{}]+)\}/g
 
@@ -70,6 +96,15 @@ export function LinePeoplePage() {
   const { showToast } = useToast()
   const confirm = useConfirm()
   const { settings } = useSystemSettings()
+  const { user } = useAuth()
+  // ตั้งค่า LINE is the OWNER's (staff see คนใน LINE only)
+  const isOwner = user?.role === 'OWNER'
+  const [tab, setTab] = useState<PeopleView>('PENDING')
+  // staff never see ตั้งค่า LINE, even from a ?tab=settings link
+  const view: PeopleView = tab === 'SETTINGS' && !isOwner ? 'PENDING' : tab
+  const [initialSettingsView, setInitialSettingsView] = useState<LineSettingsView>('CONNECTION')
+  const [search, setSearch] = useState('')
+  const [qrOpen, setQrOpen] = useState(false)
   const [pending, setPending] = useState<PendingContact[]>([])
   const [linked, setLinked] = useState<LinkedContact[]>([])
   const [customers, setCustomers] = useState<Record<string, CustomerLite>>({})
@@ -136,6 +171,15 @@ export function LinePeoplePage() {
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [load])
+
+  // Links: /line?tab=settings[&view=TEMPLATES] (old ตั้งค่า › LINE links land here)
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    if (q.get('tab') !== 'settings') return
+    const v = q.get('view')
+    if (v && LINE_SETTINGS_VIEWS.some((x) => x.id === v)) setInitialSettingsView(v as LineSettingsView)
+    setTab('SETTINGS')
+  }, [])
 
   useEffect(() => {
     getLineOaInfo()
@@ -258,234 +302,368 @@ export function LinePeoplePage() {
   }, [focused, say])
 
   const isNew = (id: string) => firstSeen.current !== null && !firstSeen.current.has(id)
+  const term = search.trim().toLowerCase()
+  const matches = (...values: Array<string | null | undefined>) => !term || values.some((v) => (v || '').toLowerCase().includes(term))
+  const shownPending = pending.filter((c) => matches(c.display_name, c.typed_name, c.typed_phone))
+  const shownLinked = linked.filter((c) => {
+    const cu = customers[c.customer_id]
+    return matches(cu?.name, cu?.phone, c.display_name)
+  })
+  const blockedCount = linked.filter((c) => !c.followed).length
+
+  const peopleTabs: Array<{ id: PeopleView; label: string; count?: number; alert?: boolean; icon?: ReactNode }> = [
+    { id: 'PENDING', label: 'รอร้านตรวจ', count: pending.length, alert: pending.length > 0 },
+    { id: 'LINKED', label: 'ลูกค้าที่ผูก LINE', count: linked.length },
+    { id: 'DRIVERS', label: 'พนักงานส่งของ' },
+    ...(isOwner ? [{ id: 'SETTINGS' as const, label: 'ตั้งค่า LINE', icon: <Settings2 className="w-3.5 h-3.5" /> }] : []),
+  ]
+  const listView = view === 'PENDING' || view === 'LINKED'
+  const tabBar = (
+    <div className="overflow-x-auto no-scrollbar shrink-0">
+      <div className={TAB_CONTAINER_CLASSES} role="tablist" aria-label="คนใน LINE">
+        {peopleTabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={view === t.id}
+            onClick={() => setTab(t.id)}
+            className={`${TAB_BUTTON_BASE_CLASSES} ${view === t.id ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
+          >
+            {t.icon}
+            {t.label}
+            {t.count !== undefined && (
+              <span
+                className={`min-w-5 h-5 px-1.5 rounded-full grid place-items-center text-[10px] font-bold tabular-nums ${
+                  t.alert ? 'bg-amber-500 text-slate-900' : 'bg-slate-300/70 text-slate-700 dark:bg-slate-600 dark:text-slate-200'
+                }`}
+              >
+                {t.count}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
 
   return (
-    <div className="h-full min-h-0 flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-900 text-xs p-2">
-      <div className="flex-1 min-h-0 min-w-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-y-auto">
-        <div className="px-3 sm:px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center gap-2">
-          <span className="w-7 h-7 rounded-lg bg-[#06C755] text-white grid place-items-center text-[9px] font-bold">LINE</span>
-          <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">คนใน LINE</h2>
-          {!notReady && (
-            <span className={SETTINGS_HELPER}>
-              ลูกค้าที่ผูกแล้ว {linked.length} คน · รอร้านตรวจ {pending.length} คน
-            </span>
-          )}
-          <span className="ml-auto" />
-          <ActionButton size="sm" variant="outline" icon={<RefreshCw className={loading ? 'animate-spin' : ''} />} onClick={() => void load()} aria-label="รีเฟรช" />
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px]">
+    <div className="h-full min-h-0 flex flex-col overflow-hidden p-2 gap-2 bg-slate-100 dark:bg-slate-900 text-xs">
+      {/* Summary: same cards as จัดการบิลเช่า */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 sm:gap-2 shrink-0">
+        <StatCard tone="amber" label="รอร้านตรวจ" value={`${pending.length} คน`} icon={<UserPlus className="w-3.5 h-3.5" />} />
+        <StatCard tone="emerald" label="ลูกค้าที่ผูก LINE" value={`${linked.length} คน`} icon={<Users className="w-3.5 h-3.5" />} />
+        <StatCard tone="red" label="บล็อก / ลบ LINE ร้าน" value={`${blockedCount} คน`} icon={<UserX className="w-3.5 h-3.5" />} />
+        <div className="bg-blue-50/60 dark:bg-blue-950/40 p-2 sm:p-2.5 rounded-xl border border-blue-200 dark:border-blue-800 flex items-center justify-between gap-2">
           <div className="min-w-0">
-            {notReady && (
-              <p className="m-3 rounded-lg px-3 py-2 bg-amber-50 dark:bg-amber-950/40 text-[11px] text-amber-800 dark:text-amber-200">
-                ฐานข้อมูลนี้ยังไม่มีส่วนสมัครผ่าน LINE (รอติดตั้ง Migration) จึงยังแสดงรายชื่อไม่ได้
-              </p>
-            )}
+            <span className="text-[10px] sm:text-[11px] text-blue-700 dark:text-blue-300 font-semibold">LINE ID ของร้าน</span>
+            <h3 className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5 truncate">{oa?.lineId || 'ยังไม่ได้ตั้ง'}</h3>
+          </div>
+          <button
+            type="button"
+            onClick={() => setQrOpen(true)}
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} shrink-0 bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs flex items-center cursor-pointer`}
+          >
+            <QrCode className="w-3.5 h-3.5" />
+            QR เพิ่มเพื่อน
+          </button>
+        </div>
+      </div>
 
-            {/* (a) รอร้านตรวจ */}
-            <div className={SETTINGS_SECTION}>
-              <h4 className={SETTINGS_SECTION_TITLE}>
-                <UserPlus className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
-                <span>รอร้านตรวจ</span>
-                <span className={`${PILL} bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200 tabular-nums`}>{pending.length}</span>
-              </h4>
-              <p className={SETTINGS_HELPER}>
-                คนที่เพิ่มเพื่อน LINE ร้านแล้วยังไม่ได้ผูก ระบบส่งแชตให้พิมพ์ชื่อและเบอร์โทรเอง ถ้าเบอร์ไม่มีในระบบ ระบบสร้างลูกค้าใหม่และผูกให้ ถ้าตรงกับลูกค้าเดิม
-                ระบบผูกให้เลย ที่ขึ้นตรงนี้มีแค่คนที่ยังไม่ตอบ และคนที่พิมพ์เบอร์ของลูกค้าที่ผูก LINE อื่นไว้แล้ว · รายการอัปเดตเองเมื่อกลับมาที่หน้านี้
-              </p>
-              <ul className="rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-200 dark:divide-slate-700" data-testid="line-pending">
-                {pending.length === 0 && <li className="p-3 text-slate-500 dark:text-slate-400">{loading ? 'กำลังโหลด…' : 'ไม่มีใครรอร้านตรวจ'}</li>}
-                {pending.map((c) => {
-                  const owner = c.register_customer_id ? customers[c.register_customer_id] : undefined
-                  return (
-                    <li key={c.id} className={isNew(c.id) ? 'bg-emerald-50/60 dark:bg-emerald-950/20' : ''}>
-                      <div className="flex flex-wrap items-center gap-2.5 px-3 py-2.5" onClick={() => setFocusId(c.id)}>
-                        <span className="w-9 h-9 rounded-full grid place-items-center font-bold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 shrink-0">
-                          {initials(c.display_name)}
+      <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
+        {/* Toolbar: which list, search, refresh (พนักงานส่งของ draws its own row: tabs + add-driver fields) */}
+        {view !== 'DRIVERS' && (
+          <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-col sm:flex-row items-stretch sm:items-center`}>
+            {tabBar}
+            {listView && (
+              <div className="relative flex-1 min-w-0">
+                <Search className={SEARCH_ICON_CLASSES} />
+                <input
+                  type="text"
+                  aria-label="ค้นหาคนใน LINE"
+                  placeholder={view === 'PENDING' ? 'ค้นหาชื่อ LINE หรือชื่อ/เบอร์ที่พิมพ์มา...' : 'ค้นหาชื่อลูกค้า เบอร์โทร หรือชื่อ LINE...'}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className={SEARCH_INPUT_CLASSES}
+                />
+              </div>
+            )}
+            {listView && (
+              <ActionButton variant="outline" className="shrink-0" icon={<RefreshCw className={loading ? 'animate-spin' : ''} />} onClick={() => void load()}>
+                รีเฟรช
+              </ActionButton>
+            )}
+          </div>
+        )}
+
+        {notReady && listView && (
+          <p className="m-3 rounded-lg px-3 py-2 bg-amber-50 dark:bg-amber-950/40 text-[11px] text-amber-800 dark:text-amber-200">
+            ฐานข้อมูลนี้ยังไม่มีส่วนสมัครผ่าน LINE (รอติดตั้ง Migration) จึงยังแสดงรายชื่อไม่ได้
+          </p>
+        )}
+
+        {view === 'PENDING' && (
+          <DataTableFrame
+            fill
+            rowCount={shownPending.length}
+            className="flex-1 min-h-0 min-w-0 rounded-none bg-transparent"
+          >
+            <table className={`${DATA_TABLE_CLASSES} text-[11px] leading-tight`} data-testid="line-pending">
+              <thead className={`${DATA_TABLE_THEAD_CLASSES} text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 text-xs`}>
+                <tr>
+                  <th className={`px-3 ${DATA_TABLE_TH_CLASSES}`}>ชื่อใน LINE</th>
+                  <th className={`px-2 ${DATA_TABLE_TH_CLASSES}`}>เพิ่มเพื่อนเมื่อ</th>
+                  <th className={`px-2 ${DATA_TABLE_TH_CLASSES}`}>ชื่อ / เบอร์ที่พิมพ์มา</th>
+                  <th className={`px-2 text-center ${DATA_TABLE_TH_CLASSES}`}>สถานะ</th>
+                  <th className={`px-3 text-right ${DATA_TABLE_TH_CLASSES}`}>จัดการ</th>
+                </tr>
+              </thead>
+              {shownPending.map((c) => {
+                const owner = c.register_customer_id ? customers[c.register_customer_id] : undefined
+                const formOpen = openForm === c.id
+                const note =
+                  c.register_status === 'PHONE_TAKEN'
+                    ? `เบอร์นี้เป็นของลูกค้า "${owner?.name || '-'}" ซึ่งผูก LINE${takenBy[c.register_customer_id || ''] ? ` "${takenBy[c.register_customer_id || '']}"` : ''} อยู่แล้ว (1 คนผูกได้ 1 LINE) ถ้าลูกค้าเปลี่ยน LINE ให้ยกเลิกการผูกเดิมก่อน`
+                    : c.register_status === 'DUPLICATE'
+                      ? 'เบอร์ที่พิมพ์มาตรงกับลูกค้าหลายรายการ ให้แก้ข้อมูลลูกค้าที่ซ้ำก่อน แล้วกด "ร้านกรอกให้"'
+                      : null
+                return (
+                  <tbody key={c.id} className="border-b border-slate-100 dark:border-slate-700">
+                    <tr
+                      onClick={() => setFocusId(c.id)}
+                      className={`transition-colors ${formOpen ? 'bg-emerald-50/50 dark:bg-emerald-900/20' : isNew(c.id) ? 'bg-emerald-50/50 dark:bg-emerald-950/20' : 'hover:bg-slate-50/80 dark:hover:bg-slate-700/30'}`}
+                    >
+                      <td className="px-3 py-2">
+                        <span className="flex items-center gap-2 min-w-0">
+                          <Avatar text={c.display_name} />
+                          <b className="truncate text-slate-900 dark:text-slate-100">{c.display_name || 'LINE ที่ไม่ทราบชื่อ'}</b>
+                          {isNew(c.id) && <span className={`${PILL} bg-emerald-700 text-white`}>ใหม่</span>}
                         </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <b className="text-slate-900 dark:text-slate-100">{c.display_name || 'LINE ที่ไม่ทราบชื่อ'}</b>
-                            {isNew(c.id) && <span className={`${PILL} bg-[#06C755] text-white`}>ใหม่</span>}
-                            <span className={`${PILL} bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300`}>{STATUS_LABEL[c.register_status]}</span>
-                          </div>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                            เพิ่มเพื่อน {thaiDate(c.created_at)}
-                            {c.typed_name && c.typed_phone && (
-                              <>
-                                {' '}
-                                · พิมพ์มาว่า <b className="text-slate-800 dark:text-slate-200">{c.typed_name}</b> <span className="tabular-nums">{phoneText(c.typed_phone)}</span>
-                              </>
-                            )}
-                          </p>
-                        </div>
-                        <span className="flex flex-wrap gap-1.5">
+                      </td>
+                      <td className="px-2 py-2 whitespace-nowrap text-slate-600 dark:text-slate-400 tabular-nums">{thaiDate(c.created_at)}</td>
+                      <td className="px-2 py-2">
+                        {c.typed_name || c.typed_phone ? (
+                          <>
+                            <span className="block font-bold text-slate-900 dark:text-slate-100">{c.typed_name || '-'}</span>
+                            <span className="block text-[10px] text-slate-600 dark:text-slate-400 tabular-nums">{phoneText(c.typed_phone) || '-'}</span>
+                          </>
+                        ) : (
+                          <span className="text-slate-400 dark:text-slate-500">-</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-2 text-center whitespace-nowrap">
+                        <span className={`${PILL} ${STATUS_TONE[c.register_status]}`}>{STATUS_LABEL[c.register_status]}</span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="flex justify-end gap-1.5">
                           <ActionButton
-                            size="sm"
-                            variant="outline"
+                            variant={formOpen ? 'outline' : 'primary'}
                             disabled={busy === c.id}
                             onClick={() => {
                               setFocusId(c.id)
                               setForm({ name: c.typed_name || '', phone: c.typed_phone || '' })
-                              setOpenForm(openForm === c.id ? null : c.id)
+                              setOpenForm(formOpen ? null : c.id)
                             }}
                           >
-                            {openForm === c.id ? 'ปิด' : 'ร้านกรอกให้'}
+                            {formOpen ? 'ปิด' : 'ร้านกรอกให้'}
                           </ActionButton>
-                          <ActionButton size="sm" variant="ghost" disabled={busy === c.id} onClick={() => void reject(c)}>
+                          <button type="button" className={DANGER_TEXT_BUTTON} disabled={busy === c.id} onClick={() => void reject(c)}>
                             ไม่รับ
-                          </ActionButton>
+                          </button>
                         </span>
-                      </div>
-                      {c.register_status === 'PHONE_TAKEN' && (
-                        <p className="mx-3 mb-2.5 sm:ml-[60px] rounded-lg px-2.5 py-1.5 bg-amber-50 dark:bg-amber-950/40 text-[11px] text-amber-800 dark:text-amber-200">
-                          เบอร์นี้เป็นของลูกค้า <b>{owner?.name || '-'}</b> ซึ่งผูก LINE{takenBy[c.register_customer_id || ''] ? ` "${takenBy[c.register_customer_id || '']}"` : ''} อยู่แล้ว 1 คนผูกได้ 1 LINE
-                          ถ้าลูกค้าเปลี่ยน LINE ให้ยกเลิกการผูกเดิมก่อน
-                        </p>
-                      )}
-                      {c.register_status === 'DUPLICATE' && (
-                        <p className="mx-3 mb-2.5 sm:ml-[60px] rounded-lg px-2.5 py-1.5 bg-amber-50 dark:bg-amber-950/40 text-[11px] text-amber-800 dark:text-amber-200">
-                          เบอร์ที่พิมพ์มาตรงกับลูกค้าหลายรายการ ระบบจึงไม่เดาว่าเป็นใคร ให้แก้ข้อมูลลูกค้าที่ซ้ำก่อน แล้วกด &quot;ร้านกรอกให้&quot;
-                        </p>
-                      )}
-                      {openForm === c.id && (
-                        <form
-                          className="mx-3 mb-3 sm:ml-[60px] grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-end rounded-xl border border-slate-200 dark:border-slate-700 p-2.5"
-                          onSubmit={(e) => {
-                            e.preventDefault()
-                            void submitForm(c)
-                          }}
-                        >
-                          <div>
-                            <label className={SETTINGS_LABEL} htmlFor={`reg-name-${c.id}`}>
-                              ชื่อ-นามสกุล
-                            </label>
-                            <input id={`reg-name-${c.id}`} className={SETTINGS_INPUT} maxLength={200} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-                          </div>
-                          <div>
-                            <label className={SETTINGS_LABEL} htmlFor={`reg-phone-${c.id}`}>
-                              เบอร์โทร
-                            </label>
-                            <input
-                              id={`reg-phone-${c.id}`}
-                              className={`${SETTINGS_INPUT} tabular-nums`}
-                              inputMode="tel"
-                              maxLength={20}
-                              placeholder="08x-xxx-xxxx"
-                              value={form.phone}
-                              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                            />
-                          </div>
-                          <ActionButton
-                            type="submit"
-                            variant="primary"
-                            icon={<CheckCircle2 />}
-                            disabled={busy === c.id || !form.name.trim() || !/^0\d{9}$/.test(form.phone.replace(/\D/g, ''))}
-                          >
-                            ตรวจข้อมูล
-                          </ActionButton>
-                          <p className={`${SETTINGS_HELPER} sm:col-span-3`}>
-                            เบอร์ใหม่ = สร้างลูกค้าใหม่และผูก LINE · เบอร์ของลูกค้าเดิมที่ยังไม่มี LINE = ผูกกับลูกค้าคนนั้น · ไม่ส่งข้อความไปหาลูกค้า
-                          </p>
-                        </form>
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
+                      </td>
+                    </tr>
+                    {(note || formOpen) && (
+                      <tr className={formOpen ? 'bg-emerald-50/30 dark:bg-emerald-900/10' : ''}>
+                        <td colSpan={5} className="px-3 pb-3 pt-0">
+                          {note && (
+                            <p className="mb-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-200">{note}</p>
+                          )}
+                          {formOpen && (
+                            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-3">
+                              <form
+                                className="self-start grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-end rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3"
+                                onSubmit={(e) => {
+                                  e.preventDefault()
+                                  void submitForm(c)
+                                }}
+                              >
+                                <div>
+                                  <label className={SETTINGS_LABEL} htmlFor={`reg-name-${c.id}`}>
+                                    ชื่อ-นามสกุล
+                                  </label>
+                                  <input id={`reg-name-${c.id}`} className={SETTINGS_INPUT} maxLength={200} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+                                </div>
+                                <div>
+                                  <label className={SETTINGS_LABEL} htmlFor={`reg-phone-${c.id}`}>
+                                    เบอร์โทร
+                                  </label>
+                                  <input
+                                    id={`reg-phone-${c.id}`}
+                                    className={`${SETTINGS_INPUT} tabular-nums`}
+                                    inputMode="tel"
+                                    maxLength={20}
+                                    placeholder="08x-xxx-xxxx"
+                                    value={form.phone}
+                                    onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                                  />
+                                </div>
+                                <ActionButton
+                                  type="submit"
+                                  variant="primary"
+                                  icon={<CheckCircle2 />}
+                                  disabled={busy === c.id || !form.name.trim() || !/^0\d{9}$/.test(form.phone.replace(/\D/g, ''))}
+                                >
+                                  ตรวจข้อมูล
+                                </ActionButton>
+                              </form>
+                              {focused?.id === c.id && (
+                                <LineChatPreview
+                                  shopName={shopName}
+                                  caption={
+                                    <>
+                                      <MessageCircle className="inline w-3.5 h-3.5 mr-1 text-emerald-700 dark:text-emerald-400" />
+                                      <b className="text-slate-800 dark:text-slate-200">{preview.caption}</b>
+                                    </>
+                                  }
+                                  bubbles={preview.bubbles}
+                                />
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                )
+              })}
+            </table>
+          </DataTableFrame>
+        )}
 
-            {/* (b) พนักงานส่งของ */}
-            <DeliveryDriversPanel />
-
-            {/* (c) ลูกค้าที่ผูก LINE แล้ว */}
-            <div className={SETTINGS_SECTION}>
-              <h4 className={SETTINGS_SECTION_TITLE}>
-                <Users className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
-                <span>ลูกค้าที่ผูก LINE แล้ว</span>
-                <span className={`${PILL} bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200 tabular-nums`}>{linked.length}</span>
-              </h4>
-              <ul className="rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-200 dark:divide-slate-700 max-h-[420px] overflow-y-auto" data-testid="line-linked-customers">
-                {linked.length === 0 && <li className="p-3 text-slate-500 dark:text-slate-400">{loading ? 'กำลังโหลด…' : 'ยังไม่มีลูกค้าที่ผูก LINE'}</li>}
-                {linked.map((c) => {
+        {view === 'LINKED' && (
+          <DataTableFrame
+            fill
+            rowCount={shownLinked.length}
+            className="flex-1 min-h-0 min-w-0 rounded-none bg-transparent"
+          >
+            <table className={`${DATA_TABLE_CLASSES} text-[11px] leading-tight`} data-testid="line-linked-customers">
+              <thead className={`${DATA_TABLE_THEAD_CLASSES} text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 text-xs`}>
+                <tr>
+                  <th className={`px-3 ${DATA_TABLE_TH_CLASSES}`}>ลูกค้า / เบอร์</th>
+                  <th className={`px-2 ${DATA_TABLE_TH_CLASSES}`}>ชื่อใน LINE</th>
+                  <th className={`px-2 ${DATA_TABLE_TH_CLASSES}`}>ผูกเมื่อ</th>
+                  <th className={`px-2 text-center ${DATA_TABLE_TH_CLASSES}`}>สถานะ</th>
+                  <th className={`px-3 text-right ${DATA_TABLE_TH_CLASSES}`}>จัดการ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                {shownLinked.map((c) => {
                   const cu = customers[c.customer_id]
                   return (
-                    <li key={c.id} className="flex flex-wrap items-center gap-2.5 px-3 py-2">
-                      <span className="w-9 h-9 rounded-full grid place-items-center font-bold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 shrink-0">
-                        {initials(cu?.name ?? null)}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <Link href={`/customers?customer=${encodeURIComponent(c.customer_id)}`} className="font-bold text-slate-900 dark:text-slate-100 hover:underline">
-                            {cu?.name || '-'}
-                          </Link>
-                          {c.self_registered && <span className={`${PILL} bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300`}>สมัครเองทาง LINE</span>}
-                          {!c.followed && <span className={`${PILL} bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300`}>บล็อก/ลบ LINE ร้าน</span>}
-                        </div>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
-                          {phoneText(cu?.phone ?? null) || '-'} · LINE &quot;{c.display_name || 'ไม่ทราบชื่อ'}&quot; · ผูกเมื่อ {thaiDate(c.linked_at)}
-                        </p>
-                      </div>
-                      <ActionButton size="sm" variant="ghost" icon={<Link2Off />} className="text-red-700 dark:text-red-400" disabled={busy === c.id} onClick={() => void unlink(c)}>
-                        ยกเลิกการผูก
-                      </ActionButton>
-                    </li>
+                    <tr key={c.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors">
+                      <td className="px-3 py-2">
+                        <span className="flex items-center gap-2 min-w-0">
+                          <Avatar text={cu?.name ?? null} tone="emerald" />
+                          <span className="min-w-0">
+                            <Link href={`/customers?customer=${encodeURIComponent(c.customer_id)}`} className="block truncate font-bold text-slate-900 dark:text-slate-100 hover:underline">
+                              {cu?.name || '-'}
+                            </Link>
+                            <span className="block text-[10px] text-slate-600 dark:text-slate-400 tabular-nums">{phoneText(cu?.phone ?? null) || '-'}</span>
+                          </span>
+                        </span>
+                      </td>
+                      <td className="px-2 py-2 text-slate-700 dark:text-slate-300">{c.display_name || 'ไม่ทราบชื่อ'}</td>
+                      <td className="px-2 py-2 whitespace-nowrap text-slate-600 dark:text-slate-400 tabular-nums">{thaiDate(c.linked_at)}</td>
+                      <td className="px-2 py-2 text-center">
+                        <span className="inline-flex flex-wrap justify-center gap-1">
+                          {c.followed ? (
+                            <span className={`${PILL} bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300`}>ส่งข้อความได้</span>
+                          ) : (
+                            <span className={`${PILL} bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300`}>บล็อก/ลบ LINE ร้าน</span>
+                          )}
+                          {c.self_registered && <span className={`${PILL} bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300`}>สมัครเองทาง LINE</span>}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <button type="button" className={DANGER_TEXT_BUTTON} disabled={busy === c.id} onClick={() => void unlink(c)}>
+                          <Link2Off className="w-3.5 h-3.5" />
+                          ยกเลิกการผูก
+                        </button>
+                      </td>
+                    </tr>
                   )
                 })}
-              </ul>
-            </div>
+              </tbody>
+            </table>
+          </DataTableFrame>
+        )}
 
-            {/* (d) QR เพิ่มเพื่อน LINE ร้าน */}
-            <div className={SETTINGS_SECTION}>
-              <h4 className={SETTINGS_SECTION_TITLE}>
-                <QrCode className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
-                <span>QR เพิ่มเพื่อน LINE ร้าน</span>
-              </h4>
-              <p className={SETTINGS_HELPER}>สำหรับติดหน้าร้านหรือแชร์ทั่วไป เพิ่มเพื่อนอย่างเดียวยังไม่ผูกกับใคร</p>
-              {!oa ? (
-                <p className={SETTINGS_HELPER}>กำลังโหลด…</p>
-              ) : oa.addFriendUrl ? (
-                <div className="flex flex-wrap items-start gap-3 rounded-xl border border-slate-200 dark:border-slate-700 p-3 max-w-xl">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- a generated data: URL QR, nothing to optimise */}
-                  {oa.qr && <img src={oa.qr} alt="QR เพิ่มเพื่อน LINE ร้าน" className="w-32 h-32 rounded-lg bg-white p-1" />}
-                  <div className="space-y-2 min-w-0">
-                    <div>
-                      <p className={SETTINGS_HELPER}>LINE ID ของร้าน</p>
-                      <p className="font-mono text-base font-bold text-slate-900 dark:text-slate-100">{oa.lineId}</p>
-                    </div>
-                    <ActionButton size="sm" variant="outline" icon={<Copy />} onClick={() => void copy(oa.addFriendUrl as string, 'คัดลอกลิงก์แล้ว', 'ลิงก์นี้ใช้เพิ่มเพื่อนอย่างเดียว ยังไม่ผูกกับใคร')}>
-                      คัดลอกลิงก์เพิ่มเพื่อน
-                    </ActionButton>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-[11px] text-amber-700 dark:text-amber-300">
-                  ยังไม่ได้ใส่ LINE ID ของร้าน ใส่ได้ที่{' '}
-                  <Link href="/settings?tab=business" className="underline font-bold">
-                    ตั้งค่า › กิจการ
-                  </Link>
-                </p>
-              )}
-            </div>
-          </div>
+        {view === 'DRIVERS' && <DeliveryDriversPanel tabs={tabBar} />}
 
-          <aside className="border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-3 sm:p-4" aria-label="ตัวอย่างใน LINE">
-            <div className="lg:sticky lg:top-3">
-              <LineChatPreview
-                shopName={shopName}
-                caption={
-                  <>
-                    <MessageCircle className="inline w-3.5 h-3.5 mr-1 text-emerald-700 dark:text-emerald-400" />
-                    <b className="text-slate-800 dark:text-slate-200">{preview.caption}</b>
-                  </>
-                }
-                bubbles={preview.bubbles}
-                note="ข้อความตามที่ตั้งไว้ใน ตั้งค่า › LINE › ข้อความที่ส่งทาง LINE"
-              />
-            </div>
-          </aside>
-        </div>
+        {/* ตั้งค่า LINE: its own tabs come as the second row under these tabs */}
+        {view === 'SETTINGS' && <LineSettingsWorkspace initialView={initialSettingsView} />}
       </div>
+
+      {/* QR to add the shop LINE as a friend (adding a friend links nobody) */}
+      <AppModal isOpen={qrOpen} onClose={() => setQrOpen(false)} size="sm">
+        <AppModalHeader onClose={() => setQrOpen(false)} icon={<QrCode className="w-5 h-5 text-emerald-700 dark:text-emerald-400" />}>
+          <h3 className="font-extrabold text-base text-slate-900 dark:text-slate-100">QR เพิ่มเพื่อน LINE ร้าน</h3>
+        </AppModalHeader>
+        <AppModalBody className="flex flex-col items-center gap-3 text-center">
+          {!oa ? (
+            <p className={SETTINGS_HELPER}>กำลังโหลด…</p>
+          ) : oa.addFriendUrl ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element -- a generated data: URL QR, nothing to optimise */}
+              {oa.qr && <img src={oa.qr} alt="QR เพิ่มเพื่อน LINE ร้าน" className="w-52 h-52 rounded-xl bg-white p-2 border border-slate-200" />}
+              <p className="font-mono text-lg font-bold text-slate-900 dark:text-slate-100">{oa.lineId}</p>
+            </>
+          ) : (
+            <p className="text-[11px] text-amber-700 dark:text-amber-300">
+              ยังไม่ได้ใส่ LINE ID ของร้าน ใส่ได้ที่{' '}
+              <Link href="/settings?tab=business" className="underline font-bold">
+                ตั้งค่า › ข้อมูลกิจการ
+              </Link>
+            </p>
+          )}
+        </AppModalBody>
+        {oa?.addFriendUrl && (
+          <AppModalFooter>
+            <ActionButton variant="outline" icon={<Copy />} onClick={() => void copy(oa.addFriendUrl as string, 'คัดลอกลิงก์แล้ว', 'ลิงก์นี้ใช้เพิ่มเพื่อนอย่างเดียว ยังไม่ผูกกับใคร')}>
+              คัดลอกลิงก์เพิ่มเพื่อน
+            </ActionButton>
+          </AppModalFooter>
+        )}
+      </AppModal>
     </div>
   )
+}
+
+const STAT_TONE = {
+  amber: { box: 'bg-amber-50/60 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800', label: 'text-amber-800 dark:text-amber-300', value: 'text-amber-700 dark:text-amber-400', icon: 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300' },
+  emerald: { box: 'bg-emerald-50/60 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800', label: 'text-emerald-700 dark:text-emerald-300', value: 'text-emerald-700 dark:text-emerald-400', icon: 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300' },
+  red: { box: 'bg-red-50/60 dark:bg-red-950/40 border-red-200 dark:border-red-800', label: 'text-red-700 dark:text-red-300', value: 'text-red-700 dark:text-red-400', icon: 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300' },
+} as const
+
+/** Summary card, the same look as the cards on จัดการบิลเช่า. */
+function StatCard({ tone, label, value, icon }: { tone: keyof typeof STAT_TONE; label: string; value: string; icon: ReactNode }) {
+  const t = STAT_TONE[tone]
+  return (
+    <div className={`p-2 sm:p-2.5 rounded-xl border flex items-center justify-between ${t.box}`}>
+      <div>
+        <span className={`text-[10px] sm:text-[11px] font-semibold ${t.label}`}>{label}</span>
+        <h3 className={`text-base sm:text-lg font-black mt-0.5 ${t.value}`}>{value}</h3>
+      </div>
+      <div className={`p-1.5 rounded-lg ${t.icon}`}>{icon}</div>
+    </div>
+  )
+}
+
+function Avatar({ text, tone = 'slate' }: { text: string | null; tone?: 'slate' | 'emerald' }) {
+  const color =
+    tone === 'emerald'
+      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300'
+      : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
+  return <span className={`w-7 h-7 rounded-full grid place-items-center text-[10px] font-bold shrink-0 ${color}`}>{initials(text)}</span>
 }

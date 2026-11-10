@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-import { amountBox, issuedBillNo } from './helpers';
+import { fillCash, issuedBillNo } from './helpers';
 import { sql } from './db';
 
 // Quotation: build in POS (quotation mode) → save → accept (reserves stock) → open the bill in
@@ -60,7 +60,7 @@ test('เปิดบิลจากใบเสนอราคา: จ่าย
   await page.getByRole('button', { name: 'ชำระเงิน' }).click();
   await page.waitForURL('**/pos/checkout');
   await page.getByRole('button', { name: 'เงินสด' }).click();
-  await amountBox(page, 'เงินสดที่รับมา (บาท)').fill('1000');
+  await fillCash(page, '1000');
   await page.getByRole('button', { name: 'ออกบิล' }).click();
 
   const billNo = await issuedBillNo(page);

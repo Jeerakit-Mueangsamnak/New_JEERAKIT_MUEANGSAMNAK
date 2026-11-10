@@ -1,8 +1,13 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
-import { Plus, Edit2, Trash2, Check, X } from 'lucide-react'
-import { ActionButton } from '@/components/common/ActionButton'
+import { Plus, Edit2, Trash2, Check, X, RotateCcw } from 'lucide-react'
+import { useDataActions } from '@/components/common/useDataActions'
+import {
+  ActionButton,
+  COMMAND_BUTTON_SIZE_CLASSES,
+  TABLE_TOOLBAR_CLASSES,
+} from '@/components/common/ActionButton'
 import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import {
@@ -10,10 +15,11 @@ import {
   CategoryCompositeRule,
   CalculationType,
   CALCULATION_OPTIONS,
-  loadCategories,
+  loadAllCategories,
   addCategoryAsync as addCategory,
   updateCategoryAsync as updateCategory,
   deleteCategoryAsync as deleteCategory,
+  setCategoryActiveAsync as setCategoryActive,
   loadCompositeRules,
   addCompositeRuleAsync as addCompositeRule,
   updateCompositeRuleAsync as updateCompositeRule,
@@ -24,6 +30,7 @@ import {
   addUnitAsync as addUnit,
   updateUnitAsync as updateUnit,
   deleteUnitAsync as deleteUnit,
+  setUnitActiveAsync as setUnitActive,
 } from '@/lib/unit-storage'
 import { Product } from '@/lib/types/rental-pos'
 import {
@@ -33,6 +40,10 @@ import {
   renameCategoryListItemAsync,
   deleteCategoryListItemAsync,
 } from '@/features/products/utils/list-items'
+
+/** Tag after the name of a suspended (ระงับ) category or unit. */
+const SUSPENDED_PILL =
+  'ml-1.5 inline-flex items-center h-5 px-2 rounded-full text-[10px] font-bold bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
 
 interface ProductSettingsViewProps {
   categories?: ProductCategoryItem[]
@@ -60,7 +71,7 @@ export function ProductSettingsView({
   onShowToast,
 }: ProductSettingsViewProps) {
   // ─── Local State if not passed from parent ────────────────
-  const [internalCategories, setInternalCategories] = useState<ProductCategoryItem[]>(() => loadCategories())
+  const [internalCategories, setInternalCategories] = useState<ProductCategoryItem[]>(() => loadAllCategories())
   const [internalCompositeRules, setInternalCompositeRules] = useState<CategoryCompositeRule[]>(() => loadCompositeRules())
 
   const categories = propCategories ?? internalCategories
@@ -73,13 +84,12 @@ export function ProductSettingsView({
   const [newCatName, setNewCatName] = useState('')
   const [catEditId, setCatEditId] = useState<string | null>(null)
   const [catEditName, setCatEditName] = useState('')
-  const [catDeleteConfirmId, setCatDeleteConfirmId] = useState<string | null>(null)
+  const { deleteOrSuspend } = useDataActions()
 
   // ─── Table 2: Units State ──────────────────────────────────
   const [newUnitName, setNewUnitName] = useState('')
   const [unitEditId, setUnitEditId] = useState<string | null>(null)
   const [unitEditName, setUnitEditName] = useState('')
-  const [unitDeleteConfirmId, setUnitDeleteConfirmId] = useState<string | null>(null)
 
   // ─── ตารางเพิ่มรายการ State (owner 2026-11-02) ─────────────
   const [newItemCatId, setNewItemCatId] = useState('')
@@ -124,7 +134,6 @@ export function ProductSettingsView({
   const handleCategoryStartEdit = (cat: ProductCategoryItem) => {
     setCatEditId(cat.id)
     setCatEditName(cat.name)
-    setCatDeleteConfirmId(null)
   }
 
   const handleCategorySaveEdit = async (id: string) => {
@@ -145,22 +154,30 @@ export function ProductSettingsView({
     }
   }
 
-  const handleCategoryDelete = async (id: string) => {
+  // ลบถาวร: only products hold a category back (the server counts them). Every category has its own
+  // default row in ตาราง 3, so those rows are not a reason to refuse (they go with the category).
+  const handleCategoryDelete = async (cat: ProductCategoryItem) => {
+    setCatEditId(null)
     try {
-      const updated = await deleteCategory(id, (targetCat) => {
-        // Safe check: used in products or composite rules?
-        const usedInProducts = allProducts.some(
-          (p) => p.categoryId === targetCat.id || p.category === targetCat.name
-        )
-        const usedInComposite = compositeRules.some((r) => r.categoryId === targetCat.id)
-        return usedInProducts || usedInComposite
+      const outcome = await deleteOrSuspend({
+        name: `หมวดหมู่ "${cat.name}"`,
+        usedIn: 'สินค้า',
+        remove: async () => setCategories(await deleteCategory(cat.id)),
+        suspend: cat.isActive === false ? undefined : async () => setCategories(await setCategoryActive(cat.id, false)),
       })
-      setCategories(updated)
-      setCatDeleteConfirmId(null)
-      onShowToast('ลบหมวดหมู่สำเร็จ', 'ลบข้อมูลหมวดหมู่ออกจากระบบเรียบร้อยแล้ว', 'SUCCESS')
+      if (outcome === 'deleted') onShowToast('ลบหมวดหมู่สำเร็จ', `ลบหมวดหมู่ "${cat.name}" ออกจากระบบแล้ว`, 'SUCCESS')
+      if (outcome === 'suspended') onShowToast('ระงับหมวดหมู่แล้ว', `"${cat.name}" ไม่แสดงให้เลือกในงานใหม่แล้ว`, 'SUCCESS')
     } catch (err: any) {
-      onShowToast('ไม่สามารถลบหมวดหมู่ได้', err?.message || 'หมวดหมู่นี้กำลังถูกใช้งานอยู่', 'ERROR')
-      setCatDeleteConfirmId(null)
+      onShowToast('ไม่สามารถลบหมวดหมู่ได้', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
+    }
+  }
+
+  const handleCategoryReactivate = async (cat: ProductCategoryItem) => {
+    try {
+      setCategories(await setCategoryActive(cat.id, true))
+      onShowToast('เปิดใช้งานหมวดหมู่แล้ว', `"${cat.name}" กลับมาให้เลือกได้แล้ว`, 'SUCCESS')
+    } catch (err: any) {
+      onShowToast('เปิดใช้งานหมวดหมู่ไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
     }
   }
 
@@ -185,7 +202,6 @@ export function ProductSettingsView({
   const handleUnitStartEdit = (unit: Unit) => {
     setUnitEditId(unit.id)
     setUnitEditName(unit.name)
-    setUnitDeleteConfirmId(null)
   }
 
   const handleUnitSaveEdit = async (id: string) => {
@@ -206,21 +222,30 @@ export function ProductSettingsView({
     }
   }
 
-  const handleUnitDelete = async (id: string) => {
+  // ลบถาวร: products (counted by the server) and rows of ตาราง 3 (shop settings) hold a unit back.
+  const handleUnitDelete = async (unit: Unit) => {
+    setUnitEditId(null)
+    const settingsUses = compositeRules.filter((r) => r.unitId === unit.id).length
     try {
-      const updated = await deleteUnit(id, (targetUnit) => {
-        const usedInProducts = allProducts.some(
-          (p) => p.unitId === targetUnit.id || p.unit === targetUnit.name
-        )
-        const usedInComposite = compositeRules.some((r) => r.unitId === targetUnit.id)
-        return usedInProducts || usedInComposite
+      const outcome = await deleteOrSuspend({
+        name: `หน่วยนับ "${unit.name}"`,
+        usedIn: settingsUses > 0 ? 'ตารางประกอบข้อมูล' : 'สินค้า',
+        remove: async () => setMasterUnits(await deleteUnit(unit.id, settingsUses)),
+        suspend: unit.isActive === false ? undefined : async () => setMasterUnits(await setUnitActive(unit.id, false)),
       })
-      setMasterUnits(updated)
-      setUnitDeleteConfirmId(null)
-      onShowToast('ลบหน่วยนับสำเร็จ', 'ลบหน่วยนับออกจากระบบเรียบร้อยแล้ว', 'SUCCESS')
+      if (outcome === 'deleted') onShowToast('ลบหน่วยนับสำเร็จ', `ลบหน่วยนับ "${unit.name}" ออกจากระบบแล้ว`, 'SUCCESS')
+      if (outcome === 'suspended') onShowToast('ระงับหน่วยนับแล้ว', `"${unit.name}" ไม่แสดงให้เลือกในงานใหม่แล้ว`, 'SUCCESS')
     } catch (err: any) {
-      onShowToast('ไม่สามารถลบหน่วยนับได้', err?.message || 'หน่วยนับนี้กำลังถูกใช้งานอยู่', 'ERROR')
-      setUnitDeleteConfirmId(null)
+      onShowToast('ไม่สามารถลบหน่วยนับได้', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
+    }
+  }
+
+  const handleUnitReactivate = async (unit: Unit) => {
+    try {
+      setMasterUnits(await setUnitActive(unit.id, true))
+      onShowToast('เปิดใช้งานหน่วยนับแล้ว', `"${unit.name}" กลับมาให้เลือกได้แล้ว`, 'SUCCESS')
+    } catch (err: any) {
+      onShowToast('เปิดใช้งานหน่วยนับไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
     }
   }
 
@@ -418,7 +443,7 @@ export function ProductSettingsView({
         {/* ==================================================== */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col overflow-hidden min-w-0 min-h-0">
           {/* Table Toolbar */}
-          <div className="p-2.5 sm:p-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2 min-w-0">
+          <div className={`${TABLE_TOOLBAR_CLASSES} flex items-center min-w-0`}>
             <input
               type="text"
               value={newCatName}
@@ -433,7 +458,7 @@ export function ProductSettingsView({
               disabled={!newCatName.trim()}
               variant="primary"
               icon={<Plus />}
-              className="shrink-0 !px-2"
+              className="shrink-0"
             >
               เพิ่มหมวดหมู่
             </ActionButton>
@@ -506,41 +531,15 @@ export function ProductSettingsView({
                       )
                     }
 
-                    if (catDeleteConfirmId === cat.id) {
-                      return (
-                        <tr key={cat.id} className="h-10 bg-red-50/60 dark:bg-red-950/30">
-                          <td colSpan={2} className="py-1 px-1.5 text-center text-red-700 dark:text-red-400 font-bold text-xs truncate">
-                            ยืนยันลบหมวดหมู่ &quot;{cat.name}&quot;?
-                          </td>
-                          <td className="py-1 px-2 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => handleCategoryDelete(cat.id)}
-                                className="px-1.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] cursor-pointer transition-colors shadow-2xs"
-                              >
-                                ลบ
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setCatDeleteConfirmId(null)}
-                                className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-[11px] cursor-pointer transition-colors"
-                              >
-                                ยกเลิก
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    }
-
+                    const suspended = cat.isActive === false
                     return (
-                      <tr key={cat.id} className="h-10 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                      <tr key={cat.id} className={`h-10 hover:bg-slate-50 dark:hover:bg-slate-800/50 ${suspended ? 'opacity-60' : ''}`}>
                         <td className="py-1 px-2 text-center font-bold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
                           {globalIdx}
                         </td>
                         <td className="py-1 px-1.5 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 truncate" title={cat.name}>
                           {cat.name}
+                          {suspended && <span className={SUSPENDED_PILL}>ระงับ</span>}
                         </td>
                         <td className="py-1 px-2 text-center">
                           <div className="flex items-center justify-center gap-1">
@@ -552,17 +551,25 @@ export function ProductSettingsView({
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCatDeleteConfirmId(cat.id)
-                                setCatEditId(null)
-                              }}
-                              className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
-                              title="ลบ"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {suspended ? (
+                              <button
+                                type="button"
+                                onClick={() => void handleCategoryReactivate(cat)}
+                                className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer"
+                                title="เปิดใช้งาน"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => void handleCategoryDelete(cat)}
+                                className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                                title="ลบ"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -580,7 +587,7 @@ export function ProductSettingsView({
         {/* ==================================================== */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col overflow-hidden min-w-0 min-h-0">
           {/* Table Toolbar: หมวดหมู่ that receives the item · item name · เพิ่ม */}
-          <div className="p-2.5 sm:p-3 border-b border-slate-100 dark:border-slate-800 flex flex-wrap xl:flex-nowrap items-center gap-2 min-w-0">
+          <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-wrap xl:flex-nowrap items-center min-w-0`}>
             <div className="w-full xl:w-28 shrink-0 min-w-0">
               <CustomSelect
                 value={newItemCatId}
@@ -697,14 +704,14 @@ export function ProductSettingsView({
                                 type="button"
                                 onClick={() => handleListItemDelete(row)}
                                 disabled={itemSaving}
-                                className="px-1.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] cursor-pointer transition-colors shadow-2xs"
+                                className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-red-600 hover:bg-red-700 text-white cursor-pointer transition-colors shadow-2xs`}
                               >
                                 ลบ
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setItemDeleteKey(null)}
-                                className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-[11px] cursor-pointer transition-colors"
+                                className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors`}
                               >
                                 ยกเลิก
                               </button>
@@ -766,7 +773,7 @@ export function ProductSettingsView({
         {/* ==================================================== */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col overflow-hidden min-w-0 min-h-0">
           {/* Table Toolbar */}
-          <div className="p-2.5 sm:p-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2 min-w-0">
+          <div className={`${TABLE_TOOLBAR_CLASSES} flex items-center min-w-0`}>
             <input
               type="text"
               value={newUnitName}
@@ -781,7 +788,7 @@ export function ProductSettingsView({
               disabled={!newUnitName.trim()}
               variant="primary"
               icon={<Plus />}
-              className="shrink-0 !px-2"
+              className="shrink-0"
             >
               เพิ่มหน่วยนับ
             </ActionButton>
@@ -854,41 +861,15 @@ export function ProductSettingsView({
                       )
                     }
 
-                    if (unitDeleteConfirmId === u.id) {
-                      return (
-                        <tr key={u.id} className="h-10 bg-red-50/60 dark:bg-red-950/30">
-                          <td colSpan={2} className="py-1 px-1.5 text-center text-red-700 dark:text-red-400 font-bold text-xs truncate">
-                            ยืนยันลบหน่วยนับ &quot;{u.name}&quot;?
-                          </td>
-                          <td className="py-1 px-2 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => handleUnitDelete(u.id)}
-                                className="px-1.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] cursor-pointer transition-colors shadow-2xs"
-                              >
-                                ลบ
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setUnitDeleteConfirmId(null)}
-                                className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-[11px] cursor-pointer transition-colors"
-                              >
-                                ยกเลิก
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    }
-
+                    const suspended = u.isActive === false
                     return (
-                      <tr key={u.id} className="h-10 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                      <tr key={u.id} className={`h-10 hover:bg-slate-50 dark:hover:bg-slate-800/50 ${suspended ? 'opacity-60' : ''}`}>
                         <td className="py-1 px-2 text-center font-bold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
                           {globalIdx}
                         </td>
                         <td className="py-1 px-1.5 text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 truncate" title={u.name}>
                           {u.name}
+                          {suspended && <span className={SUSPENDED_PILL}>ระงับ</span>}
                         </td>
                         <td className="py-1 px-2 text-center">
                           <div className="flex items-center justify-center gap-1">
@@ -900,17 +881,25 @@ export function ProductSettingsView({
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setUnitDeleteConfirmId(u.id)
-                                setUnitEditId(null)
-                              }}
-                              className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
-                              title="ลบ"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {suspended ? (
+                              <button
+                                type="button"
+                                onClick={() => void handleUnitReactivate(u)}
+                                className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer"
+                                title="เปิดใช้งาน"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => void handleUnitDelete(u)}
+                                className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                                title="ลบ"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -927,18 +916,24 @@ export function ProductSettingsView({
       {/* ==================================================== */}
       {/* ตารางที่ 3: ตารางประกอบข้อมูล (Full Width Below) */}
       {/* ==================================================== */}
-      <div className="flex flex-col flex-1 min-h-0">
-        {/* Header title */}
-        <div className="shrink-0 flex items-center justify-between pb-1.5 mb-2 border-b border-slate-200 dark:border-slate-800">
-          <div>
-            <h3 className="text-sm font-black text-slate-900 dark:text-slate-100">
-              ตารางประกอบข้อมูล
-            </h3>
-          </div>
+      {/* Table 3: | ลำดับ | หมวดหมู่ | รายการ | วิธีคิดเงิน | หน่วยนับ | จัดการ | — only fills the add-product form, every value stays changeable there */}
+      {/* owner 2026-11-07: one card like the three small tables — title + green [เพิ่มแถว] in its top bar, no bottom bar */}
+      <div className="flex flex-col flex-1 min-h-0 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+        <div className={`${TABLE_TOOLBAR_CLASSES} flex items-center justify-between min-w-0`}>
+          <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 truncate">ตารางประกอบข้อมูล</h3>
+          <ActionButton
+            type="button"
+            onClick={handleStartAddCompositeRow}
+            disabled={isAddingCompositeRow || categories.length === 0}
+            variant="primary"
+            icon={<Plus />}
+            className="shrink-0"
+          >
+            เพิ่มแถว
+          </ActionButton>
         </div>
 
-        {/* Table 3: | ลำดับ | หมวดหมู่ | รายการ | วิธีคิดเงิน | หน่วยนับ | จัดการ | — only fills the add-product form, every value stays changeable there */}
-        <div className="flex-1 min-h-0 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs bg-white dark:bg-slate-900 flex flex-col justify-between">
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
             <table className="w-full text-center text-xs border-collapse table-fixed">
               <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs">
@@ -964,7 +959,7 @@ export function ProductSettingsView({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {/* แถวสำหรับเพิ่มใหม่ (+ เพิ่มแถว) */}
+                {/* แถวสำหรับเพิ่มใหม่ (เพิ่มแถว) */}
                 {isAddingCompositeRow && (
                   <tr className="h-11 bg-emerald-50/60 dark:bg-emerald-950/20">
                     <td className="py-1 px-2 text-center font-bold text-emerald-700 dark:text-emerald-400 border-r border-slate-200 dark:border-slate-700">
@@ -1169,20 +1164,6 @@ export function ProductSettingsView({
             </table>
           </div>
 
-          {/* ท้ายตาราง: [ + เพิ่มแถว ] */}
-          <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-t border-slate-200 dark:border-slate-800 text-xs bg-slate-50 dark:bg-slate-850">
-            <div>
-              <ActionButton
-                type="button"
-                onClick={handleStartAddCompositeRow}
-                disabled={isAddingCompositeRow || categories.length === 0}
-                variant="dashed"
-                icon={<Plus />}
-              >
-                + เพิ่มแถว
-              </ActionButton>
-            </div>
-          </div>
         </div>
       </div>
     </div>

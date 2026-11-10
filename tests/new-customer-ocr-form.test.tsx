@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({}) }))
-vi.mock('@/features/customers/components/CustomerLineLink', () => ({ CustomerLineLink: () => null }))
 
 // The scanner is replaced by one button that hands back a prepared OCR result.
 const scan = vi.hoisted(() => ({ result: {} as Record<string, unknown> }))

@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { ShieldCheck, X, AlertCircle } from 'lucide-react'
@@ -96,21 +97,21 @@ export function PinConfirmProvider({ children }: { children: React.ReactNode }) 
             <button
               type="button"
               onClick={() => setSetupOpen(true)}
-              className="mt-5 w-full rounded-xl bg-blue-600 hover:bg-blue-700 text-white py-2.5 text-sm font-bold"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} mt-5 w-full bg-blue-600 hover:bg-blue-700 text-white`}
             >
               ตั้ง PIN
             </button>
             <button
               type="button"
               onClick={() => { close(null); router.push('/account?tab=SECURITY') }}
-              className="mt-2 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} mt-2 text-blue-600 dark:text-blue-400 hover:underline`}
             >
               ไปหน้า ตั้งค่าส่วนตัว &rsaquo; ความปลอดภัย
             </button>
             <button
               type="button"
               onClick={() => close(null)}
-              className="mt-3 w-full rounded-xl border border-slate-300 dark:border-slate-700 py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} mt-3 w-full border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300`}
             >
               ยกเลิกรายการ
             </button>
@@ -131,7 +132,7 @@ export function PinConfirmProvider({ children }: { children: React.ReactNode }) 
                   )}
                 </div>
               </div>
-              <button type="button" onClick={() => close(null)} className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-700" aria-label="ยกเลิก">
+              <button type="button" onClick={() => close(null)} className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-700`} aria-label="ยกเลิก">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -171,14 +172,14 @@ export function PinConfirmProvider({ children }: { children: React.ReactNode }) 
             )}
 
             <div className="flex gap-2">
-              <button type="button" onClick={() => close(null)} className="flex-1 rounded-xl border border-slate-300 dark:border-slate-700 py-2 text-sm font-semibold">
+              <button type="button" onClick={() => close(null)} className={`${COMMAND_BUTTON_SIZE_CLASSES} flex-1 border border-slate-300 dark:border-slate-700`}>
                 ยกเลิก
               </button>
               <button
                 type="button"
                 onClick={() => void submit()}
                 disabled={busy || pin.length !== 6}
-                className="flex-1 rounded-xl bg-blue-600 text-white py-2 text-sm font-bold disabled:opacity-50"
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} flex-1 bg-blue-600 text-white disabled:opacity-50`}
               >
                 {busy ? 'กำลังตรวจสอบ…' : 'ยืนยัน'}
               </button>

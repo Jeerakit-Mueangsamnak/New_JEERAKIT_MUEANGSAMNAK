@@ -6,6 +6,7 @@ import { Menu, X } from 'lucide-react'
 import { NotificationBell } from '@/components/common/NotificationBell'
 import { QuickActionLauncher } from '@/components/common/QuickActionLauncher'
 import { AppLockButton } from '@/features/auth/components/AppLockButton'
+import { HeldCartButton } from '@/features/pos/components/HeldCartButton'
 import { getPageMeta } from '@/lib/navigation-meta'
 import { LiveClockBadge } from '@/components/common/LiveClockBadge'
 import { useSidebarDrawer } from '@/lib/hooks/useSidebarDrawer'
@@ -55,6 +56,7 @@ function TopHeaderContent() {
       {/* Right: date & time, lock, notifications, quick actions */}
       <div className="flex items-center gap-2 z-10 shrink-0">
         <LiveClockBadge />
+        <HeldCartButton />
         <AppLockButton />
         <NotificationBell />
         <QuickActionLauncher />

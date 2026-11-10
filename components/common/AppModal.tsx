@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { createContext, useContext, useEffect, useCallback, useId, useRef } from 'react'
 import { X, Loader2 } from 'lucide-react'
@@ -269,7 +270,7 @@ export function AppModalHeader({
           <button
             type="button"
             onClick={onClose}
-            className="h-8 px-3 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800`}
           >
             ปิดหน้าต่าง
           </button>
@@ -279,13 +280,7 @@ export function AppModalHeader({
             type="button"
             onClick={onClose}
             aria-label="ปิดหน้าต่าง"
-            className="
-              shrink-0 p-1.5 rounded-full
-              text-slate-600 dark:text-slate-400
-              hover:text-slate-700 dark:hover:text-slate-200
-              hover:bg-slate-200 dark:hover:bg-slate-800
-              transition-colors cursor-pointer
-            "
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer`}
           >
             <X className="w-4 h-4" />
           </button>
@@ -382,14 +377,11 @@ export function AppModalFooter({
         <button
           type="button"
           onClick={onCancel}
-          className="
-            px-3.5 py-1.5 rounded-xl
-            border border-slate-300 dark:border-slate-700
-            bg-white dark:bg-slate-800
-            hover:bg-slate-50 dark:hover:bg-slate-700
-            text-slate-700 dark:text-slate-300
-            font-bold text-xs transition-colors cursor-pointer
-          "
+          className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700
+ bg-white dark:bg-slate-800
+ hover:bg-slate-50 dark:hover:bg-slate-700
+ text-slate-700 dark:text-slate-300
+ transition-colors cursor-pointer`}
         >
           {cancelText}
         </button>
@@ -400,14 +392,11 @@ export function AppModalFooter({
           type="button"
           onClick={onConfirm}
           disabled={isConfirmDisabled || isConfirmLoading}
-          className={`
-            px-4 py-1.5 rounded-xl
-            font-bold text-xs
-            shadow-xs transition-all cursor-pointer
-            flex items-center gap-1.5
-            disabled:opacity-50 disabled:cursor-not-allowed
-            ${confirmColorClasses[confirmButtonColor]}
-          `}
+          className={`${COMMAND_BUTTON_SIZE_CLASSES} shadow-xs transition-all cursor-pointer
+ flex items-center 
+ disabled:opacity-50 disabled:cursor-not-allowed
+ ${confirmColorClasses[confirmButtonColor]}
+ `}
         >
           {isConfirmLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
           <span>{confirmText}</span>

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { HEADER_ICON_BUTTON_CLASSES, HEADER_ICON_BUTTON_OPEN_CLASSES, HEADER_ICON_BUTTON_IDLE_CLASSES } from '@/components/common/ActionButton'
+import { HEADER_ICON_BUTTON_CLASSES, HEADER_ICON_BUTTON_OPEN_CLASSES, HEADER_ICON_BUTTON_IDLE_CLASSES, COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 import {
   Bell,
   CheckCheck,
@@ -124,7 +124,8 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
     } else if (item.data?.sourceType === 'QUOTATION' && item.data?.sourceId) {
       router.push(`/quotations?id=${item.data.sourceId}`)
     } else if (item.data?.sourceType === 'LINE_CONTACT') {
-      router.push('/settings?tab=line')
+      // a friend waiting for the shop to check: คนใน LINE › รอร้านตรวจ
+      router.push('/line')
     } else if (item.data?.sourceType === 'PROFILE') {
       router.push('/account')
     }
@@ -260,7 +261,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
                   onClick={handleMarkAllRead}
                   disabled={markingAll}
                   aria-busy={markingAll}
-                  className="text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-bold flex items-center gap-1 cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-wait"
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-wait`}
                   title="ทำเครื่องหมายว่าอ่านแล้วทั้งหมด"
                 >
                   <CheckCheck className="w-3.5 h-3.5" />
@@ -301,9 +302,6 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
                   </div>
                   <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
                     ไม่มีการแจ้งเตือน
-                  </p>
-                  <p className="text-[11px] text-slate-600 dark:text-slate-400">
-                    ทุกรายการอยู่ในสถานะเรียบร้อยแล้ว
                   </p>
                 </div>
               ) : (
@@ -361,7 +359,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
                               <button
                                 type="button"
                                 onClick={(e) => handleSendBill(e, item)}
-                                className="px-2 py-0.5 rounded-md bg-emerald-700 hover:bg-emerald-800 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                                className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 text-white flex items-center cursor-pointer`}
                               >
                                 <Send className="w-3 h-3" />
                                 ส่งบิล
@@ -370,7 +368,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
                             <button
                               type="button"
                               onClick={(e) => handleMarkHandled(e, item)}
-                              className="px-2 py-0.5 rounded-md border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                              className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center cursor-pointer`}
                             >
                               <Check className="w-3 h-3" />
                               จัดการแล้ว

@@ -1,5 +1,6 @@
 'use client'
 
+import { isNoChargeRental } from '@/features/pos/services/accessory-rules'
 import React, { useEffect, useRef } from 'react'
 import { isLowStock } from '@/features/products/utils/low-stock'
 import {
@@ -8,9 +9,21 @@ import {
   Shuffle,
   History,
   Ban,
+  Pencil,
+  Trash2,
 } from 'lucide-react'
 import { CustomSelect } from '@/components/common/CustomSelect'
-import { ActionButton } from '@/components/common/ActionButton'
+import {
+  ActionButton,
+  COMMAND_BUTTON_SIZE_CLASSES,
+  SEARCH_INPUT_CLASSES,
+  SEARCH_ICON_CLASSES,
+  TABLE_TOOLBAR_CLASSES,
+  TAB_CONTAINER_CLASSES,
+  TAB_BUTTON_BASE_CLASSES,
+  TAB_BUTTON_ACTIVE_CLASSES,
+  TAB_BUTTON_INACTIVE_CLASSES,
+} from '@/components/common/ActionButton'
 import { Product } from '@/lib/types/rental-pos'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
 import { DataTableFrame, DATA_TABLE_CLASSES } from '@/components/common/DataTableFrame'
@@ -39,9 +52,13 @@ interface ProductListViewProps {
   /** Member may adjust stock (menu + OWNER grant); UI hint, the server re-checks. */
   canAdjustStock?: boolean
   onOpenHistory: (product: Product) => void
+  /** Opens the product straight on its edit form. */
+  onEditProduct: (product: Product) => void
   /** Deactivate: products with history are never deleted (Master §2), they are switched off. */
   onDeleteProduct: (product: Product) => void
   onReactivateProduct: (product: Product) => void
+  /** Real delete (never on a bill or quotation; the server checks). */
+  onHardDeleteProduct: (product: Product) => void
   focusedProductId?: string | null
   onRowDoubleClick?: (product: Product) => void
 }
@@ -63,8 +80,10 @@ export function ProductListView({
   onTransformDamaged,
   canAdjustStock = true,
   onOpenHistory,
+  onEditProduct,
   onDeleteProduct,
   onReactivateProduct,
+  onHardDeleteProduct,
   focusedProductId = null,
   onRowDoubleClick,
 }: ProductListViewProps) {
@@ -111,29 +130,21 @@ export function ProductListView({
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
       {/* Table Toolbar */}
-      <div className="p-2 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2 shrink-0">
+      <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-wrap items-center justify-between`}>
         <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
           {/* View Mode Tabs: สินค้าทั้งหมด / สินค้าชำรุด */}
-          <div className="inline-flex items-center bg-slate-200/80 dark:bg-slate-900/90 p-1 rounded-xl border border-slate-300/70 dark:border-slate-800 shrink-0 h-9 gap-1">
+          <div className={TAB_CONTAINER_CLASSES}>
             <button
               type="button"
               onClick={() => setActiveViewTab('ALL')}
-              className={`h-7 px-3.5 rounded-lg text-xs font-bold transition-all cursor-pointer select-none flex items-center justify-center gap-1.5 ${
-                activeViewTab === 'ALL'
-                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-50 shadow-sm border border-slate-200/80 dark:border-slate-700 font-extrabold ring-1 ring-black/5 dark:ring-white/10'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-300/50 dark:hover:bg-slate-800/50'
-              }`}
+              className={`${TAB_BUTTON_BASE_CLASSES} ${activeViewTab === 'ALL' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
             >
               <span>สินค้าทั้งหมด</span>
             </button>
             <button
               type="button"
               onClick={() => setActiveViewTab('DAMAGED')}
-              className={`h-7 px-3.5 rounded-lg text-xs font-bold transition-all cursor-pointer select-none flex items-center justify-center gap-1.5 ${
-                activeViewTab === 'DAMAGED'
-                  ? 'bg-white dark:bg-slate-800 text-amber-700 dark:text-amber-400 shadow-sm border border-amber-200/80 dark:border-amber-800/80 font-extrabold ring-1 ring-amber-500/20'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-slate-300/50 dark:hover:bg-slate-800/50'
-              }`}
+              className={`${TAB_BUTTON_BASE_CLASSES} ${activeViewTab === 'DAMAGED' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
             >
               <span>สินค้าชำรุด</span>
               {damagedProductsCount > 0 && (
@@ -151,19 +162,18 @@ export function ProductListView({
           </div>
 
           <div className="relative min-w-[180px] flex-1">
-            <Search className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className={SEARCH_ICON_CLASSES} />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder={activeViewTab === 'DAMAGED' ? 'ค้นหาชื่อหรือรหัสสินค้าชำรุด...' : 'ค้นหาชื่อหรือรหัสสินค้า...'}
-              className="w-full h-9 pl-9 pr-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+              className={SEARCH_INPUT_CLASSES}
             />
           </div>
 
           <div className="w-auto min-w-[130px] shrink-0">
             <CustomSelect
-              buttonClassName="h-9 px-2.5 rounded-xl"
               value={categoryFilter}
               onChange={(val) => setCategoryFilter(String(val))}
               options={[
@@ -176,7 +186,6 @@ export function ProductListView({
           {activeViewTab === 'ALL' && (
             <div className="w-auto min-w-[140px] shrink-0">
               <CustomSelect
-                buttonClassName="h-9 px-2.5 rounded-xl"
                 value={statusFilter}
                 onChange={(val) => setStatusFilter(String(val))}
                 options={[
@@ -203,11 +212,11 @@ export function ProductListView({
           <table className={`${DATA_TABLE_CLASSES} text-xs`}>
             {activeViewTab === 'DAMAGED' ? (
               <>
-                <thead className="sticky top-0 z-10 !bg-slate-800 dark:!bg-slate-950 text-slate-100 font-bold border-b border-slate-700 shadow-xs text-xs">
+                <thead className="sticky top-0 z-10 font-bold border-b border-slate-700 shadow-xs text-xs">
                   <tr>
                     <th className="py-2 px-2 text-left whitespace-nowrap">ชื่อสินค้า</th>
                     <th className="py-2 px-2 text-left whitespace-nowrap">หมวดหมู่</th>
-                    <th className="py-2 px-2 text-center whitespace-nowrap bg-amber-900/90 text-amber-200 font-black">จำนวนชำรุด</th>
+                    <th className="py-2 px-2 text-center whitespace-nowrap font-black">จำนวนชำรุด</th>
                     <th className="py-2 px-2 text-center whitespace-nowrap">พร้อมใช้</th>
                     <th className="py-2 px-2 text-center whitespace-nowrap">กำลังเช่า</th>
                     <th className="py-2 px-2 text-center whitespace-nowrap">การจัดการ</th>
@@ -243,7 +252,7 @@ export function ProductListView({
                             type="button"
                             onClick={() => onRestoreDamaged(p)}
                             disabled={!canAdjustStock}
-                            className="disabled:opacity-40 disabled:cursor-not-allowed px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs hover:scale-102 cursor-pointer"
+                            className={`${COMMAND_BUTTON_SIZE_CLASSES} disabled:opacity-40 disabled:cursor-not-allowed bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 transition-all flex items-center shadow-2xs hover:scale-102 cursor-pointer`}
                             title={canAdjustStock ? 'นำสินค้าชำรุดกลับมาใช้งานต่อ' : 'ไม่มีสิทธิ์ปรับสต็อก — ให้เจ้าของร้านเปิดสิทธิ์ที่หน้า จัดการสิทธิ์'}
                           >
                             <RotateCcw className="w-3 h-3" />
@@ -253,7 +262,7 @@ export function ProductListView({
                             type="button"
                             onClick={() => onTransformDamaged(p)}
                             disabled={!canAdjustStock}
-                            className="disabled:opacity-40 disabled:cursor-not-allowed px-2 py-0.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs hover:scale-102 cursor-pointer"
+                            className={`${COMMAND_BUTTON_SIZE_CLASSES} disabled:opacity-40 disabled:cursor-not-allowed bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-all flex items-center shadow-2xs hover:scale-102 cursor-pointer`}
                             title={canAdjustStock ? 'ดัดแปลงสินค้าชำรุดเป็นสินค้าอื่น' : 'ไม่มีสิทธิ์ปรับสต็อก — ให้เจ้าของร้านเปิดสิทธิ์ที่หน้า จัดการสิทธิ์'}
                           >
                             <Shuffle className="w-3 h-3" />
@@ -313,7 +322,9 @@ export function ProductListView({
                           </span>
                         </td>
                         <td className="py-1.5 px-2 text-right font-mono font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                          {p.rentPrice !== undefined && p.rentPrice !== null ? (
+                          {isNoChargeRental(p) ? (
+                            <span className="font-sans text-slate-700 dark:text-slate-300">ไม่คิดเงิน</span>
+                          ) : p.rentPrice !== undefined && p.rentPrice !== null ? (
                             <span>{p.rentPrice.toLocaleString()}{p.calculationType === 'PER_DAY' || p.rentalType === 'DAILY' ? '/วัน' : '/รอบ'}</span>
                           ) : p.salePrice !== undefined && p.salePrice !== null ? (
                             <span className="text-violet-600 dark:text-violet-400">{p.salePrice.toLocaleString()} (ขาย)</span>
@@ -360,6 +371,15 @@ export function ProductListView({
                             >
                               <History className="w-3.5 h-3.5" />
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => onEditProduct(p)}
+                              className="p-1 rounded-lg text-slate-600 dark:text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
+                              title="แก้ไขสินค้า"
+                              aria-label={`แก้ไข ${p.name}`}
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
                             {isInactive ? (
                               <button
                                 type="button"
@@ -381,6 +401,15 @@ export function ProductListView({
                                 <Ban className="w-3.5 h-3.5" />
                               </button>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => onHardDeleteProduct(p)}
+                              className="p-1 rounded-lg text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                              title="ลบสินค้า"
+                              aria-label={`ลบ ${p.name}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </td>
                       </tr>

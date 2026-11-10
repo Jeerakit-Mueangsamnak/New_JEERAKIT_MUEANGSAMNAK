@@ -4,7 +4,6 @@ import React from 'react'
 
 export interface ActionButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'active' | 'primary' | 'neutral' | 'ghost' | 'dashed' | 'secondary' | 'outline' | 'utility' | 'danger' | 'info'
-  size?: 'sm' | 'md'
   icon?: React.ReactNode
   badge?: React.ReactNode
 }
@@ -15,26 +14,28 @@ export const CONTROL_HEIGHT_CLASS = 'h-9'
 export const CONTROL_SQUARE_CLASS = 'h-9 w-9'
 
 /**
- * Standard Action/Toolbar Button base style
- * Base: px-3.5 py-0 rounded-xl text-xs gap-1.5 whitespace-nowrap icon 16x16
+ * Size of every ordinary command button in the app (owner 2026-11-07, from the bills toolbar):
+ * 32px high, 12px bold text, 14×14 icon, 8px side padding, 4px icon gap, 8px corners.
+ * Raw <button>s that act as commands use it too, so the size lives in one place.
  */
-export const ACTION_BUTTON_BASE_CLASSES =
-  `${CONTROL_HEIGHT_CLASS} px-3.5 py-0 rounded-xl text-xs gap-1.5 whitespace-nowrap inline-flex items-center justify-center font-bold transition-all cursor-pointer select-none [&>svg]:w-4 [&>svg]:h-4 [&>svg]:shrink-0 disabled:opacity-50 disabled:cursor-not-allowed`
+export const COMMAND_BUTTON_SIZE_CLASSES =
+  'h-8 px-2 py-0 gap-1 rounded-lg text-xs font-bold [&_svg]:w-3.5 [&_svg]:h-3.5 [&_svg]:shrink-0'
 
-export const ACTION_BUTTON_SM_CLASSES =
-  'h-7 px-3 py-0 rounded-lg text-xs gap-1.5 whitespace-nowrap inline-flex items-center justify-center font-bold transition-all cursor-pointer select-none [&>svg]:w-3.5 [&>svg]:h-3.5 [&>svg]:shrink-0 disabled:opacity-50 disabled:cursor-not-allowed'
+/** Standard Action/Toolbar Button base style (the command size + layout and states). */
+export const ACTION_BUTTON_BASE_CLASSES =
+  `${COMMAND_BUTTON_SIZE_CLASSES} whitespace-nowrap inline-flex items-center justify-center transition-all cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed`
 
 /*
  * App header + sidebar ("app chrome") — Master §39.11. One place for height, colour, padding and
  * the header controls, so TopHeader, Sidebar, NotificationBell, QuickActionLauncher, LiveClockBadge
  * and AppLockButton always match.
  */
-/** Header bar and the sidebar "เมนูหลัก" row share this height, so their bottom borders line up. */
-export const APP_HEADER_HEIGHT_CLASS = 'h-16'
+/** Height of the app header bar (the sidebar logo row is taller since 2026-11-10). */
+export const APP_HEADER_HEIGHT_CLASS = 'h-14'
 /** Same side padding as the page content (p-2), so header controls line up with the cards below. */
 export const APP_HEADER_PADDING_X_CLASS = 'px-2'
 /** Background of the header bar and the sidebar. */
-export const APP_CHROME_BG_CLASSES = 'bg-[#E3E3E3] dark:bg-slate-900'
+export const APP_CHROME_BG_CLASSES = 'bg-[#d6e4ff] dark:bg-slate-900'
 /** Bottom/side border colour of the header bar and the sidebar. */
 export const APP_CHROME_BORDER_CLASSES = 'border-slate-300 dark:border-slate-800'
 
@@ -47,8 +48,31 @@ export const HEADER_ICON_BUTTON_CLASSES = `${HEADER_CONTROL_SHAPE} ${CONTROL_SQU
 export const HEADER_ICON_BUTTON_IDLE_CLASSES = `${HEADER_CONTROL_SURFACE} text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700`
 export const HEADER_ICON_BUTTON_OPEN_CLASSES = 'bg-blue-50 dark:bg-blue-950/60 border-blue-400 text-blue-600 dark:text-blue-400'
 
+/*
+ * Shared sizes for every menu except POS (owner 2026-11-07: the size most pages already use becomes
+ * the one value every page reads from here).
+ */
+/** Table toolbar above a list: padding, gap between controls, bottom line. Add the layout (flex …). */
+export const TABLE_TOOLBAR_CLASSES = 'p-2 gap-2 border-b border-slate-200 dark:border-slate-700 shrink-0'
+/** Bar under a table/form (same spacing as the toolbar, line on top). Add the layout (flex …). */
+export const TABLE_FOOTER_CLASSES = 'p-2 gap-2 border-t border-slate-200 dark:border-slate-700 shrink-0'
+/** Icon-only action button inside a table row (the bills table style). Add the icon colour + hover colour. */
+export const ROW_ICON_BUTTON_CLASSES =
+  'inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed'
+/** Search box in a toolbar: wrap it in `relative`, put SEARCH_ICON_CLASSES on the <Search> icon. */
+export const SEARCH_INPUT_CLASSES =
+  'w-full h-9 pl-9 pr-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors'
+export const SEARCH_ICON_CLASSES =
+  'w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none'
+
+/** Tab bar look (height, inner padding, colour, border). TAB_CONTAINER_CLASSES adds the row layout; full-width bars add `grid grid-cols-N`. */
+// items-center + content-center keep the 28px buttons vertically centred whether the bar is flex or grid
+// (a grid bar used to sit them at the top: 4px gap above, 2px below — owner 2026-11-10).
+export const TAB_BAR_SURFACE_CLASSES =
+  'h-9 p-1 gap-1 items-center content-center rounded-xl bg-slate-200/80 dark:bg-slate-700/80 border border-slate-300/60 dark:border-slate-600/60'
+
 export const TAB_CONTAINER_CLASSES =
-  'h-9 p-1 gap-1 rounded-xl bg-slate-200/80 dark:bg-slate-700/80 border border-slate-300/60 dark:border-slate-600/60 inline-flex items-center shrink-0 overflow-x-auto no-scrollbar'
+  `${TAB_BAR_SURFACE_CLASSES} inline-flex items-center shrink-0 overflow-x-auto overflow-y-hidden no-scrollbar`
 
 export const TAB_BUTTON_BASE_CLASSES =
   'h-7 px-3.5 py-0 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap select-none shrink-0'
@@ -63,7 +87,6 @@ export const ActionButton = React.forwardRef<HTMLButtonElement, ActionButtonProp
   (
     {
       variant = 'neutral',
-      size = 'md',
       icon,
       badge,
       className = '',
@@ -107,13 +130,11 @@ export const ActionButton = React.forwardRef<HTMLButtonElement, ActionButtonProp
         break
     }
 
-    const baseClasses = size === 'sm' ? ACTION_BUTTON_SM_CLASSES : ACTION_BUTTON_BASE_CLASSES
-
     return (
       <button
         ref={ref}
         type={type}
-        className={`${baseClasses} ${variantClasses} ${className}`}
+        className={`${ACTION_BUTTON_BASE_CLASSES} ${variantClasses} ${className}`}
         {...props}
       >
         {icon}

@@ -39,7 +39,16 @@ export function ProductCard({ product, mode = 'RENT', onClick, allowOutOfStock =
           ? (product.daily_price ?? product.dailyPrice ?? 0)
           : (product.normal_price ?? product.normalPrice ?? 0))
 
-  const typeBadge = isSaleMode
+  // A rental the shop does not charge for (สินค้า › วิธีคิดราคา "ไม่คิดเงิน"): no price, no per-round label.
+  const noCharge = !isSaleMode && product.isChargeable === false
+
+  const typeBadge = noCharge
+    ? {
+        classes: 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300',
+        icon: <RefreshCw className="w-3 h-3" />,
+        label: 'ไม่คิดเงิน',
+      }
+    : isSaleMode
     ? {
         classes: 'bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300',
         icon: <ShoppingCart className="w-3 h-3" />,
@@ -104,8 +113,14 @@ export function ProductCard({ product, mode = 'RENT', onClick, allowOutOfStock =
         </div>
 
         <div className="flex items-baseline gap-1 text-xs text-slate-700 dark:text-slate-300">
-          <span className="font-semibold">ราคา {price.toLocaleString('th-TH')}</span>
-          <span className="text-slate-600 dark:text-slate-400 font-medium">/ {product.unit_name || product.unit || 'ชิ้น'}</span>
+          {noCharge ? (
+            <span className="font-semibold">ไม่คิดเงิน</span>
+          ) : (
+            <>
+              <span className="font-semibold">ราคา {price.toLocaleString('th-TH')}</span>
+              <span className="text-slate-600 dark:text-slate-400 font-medium">/ {product.unit_name || product.unit || 'ชิ้น'}</span>
+            </>
+          )}
         </div>
       </div>
     </div>

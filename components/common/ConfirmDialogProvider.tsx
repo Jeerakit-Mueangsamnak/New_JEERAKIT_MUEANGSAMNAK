@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, HelpCircle, Info } from 'lucide-react'
@@ -16,6 +17,8 @@ export interface ConfirmOptions {
   cancelLabel?: string
   /** Red confirm button for destructive actions (delete, reset). */
   danger?: boolean
+  /** Amber confirm button for ระงับ (suspend): reversible, history kept. */
+  warning?: boolean
 }
 
 export interface AskTextOptions extends ConfirmOptions {
@@ -139,7 +142,7 @@ export function ConfirmDialogProvider({ children }: { children: React.ReactNode 
                 <button
                   type="button"
                   onClick={() => close(false)}
-                  className="h-9 px-3.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800`}
                 >
                   {o.cancelLabel || 'ยกเลิก'}
                 </button>
@@ -149,8 +152,12 @@ export function ConfirmDialogProvider({ children }: { children: React.ReactNode 
                 type="button"
                 onClick={() => close(true)}
                 disabled={Boolean(required && !text.trim())}
-                className={`h-9 px-3.5 rounded-xl text-xs font-bold text-white disabled:opacity-50 ${
-                  o.danger ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} disabled:opacity-50 ${
+                  o.danger
+                    ? 'bg-red-600 hover:bg-red-700 text-white'
+                    : o.warning
+                      ? 'bg-amber-500 hover:bg-amber-600 text-slate-900'
+                      : 'bg-blue-600 hover:bg-blue-700 text-white'
                 }`}
               >
                 {o.confirmLabel || (pending.alertOnly ? 'ตกลง' : 'ยืนยัน')}

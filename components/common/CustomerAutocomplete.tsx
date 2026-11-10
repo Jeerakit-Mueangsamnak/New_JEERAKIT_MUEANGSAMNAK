@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useRef, useEffect, useMemo } from 'react'
-import { Search, User, Phone, Check, X, Loader2 } from 'lucide-react'
+import { Search, Check, X, Loader2 } from 'lucide-react'
 import { Customer } from '@/lib/types/rental-pos'
 import { useClickOutside } from '@/lib/hooks/useClickOutside'
 import { useFloatingPlacement } from '@/lib/hooks/useFloatingPlacement'
@@ -234,31 +234,10 @@ export function CustomerAutocomplete({
                         : 'hover:bg-slate-100 dark:hover:bg-slate-700/80 text-slate-800 dark:text-slate-200'
                     }`}
                   >
-                    <div className="min-w-0 flex-1">
-                      <div className="font-bold flex items-center gap-1.5 truncate">
-                        <User className="w-3 h-3 text-slate-600 dark:text-slate-400 shrink-0" />
-                        <span className="truncate">{cust.customerName}</span>
-                        {cust.companyName && (
-                          <span className="text-[11px] text-slate-600 dark:text-slate-400 font-normal truncate">
-                            ({cust.companyName})
-                          </span>
-                        )}
-                        {cust.customerCode && (
-                          <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono shrink-0">
-                            [{cust.customerCode}]
-                          </span>
-                        )}
-                      </div>
-                      {cust.phone && (
-                        <div className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1 mt-0.5">
-                          <Phone className="w-2.5 h-2.5 shrink-0" />
-                          <span>{cust.phone}</span>
-                          {cust.address && (
-                            <span className="truncate ml-1 text-slate-600 dark:text-slate-400">· {cust.address}</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    {/* A name field lists names only (one line); picking still fills phone etc. as before */}
+                    <span className="min-w-0 flex-1 truncate font-bold" title={cust.customerName}>
+                      {cust.customerName}
+                    </span>
                     {isSelected && <Check className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 ml-1" />}
                   </button>
                 )

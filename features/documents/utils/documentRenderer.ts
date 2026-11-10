@@ -14,33 +14,28 @@ export interface BillRenderSnapshot {
   taxAmount?: number
   depositAmount?: number
   grandTotal?: number
+  /** ยอดที่ต้องชำระ: the bill total plus the deposit taken with it (as on the payment page). */
+  totalPayable?: number
+  /** Page of a multi-page print, e.g. "1/2" ({{document.page}}); one page = "1/1". */
+  pageLabel?: string
   /** VAT rate (%) of the document; null / undefined = no VAT. */
   vatRate?: number | null
   paidAmount?: number
   outstandingAmount?: number
   refundAmount?: number
-  lateFee?: number
   damageFee?: number
   paymentMethod?: string
-  checkStage?: 'DISPATCH' | 'RETURN'
   items?: Array<{
     code?: string
     name: string
     quantity: number
-    deliveredQty?: number
-    normalReturnedQty?: number
-    remainingQty?: number
-    outstandingQty?: number
     unit?: string
     price?: number
     rentalType?: string
     billableDays?: number
     lineTotal?: number
-    returnedQty?: number
-    normalQty?: number
-    damagedQty?: number
-    lostQty?: number
-    damageFee?: number
+    /** A rental the shop does not charge for: ราคา / การเช่า / จำนวนเงิน print "-" (owner 2026-11-09). */
+    isNoCharge?: boolean
   }>
 }
 
@@ -75,6 +70,32 @@ export function thaiBahtText(amount?: number | null): string {
   return rest === 0 ? `${bahtText}บาทถ้วน` : `${bahtText}บาท${thaiIntegerText(rest)}สตางค์`
 }
 
+export const THAI_MONTHS_SHORT = [
+  'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+  'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
+]
+
+/** "9 พ.ย. 2569": day, short Thai month, Buddhist year. */
+export function thaiShortFullYearDate(value?: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value || '')
+  if (m) return `${Number(m[3])} ${THAI_MONTHS_SHORT[Number(m[2]) - 1]} ${Number(m[1]) + 543}`
+  const date = value ? new Date(value) : null
+  if (!date || isNaN(date.getTime())) return ''
+  return `${date.getDate()} ${THAI_MONTHS_SHORT[date.getMonth()]} ${date.getFullYear() + 543}`
+}
+
+/**
+ * Dates printed after a per-day line's name (owner 2026-11-09):
+ * "(เริ่มเช่า 9 พ.ย. 2569 กำหนดคืน 15 พ.ย. 2569)"; empty for any other line.
+ */
+export function dailyRentalPeriodText(item: { rentalType?: string; dailyStartDate?: string; dailyEndDate?: string }): string {
+  if (item.rentalType !== 'DAILY') return ''
+  const start = thaiShortFullYearDate(item.dailyStartDate)
+  const end = thaiShortFullYearDate(item.dailyEndDate)
+  if (!start && !end) return ''
+  return `(${[start && `เริ่มเช่า ${start}`, end && `กำหนดคืน ${end}`].filter(Boolean).join(' ')})`
+}
+
 /** "3 รอบ" / "2 วัน" / "ขาย" for the rental column of an item row. */
 export function rentalTermLabel(rentalType?: string, periods?: number): string {
   if (rentalType === 'SALE') return 'ขาย'
@@ -82,210 +103,210 @@ export function rentalTermLabel(rentalType?: string, periods?: number): string {
   return rentalType === 'DAILY' ? `${n} วัน` : `${n} รอบ`
 }
 
-/** One A4 quotation page: 16 rows max, consecutive numbers across pages. */
-export function generateQuotationRowsHtml(
-  items: Array<{ name: string; quantity?: number; unit?: string; price?: number; rentalType?: string; billableDays?: number; lineTotal?: number }> = [],
-  rowOffset = 0
-): string {
-  const widths = ['6%', '38%', '8%', '8%', '11%', '13%', '16%']
-  return Array.from({ length: 16 }, (_, index) => {
-    const item = items[index]
-    const values = item
-      ? [
-          String(rowOffset + index + 1),
-          escapeDocumentHtml(item.name),
-          String(item.quantity ?? ''),
-          escapeDocumentHtml(item.unit || ''),
-          formatBahtCurrency(item.price),
-          rentalTermLabel(item.rentalType, item.billableDays),
-          formatBahtCurrency(item.lineTotal),
-        ]
-      : [String(rowOffset + index + 1), '', '', '', '', '', '']
-    const align = ['center', 'left', 'center', 'center', 'right', 'center', 'right']
-    const cells = widths
-      .map((width, cellIndex) => {
-        const borders = `${cellIndex < widths.length - 1 ? 'border-right:1px solid #64748b;' : ''}${index === 15 ? '' : 'border-bottom:1px solid #64748b;'}`
-        return `<td style="width:${width};height:25px;${borders}text-align:${align[cellIndex]};padding:0 4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">${values[cellIndex]}</td>`
+/** A rental line the shop does not charge for: its price, rental and amount cells print "-" (owner 2026-11-09). */
+const isNoChargeLine = (item: { price?: number | null; rentalType?: string; isNoCharge?: boolean }) =>
+  item.isNoCharge === true || (item.rentalType !== 'SALE' && Number(item.price ?? 0) === 0)
+
+/** Columns of a shop form's item table that are centred and as wide as their header text (owner 2026-11-09). */
+const FITTED_ITEM_FIELDS = new Set(['quantity', 'unit', 'rental'])
+/** Room left beside the header text, on top of the cell's own padding. */
+const FITTED_COLUMN_SPARE_PX = 8
+
+const styleWidth = (style: string) => Number(/(?:^|[;\s"])width:\s*([\d.]+)px/.exec(style)?.[1] ?? NaN)
+const stylePx = (style: string, prop: string) => Number(new RegExp(`${prop}:\\s*([\\d.]+)px`).exec(style)?.[1] ?? 0)
+const setStyleWidth = (style: string, width: number) =>
+  style.replace(/((?:^|[;\s"])width:\s*)[\d.]+px/, `$1${Math.round(width * 100) / 100}px`)
+
+/**
+ * A shop form drawn with one field per item cell ({{items.1.quantity}}): the จำนวน / หน่วย / การเช่า
+ * columns are made as wide as their header text and their cells centred; the width they give up goes
+ * to the รายการ column, so the table keeps its size and every row moves together. The stored form is
+ * not changed. A table this cannot read cell by cell (merged cells, several header rows) is left as drawn.
+ */
+export function fitFormItemColumns(html: string): string {
+  const firstField = html.search(/\{\{\s*items\.1\.(?:name|quantity|unit|rental)\s*\}\}/)
+  if (firstField < 0) return html
+  const tableStart = html.lastIndexOf('<table', firstField)
+  const tableEnd = html.indexOf('</table>', firstField)
+  if (tableStart < 0 || tableEnd < 0) return html
+  const table = html.slice(tableStart, tableEnd)
+  if (/\b(?:colspan|rowspan)\s*=/i.test(table)) return html
+
+  const ROW = /<tr\b[^>]*>[\s\S]*?<\/tr>/g
+  const CELL = /<(t[hd])\b([^>]*)>([\s\S]*?)<\/\1>/g
+  const rows = table.match(ROW) ?? []
+  const cellsOf = (row: string) => [...row.matchAll(CELL)]
+  const headerRows = rows.filter((row) => /<th\b/.test(row))
+  const fieldRow = rows.find((row) => /\{\{\s*items\.1\./.test(row))
+  if (headerRows.length !== 1 || !fieldRow) return html
+  const header = cellsOf(headerRows[0])
+  const columnCount = header.length
+  if (rows.some((row) => cellsOf(row).length !== columnCount)) return html
+
+  const fields = cellsOf(fieldRow).map((cell) => /\{\{\s*items\.1\.(\w+)\s*\}\}/.exec(cell[3])?.[1] ?? '')
+  const nameColumn = fields.indexOf('name')
+  if (nameColumn < 0) return html
+
+  const newWidths = new Map<number, number>()
+  let freed = 0
+  fields.forEach((field, index) => {
+    if (!FITTED_ITEM_FIELDS.has(field)) return
+    const [, , attrs, content] = header[index]
+    const style = /style="([^"]*)"/.exec(attrs)?.[1] ?? ''
+    const oldWidth = styleWidth(style)
+    const textWidth = styleWidth(/style="([^"]*)"/.exec(content)?.[1] ?? '')
+    if (!Number.isFinite(oldWidth) || !Number.isFinite(textWidth)) return
+    const width = textWidth + stylePx(style, 'padding-left') + stylePx(style, 'padding-right') + FITTED_COLUMN_SPARE_PX
+    newWidths.set(index, width)
+    freed += oldWidth - width
+  })
+  if (newWidths.size === 0) return html
+  const nameWidth = styleWidth(/style="([^"]*)"/.exec(header[nameColumn][2])?.[1] ?? '')
+  if (!Number.isFinite(nameWidth) || nameWidth + freed < 40) return html
+  newWidths.set(nameColumn, nameWidth + freed)
+
+  const fitted = table.replace(ROW, (row) => {
+    let index = -1
+    return row.replace(CELL, (cell, tag: string, attrs: string, content: string) => {
+      index += 1
+      const width = newWidths.get(index)
+      if (width === undefined) return cell
+      let delta = 0
+      const cellAttrs = attrs.replace(/style="([^"]*)"/, (_m, style: string) => {
+        delta = width - styleWidth(style)
+        let next = setStyleWidth(style, width)
+        if (tag === 'td' && index !== nameColumn) {
+          next = /text-align:\s*\w+/.test(next) ? next.replace(/text-align:\s*\w+/, 'text-align:center') : `text-align:center; ${next}`
+        }
+        return `style="${next}"`
       })
-      .join('')
-    return `<tr style="height:25px;">${cells}</tr>`
-  }).join('')
+      // A body cell's inner box is drawn as wide as the cell: it moves with it.
+      const cellContent = tag === 'td' && delta !== 0
+        ? content.replace(/(<span\b[^>]*style=")([^"]*display:\s*block[^"]*)"/, (_m, open: string, style: string) => {
+            const inner = styleWidth(style)
+            return Number.isFinite(inner) ? `${open}${setStyleWidth(style, Math.max(0, inner + delta))}"` : _m
+          })
+        : content
+      return `<${tag}${cellAttrs}>${cellContent}</${tag}>`
+    })
+  })
+  return html.slice(0, tableStart) + fitted + html.slice(tableEnd)
+}
+
+const DOCUMENT_FIELD_STYLE = {
+  terms: 'display:block;max-width:100%;box-sizing:border-box;white-space:pre-line;overflow-wrap:anywhere;word-break:break-word;line-height:1.45;vertical-align:top',
+  singleLine: 'display:inline-block;max-width:100%;box-sizing:border-box;white-space:nowrap;overflow-wrap:normal;word-break:keep-all;font-size:0.9em;vertical-align:bottom',
+  signer: 'display:inline-block;max-width:100%;box-sizing:border-box;white-space:normal;overflow-wrap:anywhere;word-break:break-word;line-height:1.3;vertical-align:bottom',
+} as const
+
+/** Bill templates may put the Thai amount in parentheses; print the amount text without them. */
+export function removeThaiAmountTextParentheses(template: string): string {
+  return template.replace(
+    /\(\s*(\{\{\s*(?:bill|return|fine)\.(?:grand_total_text|total_payable_text|total_text)\s*\}\})\s*\)/g,
+    '$1'
+  )
+}
+
+function enlargeBusinessLogo(html: string): string {
+  return html.replace(/<img\b[^>]*>/gi, (image) => {
+    if (!/\bsrc\s*=\s*(["'])\{\{\s*business\.logo_url\s*\}\}\1/i.test(image)) return image
+    const style = /style\s*=\s*(["'])(.*?)\1/i
+    if (style.test(image)) {
+      return image.replace(style, (_match, quote: string, value: string) =>
+        `style=${quote}${value};width:100% !important;height:auto !important;max-height:150px !important;object-fit:contain;display:block${quote}`
+      )
+    }
+    return image.replace(/>$/, ' style="width:100%;height:auto;max-height:150px;object-fit:contain;display:block">')
+  })
+}
+
+/** The nearest value of a CSS property written before `index` (the box the field sits in). */
+function cssValueBefore(html: string, index: number, prop: string): string | null {
+  const at = html.lastIndexOf(`${prop}:`, index)
+  if (at < 0) return null
+  const m = /^[^:]*:\s*([^;"]+)/.exec(html.slice(at, at + 200))
+  return m ? m[1].trim() : null
+}
+
+let measureContext: OffscreenCanvasRenderingContext2D | null | undefined
+const THAI_MARKS = /[ัิ-ฺ็-๎]/g
+
+/** Width of a text on paper; without a canvas (tests) a fair estimate from the letters. */
+function textWidthPx(text: string, font: string, fontSizePx: number): number {
+  if (measureContext === undefined) {
+    measureContext = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(1, 1).getContext('2d') : null
+  }
+  if (measureContext) {
+    measureContext.font = font
+    return measureContext.measureText(text).width
+  }
+  return text.replace(THAI_MARKS, '').length * fontSizePx * 0.6
+}
+
+/** The part of `text` that fits in `maxWidth` (broken between words), and the rest. */
+function splitTextToWidth(text: string, maxWidth: number, measure: (t: string) => number): [string, string] {
+  if (measure(text) <= maxWidth) return [text, '']
+  const words = text.split(/(\s+)/)
+  let line = ''
+  let i = 0
+  for (; i < words.length; i++) {
+    if (measure((line + words[i]).trimEnd()) > maxWidth) break
+    line += words[i]
+  }
+  if (line.trim()) return [line.trimEnd(), words.slice(i).join('').trimStart()]
+  // The first word alone is too long: break it between Thai words / letters
+  const parts = typeof Intl !== 'undefined' && 'Segmenter' in Intl
+    ? Array.from(new Intl.Segmenter('th', { granularity: 'word' }).segment(text), (s) => s.segment)
+    : Array.from(text)
+  line = ''
+  let j = 0
+  for (; j < parts.length; j++) {
+    if (line && measure(line + parts[j]) > maxWidth) break
+    line += parts[j]
+  }
+  return [line.trimEnd(), parts.slice(j).join('').trimStart()]
+}
+
+// ที่อยู่: {{customer.address}} followed by the form's empty dotted line under it.
+const ADDRESS_WITH_NEXT_LINE =
+  /(<span\b[^>]*style="([^"]*)"[^>]*>)\{\{\s*customer\.address\s*\}\}(<\/span>\s*<\/div>\s*<div\b[^>]*>\s*<span\b[^>]*>\s*<\/span>\s*<span\b[^>]*>)\s*(<\/span>)/
+
+/**
+ * A long customer address carries on to the empty dotted line below it instead of being cut to
+ * "...." (owner 2026-11-11, every form). Forms without that line keep their own layout.
+ */
+function flowCustomerAddress(html: string, address: string): string {
+  return html.replace(ADDRESS_WITH_NEXT_LINE, (match, open: string, style: string, middle: string, close: string, offset: number) => {
+    const text = address.replace(/\s+/g, ' ').trim()
+    const width = styleWidth(style) - stylePx(style, 'padding-left') - stylePx(style, 'padding-right')
+    if (!text || !(width > 0)) return match
+    const fontSize = Number.parseFloat(cssValueBefore(html, offset, 'font-size') || '') || 12.5
+    const family = cssValueBefore(html, offset, 'font-family') || 'Tahoma, sans-serif'
+    const weight = /(?:^|;)\s*font-weight:\s*(\d+)/.exec(style)?.[1] || '400'
+    const font = `${weight} ${fontSize}px ${family}`
+    // A little room so a slightly wider printer font still fits
+    const [first, rest] = splitTextToWidth(text, width * 0.95, (t) => textWidthPx(t, font, fontSize))
+    return `${open}${escapeDocumentHtml(first)}${middle}${escapeDocumentHtml(rest)}${close}`
+  })
+}
+
+/**
+ * The date under a signature is a floating box sized for a short date; a long Thai date ran off to the
+ * right. Its text is centred on the box, i.e. in the middle of the signature column (owner 2026-11-11).
+ */
+function centreFloatingDocumentDate(html: string): string {
+  return html.replace(
+    /<(div|span)\b([^>]*?)style="([^"]*)"([^>]*)>([^<]*\{\{\s*document\.date\s*\}\}[^<]*)<\/\1>/g,
+    (match, tag: string, before: string, style: string, after: string, text: string) =>
+      /position:\s*absolute/.test(style)
+        ? `<${tag}${before}style="${style};display:flex;justify-content:center;text-align:center"${after}>${text}</${tag}>`
+        : match
+  )
 }
 
 export function formatBahtCurrency(val?: number | null): string {
   if (val === undefined || val === null || isNaN(val)) return '0.00'
   return val.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-/**
- * Generate exactly 20 HTML table rows for itemized billing/rental/contract documents.
- * If actual items are fewer than 20, the remaining rows are rendered blank with full cell borders.
- */
-export function generate20ItemRowsHtml(
-  items: Array<{
-    code?: string
-    name: string
-    quantity?: number
-    deliveredQty?: number
-    normalReturnedQty?: number
-    returnedQty?: number
-    damagedQty?: number
-    lostQty?: number
-    remainingQty?: number
-    outstandingQty?: number
-    unit?: string
-    price?: number
-    rentalType?: string
-    billableDays?: number
-    lineTotal?: number
-  }> = [],
-  tableType: 'STANDARD_BILL' | 'DELIVERY' | 'RETURN' | 'DAMAGE' | 'STATEMENT' | 'CONTRACT' | 'CHECK_DISPATCH' | 'CHECK_RETURN' = 'STANDARD_BILL'
-): string {
-  const TOTAL_ROWS = 20
-  const rowsHtml: string[] = []
-
-  for (let i = 0; i < TOTAL_ROWS; i++) {
-    const item = items[i]
-    const rowNum = i + 1
-
-    if (item) {
-      if (tableType === 'DELIVERY') {
-        rowsHtml.push(`
-          <tr class="h-[18px] border-b border-slate-300 text-[8.5px]">
-            <td class="border-x border-slate-300 px-1 py-0.5 text-center font-mono">${rowNum}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 font-bold truncate max-w-[180px]">${escapeDocumentHtml(item.name)}</td>
-            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono font-bold">${item.quantity ?? 1}</td>
-            <td class="border-r border-slate-300 px-1 py-0.5 text-center">${escapeDocumentHtml(item.unit || 'ชิ้น')}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-center font-mono font-bold">${item.deliveredQty ?? 0}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-slate-600 truncate max-w-[100px]">${escapeDocumentHtml(item.code || '-')}</td>
-          </tr>
-        `)
-      } else if (tableType === 'CHECK_DISPATCH') {
-        rowsHtml.push(`
-          <tr class="h-[18px] border-b border-slate-300 text-[8.5px]">
-            <td class="border-x border-slate-300 px-1 py-0.5 text-center font-mono">${rowNum}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 font-bold truncate max-w-[180px]">${escapeDocumentHtml(item.name)}</td>
-            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono">${item.quantity ?? 0}</td>
-            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono font-bold">${item.deliveredQty ?? 0}</td>
-            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono">${item.remainingQty ?? 0}</td>
-            <td class="border-r border-slate-300 px-1 py-0.5 text-center">${escapeDocumentHtml(item.unit || 'ชิ้น')}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-slate-600 truncate max-w-[100px]">${escapeDocumentHtml(item.code || '-')}</td>
-          </tr>
-        `)
-      } else if (tableType === 'CHECK_RETURN') {
-        rowsHtml.push(`
-          <tr class="h-[18px] border-b border-slate-300 text-[8.5px]">
-            <td class="border-x border-slate-300 px-1 py-0.5 text-center font-mono">${rowNum}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 font-bold truncate max-w-[180px]">${escapeDocumentHtml(item.name)}</td>
-            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono">${item.deliveredQty ?? 0}</td>
-            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono font-bold">${item.normalReturnedQty ?? 0}</td>
-            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono">${item.damagedQty ?? 0}</td>
-            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono">${item.lostQty ?? 0}</td>
-            <td class="border-r border-slate-300 px-1 py-0.5 text-center font-mono">${item.outstandingQty ?? 0}</td>
-          </tr>
-        `)
-      } else if (tableType === 'RETURN') {
-        rowsHtml.push(`
-          <tr class="h-[18px] border-b border-slate-300 text-[8.5px]">
-            <td class="border-x border-slate-300 px-1 py-0.5 text-center font-mono">${rowNum}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 font-bold truncate max-w-[170px]">${escapeDocumentHtml(item.name)}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-center font-mono font-bold">${item.quantity ?? 1}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-center text-emerald-700 font-bold">${item.quantity ?? 1}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-center text-amber-700 font-mono">0</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-center text-red-700 font-mono">0</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono font-bold">0.00</td>
-          </tr>
-        `)
-      } else if (tableType === 'STATEMENT') {
-        rowsHtml.push(`
-          <tr class="h-[18px] border-b border-slate-300 text-[8.5px]">
-            <td class="border-x border-slate-300 px-1 py-0.5 text-center font-mono">${rowNum}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 font-mono text-center">${escapeDocumentHtml(item.code || '-')}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 font-bold truncate max-w-[160px]">${escapeDocumentHtml(item.name)}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono font-bold">${formatBahtCurrency(item.lineTotal || 0)}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono text-emerald-700">${formatBahtCurrency(item.lineTotal || 0)}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono font-bold text-slate-800">0.00</td>
-          </tr>
-        `)
-      } else {
-        // STANDARD_BILL / CONTRACT / QUOTATION
-        rowsHtml.push(`
-          <tr class="h-[18px] border-b border-slate-300 text-[8.5px]">
-            <td class="border-x border-slate-300 px-1 py-0.5 text-center font-mono">${rowNum}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 font-bold truncate max-w-[190px]">${escapeDocumentHtml(item.name)}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-center font-mono font-bold">${item.quantity ?? 1}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-center">${escapeDocumentHtml(item.unit || 'ชิ้น')}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono">${formatBahtCurrency(item.price ?? 0)} บาท</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-center font-mono text-slate-600">${escapeDocumentHtml(item.rentalType === 'DAILY' ? `${item.billableDays || 1} วัน` : '1 รอบ')}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5 text-right font-mono font-bold">${formatBahtCurrency(item.lineTotal ?? ((item.price ?? 0) * (item.quantity ?? 1)))} บาท</td>
-          </tr>
-        `)
-      }
-    } else {
-      // Empty Blank Row
-      if (tableType === 'DELIVERY') {
-        rowsHtml.push(`
-          <tr class="h-[18px] border-b border-slate-200 text-[8.5px] bg-white">
-            <td class="border-x border-slate-300 px-1 py-0.5 text-center font-mono text-slate-300">${rowNum}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-          </tr>
-        `)
-      } else if (tableType === 'CHECK_DISPATCH' || tableType === 'CHECK_RETURN') {
-        rowsHtml.push(`
-          <tr class="h-[18px] border-b border-slate-200 text-[8.5px] bg-white">
-            <td class="border-x border-slate-300 px-1 py-0.5 text-center font-mono text-slate-300">${rowNum}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-          </tr>
-        `)
-      } else if (tableType === 'RETURN') {
-        rowsHtml.push(`
-          <tr class="h-[18px] border-b border-slate-200 text-[8.5px] bg-white">
-            <td class="border-x border-slate-300 px-1 py-0.5 text-center font-mono text-slate-300">${rowNum}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-          </tr>
-        `)
-      } else if (tableType === 'STATEMENT') {
-        rowsHtml.push(`
-          <tr class="h-[18px] border-b border-slate-200 text-[8.5px] bg-white">
-            <td class="border-x border-slate-300 px-1 py-0.5 text-center font-mono text-slate-300">${rowNum}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-          </tr>
-        `)
-      } else {
-        rowsHtml.push(`
-          <tr class="h-[18px] border-b border-slate-200 text-[8.5px] bg-white">
-            <td class="border-x border-slate-300 px-1 py-0.5 text-center font-mono text-slate-300">${rowNum}</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-            <td class="border-r border-slate-300 px-1.5 py-0.5">&nbsp;</td>
-          </tr>
-        `)
-      }
-    }
-  }
-
-  return rowsHtml.join('')
 }
 
 export function renderDocumentTemplate(
@@ -297,7 +318,8 @@ export function renderDocumentTemplate(
   businessSettings?: Partial<BusinessSettings> | null,
   billSnapshot?: Partial<BillRenderSnapshot> | null,
   rawItems?: CustomerDocumentItem[],
-  quotationRowOffset = 0
+  /** Items already printed on earlier pages: row numbers continue across pages. */
+  rowOffset = 0
 ): string {
   if (!templateSchema) return ''
 
@@ -305,10 +327,13 @@ export function renderDocumentTemplate(
   const biz = businessSettings || {}
   const bill = billSnapshot || {}
 
-  let html = templateSchema
+  let html = enlargeBusinessLogo(removeThaiAmountTextParentheses(templateSchema))
 
   const replace = (pattern: RegExp, value: unknown) => {
     html = html.replace(pattern, escapeDocumentHtml(value))
+  }
+  const replaceStyled = (pattern: RegExp, value: unknown, style: string) => {
+    html = html.replace(pattern, () => `<span style="${style}">${escapeDocumentHtml(value)}</span>`)
   }
 
   // Business settings values - use empty strings when not provided
@@ -332,13 +357,16 @@ export function renderDocumentTemplate(
   replace(/\{\{\s*business\.email\s*\}\}/g, fallbackBizEmail)
   replace(/\{\{\s*business\.line_id\s*\}\}/g, fallbackBizLine)
   replace(/\{\{\s*business\.description\s*\}\}/g, '')
-  replace(/\{\{\s*business\.authorized_person\s*\}\}/g, fallbackBizSigner)
-  replace(/\{\{\s*business\.bank_name\s*\}\}/g, fallbackBankName)
-  replace(/\{\{\s*business\.bank_account_name\s*\}\}/g, fallbackAccountName)
-  replace(/\{\{\s*business\.bank_account_number\s*\}\}/g, fallbackAccountNumber)
-  replace(/\{\{\s*business\.promptpay\s*\}\}/g, fallbackPromptPay)
+  replaceStyled(/\{\{\s*business\.authorized_person\s*\}\}/g, fallbackBizSigner, DOCUMENT_FIELD_STYLE.signer)
+  replaceStyled(/\{\{\s*business\.bank_name\s*\}\}/g, fallbackBankName, DOCUMENT_FIELD_STYLE.singleLine)
+  replaceStyled(/\{\{\s*business\.bank_account_name\s*\}\}/g, fallbackAccountName, DOCUMENT_FIELD_STYLE.singleLine)
+  replaceStyled(/\{\{\s*business\.bank_account_number\s*\}\}/g, fallbackAccountNumber, DOCUMENT_FIELD_STYLE.singleLine)
+  replaceStyled(/\{\{\s*business\.promptpay\s*\}\}/g, fallbackPromptPay, DOCUMENT_FIELD_STYLE.singleLine)
   replace(/\{\{\s*business\.logo_url\s*\}\}/g, biz.logoDataUrl || biz.logoUrl || '/logo.png')
   replace(/\{\{\s*business\.qr_url\s*\}\}/g, biz.bankQrDataUrl || '')
+
+  // Fitting fixes made while printing (the shop's form itself is not changed)
+  html = centreFloatingDocumentDate(flowCustomerAddress(html, cust.address || ''))
 
   // Mapping customer fields
   replace(/\{\{\s*customer\.code\s*\}\}/g, cust.customerCode || '')
@@ -357,18 +385,9 @@ export function renderDocumentTemplate(
   replace(/\{\{\s*document\.valid_until\s*\}\}/g, bill.rentalEndDate || '15 วันนับจากวันที่ออกเอกสาร')
   replace(/\{\{\s*document\.rental_start_date\s*\}\}/g, bill.rentalStartDate || createdDate)
   replace(/\{\{\s*document\.rental_end_date\s*\}\}/g, bill.rentalEndDate || createdDate)
-  replace(/\{\{\s*document\.site_name\s*\}\}/g, bill.siteName || cust.address || 'ตามที่อยู่ลูกค้า')
-  replace(/\{\{\s*document\.custom_terms\s*\}\}/g, customTerms || '')
-  replace(
-    /\{\{\s*document\.check_stage\s*\}\}/g,
-    bill.checkStage === 'RETURN' ? 'ตรวจเช็กตอนเก็บคืน' : 'ตรวจเช็กตอนส่ง'
-  )
-  const checkColumns = bill.checkStage === 'RETURN'
-    ? ['จำนวนส่งมอบ', 'รับคืนปกติ', 'ชำรุด/ไม่พร้อมใช้', 'สูญหาย', 'คงค้างคืน']
-    : ['จำนวนตามบิล', 'ส่งแล้ว', 'คงส่ง', 'หน่วย', 'รหัสสินค้า']
-  checkColumns.forEach((label, index) => {
-    replace(new RegExp(`\\{\\{\\s*document\\.check_col_${index + 1}\\s*\\}\\}`, 'g'), label)
-  })
+  // สถานที่จัดส่ง = only the place given for this document, never the customer's address (owner 2026-11-07).
+  replace(/\{\{\s*document\.site_name\s*\}\}/g, bill.siteName?.trim() || '')
+  replaceStyled(/\{\{\s*document\.custom_terms\s*\}\}/g, customTerms || '', DOCUMENT_FIELD_STYLE.terms)
 
   // Mapping financial / bill fields
   replace(/\{\{\s*bill\.no\s*\}\}/g, bill.billNo || docNo)
@@ -383,42 +402,41 @@ export function renderDocumentTemplate(
   replace(/\{\{\s*bill\.paid_amount\s*\}\}/g, formatBahtCurrency(bill.paidAmount ?? bill.grandTotal ?? 0))
   replace(/\{\{\s*bill\.outstanding_amount\s*\}\}/g, formatBahtCurrency(bill.outstandingAmount ?? 0))
   replace(/\{\{\s*bill\.refund_amount\s*\}\}/g, formatBahtCurrency(bill.refundAmount ?? 0))
-  replace(/\{\{\s*bill\.late_fee\s*\}\}/g, formatBahtCurrency(bill.lateFee ?? 0))
   replace(/\{\{\s*bill\.damage_fee\s*\}\}/g, formatBahtCurrency(bill.damageFee ?? 0))
   replace(/\{\{\s*bill\.payment_method\s*\}\}/g, bill.paymentMethod || '')
+  const totalPayable = bill.totalPayable ?? Math.round(((bill.grandTotal ?? 0) + (bill.depositAmount ?? 0)) * 100) / 100
+  replace(/\{\{\s*bill\.total_payable\s*\}\}/g, formatBahtCurrency(totalPayable))
+  replace(/\{\{\s*bill\.total_payable_text\s*\}\}/g, thaiBahtText(totalPayable))
+  replace(/\{\{\s*document\.page\s*\}\}/g, bill.pageLabel || '1/1')
 
-  // Dynamic 20-row table injection if tags are present
+  // Item rows of the form (one field per cell). A customer document line has no rental flag of its
+  // own: a free line (price 0) is shown as "-" in the money columns (owner 2026-11-09).
   const itemsForTable = bill.items || (rawItems ? rawItems.map(i => ({
     name: i.productName,
     quantity: i.quantity,
     unit: i.unit,
     price: i.normalPrice,
-    lineTotal: (i.normalPrice || 0) * (i.quantity || 1)
+    lineTotal: (i.normalPrice || 0) * (i.quantity || 1),
+    isNoCharge: Number(i.normalPrice || 0) === 0
   })) : [])
 
-  if (html.includes('{{items.rows_quotation_16}}')) {
-    html = html.replace(/\{\{\s*items\.rows_quotation_16\s*\}\}/g, generateQuotationRowsHtml(itemsForTable, quotationRowOffset))
-  }
-  if (html.includes('{{items.rows_standard_20}}')) {
-    html = html.replace(/\{\{\s*items\.rows_standard_20\s*\}\}/g, generate20ItemRowsHtml(itemsForTable, 'STANDARD_BILL'))
-  }
-  if (html.includes('{{items.rows_delivery_20}}')) {
-    html = html.replace(/\{\{\s*items\.rows_delivery_20\s*\}\}/g, generate20ItemRowsHtml(itemsForTable, 'DELIVERY'))
-  }
-  if (html.includes('{{items.rows_check_20}}')) {
-    const tableType = bill.checkStage === 'RETURN' ? 'CHECK_RETURN' : 'CHECK_DISPATCH'
-    html = html.replace(/\{\{\s*items\.rows_check_20\s*\}\}/g, generate20ItemRowsHtml(itemsForTable, tableType))
-  }
-
-  if (bill.outstandingAmount === undefined || bill.outstandingAmount === null) {
-    html = html.replace(/<div data-requires-outstanding[^>]*>[\s\S]*?<\/div>/, '')
-  }
-  if (html.includes('{{items.rows_return_20}}')) {
-    html = html.replace(/\{\{\s*items\.rows_return_20\s*\}\}/g, generate20ItemRowsHtml(itemsForTable, 'RETURN'))
-  }
-  if (html.includes('{{items.rows_statement_20}}')) {
-    html = html.replace(/\{\{\s*items\.rows_statement_20\s*\}\}/g, generate20ItemRowsHtml(itemsForTable, 'STATEMENT'))
-  }
-
+  html = fitFormItemColumns(html)
+  // A form that draws its own item rows has one field per cell ({{items.3.name}}); its rows stay as drawn.
+  const cellItems: Array<{ name: string; quantity?: number; unit?: string; price?: number; rentalType?: string; billableDays?: number; lineTotal?: number; isNoCharge?: boolean }> = itemsForTable
+  html = html.replace(
+    /\{\{\s*items\.(\d+)\.(no|name|quantity|unit|price|rental|amount)\s*\}\}/g,
+    (_match, row: string, field: string) => {
+      const index = Number(row) - 1
+      if (field === 'no') return String(rowOffset + index + 1)
+      const item = cellItems[index]
+      if (!item) return ''
+      if (field === 'name') return escapeDocumentHtml(item.name)
+      if (field === 'quantity') return String(item.quantity ?? '')
+      if (field === 'unit') return escapeDocumentHtml(item.unit || '')
+      if (field === 'price') return isNoChargeLine(item) ? '-' : formatBahtCurrency(item.price)
+      if (field === 'rental') return isNoChargeLine(item) ? '-' : rentalTermLabel(item.rentalType, item.billableDays)
+      return isNoChargeLine(item) ? '-' : formatBahtCurrency(item.lineTotal)
+    }
+  )
   return sanitizeDocumentHtml(html)
 }

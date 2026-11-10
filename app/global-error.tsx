@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import { useEffect } from 'react'
 import * as Sentry from '@sentry/nextjs'
@@ -20,7 +21,7 @@ export default function GlobalError({ error }: { error: Error & { digest?: strin
         <button
           type="button"
           onClick={() => window.location.reload()}
-          className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-sm rounded-xl"
+          className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 text-white`}
         >
           โหลดหน้าใหม่
         </button>

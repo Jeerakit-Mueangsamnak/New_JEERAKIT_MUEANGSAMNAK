@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { User, Check, Camera, ShieldCheck, CheckCircle2, AlertTriangle, Trash2, Upload, RefreshCw } from 'lucide-react'
@@ -10,6 +11,7 @@ import { CustomSelect } from '@/components/common/CustomSelect'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
 import { ModalPortal } from '@/components/common/ModalPortal'
 import { validateThaiNationalId, formatThaiNationalId, type ParsedThaiIdField } from '@/lib/ocr/thai-id-parser'
+import { formatPhoneNumber } from '@/lib/utils/format'
 
 interface NewCustomerModalProps {
   isOpen: boolean
@@ -17,13 +19,6 @@ interface NewCustomerModalProps {
   /** Resolve false to keep the form open (save failed / cancelled). */
   onSave: (customer: Customer, reason?: string) => Promise<boolean | void> | boolean | void
   editingCustomer?: Customer | null
-}
-
-const formatPhoneNumber = (value: string) => {
-  const digits = value.replace(/\D/g, '').slice(0, 10)
-  if (digits.length <= 3) return digits
-  if (digits.length <= 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`
-  return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6, 10)}`
 }
 
 const OCR_FIELD_LABELS: Record<ParsedThaiIdField, string> = {
@@ -402,7 +397,7 @@ export function NewCustomerModal({
                 type="button"
                 onClick={() => setIsScannerOpen(true)}
                 disabled={readingPhotoPercent !== null}
-                className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-xs flex items-center transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 <Camera className="w-3.5 h-3.5" />
                 <span>📸 เปิดกล้องสแกนบัตร</span>
@@ -411,7 +406,7 @@ export function NewCustomerModal({
                 type="button"
                 onClick={() => photoInputRef.current?.click()}
                 disabled={readingPhotoPercent !== null}
-                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-extrabold text-xs border border-slate-300 dark:border-slate-700 shadow-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 shadow-xs flex items-center transition-all active:scale-95 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed`}
               >
                 {readingPhotoPercent !== null ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
                 <span>{readingPhotoPercent !== null ? `กำลังอ่านบัตร... ${readingPhotoPercent}%` : 'อัปโหลดรูปบัตร'}</span>
@@ -452,7 +447,7 @@ export function NewCustomerModal({
                         <button
                           type="button"
                           onClick={() => acceptOcrSuggestion(key)}
-                          className="px-2 py-0.5 rounded-lg border border-amber-400 bg-white dark:bg-slate-900 font-bold"
+                          className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-amber-400 bg-white dark:bg-slate-900`}
                         >
                           ใส่ในช่อง{OCR_FIELD_LABELS[key]}
                         </button>
@@ -735,7 +730,7 @@ export function NewCustomerModal({
                         setIdCardImageUrl('')
                         setUploadedFileName('')
                       }}
-                      className="absolute top-1 right-1 p-1 rounded-md bg-rose-600/90 text-white hover:bg-rose-700 transition-all opacity-80 hover:opacity-100"
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center absolute top-1 right-1 bg-rose-600/90 text-white hover:bg-rose-700 transition-all opacity-80 hover:opacity-100`}
                       title="ลบรูปบัตร"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -765,14 +760,14 @@ export function NewCustomerModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-xs text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer`}
             >
               ยกเลิก
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs shadow-md shadow-emerald-600/20 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 text-white shadow-md shadow-emerald-600/20 flex items-center transition-all active:scale-95 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed`}
             >
               <Check className="w-3.5 h-3.5" />
               <span>{isSubmitting ? 'กำลังบันทึก...' : 'บันทึกข้อมูลลูกค้า'}</span>

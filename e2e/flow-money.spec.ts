@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-import { amountBox, issuedBillNo } from './helpers';
+import { fillCash, issuedBillNo } from './helpers';
 import { billByNo, sql, stockBySku } from './db';
 
 // Money: sale, credit bill with deposit, partial and split payments, refund, continuation.
@@ -56,7 +56,7 @@ test('ขายสินค้า 3 ชิ้น: ลูกค้าทั่ว
   await expect(page.getByText('ข้อมูลผู้ซื้อ / ลูกค้า:')).toBeVisible();
   await expect(page.getByText('กำหนดการเช่าสินค้า:')).toHaveCount(0);
   await page.getByRole('button', { name: 'เงินสด' }).click();
-  await amountBox(page, 'เงินสดที่รับมา (บาท)').fill('200');
+  await fillCash(page, '200');
   await expect(page.getByText('เงินทอน').locator('..')).toContainText((200 - total).toFixed(2));
   await page.getByRole('button', { name: 'ออกบิล' }).click();
 
@@ -65,7 +65,8 @@ test('ขายสินค้า 3 ชิ้น: ลูกค้าทั่ว
   expect(stockBySku(SALE_SKU).AVAILABLE).toBe(before - 3);
 });
 
-test('เช่าแบบค้างชำระ + มัดจำ 500 (มัดจำเก็บไว้แสดง ไม่รวมในยอดที่ต้องจ่าย)', async ({ page }) => {
+// No deposit here: a deposit pays the bill first (owner 2026-11-06, tested in flow-deposit-vat.spec.ts).
+test('เช่าแบบค้างชำระ (ยังไม่รับเงิน)', async ({ page }) => {
   await page.goto('/pos');
   await page.getByRole('button', { name: 'เช่าสินค้า' }).click();
   await page.getByRole('heading', { name: RENT_PRODUCT, level: 4 }).click();
@@ -76,14 +77,12 @@ test('เช่าแบบค้างชำระ + มัดจำ 500 (ม�
   await page.getByRole('button', { name: /ลูกค้า E2E \d+/ }).first().click();
   await page.getByRole('button', { name: 'ชำระเงิน' }).click();
   await page.waitForURL('**/pos/checkout');
-  // The deposit is typed on the payment page now (moved from the cart).
-  await amountBox(page, 'เงินมัดจำ (บาท)').fill('500');
   await page.getByRole('button', { name: 'ค้างชำระ' }).click();
   await page.getByRole('button', { name: 'ออกบิล' }).click();
 
   creditBill = await issuedBillNo(page);
   expect(billByNo(creditBill)).toMatchObject({ paymentStatus: 'UNPAID', grandTotal: 30, paid: 0, balance: 30 });
-  expect(sql(`select deposit_amount from public.bills where bill_no = '${creditBill}'`)[0][0]).toBe('500.00');
+  expect(sql(`select deposit_amount from public.bills where bill_no = '${creditBill}'`)[0][0]).toBe('0.00');
 });
 
 async function openReceive(page: Page) {
@@ -100,7 +99,10 @@ test('รับเงินสดไม่ครบ 10 บาท: รับต�
   test.skip(!creditBill, 'needs the credit bill');
   await openReceive(page);
   await expect(page.getByRole('button', { name: 'โอนเงินธนาคาร' })).toHaveCount(0);
-  await amountBox(page, 'เงินสดที่รับมา (บาท)').fill('10');
+  // cash alone, 10 of 30 confirmed: the rest stays owed on the bill (owner 2026-11-06: no jump to QR)
+  await page.getByRole('button', { name: 'เงินสด', exact: true }).click();
+  await fillCash(page, '10');
+  await expect(page.getByRole('dialog', { name: 'สแกนจ่ายด้วย QR Code' })).toHaveCount(0);
   await page.getByRole('button', { name: 'ออกบิล', exact: true }).click();
   await expect(page.getByRole('dialog').getByRole('heading', { name: 'บันทึกรับชำระเงินสำเร็จ' })).toBeVisible({ timeout: 20000 });
   await page.getByRole('dialog').getByRole('button', { name: 'ออก' }).click();

@@ -1,11 +1,12 @@
 import { createClient } from '@/lib/supabase/client'
 import { rpc, selectRows } from '@/lib/db/rpc'
-import type { DocumentTemplate } from '@/lib/types/document'
+import type { DocumentTemplate, TemplateTargetGroup } from '@/lib/types/document'
 
 interface DocumentTemplateRow {
   id: string
   name: string
   category: string
+  target_group: TemplateTargetGroup
   source: DocumentTemplate['source']
   file_type: string
   file_name: string | null
@@ -32,6 +33,7 @@ function toDocumentTemplate(row: DocumentTemplateRow): DocumentTemplate {
     id: row.id,
     name: row.name,
     category: row.category,
+    targetGroup: row.target_group,
     source: row.source,
     fileType: row.file_type,
     ...(row.file_name ? { fileName: row.file_name } : {}),
@@ -53,6 +55,7 @@ function toRowData(template: NewDocumentTemplate) {
   return {
     name: template.name,
     category: template.category,
+    target_group: template.targetGroup ?? null,
     source: template.source,
     file_type: template.fileType,
     file_name: template.fileName ?? null,
@@ -86,4 +89,37 @@ export async function createDocumentTemplate(id: string, template: NewDocumentTe
 /** Deletes shop forms for good (the server keeps an audit entry with the reason). */
 export async function deleteDocumentTemplates(ids: string[], reason: string): Promise<void> {
   await rpc('document_template_delete', { p_template_ids: ids, p_reason: reason })
+}
+
+/** One entry of the "หมวดหมู่เอกสาร" list in เพิ่มแบบฟอร์ม (table document_names), one list per tab. */
+export interface DocumentName {
+  id: string
+  targetGroup: TemplateTargetGroup
+  name: string
+}
+
+interface DocumentNameRow {
+  id: string
+  target_group: TemplateTargetGroup
+  name: string
+}
+
+const toDocumentName = (row: DocumentNameRow): DocumentName => ({ id: row.id, targetGroup: row.target_group, name: row.name })
+
+export async function fetchDocumentNames(): Promise<DocumentName[]> {
+  const supabase = createClient()
+  const rows = await selectRows<DocumentNameRow>(
+    supabase.from('document_names').select('*').order('created_at', { ascending: true })
+  )
+  return rows.map(toDocumentName)
+}
+
+/** Adds a name to one tab's list (a name already in that list comes back as it is). */
+export async function addDocumentName(targetGroup: TemplateTargetGroup, name: string): Promise<DocumentName> {
+  return toDocumentName(await rpc<DocumentNameRow>('document_name_add', { p_target_group: targetGroup, p_name: name }))
+}
+
+/** Removes a name from the list; forms already saved under it keep their name. */
+export async function deleteDocumentName(id: string): Promise<void> {
+  await rpc('document_name_delete', { p_id: id })
 }

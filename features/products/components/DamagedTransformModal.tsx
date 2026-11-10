@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
@@ -191,7 +192,7 @@ export function DamagedTransformModal({
                 <button
                   type="button"
                   onClick={() => setTransformQty(maxTransform)}
-                  className="h-10 px-3 shrink-0 rounded-xl font-bold text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors border border-slate-200 dark:border-slate-700"
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} shrink-0 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors border border-slate-200 dark:border-slate-700`}
                 >
                   ทั้งหมด ({maxTransform})
                 </button>
@@ -259,14 +260,14 @@ export function DamagedTransformModal({
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-4 py-2 rounded-xl font-bold text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-slate-200 dark:border-slate-700 cursor-pointer"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-slate-200 dark:border-slate-700 cursor-pointer`}
             >
               ยกเลิก
             </button>
             <button
               type="submit"
               disabled={!isQtyValid || !isTargetValid || isSubmitting}
-              className={`px-5 py-2 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 shadow-sm cursor-pointer ${
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} transition-all flex items-center shadow-sm cursor-pointer ${
                 !isQtyValid || !isTargetValid || isSubmitting
                   ? 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed text-slate-600 dark:text-slate-400'
                   : 'bg-amber-500 hover:bg-amber-600 text-slate-900 active:scale-98'

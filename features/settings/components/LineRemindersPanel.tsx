@@ -75,7 +75,6 @@ export function LineRemindersPanel() {
         <BellRing className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
         <span>ส่งเตือนลูกค้าเอง</span>
       </h4>
-      <p className={SETTINGS_HELPER}>รายการที่ใกล้ / ถึง / เลยกำหนด ของลูกค้าที่ผูก LINE แล้ว · กดส่งได้ทุกเมื่อ ไม่ต้องรอตารางอัตโนมัติ</p>
       <div className="flex flex-wrap items-center gap-2">
         <div className="w-56">
           <CustomSelect
@@ -92,8 +91,6 @@ export function LineRemindersPanel() {
       {error && <p className="text-[11px] text-amber-700 dark:text-amber-300">{error}</p>}
       <DataTableFrame
         rowCount={shown.length}
-        empty={shown.length === 0}
-        emptyState={<p className="py-6 text-center text-slate-600 dark:text-slate-400">{loading ? 'กำลังโหลด…' : 'ไม่มีรายการที่ต้องเตือน'}</p>}
       >
         <table className="w-full text-left border-collapse table-auto text-xs" aria-label="ตารางส่งเตือนลูกค้า">
           <thead>
@@ -123,7 +120,7 @@ export function LineRemindersPanel() {
                       : '-'}
                   </td>
                   <td className={`${TD} text-right`}>
-                    <ActionButton size="sm" variant="outline" icon={<Send />} disabled={Boolean(busy)} onClick={() => void send([c])}>
+                    <ActionButton variant="outline" icon={<Send />} disabled={Boolean(busy)} onClick={() => void send([c])}>
                       {busy === key ? 'กำลังส่ง…' : 'ส่งเตือน'}
                     </ActionButton>
                   </td>

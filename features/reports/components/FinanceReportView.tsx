@@ -179,7 +179,6 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
                 กราฟรายรับ / รายจ่าย / สุทธิย้อนหลัง
               </h3>
             </div>
-            <span className="text-[10px] text-slate-600 dark:text-slate-400">เปรียบเทียบตามช่วงเวลา</span>
           </div>
           <div className="flex-1 min-h-40">
             <ReportAreaTrendChart
@@ -211,7 +210,6 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
                 ช่องทางรับเงิน
               </h3>
             </div>
-            <span className="text-[10px] text-slate-600 dark:text-slate-400">สัดส่วนรายรับ</span>
           </div>
 
           <div className="flex-1 flex items-center justify-center py-1">
@@ -268,7 +266,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
                 <th className="px-1.5">เลขที่บิล</th>
                 <th className="px-1.5">ลูกค้า</th>
                 <th className="px-1.5 text-right">ยอดรวม</th>
-                <th className="px-1.5 text-right text-amber-800 dark:text-amber-400">ยอดค้าง</th>
+                <th className="px-1.5 text-right">ยอดค้าง</th>
                 <th className="px-1.5 text-center">สถานะ</th>
               </tr>
             </thead>
@@ -390,7 +388,6 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
                 ตารางรายละเอียดธุรกรรมการเงิน ({data.transactions.length} รายการ)
               </h3>
             </div>
-            <span className="text-[10px] text-slate-600 dark:text-slate-400">เรียงตามวันที่ล่าสุด</span>
           </div>
         }
       >
@@ -402,10 +399,10 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
               <th className="px-2">หมวดหมู่</th>
               <th className="px-2">รายละเอียด / ลูกค้า</th>
               <th className="px-2">ช่องทาง</th>
-              <th className="px-2 text-right text-emerald-800 dark:text-emerald-400">
+              <th className="px-2 text-right">
                 รายรับ
               </th>
-              <th className="px-2 text-right text-rose-700 dark:text-rose-400">
+              <th className="px-2 text-right">
                 รายจ่าย
               </th>
               <th className="px-2 text-right">ยอดสะสม</th>

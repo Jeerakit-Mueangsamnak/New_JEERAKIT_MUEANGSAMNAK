@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient as createServerSupabase } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { isMenuCode, normalizeMemberStatus } from '@/features/auth/services/permissions'
 import type { MemberStatus, UserRole } from '@/lib/types/rental-pos'
 
@@ -14,6 +15,7 @@ import type { MemberStatus, UserRole } from '@/lib/types/rental-pos'
 export interface MemberActionResult<T = unknown> {
   success: boolean
   error?: string
+  warning?: string
   data?: T
 }
 
@@ -161,4 +163,75 @@ export async function setMemberRole(userId: string, role: UserRole, reason?: str
 export async function resetMemberPin(userId: string, reason?: string): Promise<MemberActionResult> {
   const cleanReason = optionalReason(reason)
   return callOwnerRpc('owner_reset_member_pin', { p_user_id: userId, p_reason: cleanReason })
+}
+
+/** Permanently removes only an unapproved USER account; historical profile references remain protected by the database. */
+export async function deletePendingMember(userId: string): Promise<MemberActionResult> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
+    return { success: false, error: 'รหัสผู้ใช้งานไม่ถูกต้อง' }
+  }
+
+  try {
+    const supabase = await createServerSupabase()
+    const { data: { user: actor }, error: authError } = await supabase.auth.getUser()
+    if (authError || !actor) return { success: false, error: RPC_ERROR_MESSAGES.FORBIDDEN }
+
+    const { data: owner, error: ownerError } = await supabase
+      .from('profiles')
+      .select('role, status, is_approved')
+      .eq('id', actor.id)
+      .maybeSingle()
+    if (ownerError || owner?.role !== 'OWNER' || owner.status !== 'ACTIVE' || owner.is_approved !== true) {
+      return { success: false, error: RPC_ERROR_MESSAGES.FORBIDDEN }
+    }
+
+    const { data: target, error: targetError } = await supabase
+      .from('profiles')
+      .select('id, role, status, username, email, display_name, created_at')
+      .eq('id', userId)
+      .maybeSingle()
+    if (targetError) {
+      console.error('deletePendingMember profile lookup failed:', targetError.message)
+      return { success: false, error: 'ตรวจสอบบัญชีพนักงานไม่สำเร็จ กรุณาลองใหม่' }
+    }
+    if (!target) return { success: false, error: RPC_ERROR_MESSAGES.MEMBER_NOT_FOUND }
+    if (target.id === actor.id) return { success: false, error: RPC_ERROR_MESSAGES.CANNOT_CHANGE_SELF }
+    if (target.role !== 'USER' || target.status !== 'PENDING') {
+      return { success: false, error: 'ลบได้เฉพาะพนักงานที่ยังรออนุมัติ' }
+    }
+
+    const admin = createAdminClient()
+    const { error: deleteError } = await admin.auth.admin.deleteUser(target.id)
+    if (deleteError) {
+      console.error('deletePendingMember Auth deletion failed:', deleteError.message)
+      return {
+        success: false,
+        error: 'ลบบัญชีไม่สำเร็จ บัญชีนี้อาจมีรายการที่ต้องเก็บประวัติไว้ หรือฐานข้อมูลยังไม่ได้ติดตั้งการลบบัญชีที่รออนุมัติ',
+      }
+    }
+
+    const { error: auditError } = await supabase.rpc('owner_audit_pending_member_delete', {
+      p_user_id: target.id,
+      p_before: {
+        role: target.role,
+        status: target.status,
+        username: target.username,
+        email: target.email,
+        display_name: target.display_name,
+        created_at: target.created_at,
+      },
+    })
+    if (auditError) {
+      console.error('deletePendingMember audit failed after account deletion:', auditError.message)
+      return {
+        success: true,
+        warning: 'ลบบัญชีแล้ว แต่บันทึกประวัติการลบไม่สำเร็จ กรุณาแจ้งผู้ดูแลระบบ',
+      }
+    }
+
+    return { success: true }
+  } catch (err: unknown) {
+    console.error('deletePendingMember unexpected error:', err)
+    return { success: false, error: 'ลบบัญชีไม่สำเร็จ กรุณาลองใหม่' }
+  }
 }

@@ -2,6 +2,8 @@
 
 import React, { useState, useMemo } from 'react'
 import { ProductCard } from './ProductCard'
+import { AccessoryGroupCard } from './AccessoryGroupCard'
+import { accessoryWindowFor } from '@/features/pos/services/accessory-rules'
 import { Product } from '@/lib/types/rental-pos'
 import { getProductType } from '@/features/products/services/product-storage'
 import { CustomSelect } from '@/components/common/CustomSelect'
@@ -98,6 +100,24 @@ export function ProductGrid({
     )
   }, [modeProducts, active])
 
+  // รายการ น็อต / อุปกรณ์นั่งร้าน (หมวด อื่นๆ, rent only) = one card each, its window picks size / parts.
+  // Those cards stay first, top left, whatever is picked in the dropdowns and while the grid scrolls
+  // (owner 2026-11-11): น็อต, then อุปกรณ์นั่งร้าน.
+  const pinnedGroups = useMemo(() => {
+    if (posMode !== 'RENT') return []
+    const result: { key: string; item: string; products: Product[]; nut: boolean }[] = []
+    for (const d of dropdowns) {
+      for (const o of d.options) {
+        const item = String(o.value)
+        const kind = item === ALL_ITEMS ? null : accessoryWindowFor({ category: d.name, listItem: item })
+        if (!kind) continue
+        const list = modeProducts.filter((p) => p.category === d.name && p.listItem === item)
+        if (list.length > 0) result.push({ key: `${d.name}\u0000${item}`, item, products: list, nut: kind === 'NUT' })
+      }
+    }
+    return result.sort((a, b) => Number(b.nut) - Number(a.nut))
+  }, [posMode, dropdowns, modeProducts])
+
   // Products separated by หมวดหมู่ › รายการ (same order as the dropdowns); no รายการ = last in its category.
   const groups = useMemo(() => {
     const result: { key: string; category: string; item: string; products: Product[] }[] = []
@@ -106,6 +126,8 @@ export function ProductGrid({
       if (inCategory.length === 0) continue
       const itemNames = d.options.map((o) => String(o.value)).filter((v) => v !== ALL_ITEMS)
       for (const item of [...itemNames, '']) {
+        // Shown pinned above the grid instead
+        if (posMode === 'RENT' && item && accessoryWindowFor({ category: d.name, listItem: item })) continue
         const list = inCategory.filter((p) => (p.listItem || '') === item)
         if (list.length > 0) result.push({ key: `${d.name}\u0000${item}`, category: d.name, item, products: list })
       }
@@ -115,7 +137,7 @@ export function ProductGrid({
     const rest = filteredProducts.filter((p) => !known.has(p.category))
     if (rest.length > 0) result.push({ key: '\u0000rest', category: 'ไม่ระบุหมวดหมู่', item: '', products: rest })
     return result
-  }, [dropdowns, filteredProducts])
+  }, [posMode, dropdowns, filteredProducts])
 
   return (
     <div className="flex flex-col h-full min-h-0 min-w-0 max-w-full space-y-2 overflow-hidden">
@@ -171,32 +193,46 @@ export function ProductGrid({
         })}
       </div>
 
+      {/* น็อต / อุปกรณ์นั่งร้าน: fixed above the scrolling grid, same columns, so they never move */}
+      {pinnedGroups.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 shrink-0 pr-0.5" data-testid="pinned-accessory-cards">
+          {pinnedGroups.map((g) => (
+            <AccessoryGroupCard
+              key={g.key}
+              title={g.item}
+              products={g.products}
+              allowOutOfStock={allowOutOfStock}
+              onClick={() => onSelectProduct(g.products[0], posMode)}
+            />
+          ))}
+        </div>
+      )}
+
       {/* Grid view */}
-      {filteredProducts.length === 0 ? (
+      {groups.length === 0 && pinnedGroups.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
           <PackageX className="w-12 h-12 text-slate-300 dark:text-slate-400 mb-3" />
           <h4 className="font-bold text-slate-700 dark:text-slate-300">
             {posMode === 'RENT' ? 'ไม่พบสินค้าสำหรับเช่า' : 'ไม่พบสินค้าสำหรับขาย'}
           </h4>
-          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">ลองเลือกหมวดหมู่หรือรายการอื่น</p>
         </div>
       ) : (
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden no-scrollbar pr-0.5 pb-2 space-y-3">
-          {groups.map((g) => (
-            <section key={g.key}>
-              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 content-start">
-                {g.products.map((product) => (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                    mode={posMode}
-                    allowOutOfStock={allowOutOfStock}
-                    onClick={() => onSelectProduct(product, posMode)}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden no-scrollbar pr-0.5 pb-2">
+          {/* One continuous grid, left to right, no gaps between หมวด / รายการ (owner 2026-11-09); order stays
+              หมวด › รายการ. */}
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 content-start">
+            {groups.flatMap((g) =>
+              g.products.map((product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  mode={posMode}
+                  allowOutOfStock={allowOutOfStock}
+                  onClick={() => onSelectProduct(product, posMode)}
+                />
+              ))
+            )}
+          </div>
         </div>
       )}
     </div>

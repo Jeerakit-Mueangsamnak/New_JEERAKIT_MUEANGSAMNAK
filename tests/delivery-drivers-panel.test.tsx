@@ -11,7 +11,7 @@ vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: mock
 const mockRpc = vi.hoisted(() => ({
   rpc: vi.fn(async (_fn: string, args: { p_patch: { policies: Record<string, unknown> } }) => ({ policies: args.p_patch.policies })),
 }))
-vi.mock('@/lib/db/rpc', () => mockRpc)
+vi.mock('@/lib/db/rpc', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/db/rpc')>()), ...mockRpc }))
 const mockLine = vi.hoisted(() => ({
   contacts: vi.fn(async () => ({ data: [] as unknown[], error: null as unknown })),
   createDriverLineLinkCode: vi.fn(),
@@ -25,7 +25,12 @@ vi.mock('@/app/actions/line', () => ({
   createDriverLineLinkCode: mockLine.createDriverLineLinkCode,
   unlinkLineContact: mockLine.unlinkLineContact,
 }))
-vi.mock('@/components/common/ConfirmDialogProvider', () => ({ useConfirm: () => mockLine.confirm }))
+vi.mock('@/components/common/ConfirmDialogProvider', () => ({
+  useConfirm: () => mockLine.confirm,
+  useNotice: () => vi.fn(async () => undefined),
+  useAskText: () => vi.fn(async () => null),
+}))
+vi.mock('@/features/appointments/services/appointment-storage', () => ({ loadAppointments: () => [] }))
 
 describe('Settings › LINE › ทะเบียนคนขับ', () => {
   afterEach(cleanup)
@@ -62,10 +67,42 @@ describe('Settings › LINE › ทะเบียนคนขับ', () => {
       p_reason: 'เพิ่มคนขับ D002',
     })
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'ปิดใช้งาน' })[0])
+    fireEvent.click(screen.getAllByRole('button', { name: 'ระงับ' })[0])
     await waitFor(() => expect(mockRpc.rpc).toHaveBeenCalledTimes(2))
+    expect(mockLine.confirm).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'ยืนยันการระงับการใช้งานข้อมูล' }))
     const last = mockRpc.rpc.mock.calls[1][1].p_patch.policies.delivery_drivers as Array<{ id: string; active: boolean }>
     expect(last.map((d) => [d.id, d.active])).toEqual([['D001', false], ['D002', true]])
+  })
+
+  it('ลบ: a driver never used is removed from the list; a driver with a linked LINE is blocked and suspended instead', async () => {
+    mockRpc.rpc.mockClear()
+    setCachedPolicies({
+      delivery_drivers: [
+        { id: 'D001', name: 'สมชาย', active: true },
+        { id: 'D002', name: 'สมศักดิ์', active: true },
+      ],
+    })
+    mockLine.contacts.mockResolvedValue({ data: [{ id: 'k-1', display_name: 'Somchai', driver_code: 'D001' }], error: null })
+    render(<DeliveryDriversPanel />)
+    expect(await screen.findByText(/LINE "Somchai"/)).toBeDefined()
+
+    fireEvent.click(within(screen.getByText('D002').closest('tr') as HTMLElement).getByRole('button', { name: 'ลบ' }))
+    await waitFor(() => expect(mockRpc.rpc).toHaveBeenCalledTimes(1))
+    expect(mockRpc.rpc.mock.calls[0][1]).toEqual({
+      p_patch: { policies: { delivery_drivers: [{ id: 'D001', name: 'สมชาย', active: true }] } },
+      p_reason: 'ลบคนขับ D002',
+    })
+
+    await waitFor(() => expect(screen.queryByText('D002')).toBeNull())
+    const del = within(screen.getByText('D001').closest('tr') as HTMLElement).getByRole('button', { name: 'ลบ' }) as HTMLButtonElement
+    await waitFor(() => expect(del.disabled).toBe(false))
+    fireEvent.click(del)
+    await waitFor(() => expect(mockRpc.rpc).toHaveBeenCalledTimes(2))
+    expect(mockLine.confirm).toHaveBeenLastCalledWith(expect.objectContaining({ confirmLabel: 'เปลี่ยนเป็นระงับการใช้งาน' }))
+    expect(mockRpc.rpc.mock.calls[1][1]).toMatchObject({ p_reason: 'ระงับคนขับ D001' })
+    mockLine.contacts.mockReset()
+    mockLine.contacts.mockResolvedValue({ data: [], error: null })
+    mockLine.confirm.mockClear()
   })
 
   it('LINE ของคนขับ: แสดงสถานะจริง ออกรหัสเชื่อมให้คนขับ (ใช้รหัสคนขับ ไม่ใช่บัญชีผู้ใช้)', async () => {

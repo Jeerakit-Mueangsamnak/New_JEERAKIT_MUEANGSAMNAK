@@ -11,7 +11,7 @@ export interface ReturnInspectionItem {
   lostQty: number        // confirmed lost / removed from stock
   continueQty?: number   // stays with the customer: continued on a new (เช่าต่อ) bill
   continueEndDate?: string // daily goods: the day the new round ends
-  continueRounds?: number  // per-round goods: how many more rounds
+  continueRounds?: number  // per-round goods: rounds beyond the bill — the เช่าต่อ bill's rounds when continuing, else extra rounds already used (charged on every piece still out)
   dailyRate: number
   repairFeePerUnit: number
   replacementFeePerUnit: number
@@ -41,7 +41,8 @@ export interface ReturnCalculationResult {
   
   actualRentalFee: number
   rentalFeeDelta: number
-  lateFeeTotal: number
+  /** Per-round goods returned after more rounds than the bill: the extra rent (owner 2026-11-07). */
+  extraRoundsFee: number
   totalDamageFee: number // repair + replacement
   repairFeeTotal: number
   replacementFeeTotal: number
@@ -126,6 +127,11 @@ export interface FullBillItem {
   itemType?: 'RENT' | 'SALE'
   usageCount?: number
   lineTotal?: number
+  /**
+   * The product's rental method is "ไม่คิดเงิน" (products.is_rent_chargeable = false): the line shows
+   * only its จำนวน and หน่วย, every money column prints "-" (owner 2026-11-09). Undefined = not known.
+   */
+  isChargeable?: boolean
   status: 'PENDING' | 'RENTING' | 'RETURNED' | 'PARTIAL_RETURNED' | 'IN_REPAIR' | 'LOST' | 'COMPLETED' | 'DELIVERED' | 'PARTIAL_DELIVERED'
   orderedQty?: number
   reservedQty?: number
@@ -158,10 +164,12 @@ export interface FullBill {
   rentalStartDate: string
   scheduledReturnDate: string
   actualReturnDate?: string
+  /** Deposit actually received and still held (bills.deposit_amount − deposit_unpaid). */
   heldDepositAmount: number
   paidDepositAmount: number
   depositRequired?: number
   depositReceived?: number
+  /** Deposit agreed on the bill but not received yet (bills.deposit_unpaid); it is part of outstandingAmount. */
   depositOutstanding?: number
   depositHeld?: number
   depositApplied?: number
@@ -212,6 +220,24 @@ export interface FullBill {
   payments?: BillPaymentRecord[]
   refunds?: BillRefundRecord[]
   charges?: BillChargeRecord[]
+  /** How each payment was cut: ค่าสินค้าขาย → ค่าขนส่ง → มัดจำ → ค่าเช่า (owner 2026-11-11). */
+  paymentAllocations?: BillPaymentAllocation[]
+}
+
+export interface BillPaymentAllocation {
+  id: string
+  receiptId?: string
+  total: number
+  sale: number
+  shipping: number
+  deposit: number
+  rental: number
+  other: number
+  outstandingAfter: number
+  tenders: { method: string; amount: number }[]
+  receivedOn: string
+  createdAt: string
+  voided: boolean
 }
 
 export interface BillPaymentRecord {
@@ -222,6 +248,7 @@ export interface BillPaymentRecord {
   status: string
   receivedAt: string
   refundedAmount: number
+  receiptId?: string
 }
 
 export interface BillRefundRecord {
@@ -245,4 +272,6 @@ export interface BillChargeRecord {
   billLineId?: string
   incidentCaseId?: string
   createdAt: string
+  /** How the amount was worked out, e.g. { kind: 'EXTRA_ROUNDS', rounds } for rounds used beyond the bill. */
+  basis?: Record<string, unknown> | null
 }

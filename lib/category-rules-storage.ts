@@ -135,7 +135,8 @@ export function setCachedCategories(categories: ProductCategoryItem[]) {
   _cachedCategories = categories
 }
 
-export function loadCategories(): ProductCategoryItem[] {
+/** Every category, suspended ones included (ตั้งค่าสินค้า, where they can be switched on again). */
+export function loadAllCategories(): ProductCategoryItem[] {
   if (typeof window === 'undefined') {
     if (process.env.NODE_ENV === 'test') {
       return DEFAULT_CATEGORIES
@@ -148,13 +149,18 @@ export function loadCategories(): ProductCategoryItem[] {
   return _cachedCategories || []
 }
 
+/** Categories that can be picked (a suspended category is not offered for new work). */
+export function loadCategories(): ProductCategoryItem[] {
+  return loadAllCategories().filter((c) => c.isActive !== false)
+}
+
 export function saveCategories(categories: ProductCategoryItem[]): void {
   if (typeof window === 'undefined') return
   _cachedCategories = categories
 }
 
 export async function addCategoryAsync(name: string): Promise<ProductCategoryItem[]> {
-  const current = loadCategories()
+  const current = loadAllCategories()
   const trimmed = name.trim()
   if (!trimmed) throw new Error('กรุณาระบุชื่อหมวดหมู่')
   if (current.some((c) => c.name.toLowerCase() === trimmed.toLowerCase())) {
@@ -167,7 +173,7 @@ export async function addCategoryAsync(name: string): Promise<ProductCategoryIte
 }
 
 function updateCategoryInCache(id: string, category: ProductCategoryItem): ProductCategoryItem[] {
-  const current = loadCategories()
+  const current = loadAllCategories()
   const updated = current.map((currentCategory) => (currentCategory.id === id ? category : currentCategory))
   saveCategories(updated)
   return updated
@@ -176,7 +182,7 @@ function updateCategoryInCache(id: string, category: ProductCategoryItem): Produ
 export async function updateCategoryAsync(id: string, name: string): Promise<ProductCategoryItem[]> {
   const trimmed = name.trim()
   if (!trimmed) throw new Error('กรุณาระบุชื่อหมวดหมู่')
-  const current = loadCategories()
+  const current = loadAllCategories()
   const duplicate = current.some((c) => c.id !== id && c.name.toLowerCase() === trimmed.toLowerCase())
   if (duplicate) throw new Error(`ชื่อหมวดหมู่ "${trimmed}" มีอยู่ในระบบแล้ว`)
   const target = current.find((category) => category.id === id)
@@ -186,17 +192,21 @@ export async function updateCategoryAsync(id: string, name: string): Promise<Pro
   return updateCategoryInCache(id, updatedCategory)
 }
 
-export async function deleteCategoryAsync(id: string, inUseCheck?: (cat: ProductCategoryItem) => boolean): Promise<ProductCategoryItem[]> {
-  const current = loadCategories()
-  const target = current.find((c) => c.id === id)
-  if (!target) return current
-  if (inUseCheck && inUseCheck(target)) {
-    throw new Error(`ไม่สามารถลบหมวดหมู่ "${target.name}" ได้เนื่องจากกำลังถูกใช้งานอยู่`)
-  }
-  await deleteCategoryFromSupabase(id, target.name)
-  const updated = current.filter((category) => category.id !== id)
+/** ลบถาวร: the server refuses a category that still has products (CATEGORY_IN_USE: <products>). */
+export async function deleteCategoryAsync(id: string): Promise<ProductCategoryItem[]> {
+  await deleteCategoryFromSupabase(id)
+  const updated = loadAllCategories().filter((category) => category.id !== id)
   saveCategories(updated)
   return updated
+}
+
+/** ระงับ / เปิดใช้งาน: the category stays on its products and in old documents. */
+export async function setCategoryActiveAsync(id: string, active: boolean): Promise<ProductCategoryItem[]> {
+  const target = loadAllCategories().find((category) => category.id === id)
+  if (!target) throw new Error('ไม่พบหมวดหมู่')
+  const updatedCategory = { ...target, isActive: active }
+  await saveCategoryToSupabase(updatedCategory)
+  return updateCategoryInCache(id, updatedCategory)
 }
 
 // ─── Composite Rules Management (ตาราง 3: ตารางประกอบข้อมูล) ─
@@ -370,69 +380,4 @@ async function resolveRuleUnitId(rule: Pick<ProductCategoryRule, 'unit' | 'unitI
   const createdUnit = updatedUnits.find((candidate) => candidate.name.toLocaleLowerCase() === unitName.toLocaleLowerCase())
   if (!createdUnit) throw new Error('ไม่สามารถสร้างหน่วยนับได้')
   return createdUnit.id
-}
-
-export async function addCategoryRuleAsync(ruleData: Omit<ProductCategoryRule, 'id'>): Promise<ProductCategoryRule[]> {
-  const name = ruleData.name.trim()
-  if (!name) throw new Error('กรุณาระบุชื่อหมวดหมู่')
-  const current = loadCategories()
-  if (current.some((category) => category.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
-    throw new Error(`หมวดหมู่ "${name}" มีอยู่ในระบบแล้ว`)
-  }
-  const defaultUnitId = await resolveRuleUnitId(ruleData)
-  const id = await saveCategoryToSupabase({ name })
-  const category: ProductCategoryItem = {
-    id,
-    name,
-    calculationType: ruleData.calculationType,
-    calculationLabel: ruleData.calculationLabel,
-    defaultUnitId,
-    isActive: true,
-  }
-  await saveCategoryDefault(id, { calculationType: ruleData.calculationType, unitId: defaultUnitId })
-  saveCategories([...current, category])
-  return loadCategoryRules()
-}
-
-export async function updateCategoryRuleAsync(updated: ProductCategoryRule): Promise<ProductCategoryRule[]> {
-  const name = updated.name.trim()
-  if (!name) throw new Error('กรุณาระบุชื่อหมวดหมู่')
-  const current = loadCategories()
-  const target = current.find((category) => category.id === updated.id)
-  if (!target) throw new Error('ไม่พบหมวดหมู่ที่ต้องการแก้ไข')
-  if (current.some((category) => category.id !== updated.id && category.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
-    throw new Error(`ชื่อหมวดหมู่ "${name}" มีอยู่ในระบบแล้ว`)
-  }
-  const defaultUnitId = await resolveRuleUnitId(updated)
-  const updatedCategory: ProductCategoryItem = {
-    ...target,
-    name,
-    calculationType: updated.calculationType,
-    calculationLabel: updated.calculationLabel,
-    defaultUnitId,
-  }
-  if (name !== target.name) await saveCategoryToSupabase({ id: target.id, name, isActive: target.isActive !== false })
-  await saveCategoryDefault(target.id, { calculationType: updated.calculationType, unitId: defaultUnitId })
-  saveCategories(current.map((category) => category.id === updated.id ? updatedCategory : category))
-  return loadCategoryRules()
-}
-
-export async function deleteCategoryRuleAsync(
-  id: string,
-  inUseCheck?: (category: ProductCategoryItem) => boolean,
-): Promise<ProductCategoryRule[]> {
-  await deleteCategoryAsync(id, inUseCheck)
-  return loadCategoryRules()
-}
-
-export function getCategoryRuleById(id?: string): ProductCategoryRule | undefined {
-  if (!id) return undefined
-  const rules = loadCategoryRules()
-  return rules.find((r) => r.id === id)
-}
-
-export function getCategoryRuleByName(name?: string): ProductCategoryRule | undefined {
-  if (!name) return undefined
-  const rules = loadCategoryRules()
-  return rules.find((r) => r.name.trim().toLowerCase() === name.trim().toLowerCase())
 }

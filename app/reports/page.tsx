@@ -158,7 +158,7 @@ function ReportsWorkspace() {
   }, [currentView, filter])
 
   return (
-    <div className="p-2 space-y-2 min-h-screen bg-slate-50/50 dark:bg-slate-950/40 text-slate-900 dark:text-slate-100 select-none">
+    <div className="p-2 space-y-2 min-h-full bg-slate-50/50 dark:bg-slate-950/40 text-slate-900 dark:text-slate-100 select-none">
       {/* ─── Global Compact Filter Bar ────────────────────────────────────────── */}
       <ReportFilter
         startDate={startDate}

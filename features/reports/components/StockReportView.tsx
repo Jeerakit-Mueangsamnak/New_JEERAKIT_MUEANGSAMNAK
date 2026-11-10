@@ -312,7 +312,6 @@ export function StockReportView({ data }: { data: StockReportData }) {
                   สินค้าทำเงินสูงสุด (Top Revenue)
                 </h3>
               </div>
-              <span className="text-[10px] text-slate-600 dark:text-slate-400">เรียงตามรายได้</span>
             </div>
           }
         >
@@ -323,7 +322,7 @@ export function StockReportView({ data }: { data: StockReportData }) {
                   <th className="py-2 px-1.5 font-bold">ชื่อสินค้า</th>
                   <th className="py-2 px-1.5 font-bold text-center">หมวดหมู่</th>
                   <th className="py-2 px-1.5 font-bold text-center">เช่า/ขาย</th>
-                  <th className="py-2 px-1.5 font-bold text-right text-emerald-700 dark:text-emerald-400">รายได้รวม</th>
+                  <th className="py-2 px-1.5 font-bold text-right">รายได้รวม</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -365,7 +364,6 @@ export function StockReportView({ data }: { data: StockReportData }) {
                 ตารางรายละเอียดสินค้าและสต็อกทั้งหมด ({data.productsTable.length} รายการ)
               </h3>
             </div>
-            <span className="text-[10px] text-slate-600 dark:text-slate-400">ข้อมูลสถานะตามจริง</span>
           </div>
         }
       >
@@ -376,20 +374,20 @@ export function StockReportView({ data }: { data: StockReportData }) {
               <th className="px-2">ชื่อสินค้า</th>
               <th className="px-2">หมวดหมู่</th>
               <th className="px-2 text-center">ทั้งหมด</th>
-              <th className="px-2 text-center text-emerald-700 dark:text-emerald-400">
+              <th className="px-2 text-center">
                 พร้อมใช้
               </th>
-              <th className="px-2 text-center text-blue-600 dark:text-blue-400">
+              <th className="px-2 text-center">
                 กำลังเช่า
               </th>
-              <th className="px-2 text-center text-rose-700 dark:text-rose-400">
+              <th className="px-2 text-center">
                 ชำรุด
               </th>
-              <th className="px-2 text-center text-amber-700 dark:text-amber-400">
+              <th className="px-2 text-center">
                 สูญหาย
               </th>
               <th className="px-2 text-right">ค่าเช่า/วัน</th>
-              <th className="px-2 text-right text-emerald-800 dark:text-emerald-400">
+              <th className="px-2 text-right">
                 รายได้สะสม
               </th>
             </tr>

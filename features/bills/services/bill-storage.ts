@@ -47,7 +47,7 @@ export function fullBillToRentalBill(full: FullBill): RentalBill {
     lostQuantity: 0,
     outstandingQuantity: item.outstandingQty,
     isAccessory: false,
-    isChargeable: true,
+    isChargeable: item.isChargeable ?? true,
     requiresReturn: item.requiresReturn,
   }))
 
@@ -65,7 +65,8 @@ export function fullBillToRentalBill(full: FullBill): RentalBill {
     subtotal: full.subtotal ?? full.grandTotal,
     discountAmount: full.discountAmount ?? 0,
     shippingFee: full.shippingFee ?? 0,
-    depositAmount: full.heldDepositAmount ?? full.paidDepositAmount ?? 0,
+    // The deposit agreed on the bill (received + not received yet)
+    depositAmount: (full.heldDepositAmount ?? full.paidDepositAmount ?? 0) + (full.depositOutstanding ?? 0),
     taxAmount: full.taxAmount ?? 0,
     billAmount: full.billAmount ?? full.grandTotal,
     grandTotal: full.grandTotal,
@@ -89,18 +90,11 @@ export function fullBillToRentalBill(full: FullBill): RentalBill {
   }
 }
 
-
 // ─── Cache reads ─────────────────────────────────────────────────────────────
 
 export function loadBills(): FullBill[] {
   return _cachedBills || []
 }
-
-/** Cache-only replace (tests / optimistic UI). */
-export function saveBills(bills: FullBill[]): void {
-  _cachedBills = bills
-}
-
 export function loadBillById(id: string): FullBill | undefined {
   return loadBills().find((b) => b.id === id)
 }
@@ -130,7 +124,7 @@ export async function fetchBillByIdFromSupabase(id: string): Promise<FullBill | 
   return bill
 }
 
-/** Only an unpaid DRAFT can be removed — and even then it is cancelled, not deleted (history). */
+/** A DRAFT (no number, no stock, no money) can be deleted for real (bill_draft_delete). */
 export function canHardDeleteBill(bill: FullBill | RentalBill): boolean {
   return bill.rentalStatus === 'DRAFT' && (bill.paidAmount || 0) <= 0
 }

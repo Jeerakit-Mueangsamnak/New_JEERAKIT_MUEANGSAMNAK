@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React from 'react'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
@@ -46,7 +47,7 @@ export function PostSavePrintModal({
           <button
             type="button"
             onClick={onClose}
-            className="w-full py-2.5 px-4 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs sm:text-sm hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-[0.99] transition-all min-h-[42px] flex items-center justify-center gap-1.5 cursor-pointer"
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-[0.99] transition-all flex items-center justify-center cursor-pointer`}
           >
             <X className="w-4 h-4" />
             <span>{closeButtonText}</span>
@@ -55,7 +56,7 @@ export function PostSavePrintModal({
           <button
             type="button"
             onClick={onPrint}
-            className="w-full py-2.5 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-emerald-600/25 transition-all min-h-[42px] flex items-center justify-center gap-1.5 cursor-pointer"
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center cursor-pointer`}
           >
             <Printer className="w-4 h-4" />
             <span>{printButtonText}</span>

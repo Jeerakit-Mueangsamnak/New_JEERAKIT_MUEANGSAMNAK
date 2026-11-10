@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { LogOut, X, ChevronRight, ChevronDown, UserCog } from 'lucide-react'
+import { LogOut, ChevronRight, ChevronDown } from 'lucide-react'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { menuForPath } from '@/features/auth/services/permissions'
 import { getPageMeta } from '@/lib/navigation-meta'
 import { useSidebarDrawer } from '@/lib/hooks/useSidebarDrawer'
-import { APP_CHROME_BG_CLASSES, APP_CHROME_BORDER_CLASSES, APP_HEADER_HEIGHT_CLASS } from '@/components/common/ActionButton'
+import { APP_CHROME_BG_CLASSES } from '@/components/common/ActionButton'
 
 // Menu order. Names and icons come from getPageMeta so the menu and the header title never drift.
 const MENU_HREFS = [
@@ -22,9 +23,7 @@ const MENU_HREFS = [
   '/products',
   '/quotations',
   '/finance/statement',
-  '/line',
   '/settings',
-  '/owner-permissions',
 ]
 
 // Menus that expand into ?view= sub pages; the first view is the default one.
@@ -37,8 +36,9 @@ const viewParams = (view: string) => ({ get: (k: string) => (k === 'view' ? view
 const isUnder = (pathname: string, href: string) => pathname === href || pathname.startsWith(href + '/')
 
 const MENU_ROW_CLASSES =
-  'flex min-h-10 items-center justify-between gap-2 px-3 py-2 rounded-lg font-bold text-[11px] leading-4 transition-all duration-150'
-const MENU_ROW_ACTIVE_CLASSES = 'bg-emerald-700 text-white shadow-lg shadow-emerald-600/30'
+  'flex min-h-10 items-center justify-between gap-2 px-3 py-2 rounded-lg font-bold text-[13px] leading-5 transition-all duration-150'
+// Selected menu colour #749bfc (owner 2026-11-10); dark text keeps WCAG AA contrast on it.
+const MENU_ROW_ACTIVE_CLASSES = 'bg-[#749bfc] text-slate-900 shadow-lg shadow-[#749bfc]/30'
 const MENU_ROW_IDLE_CLASSES =
   'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-300/60 dark:hover:bg-slate-800'
 
@@ -86,23 +86,23 @@ function SidebarContent() {
 
       {/* Sidebar Drawer Container */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-72 ${APP_CHROME_BG_CLASSES} text-slate-900 dark:text-slate-100 flex flex-col h-dvh max-h-dvh xl:h-full shrink-0 border-r ${APP_CHROME_BORDER_CLASSES} select-none xl:shadow-none transition-transform duration-300 ease-in-out xl:static xl:w-64 xl:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 w-72 ${APP_CHROME_BG_CLASSES} text-slate-900 dark:text-slate-100 flex flex-col h-dvh max-h-dvh xl:h-full shrink-0 select-none xl:shadow-none transition-transform duration-300 ease-in-out xl:static xl:w-64 xl:translate-x-0 ${
           isMobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
         }`}
       >
-        {/* Drawer Header: same height as the app header so the bottom borders line up */}
-        <div className={`${APP_HEADER_HEIGHT_CLASS} px-3.5 sm:px-4 flex items-center justify-between border-b ${APP_CHROME_BORDER_CLASSES} shrink-0`}>
-          <span className="text-xs font-extrabold tracking-wider uppercase text-slate-700 dark:text-slate-300">
-            เมนูหลัก
-          </span>
-
-          <button
-            onClick={() => setIsMobileOpen(false)}
-            className="xl:hidden p-1.5 rounded-xl text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-300/60 dark:hover:bg-slate-800 transition-colors"
-            aria-label="ปิดเมนู"
-          >
-            <X className="w-5 h-5" />
-          </button>
+        {/* Drawer Header: the login page logo almost edge to edge, so this row is taller than the app header
+            (owner 2026-11-10). No lines under / beside the logo or above the user row (owner 2026-11-11). */}
+        {/* No close button (owner 2026-11-10): on iPad/phone the drawer closes by tapping outside it or picking a menu. */}
+        <div className={`h-[72px] px-3.5 sm:px-4 py-1 flex items-center shrink-0`}>
+          <Image
+            src="/logo.png"
+            alt="JJK JEERAKIT PLASTIC FORMWORK UTTARADIT"
+            width={896}
+            height={254}
+            priority
+            unoptimized
+            className="h-full w-auto max-w-full object-contain object-left select-none dark:invert"
+          />
         </div>
 
         {/* Navigation List */}
@@ -132,11 +132,11 @@ function SidebarContent() {
                     className={`${MENU_ROW_CLASSES} cursor-pointer select-none ${isActive ? MENU_ROW_ACTIVE_CLASSES : MENU_ROW_IDLE_CLASSES}`}
                   >
                     <div className="flex min-w-0 items-center gap-2.5">
-                      <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-white' : 'text-slate-600 dark:text-slate-400'}`} />
+                      <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-slate-900' : 'text-slate-600 dark:text-slate-400'}`} />
                       <span className="min-w-0 whitespace-nowrap">{name}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Chevron className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-white/80' : 'text-slate-600 dark:text-slate-400'}`} />
+                      <Chevron className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-slate-900/80' : 'text-slate-600 dark:text-slate-400'}`} />
                     </div>
                   </div>
 
@@ -150,14 +150,14 @@ function SidebarContent() {
                             key={view}
                             href={`${href}?view=${view}`}
                             onClick={handleMenuClick}
-                            className={`flex min-h-8 items-center justify-between gap-2 px-3 py-1.5 rounded-md font-semibold text-[10.5px] leading-4 transition-all duration-150 ${
+                            className={`flex min-h-8 items-center justify-between gap-2 px-3 py-1.5 rounded-md font-semibold text-[12.5px] leading-5 transition-all duration-150 ${
                               isSubActive
-                                ? 'bg-emerald-500/20 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 font-bold border-l-2 border-emerald-400'
+                                ? 'bg-[#749bfc]/25 dark:bg-[#749bfc]/15 text-slate-900 dark:text-blue-200 font-bold border-l-2 border-[#749bfc]'
                                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-300/50 dark:hover:bg-slate-800'
                             }`}
                           >
                             <span className="truncate">{getPageMeta(href, viewParams(view)).name}</span>
-                            {isSubActive && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />}
+                            {isSubActive && <span className="w-1.5 h-1.5 rounded-full bg-[#749bfc] shrink-0" />}
                           </Link>
                         )
                       })}
@@ -175,19 +175,20 @@ function SidebarContent() {
                 className={`${MENU_ROW_CLASSES} ${isActive ? MENU_ROW_ACTIVE_CLASSES : MENU_ROW_IDLE_CLASSES}`}
               >
                 <div className="flex min-w-0 items-center gap-2.5">
-                  <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-white' : 'text-slate-600 dark:text-slate-400'}`} />
+                  <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-slate-900' : 'text-slate-600 dark:text-slate-400'}`} />
                   <span className="min-w-0 whitespace-nowrap">{name}</span>
                 </div>
-                {isActive && <ChevronRight className="w-3 h-3 shrink-0 text-white/80" />}
+                {isActive && <ChevronRight className="w-3 h-3 shrink-0 text-slate-900/80" />}
               </Link>
             )
           })}
         </nav>
 
         {/* User Footer & Logout */}
-        <div className="p-4 border-t border-slate-300 dark:border-slate-800 bg-slate-200/60 dark:bg-slate-900 shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5 overflow-hidden">
+        {/* Same colour as the menu (owner 2026-11-10): no background of its own. */}
+        <div className="p-4 shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-1 min-w-0 items-center gap-2.5">
               <div className="w-8 h-8 rounded-full bg-slate-300 dark:bg-slate-800 border border-slate-400 dark:border-slate-700 text-slate-800 dark:text-slate-100 font-bold flex items-center justify-center text-xs shrink-0 overflow-hidden">
                 {user?.avatarUrl ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
@@ -196,28 +197,13 @@ function SidebarContent() {
                   (user?.displayName || user?.fullName || user?.username || 'US').slice(0, 2).toUpperCase()
                 )}
               </div>
-              <div className="flex-1 truncate">
-                <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
-                  {user?.displayName || user?.fullName || user?.username || 'ผู้ใช้งาน'}
-                </p>
-                <p className="text-[10px] text-slate-600 dark:text-slate-400 truncate flex items-center gap-1">
-                  <span className="text-amber-800 dark:text-amber-400 font-bold">
-                    {user?.role === 'OWNER' ? '👑 เจ้าของร้าน' : '💻 พนักงาน'}
-                  </span>
-                </p>
-              </div>
+              {/* Name only, no role line, larger and centred between the avatar and the logout button (owner 2026-11-10). */}
+              <p className="flex-1 min-w-0 text-center text-xl leading-7 font-bold text-slate-900 dark:text-slate-100 truncate">
+                {user?.displayName || user?.fullName || user?.username || 'ผู้ใช้งาน'}
+              </p>
             </div>
 
             <div className="flex items-center gap-1 shrink-0">
-              <Link
-                href="/account"
-                onClick={() => setIsMobileOpen(false)}
-                className="p-1.5 text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-950/40 rounded-lg transition-colors"
-                title="ตั้งค่าส่วนตัว"
-                aria-label="ตั้งค่าส่วนตัว"
-              >
-                <UserCog className="w-4 h-4" />
-              </Link>
               <button
                 onClick={async () => {
                   setIsMobileOpen(false)

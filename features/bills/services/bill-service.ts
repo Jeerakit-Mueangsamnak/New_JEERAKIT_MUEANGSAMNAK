@@ -147,13 +147,6 @@ export async function confirmBill(billId: string, tenders: TenderInput[] = []): 
   })
   return refreshAfterChange(billId)
 }
-
-/** POS checkout: save the draft and confirm it (with payment) in one go. */
-export async function checkoutBill(input: BillDraftInput, tenders: TenderInput[] = []): Promise<FullBill | null> {
-  const id = await saveBillDraft(input)
-  return confirmBill(id, tenders)
-}
-
 // ─── money ───────────────────────────────────────────────────────────────────
 
 export async function receivePayment(
@@ -177,11 +170,30 @@ export async function receivePayment(
     totalAmount: Number.isFinite(totalAmount) ? totalAmount : null,
   }
 }
+/**
+ * The deposit pays what the bill owes (owner 2026-11-06): one receipt "หักจากมัดจำ", the deposit
+ * held goes down by the same amount — both in one server step (bill_deposit_apply).
+ */
+export async function applyDepositToBill(billId: string, amount: number, receivedDay?: string | null): Promise<PaymentReceiveResult> {
+  const payload: Record<string, unknown> = { p_bill_id: billId, p_amount: amount, p_idempotency_key: newIdempotencyKey() }
+  if (receivedDay) payload.p_received_on = receivedDay.slice(0, 10)
+  const result = await rpc<{ receipt_no?: string | null; total_amount?: number | string | null }>('bill_deposit_apply', payload)
+  const totalAmount = Number(result.total_amount)
+  return {
+    bill: await refreshAfterChange(billId),
+    receiptNo: result.receipt_no || null,
+    totalAmount: Number.isFinite(totalAmount) ? totalAmount : null,
+  }
+}
 
-export async function voidPayment(billId: string, paymentId: string, reason: string): Promise<FullBill | null> {
-  await withPin({ action: 'PAYMENT_VOID', title: 'ยืนยันยกเลิกรายการรับเงิน' }, (token) =>
-    rpc('payment_void', { p_payment_id: paymentId, p_reason: reason, p_pin_token: token })
-  )
+/** The deposit (or part of it) is given back to the customer (bill_deposit_refund); the bill may close after it. */
+export async function refundDeposit(billId: string, amount: number, method: 'CASH' | 'QR' | 'TRANSFER'): Promise<FullBill | null> {
+  await rpc('bill_deposit_refund', {
+    p_bill_id: billId,
+    p_amount: amount,
+    p_method: method,
+    p_idempotency_key: newIdempotencyKey(),
+  })
   return refreshAfterChange(billId)
 }
 
@@ -231,6 +243,28 @@ export async function getRefundSuggestion(billId: string): Promise<RefundSuggest
   }
 }
 
+/**
+ * Paid more than the bill now comes to (owner 2026-11-09): the system works out what goes back and pressing
+ * ออกบิล records it as given back — newest payment first, deposit-paid receipts last. The bill can then close.
+ */
+export async function refundOverpayment(billId: string): Promise<{ amount: number; bill: FullBill | null }> {
+  const s = await getRefundSuggestion(billId)
+  let left = Math.round(s.suggestedRefund * 100) / 100
+  if (left <= 0) return { amount: 0, bill: null }
+  const order = [...s.payments].reverse().sort((a, b) => Number(a.method === 'OTHER') - Number(b.method === 'OTHER'))
+  let bill: FullBill | null = null
+  let refunded = 0
+  for (const p of order) {
+    const amount = Math.round(Math.min(left, p.refundable) * 100) / 100
+    if (amount <= 0) continue
+    bill = await refundPayment({ billId, paymentId: p.paymentId, amount, reason: 'คืนเงินที่ชำระเกิน' })
+    refunded += amount
+    left = Math.round((left - amount) * 100) / 100
+    if (left <= 0) break
+  }
+  return { amount: Math.round(refunded * 100) / 100, bill }
+}
+
 // ─── goods out / back ────────────────────────────────────────────────────────
 
 /** Partial delivery supported: each call is one delivery with its own history (Master §11.3). */
@@ -263,6 +297,30 @@ export interface ReturnItemInput {
   note?: string
   /** Day these goods came back (daily-rate goods); defaults to the day of the whole return. */
   returnedDay?: string
+}
+
+/**
+ * Per-round goods used for more rounds than the bill (owner 2026-11-07): the rent for those rounds goes on the
+ * bill as a confirmed charge, with or without goods coming back. Saved first, while the bill is surely open
+ * (a bill that is paid and fully back closes itself during the return).
+ */
+export async function chargeExtraRounds(
+  billId: string,
+  items: Array<{ lineId: string; productName?: string; rounds: number; quantity: number; fee: number }>
+): Promise<void> {
+  for (const i of items) {
+    const fee = Math.round(i.fee * 100) / 100
+    if (fee <= 0 || i.rounds <= 0) continue
+    const charge = await rpc<{ id: string }>('charge_create', {
+      p_bill_id: billId,
+      p_charge_type: 'OTHER',
+      p_amount: fee,
+      p_reason: `ค่าเช่ารอบเพิ่ม ${i.rounds} รอบ ${i.productName ?? ''}`.trim(),
+      p_bill_line_id: i.lineId,
+      p_basis: { kind: 'EXTRA_ROUNDS', rounds: i.rounds, quantity: i.quantity },
+    })
+    await rpc('charge_confirm', { p_charge_id: charge.id })
+  }
 }
 
 export interface ReturnResult {
@@ -399,7 +457,13 @@ async function addIncidentCharge(
 
 // ─── cancel / void / correct / continue ─────────────────────────────────────
 
-/** DRAFT: cancel freely. CONFIRMED (nothing paid/delivered): cancel with PIN. */
+/** A draft bill (no number, no stock, no money) is deleted for real; a member deletes only their own drafts. */
+export async function deleteDraftBill(billId: string): Promise<void> {
+  await rpc('bill_draft_delete', { p_bill_id: billId })
+  await refreshAfterChange(billId)
+}
+
+/** CONFIRMED (nothing paid/delivered): cancel. Reason required; a member only their own bill of today. */
 export async function cancelBill(billId: string, reason: string): Promise<FullBill | null> {
   await withPinIfRequired({ action: 'BILL_CANCEL', title: 'ยืนยันยกเลิกบิล' }, (token) =>
     rpc('bill_cancel', { p_bill_id: billId, p_reason: reason, p_pin_token: token })
@@ -418,11 +482,11 @@ export async function voidBill(billId: string, reason: string): Promise<FullBill
 }
 
 /**
- * "ยกเลิกบิล" button: a draft or an untouched confirmed bill is cancelled; once money or goods
- * moved, the bill is voided instead (PIN). Money received is refunded as its own act.
+ * "ยกเลิกบิล" button on a confirmed bill: an untouched bill is cancelled; once money or goods
+ * moved, the bill is voided instead. Money received is refunded as its own act. Drafts: deleteDraftBill.
  */
 export async function cancelOrVoidBill(bill: Pick<FullBill, 'id' | 'serverStatus'>, reason: string): Promise<FullBill | null> {
-  if (bill.serverStatus === 'DRAFT' || bill.serverStatus === 'CONFIRMED') {
+  if (bill.serverStatus === 'CONFIRMED') {
     try {
       return await cancelBill(bill.id, reason)
     } catch (err) {

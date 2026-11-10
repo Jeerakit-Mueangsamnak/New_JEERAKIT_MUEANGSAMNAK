@@ -45,9 +45,15 @@ export interface RevenueLedgerEntry {
 }
 
 let _cachedRevenueLedger: RevenueLedgerEntry[] = []
+/** Bumped by every fetch and by clearFinanceCache: a fetch may write the cache only while it is still the latest. */
+let _fetchGeneration = 0
+let _latestFetch: Promise<StatementTransaction[]> | null = null
 
-/** Drops every cached money row (e.g. on sign-out / user switch) so nothing leaks between accounts. */
+/** Drops every cached money row (e.g. on sign-out / user switch) so nothing leaks between accounts.
+ *  Fetches still in flight are invalidated: their late answer is never written to the cache. */
 export function clearFinanceCache(): void {
+  _fetchGeneration++
+  _latestFetch = null
   _cachedRevenueLedger = []
   _cachedTransactions = null
 }
@@ -70,14 +76,24 @@ export function loadTransactions(): StatementTransaction[] {
   return _cachedTransactions || []
 }
 
-export async function fetchTransactionsFromSupabase(): Promise<StatementTransaction[]> {
+export function fetchTransactionsFromSupabase(): Promise<StatementTransaction[]> {
   // Never keep showing the previous (possibly another user's) rows when this fetch fails.
   _cachedTransactions = null
   _cachedRevenueLedger = []
-  const [txs, ledger] = await Promise.all([fetchTransactionsFromRepository(), fetchRevenueLedgerFromSupabase()])
-  _cachedTransactions = txs
-  _cachedRevenueLedger = ledger
-  return _cachedTransactions
+  const generation = ++_fetchGeneration
+  const run = (async () => {
+    const [txs, ledger] = await Promise.all([fetchTransactionsFromRepository(), fetchRevenueLedgerFromSupabase()])
+    if (generation !== _fetchGeneration) {
+      // Cleared (sign-out / account switch) or replaced by a newer fetch while waiting:
+      // drop this answer, hand back whatever the newer fetch produces (empty after a clear).
+      return _latestFetch ? _latestFetch : []
+    }
+    _cachedTransactions = txs
+    _cachedRevenueLedger = ledger
+    return txs
+  })()
+  _latestFetch = run
+  return run
 }
 
 /** Manual statement entry: income = รายรับอื่น (no PIN), expense = รายจ่าย (PIN). */
@@ -126,8 +142,4 @@ export function formatLocalDateTime(value: string): string {
   if (!value || Number.isNaN(d.getTime())) return value
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear() + 543} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-export function getTransactionsForBill(billId: string): StatementTransaction[] {
-  return loadTransactions().filter((t) => t.billId === billId)
 }

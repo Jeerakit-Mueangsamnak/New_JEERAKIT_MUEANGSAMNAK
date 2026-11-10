@@ -307,13 +307,17 @@ SELECT t.err('M-ATOMIC', 'refund on a draft bill is refused and records nothing'
 -- A cancelled or voided bill is no longer a receivable. Money already received on a VOID bill stays
 -- and is owed back (balance_due < 0 → refund suggestion), never hidden as 0 (Master §20).
 SELECT t.set('dX', (t.ok('M-CANCEL', 'draft X: 1 × T-SALE = 10', 'cashier', t.sale(ARRAY[['ps', '1']]))) ->> 'id');
-SELECT t.ok('M-CANCEL', 'cancel draft X', 'cashier', format($q$select public.bill_cancel(%L::uuid, 'customer left')$q$, t.v('dX')));
+SELECT t.err('M-CANCEL', 'a draft is not cancelled (it is deleted)', 'cashier',
+    format($q$select public.bill_cancel(%L::uuid, 'customer left')$q$, t.v('dX')), 'BILL_IS_DRAFT');
+SELECT t.ok('M-CANCEL', 'delete own draft X', 'cashier', format($q$select public.bill_draft_delete(%L::uuid)$q$, t.v('dX')));
 SELECT t.set('dY', (t.ok('M-CANCEL', 'draft Y: 1 × T-SALE = 10', 'cashier', t.sale(ARRAY[['ps', '1']]))) ->> 'id');
 SELECT t.ok('M-CANCEL', 'confirm Y without money', 'cashier', format($q$select public.bill_confirm(%L::uuid, 'key-cx-y0')$q$, t.v('dY')));
 SELECT t.ok('M-CANCEL', 'cancel confirmed Y (PIN)', 'cashier',
     format($q$select public.bill_cancel(%L::uuid, 'customer changed mind', %L::uuid)$q$, t.v('dY'), t.pin('cashier', 'BILL_CANCEL')));
-SELECT t.check('M-CANCEL', 'cancelled draft X owes nothing',
-    (t.bill('dX')).status = 'CANCELLED' AND (t.bill('dX')).balance_due = 0 AND (t.bill('dX')).paid_amount = 0);
+SELECT t.check('M-CANCEL', 'deleted draft X is gone with its lines; the delete is in the audit log',
+    NOT EXISTS (SELECT 1 FROM public.bills WHERE id = t.v('dX')::uuid)
+    AND NOT EXISTS (SELECT 1 FROM public.bill_lines WHERE bill_id = t.v('dX')::uuid)
+    AND EXISTS (SELECT 1 FROM public.audit_logs WHERE entity_id = t.v('dX')::uuid AND action = 'BILL_DRAFT_DELETE'));
 SELECT t.check('M-CANCEL', 'cancelled confirmed Y owes nothing; stock back, revenue reversed',
     (t.bill('dY')).status = 'CANCELLED' AND (t.bill('dY')).balance_due = 0 AND (t.bill('dY')).payment_status = 'UNPAID'
     AND (SELECT COALESCE(sum(amount * direction), 0) FROM public.finance_ledger_entries WHERE bill_id = t.v('dY')::uuid) = 0);
@@ -341,9 +345,11 @@ SELECT t.check('M-CANCEL', 'void Z after refund: balance 0, REFUNDED, nothing mo
          ->> 'suggested_refund')::numeric = 0);
 SELECT t.check('M-CANCEL', 'reconcile X, Y, Z twice: nothing changes either time',
     (SELECT bool_and((r -> 'before') - 'updated_at' = (r -> 'after') - 'updated_at')
-       FROM unnest(ARRAY['dX', 'dY', 'dZ', 'dX', 'dY', 'dZ']) v, LATERAL public.reconcile_bill(t.v(v)::uuid) r));
+       -- draft X was deleted above (bill_draft_delete): only the bills that still exist
+       FROM unnest(ARRAY['dY', 'dZ', 'dY', 'dZ']) v, LATERAL public.reconcile_bill(t.v(v)::uuid) r));
 SELECT t.check('M-CANCEL', 'cancel / void are audited',
-    (SELECT count(*) FROM public.audit_logs WHERE action = 'BILL_CANCEL' AND entity_id IN (t.v('dX')::uuid, t.v('dY')::uuid)) = 2
+    -- draft X is deleted, not cancelled (its BILL_DRAFT_DELETE audit is checked above)
+    (SELECT count(*) FROM public.audit_logs WHERE action = 'BILL_CANCEL' AND entity_id = t.v('dY')::uuid) = 1
     AND EXISTS (SELECT 1 FROM public.audit_logs WHERE action = 'BILL_VOID' AND entity_id = t.v('dZ')::uuid));
 
 -- ===================================================================== VOID + PARTIAL REFUND / WRITE-OFF

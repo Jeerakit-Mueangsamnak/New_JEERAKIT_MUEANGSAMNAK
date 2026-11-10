@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { printReactDocuments } from '@/lib/print/print-react'
@@ -17,22 +18,22 @@ import {
 import { getLocalDateString } from '@/components/common/CustomDatePicker'
 import { NumericInput } from '@/components/common/NumericInput'
 import { A4FitPreview } from '@/features/pos/components/A4FitPreview'
-import { ReturnSlipPlaceholder } from '@/features/documents/components/ReturnSlipPlaceholder'
-import { PaymentReceiptPlaceholder } from '@/features/documents/components/PaymentReceiptPlaceholder'
-import { DamageReceiptPlaceholder } from '@/features/documents/components/DamageReceiptPlaceholder'
 import { PaymentMethodSelector, PaymentMethodType } from '@/features/pos/components/payment/PaymentMethodSelector'
 import { PaymentDynamicContent } from '@/features/pos/components/payment/PaymentDynamicContent'
 import { useToast } from '@/components/common/Toast'
 import { PostSavePrintModal } from '@/components/common/PostSavePrintModal'
 import { BusinessSettings } from '@/lib/types/rental-pos'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { correctBill, createContinuation, processReturn, receivePayment } from '@/features/bills/services/bill-service'
-import { useConfirm } from '@/components/common/ConfirmDialogProvider'
-import { RentalBillTemplate, type BillTemplateData } from '@/templates/rental-bill/RentalBillTemplate'
-import { billBusinessFields } from '@/features/documents/utils/rental-bill-print'
+import { applyDepositToBill, chargeExtraRounds, correctBill, createContinuation, processReturn, receivePayment, refundDeposit, refundOverpayment } from '@/features/bills/services/bill-service'
+import { useConfirm, useNotice } from '@/components/common/ConfirmDialogProvider'
+import { useSplitPayment } from '@/features/pos/hooks/useSplitPayment'
+import { allocateTenders, type Tender } from '@/features/pos/services/split-payment'
+import { QrPaymentDialog } from '@/features/pos/components/payment/QrPaymentDialog'
+import { fullBillToTemplateData, type BillTemplateData } from '@/features/documents/utils/rental-bill-print'
 import { buildContinuationLine, formatBaht } from '@/features/bills/utils/bill-workspace'
 import { refreshBillsCache } from '@/features/bills/services/bill-storage'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
+import { dbErrorMessage } from '@/lib/db/rpc'
 import { ReturnTableStep } from '@/features/bills/components/ReturnTableStep'
 import type { ReturnQuantityField } from '@/features/bills/components/ReturnTableStep'
 import { BillWorkspaceHeader, type BillWorkspaceTab } from '@/features/bills/components/BillWorkspaceHeader'
@@ -41,9 +42,23 @@ import { BillHistoryTab } from '@/features/bills/components/BillHistoryTab'
 import { isCancelledOrVoidBill } from '@/features/bills/utils/bill-list-presentation'
 import { loadProducts } from '@/features/products/services/product-storage'
 import {
-  computeItemRentalCalculation,
   computeReturnCalculation,
+  chargedExtraRounds,
+  extraRoundsOf,
+  extraRoundsFeeOf,
 } from '@/features/bills/services/return-calculation'
+import { refreshSharedTemplates } from '@/features/documents/services/template-library-storage'
+import {
+  FINE_FORM_NAME,
+  MAIN_BILL_FORM_NAME,
+  pickBillFormTemplate,
+  RECEIPT_FORM_NAME,
+  renderBillFormPagesHtml,
+  renderFineFormPagesHtml,
+  renderReturnFormPagesHtml,
+  RETURN_FORM_NAME,
+} from '@/features/documents/utils/transaction-print'
+import type { DocumentTemplate } from '@/lib/types/document'
 
 interface RentalBillingConfig {
   allowPartialReturn?: boolean
@@ -62,6 +77,21 @@ const getReturnedQty = (item: ReturnInspectionItem) =>
 const getItemDamageFee = (item: ReturnInspectionItem) =>
   (item.damagedQty || 0) * (item.repairFeePerUnit || 0) +
   (item.lostQty || 0) * (item.replacementFeePerUnit || 0)
+
+type ReturnDocType = 'RETURN_SLIP' | 'FINE_SLIP' | 'RECEIPT' | 'CONTINUATION_BILL'
+
+/** The shop form each paper of the return is printed on. */
+const RETURN_DOC_FORM_NAME: Record<ReturnDocType, string> = {
+  RETURN_SLIP: RETURN_FORM_NAME,
+  FINE_SLIP: FINE_FORM_NAME,
+  RECEIPT: RECEIPT_FORM_NAME,
+  CONTINUATION_BILL: MAIN_BILL_FORM_NAME,
+}
+
+/** One A4 page of a shop form (renderDocumentTemplate already sanitizes its HTML). */
+function ReturnFormPage({ html }: { html: string }) {
+  return <div className="h-full w-full bg-white p-8 font-sans text-xs text-slate-900" dangerouslySetInnerHTML={{ __html: html }} />
+}
 
 interface BillActionViewProps {
   customerName: string
@@ -109,10 +139,14 @@ export function BillActionView({
   // Deposit row of the payment summary: nothing / return part of it / add to it
   const [depositAction, setDepositAction] = useState<'NONE' | 'REFUND' | 'ADD'>('NONE')
   const [depositAmount, setDepositAmount] = useState<number>(0)
+  // How the deposit is given back (คืน)
+  const [depositRefundMethod, setDepositRefundMethod] = useState<'CASH' | 'TRANSFER'>('CASH')
   const [savedReturnInfo, setSavedReturnInfo] = useState<{
     returnNo?: string
     receiptNo?: string
     paidAmount?: number
+    depositApplied?: number
+    depositLeft?: number
   } | null>(null)
   // Post-Save Print Confirmation Modal State
   const [postSavePrintModal, setPostSavePrintModal] = useState<{
@@ -148,7 +182,7 @@ export function BillActionView({
   // --- Return State / Payment State ---
   const [deductFromDeposit, setDeductFromDeposit] = useState<boolean>(false)
   const [userCollectedAmount, setUserCollectedAmount] = useState<number>(0)
-  const [paymentChannel, setPaymentChannel] = useState<PaymentMethodType>('CASH')
+  const [paymentChannel, setPaymentChannel] = useState<PaymentMethodType | null>(null)
   const [receivedCashInput, setReceivedCashInput] = useState<string>('')
   const [bankRef, setBankRef] = useState<string>('')
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('')
@@ -158,6 +192,44 @@ export function BillActionView({
 
   // --- Submitting State ---
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
+
+  // Papers come only from the shop's forms (owner 2026-11-07: the old built-in receipts are gone):
+  // a return = ONE ใบรับคืนบางส่วน (payment included), money only = ใบเสร็จรับเงิน.
+  const [shopForms, setShopForms] = useState<{
+    loaded: boolean
+    returnForm: DocumentTemplate | null
+    receiptForm: DocumentTemplate | null
+    fineForm: DocumentTemplate | null
+    mainBillForm: DocumentTemplate | null
+  }>({
+    loaded: false,
+    returnForm: null,
+    receiptForm: null,
+    fineForm: null,
+    mainBillForm: null,
+  })
+  const { returnForm, receiptForm, fineForm, mainBillForm } = shopForms
+  useEffect(() => {
+    let active = true
+    refreshSharedTemplates()
+      .then((templates) => {
+        if (!active) return
+        setShopForms({
+          loaded: true,
+          returnForm: pickBillFormTemplate(templates, RETURN_FORM_NAME) ?? null,
+          receiptForm: pickBillFormTemplate(templates, RECEIPT_FORM_NAME) ?? null,
+          fineForm: pickBillFormTemplate(templates, FINE_FORM_NAME) ?? null,
+          mainBillForm: pickBillFormTemplate(templates, MAIN_BILL_FORM_NAME) ?? null,
+        })
+      })
+      .catch((err: unknown) => {
+        console.error('Reading the shop forms failed:', err)
+        if (active) setShopForms((prev) => ({ ...prev, loaded: true }))
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   // Auto select if initialBillId or activeBill available
   useEffect(() => {
@@ -210,7 +282,8 @@ export function BillActionView({
             continueQty: 0,
             dailyRate: item.dailyRate,
             rentalType: item.rentalType === 'DAILY' ? 'DAILY' : 'NORMAL',
-            usageCount: item.usageCount || 1,
+            // Extra rounds already charged count as rounds of the bill, so they are never charged twice.
+            usageCount: (item.usageCount || 1) + chargedExtraRounds(activeBill.charges || [], item.rentalBillItemId),
             repairFeePerUnit: repairFee,
             replacementFeePerUnit: replacementFee,
             totalDamageFee: 0,
@@ -228,6 +301,7 @@ export function BillActionView({
       setReceivedCashInput('')
       setDepositAction('NONE')
       setDepositAmount(0)
+      setDepositRefundMethod('CASH')
     }
   }, [activeBill])
 
@@ -238,7 +312,7 @@ export function BillActionView({
       billRentalStartDate,
       billScheduledReturnDate,
       actualReturnDate,
-      inspectionItems.filter((i) => i.selected && (i.normalQty + i.damagedQty + i.lostQty) > 0),
+      inspectionItems.filter((i) => i.selected && ((i.normalQty + i.damagedQty + i.lostQty) > 0 || extraRoundsOf(i) > 0)),
       activeBill.heldDepositAmount,
       deductFromDeposit,
       userCollectedAmount,
@@ -262,34 +336,33 @@ export function BillActionView({
   )
   const continuationTotal = continuationLines.reduce((sum, c) => sum + c.line.lineTotal, 0)
 
-  // What the customer pays now: what the old bill still needs + the new เช่าต่อ bill
-  const payableNow = Math.max(0, calcResult.netAmount) + continuationTotal
+  // Deposit: it pays the bill only when "หักชำระ" is ticked (owner 2026-11-07: never forced); what is left
+  // of it is given back to the customer (from this screen), and the bill stays open until it is.
+  const depositHeld = activeBill?.heldDepositAmount || 0
+  // A deposit not received yet is owed too, but the deposit held cannot pay itself
+  const depositOwed = activeBill?.depositOutstanding || 0
+  const depositUse = deductFromDeposit ? Math.min(depositHeld, Math.max(0, calcResult.netAmount - depositOwed)) : 0
+  const depositLeft = Math.round((depositHeld - depositUse) * 100) / 100
+
+  // What the customer pays now: what the old bill still needs (after the deposit) + the new เช่าต่อ bill
+  const payableNow = Math.round((Math.max(0, calcResult.netAmount) - depositUse + continuationTotal) * 100) / 100
 
   // Dynamic Documents available for Return Step 4 Preview
-  const availableReturnDocs = useMemo<Array<'RETURN_SLIP' | 'RECEIPT' | 'DAMAGE_RECEIPT' | 'CONTINUATION_BILL'>>(() => {
+  const availableReturnDocs = useMemo<ReturnDocType[]>(() => {
     const continuing = continuationLines.length > 0
-    // Nothing coming back: only the receipt (a debt is paid) or the new เช่าต่อ bill.
+    // Nothing coming back: the new เช่าต่อ bill, or a receipt when something is paid on the bill now.
+    // Giving the deposit back only is money going out: no receipt (owner 2026-11-07).
     if (!inspectionItems.some((i) => i.selected && getReturnedQty(i) > 0)) {
-      return continuing ? ['CONTINUATION_BILL'] : ['RECEIPT']
+      if (continuing) return ['CONTINUATION_BILL']
+      return calcResult.netAmount > 0 ? ['RECEIPT'] : []
     }
-    const docs: Array<'RETURN_SLIP' | 'RECEIPT' | 'DAMAGE_RECEIPT' | 'CONTINUATION_BILL'> = ['RETURN_SLIP']
-    const isPaid = paymentChannel !== 'UNPAID' && userCollectedAmount > 0
-    const hasDamageOrLost = inspectionItems.some((i) => i.selected && ((i.damagedQty || 0) > 0 || (i.lostQty || 0) > 0)) || calcResult.totalDamageFee > 0
-    const hasRentalOrLate = (calcResult.actualRentalFee + calcResult.lateFeeTotal) > 0
-
-    if (isPaid) {
-      if (hasRentalOrLate || !hasDamageOrLost) {
-        docs.push('RECEIPT')
-      }
-      if (hasDamageOrLost) {
-        docs.push('DAMAGE_RECEIPT')
-      }
-    } else if (hasDamageOrLost && calcResult.totalDamageFee > 0) {
-      docs.push('DAMAGE_RECEIPT')
-    }
+    // The return form carries the rent, damage and today's payment. Lost / damaged goods charged now also get
+    // a ใบชำระค่าปรับ once the shop has that form (owner 2026-11-09).
+    const docs: ReturnDocType[] = ['RETURN_SLIP']
+    if (fineForm && calcResult.totalDamageFee > 0) docs.push('FINE_SLIP')
     if (continuing) docs.push('CONTINUATION_BILL')
     return docs
-  }, [paymentChannel, userCollectedAmount, calcResult.totalDamageFee, calcResult.actualRentalFee, calcResult.lateFeeTotal, inspectionItems, continuationLines.length])
+  }, [inspectionItems, continuationLines.length, calcResult.netAmount, calcResult.totalDamageFee, fineForm])
 
   // Ensure returnDocIndex is within bounds
   useEffect(() => {
@@ -311,26 +384,48 @@ export function BillActionView({
   }
 
   const hasReturnItems = inspectionItems.some((item) => item.selected && getReturnedQty(item) > 0)
+  // Rounds used beyond the bill on rows that do not continue: charged even when nothing comes back now.
+  const extraRoundItems = inspectionItems.filter((i) => i.selected && extraRoundsFeeOf(i) > 0)
+  const extraRoundsTotal = Math.round(extraRoundItems.reduce((sum, i) => sum + extraRoundsFeeOf(i), 0) * 100) / 100
+  const saveExtraRounds = () =>
+    activeBill
+      ? chargeExtraRounds(
+          activeBill.id,
+          extraRoundItems.map((i) => ({
+            lineId: i.rentalBillItemId,
+            productName: i.productName,
+            rounds: extraRoundsOf(i),
+            quantity: i.outstandingQty,
+            fee: extraRoundsFeeOf(i),
+          }))
+        )
+      : Promise.resolve()
 
   // What is paid now follows the method chosen (owner 2026-11-04): cash = the amount handed over, capped at what
   // is due (less than due = the rest stays unpaid); QR Code = in full; ค้างชำระ = nothing.
+  // เงินสด + QR Code together (owner 2026-11-05): the first one pressed is taken first, the other takes the rest.
+  const pay = useSplitPayment({
+    due: payableNow,
+    method: payableNow > 0 ? paymentChannel : null,
+    setMethod: setPaymentChannel,
+    cashInput: receivedCashInput,
+    setCashInput: setReceivedCashInput,
+    unpaidKeepsPart: true,
+  })
   useEffect(() => {
     if (currentStep !== 2) return
-    const cashHandedOver = receivedCashInput === '' ? payableNow : parseFloat(receivedCashInput) || 0
-    setUserCollectedAmount(
-      paymentChannel === 'UNPAID' ? 0 : paymentChannel === 'CASH' ? Math.min(cashHandedOver, payableNow) : payableNow
-    )
-  }, [currentStep, paymentChannel, receivedCashInput, payableNow])
+    setUserCollectedAmount(pay.totals.collected)
+  }, [currentStep, pay.totals.collected])
+  /** The money taken now, by method, with the transfer reference on non-cash parts. */
+  const withRef = (tenders: Tender[]) => tenders.map((t) => ({ ...t, reference: t.method === 'CASH' ? undefined : bankRef || undefined }))
 
   const currentPayableAmount = useMemo(
-    () => (payableNow > 0 ? (paymentChannel === 'UNPAID' ? 0 : userCollectedAmount) : 0),
-    [payableNow, userCollectedAmount, paymentChannel]
+    () => (payableNow > 0 ? userCollectedAmount : 0),
+    [payableNow, userCollectedAmount]
   )
 
-  const targetPayableForCash = payableNow > 0 ? userCollectedAmount : 0
-
-  const receivedCash = receivedCashInput === '' ? targetPayableForCash : (parseFloat(receivedCashInput) || 0)
-  const changeAmount = paymentChannel === 'CASH' ? Math.max(0, receivedCash - targetPayableForCash) : 0
+  const changeAmount = paymentChannel === 'CASH' ? pay.totals.change : 0
+  const notice = useNotice()
 
   // Generate QR Code dynamically
   useEffect(() => {
@@ -338,17 +433,8 @@ export function BillActionView({
     setIsQrLoading(false)
   }, [paymentChannel, currentPayableAmount, promptPayId])
 
-  // Derived saved document numbers & damage allocation values (safe preview without counter consumption)
-  const savedDamageDocNo = 'รอสร้างเลขเอกสาร'
-  const savedReceiptDocNo = 'รอสร้างเลขเอกสาร'
-
-  const isDamageFullySettled = calcResult.remainingDebtAmount === 0 && userCollectedAmount >= calcResult.netAmount
-  const damageCollectedValue = isDamageFullySettled ? calcResult.totalDamageFee : (userCollectedAmount === 0 ? 0 : undefined)
-  const damageOutstandingValue = isDamageFullySettled ? 0 : calcResult.totalDamageFee
-
-  // The new bill as the shared A4 bill template shows it (the number is given by the server when saved)
+  // The new เช่าต่อ bill on the shop's main bill form (the number is given by the server when saved)
   const continuationBillData = (billNo?: string): BillTemplateData => ({
-    ...billBusinessFields(business),
     customerName: activeBill?.customerName || '',
     customerAddress: activeBill?.customerAddress,
     customerPhone: activeBill?.customerPhone || '',
@@ -381,169 +467,192 @@ export function BillActionView({
     remark: activeBill ? `เช่าต่อจากบิล ${activeBill.billNo}` : undefined,
   })
 
-  // Unified Return Document Renderer for Preview, Full Preview, and Central Multi-Document Print
-  const renderReturnDoc = (
-    docType: 'RETURN_SLIP' | 'RECEIPT' | 'DAMAGE_RECEIPT' | 'CONTINUATION_BILL',
-    customReceiptNo?: string,
-    customDamageDocNo?: string,
-    customReturnNo?: string,
-    customContinuationNo?: string
-  ) => {
+  // Money on the return paper: today's payment counts only this bill's share (a เช่าต่อ bill's part
+  // goes on that bill), and the deposit used today.
+  const slipCollected = Math.min(savedReturnInfo?.paidAmount ?? userCollectedAmount, Math.max(0, calcResult.netAmount - depositUse))
+  const slipDepositApplied = savedReturnInfo?.depositApplied ?? depositUse
+
+  /** The return on the shop's ใบรับคืนบางส่วน form, one HTML page per 20 returned lines. */
+  const returnFormPages = (customReturnNo?: string): string[] => {
+    if (!activeBill || !returnForm) return []
+    return renderReturnFormPagesHtml(
+      {
+        slipNo: customReturnNo || savedReturnInfo?.returnNo || 'รอสร้างเลขเอกสาร',
+        returnDate: actualReturnDate,
+        rentalStartDate: billRentalStartDate,
+        scheduledReturnDate: billScheduledReturnDate,
+        siteName: activeBill.siteName,
+        customerName: activeBill.customerName,
+        customerPhone: activeBill.customerPhone,
+        customerAddress: activeBill.customerAddress,
+        items: inspectionItems
+          .filter((i) => i.selected && i.returnQty > 0)
+          .map((i) => ({
+            name: extraRoundsOf(i) > 0 ? `${i.productName} (ใช้เพิ่ม ${extraRoundsOf(i)} รอบ)` : i.productName,
+            returnedQty: i.returnQty,
+            normalQty: i.normalQty,
+            damagedQty: i.damagedQty,
+            lostQty: i.lostQty,
+            damageFee: i.totalDamageFee,
+          })),
+        rentFee: calcResult.actualRentalFee,
+        damageFee: calcResult.totalDamageFee,
+        paidBefore: calcResult.persistedPaidAmount,
+        depositApplied: slipDepositApplied,
+        collected: slipCollected,
+      },
+      business,
+      returnForm
+    )
+  }
+
+  /** Lost / damaged goods of this return on the shop's ใบชำระค่าปรับ form, at the fees typed in the return table. */
+  const fineFormPages = (customReturnNo?: string): string[] => {
+    if (!activeBill || !fineForm) return []
+    return renderFineFormPagesHtml(
+      {
+        slipNo: customReturnNo || savedReturnInfo?.returnNo || 'รอสร้างเลขเอกสาร',
+        returnDate: actualReturnDate,
+        rentalStartDate: billRentalStartDate,
+        scheduledReturnDate: billScheduledReturnDate,
+        siteName: activeBill.siteName,
+        customerName: activeBill.customerName,
+        customerPhone: activeBill.customerPhone,
+        customerAddress: activeBill.customerAddress,
+        lines: inspectionItems
+          .filter((i) => i.selected && i.returnQty > 0)
+          .map((i) => {
+            const line = activeBill.items.find((b) => b.rentalBillItemId === i.rentalBillItemId)
+            return {
+              name: i.productName,
+              deliveredQty: line?.deliveredQty ?? i.totalQtyInBill,
+              normalQty: i.normalQty || 0,
+              damagedQty: i.damagedQty || 0,
+              lostQty: i.lostQty || 0,
+              repairFeePerUnit: i.repairFeePerUnit || 0,
+              replacementFeePerUnit: i.replacementFeePerUnit || 0,
+            }
+          }),
+      },
+      business,
+      fineForm
+    )
+  }
+
+  /**
+   * Money only (nothing comes back) on the shop's ใบเสร็จรับเงิน form, filled like a normal bill with the real
+   * data (owner 2026-11-07): extra rounds typed now = those lines only; otherwise the bill as it stands
+   * (its lines + charges). Taking from the deposit is not written on it.
+   */
+  const receiptData = (receiptNo?: string): BillTemplateData | null => {
     if (!activeBill) return null
-
-    if (docType === 'CONTINUATION_BILL') {
-      return <RentalBillTemplate data={continuationBillData(customContinuationNo)} />
+    const unitOf = (lineId: string) => activeBill.items.find((b) => b.rentalBillItemId === lineId)?.unit || ''
+    const head = {
+      customerName: activeBill.customerName,
+      customerAddress: activeBill.customerAddress,
+      customerPhone: activeBill.customerPhone,
+      billNo: receiptNo || savedReturnInfo?.receiptNo || 'รอสร้างเลขเอกสาร',
+      billDate: paymentDate || getLocalDateString(new Date()),
+      headerRentalDate: activeBill.rentalStartDate,
+      headerReturnDate: activeBill.scheduledReturnDate,
+      siteName: activeBill.siteName,
     }
-
-    if (docType === 'RETURN_SLIP') {
-      return (
-        <ReturnSlipPlaceholder
-          businessName={business?.businessName}
-          businessAddress={business?.address}
-          businessTaxId={business?.taxId}
-          businessPhone={business?.phone}
-          logoDataUrl={business?.logoDataUrl}
-          customerName={activeBill.customerName}
-          customerPhone={activeBill.customerPhone}
-          slipNo={customReturnNo || savedReturnInfo?.returnNo || 'รอสร้างเลขเอกสาร'}
-          billNo={activeBill.billNo}
-          returnDate={actualReturnDate}
-          rentalStartDate={billRentalStartDate}
-          scheduledReturnDate={billScheduledReturnDate}
-          actualRentalDays={calcResult.actualRentalDays}
-          lateDays={calcResult.lateDays}
-          lateFeeTotal={calcResult.lateFeeTotal}
-          totalDamageFee={calcResult.totalDamageFee}
-          grandTotalCharge={calcResult.grandTotalCharge}
-          netAmount={calcResult.netAmount}
-          userCollectedAmount={savedReturnInfo?.paidAmount ?? userCollectedAmount}
-          items={inspectionItems
-            .filter((i) => i.selected && i.returnQty > 0)
-            .map((i) => {
-              const itemReturnDay = (i.rentalType === 'DAILY' && i.actualReturnDate) || actualReturnDate
-              const itemCalc = computeItemRentalCalculation(
-                i,
-                {
-                  rentalStartDate: billRentalStartDate,
-                  scheduledReturnDate: billScheduledReturnDate,
-                  actualReturnDate: itemReturnDay,
-                },
-                rentalBilling
-              )
-              return {
-                name: i.productName,
-                returnedQty: i.returnQty,
-                normalQty: i.normalQty,
-                damagedQty: i.damagedQty,
-                lostQty: i.lostQty,
-                damageFee: i.totalDamageFee,
-                rentalStartDate: i.rentalStartDate || billRentalStartDate,
-                scheduledReturnDate: i.scheduledReturnDate || billScheduledReturnDate,
-                actualReturnDate: itemReturnDay,
-                actualRentalDays: itemCalc.actualRentalDays,
-                overdueDays: itemCalc.overdueDays,
-                isOverdue: itemCalc.isOverdue,
-                rentalType: i.rentalType,
-              }
-            })}
-        />
-      )
+    if (extraRoundItems.length > 0) {
+      return {
+        ...head,
+        items: extraRoundItems.map((i) => ({
+          code: i.productCode,
+          name: `${i.productName} (ใช้เพิ่ม ${extraRoundsOf(i)} รอบ)`,
+          quantity: i.outstandingQty,
+          unit: unitOf(i.rentalBillItemId),
+          price: i.dailyRate,
+          rentalType: 'NORMAL' as const,
+          usageCount: extraRoundsOf(i),
+          lineTotal: extraRoundsFeeOf(i),
+        })),
+        subtotal: extraRoundsTotal,
+        discount: 0,
+        shippingFee: 0,
+        taxAmount: 0,
+        depositAmount: 0,
+        grandTotal: extraRoundsTotal,
+        paidAmount: 0,
+        outstandingAmount: extraRoundsTotal,
+      }
     }
-
-    if (docType === 'DAMAGE_RECEIPT') {
-      return (
-        <DamageReceiptPlaceholder
-          businessName={business?.businessName}
-          businessAddress={business?.address}
-          businessTaxId={business?.taxId}
-          businessPhone={business?.phone}
-          logoDataUrl={business?.logoDataUrl}
-          customerName={activeBill.customerName}
-          customerPhone={activeBill.customerPhone}
-          customerAddress={activeBill.customerAddress}
-          receiptNo={customDamageDocNo || savedDamageDocNo}
-          billNo={activeBill.billNo}
-          paymentDate={paymentDate}
-          paymentChannel={paymentChannel}
-          totalDamageFee={calcResult.repairFeeTotal}
-          totalLossFee={calcResult.replacementFeeTotal}
-          grandTotalDamage={calcResult.totalDamageFee}
-          collectedAmount={damageCollectedValue}
-          outstandingRemaining={damageOutstandingValue}
-          items={inspectionItems
-            .filter(
-              (i) =>
-                (i.damagedQty > 0 || i.lostQty > 0) &&
-                (i.repairFeePerUnit > 0 || i.replacementFeePerUnit > 0 || i.totalDamageFee > 0)
-            )
-            .flatMap((i) => {
-              const list = []
-              if (i.damagedQty > 0) {
-                list.push({
-                  name: i.productName,
-                  code: i.productCode,
-                  type: 'DAMAGED' as const,
-                  quantity: i.damagedQty,
-                  feePerUnit: i.repairFeePerUnit,
-                  totalFee: i.repairFeePerUnit * i.damagedQty,
-                })
-              }
-              if (i.lostQty > 0) {
-                list.push({
-                  name: i.productName,
-                  code: i.productCode,
-                  type: 'LOST' as const,
-                  quantity: i.lostQty,
-                  feePerUnit: i.replacementFeePerUnit,
-                  totalFee: i.replacementFeePerUnit * i.lostQty,
-                })
-              }
-              return list
-            })}
-        />
-      )
+    const bill = fullBillToTemplateData(activeBill)
+    const charges = (activeBill.charges || []).filter((c) => c.status === 'CONFIRMED' && c.amount > 0)
+    const chargeLines = charges.map((c) => {
+      const line = activeBill.items.find((b) => b.rentalBillItemId === c.billLineId)
+      const rounds = c.basis?.kind === 'EXTRA_ROUNDS' ? Math.max(1, Number(c.basis.rounds) || 1) : 0
+      const qty = rounds > 0 ? Math.max(1, Number(c.basis?.quantity) || 1) : 1
+      return {
+        code: line?.productCode,
+        name: rounds > 0 ? `${line?.productName ?? ''} (ใช้เพิ่ม ${rounds} รอบ)` : c.reason,
+        quantity: qty,
+        unit: rounds > 0 ? line?.unit || '' : '',
+        price: Math.round((c.amount / (qty * Math.max(1, rounds))) * 100) / 100,
+        rentalType: 'NORMAL' as const,
+        usageCount: Math.max(1, rounds),
+        lineTotal: c.amount,
+      }
+    })
+    const chargeTotal = charges.reduce((sum, c) => sum + c.amount, 0)
+    // The deposit was taken when the bill was made: it is not part of what is paid now.
+    return {
+      ...bill,
+      ...head,
+      items: [...bill.items, ...chargeLines],
+      subtotal: Math.round((bill.subtotal + chargeTotal) * 100) / 100,
+      depositAmount: 0,
     }
+  }
 
-    // Default: 'RECEIPT'
+  /** The A4 pages of one paper (a form runs to more pages past 20 lines); empty while its form is missing. */
+  const docPages = (docType: ReturnDocType, receiptNo?: string, returnNo?: string, continuationNo?: string): string[] => {
+    if (docType === 'RETURN_SLIP') return returnFormPages(returnNo)
+    if (docType === 'FINE_SLIP') return fineFormPages(returnNo)
+    if (docType === 'RECEIPT') {
+      const data = receiptData(receiptNo)
+      return data && receiptForm ? renderBillFormPagesHtml(data, business, receiptForm) : []
+    }
+    return mainBillForm ? renderBillFormPagesHtml(continuationBillData(continuationNo), business, mainBillForm) : []
+  }
+
+  /** What one preview entry prints as. */
+  const printNodesFor = (
+    docType: ReturnDocType,
+    key: string,
+    receiptNo?: string,
+    returnNo?: string,
+    continuationNo?: string
+  ): React.ReactNode[] =>
+    docPages(docType, receiptNo, returnNo, continuationNo).map((html, page) => <ReturnFormPage key={`${key}-${page}`} html={html} />)
+
+  // The paper shown in the preview (first page of a form; a missing form says which one to add).
+  const renderReturnDoc = (docType: ReturnDocType, customReceiptNo?: string, customReturnNo?: string, customContinuationNo?: string) => {
+    if (!activeBill) return null
+    const [first] = docPages(docType, customReceiptNo, customReturnNo, customContinuationNo)
+    if (first) return <ReturnFormPage html={first} />
+    const formName = RETURN_DOC_FORM_NAME[docType]
     return (
-      <PaymentReceiptPlaceholder
-        businessName={business?.businessName}
-        businessAddress={business?.address}
-        businessTaxId={business?.taxId}
-        businessPhone={business?.phone}
-        logoDataUrl={business?.logoDataUrl}
-        customerName={activeBill.customerName}
-        customerPhone={activeBill.customerPhone}
-        customerAddress={activeBill.customerAddress}
-        receiptNo={customReceiptNo || savedReturnInfo?.receiptNo || savedReceiptDocNo}
-        billNo={activeBill.billNo}
-        paymentDate={paymentDate}
-        amount={savedReturnInfo?.paidAmount ?? (userCollectedAmount || payableNow)}
-        paymentChannel={paymentChannel}
-        outstandingRemaining={Math.max(0, payableNow - userCollectedAmount)}
-        originalBillTotal={calcResult.grandTotalCharge + continuationTotal}
-        note={`รับชำระส่วนต่างบิลเช่า ${activeBill.billNo}`}
-      />
+      <div className="flex h-full w-full items-center justify-center bg-white p-6 text-center text-xs text-slate-600">
+        {shopForms.loaded ? `ไม่พบแบบฟอร์มของ "${formName}" กรุณาเพิ่มที่เมนูจัดการเอกสาร` : 'กำลังโหลดแบบฟอร์ม...'}
+      </div>
     )
   }
 
   // Global Multi-Document Print Handler for Return Flow (Prints all available documents in preview order)
-  const handlePrintReturnDocs = async (savedNos?: { returnNo?: string; receiptNo?: string; damageNo?: string }) => {
+  const handlePrintReturnDocs = async (savedNos?: { returnNo?: string; receiptNo?: string }) => {
     if (!activeBill) return
     const docs =
       printDocs ??
-      availableReturnDocs.map((docType, idx) => (
-        <div key={`${docType}-${idx}`} className="w-full">
-          {renderReturnDoc(docType, savedNos?.receiptNo, savedNos?.damageNo, savedNos?.returnNo)}
-        </div>
-      ))
+      availableReturnDocs.flatMap((docType, idx) =>
+        printNodesFor(docType, `${docType}-${idx}`, savedNos?.receiptNo, savedNos?.returnNo)
+      )
     await printDocuments(docs, {
       title: `เอกสารรับคืน_${activeBill.billNo}`,
     })
-  }
-
-  const handleSelectPaymentMethod = (method: PaymentMethodType) => {
-    setPaymentChannel(method)
   }
 
   // Actions
@@ -637,24 +746,29 @@ export function BillActionView({
     )
   }
 
-  // Deposit: one action per save — return part of it or add to it (the system only records it, Master §18).
+  // Deposit: one action per save — give back what is left of it, or add to it.
   const chooseDepositAction = (next: 'REFUND' | 'ADD') => {
     if (depositAction === next) {
       setDepositAction('NONE')
       return
     }
     setDepositAction(next)
-    // Returning starts from the whole deposit; adding starts empty.
-    setDepositAmount(next === 'REFUND' ? activeBill?.heldDepositAmount || 0 : 0)
+    // Giving back starts from what is left after it paid the bill; adding starts empty.
+    setDepositAmount(next === 'REFUND' ? depositLeft : 0)
   }
   // Deposit counts in the net total (owner 2026-11-04): returned = money out, added = money in.
   const depositDelta = depositAction === 'ADD' ? depositAmount : depositAction === 'REFUND' ? -depositAmount : 0
-  const netCash = payableNow + depositDelta
-  const depositAfter =
-    (activeBill?.heldDepositAmount || 0) + (depositAction === 'ADD' ? depositAmount : depositAction === 'REFUND' ? -depositAmount : 0)
+  // Paid more than the bill now comes to: given back with the rest when ออกบิล is pressed (owner 2026-11-09).
+  const overpaid = Math.round(Math.max(0, -calcResult.netAmount) * 100) / 100
+  const netCash = payableNow - overpaid + depositDelta
+  const depositAfter = Math.round((depositLeft + depositDelta) * 100) / 100
 
   const handleFinalCloseAndConfirmReturn = async () => {
     if (!activeBill) return
+    if (pay.blocker) {
+      await notice(pay.blocker)
+      return
+    }
 
     if (!actualReturnDate) {
       showToast('ยังไม่ได้กำหนดวันรับคืน', 'กรุณาเลือกวันรับคืนก่อนบันทึกรายการ', 'ERROR')
@@ -663,11 +777,10 @@ export function BillActionView({
 
     const returnedItems = inspectionItems.filter((i) => i.selected && (i.normalQty + i.damagedQty + i.lostQty) > 0)
     const continuing = continuationLines
-    const heldDeposit = activeBill.heldDepositAmount || 0
     const hasDepositAction = depositAction !== 'NONE' && depositAmount > 0
 
-    if (depositAction !== 'NONE' && depositAmount > 0 && depositAction === 'REFUND' && depositAmount > heldDeposit) {
-      showToast('คืนมัดจำเกินยอดที่ถืออยู่', `มัดจำที่ถืออยู่ ${formatBaht(heldDeposit)} บาท`, 'ERROR')
+    if (depositAction === 'REFUND' && depositAmount > depositLeft + 0.004) {
+      showToast('คืนมัดจำเกินยอดคงเหลือ', `มัดจำคงเหลือหลังหักค่าบริการ ${formatBaht(depositLeft)} บาท`, 'ERROR')
       return
     }
 
@@ -681,43 +794,60 @@ export function BillActionView({
       return
     }
 
-    // Records the deposit change; done before the return so the bill is still open for the correction.
-    const applyDeposit = async () => {
-      const next = depositAction === 'REFUND' ? heldDeposit - depositAmount : heldDeposit + depositAmount
-      const note = [
-        activeBill.depositNote,
-        `${depositAction === 'REFUND' ? 'คืนมัดจำ' : 'เพิ่มมัดจำ'} ${formatBaht(depositAmount)} บาท (${getLocalDateString(new Date())})`,
-      ]
+    // เพิ่มมัดจำ: recorded first, while the bill is still open.
+    const addDeposit = async () => {
+      if (depositAction !== 'ADD' || depositAmount <= 0) return
+      const note = [activeBill.depositNote, `เพิ่มมัดจำ ${formatBaht(depositAmount)} บาท (${getLocalDateString(new Date())})`]
         .filter(Boolean)
         .join(' | ')
-      await correctBill(activeBill.id, { depositAmount: next, depositNote: note }, '')
+      // Held + the added deposit; the part not received yet stays as it is
+      await correctBill(
+        activeBill.id,
+        { depositAmount: depositHeld + depositAmount + (activeBill.depositOutstanding || 0), depositNote: note },
+        ''
+      )
+    }
+    // คืนมัดจำ: recorded last; the bill closes when nothing else is left on it.
+    const giveBackDeposit = async () => {
+      if (depositAction !== 'REFUND' || depositAmount <= 0) return null
+      return refundDeposit(activeBill.id, depositAmount, depositRefundMethod)
     }
     const depositText = hasDepositAction
       ? `${depositAction === 'REFUND' ? 'คืนมัดจำ' : 'เพิ่มมัดจำ'} ${formatBaht(depositAmount)} บาท`
       : ''
 
     if (returnedItems.length === 0 && continuing.length === 0) {
-      // Nothing comes back and nothing continues: only money (a debt, a deposit) is recorded.
-      const collected = Math.min(userCollectedAmount, activeBill.outstandingAmount)
-      const canPay = activeBill.outstandingAmount > 0 && paymentChannel !== 'UNPAID' && collected > 0
-      if (!canPay && !hasDepositAction) {
+      // Nothing comes back and nothing continues: only money (a debt, extra rounds, the deposit) is recorded.
+      const owed = activeBill.outstandingAmount + extraRoundsTotal
+      const useDeposit = Math.min(depositUse, Math.max(0, owed))
+      const collected = Math.min(userCollectedAmount, Math.max(0, owed - useDeposit))
+      const canPay = collected > 0
+      const givesBack = (activeBill.refundDueAmount ?? 0) > 0
+      if (!canPay && useDeposit <= 0 && !hasDepositAction && extraRoundsTotal <= 0 && !givesBack) {
         showToast('ไม่มีรายการคืน', 'กรุณาระบุจำนวนสินค้าที่คืนหรือเช่าต่อ หรือเลือกช่องทางและยอดที่รับชำระ', 'ERROR')
         return
       }
-      if (canPay && (!paymentDate || paymentDate > getLocalDateString(new Date()))) {
+      if ((canPay || useDeposit > 0) && (!paymentDate || paymentDate > getLocalDateString(new Date()))) {
         showToast('วันที่รับชำระไม่ถูกต้อง', 'วันที่รับเงินจริงต้องไม่อยู่ในอนาคต', 'ERROR')
         return
       }
       setIsSubmitting(true)
       try {
-        if (hasDepositAction) await applyDeposit()
+        await addDeposit()
+        await saveExtraRounds()
         let fresh: FullBill | null = null
         let receiptNo: string | undefined
         let paid = 0
+        let fromDeposit = 0
+        if (useDeposit > 0) {
+          const depositResult = await applyDepositToBill(activeBill.id, useDeposit, paymentDate)
+          fresh = depositResult.bill
+          fromDeposit = depositResult.totalAmount ?? useDeposit
+        }
         if (canPay) {
           const paymentResult = await receivePayment(
             activeBill.id,
-            [{ method: paymentChannel, amount: collected, reference: bankRef || undefined }],
+            withRef(allocateTenders(pay.totals.tenders, collected)[0]),
             paymentDate
           )
           fresh = paymentResult.bill
@@ -725,24 +855,37 @@ export function BillActionView({
           receiptNo = paymentResult.receiptNo || undefined
           paid = paymentResult.totalAmount ?? collected
         }
+        const overpayment = await refundOverpayment(activeBill.id)
+        fresh = overpayment.bill ?? fresh
+        fresh = (await giveBackDeposit()) ?? fresh
         if (canPay) {
-          setPrintDocs([
-            <div key="RECEIPT" className="w-full">
-              {renderReturnDoc('RECEIPT', receiptNo)}
-            </div>,
-          ])
+          setPrintDocs(printNodesFor('RECEIPT', 'RECEIPT', receiptNo))
         }
         const fresh2 = fresh
         if (fresh2) setBills((prev) => prev.map((b) => (b.id === fresh2.id ? fresh2 : b)))
         else setBills(await refreshBillsCache())
         showToast(
-          canPay ? 'บันทึกรับชำระเงินสำเร็จ' : 'บันทึกมัดจำสำเร็จ',
-          [canPay ? `รับชำระเงิน ${paid.toLocaleString('th-TH')} บาท` : '', depositText].filter(Boolean).join(' · ') + ' สำเร็จแล้ว',
+          canPay || fromDeposit > 0
+            ? 'บันทึกรับชำระเงินสำเร็จ'
+            : extraRoundsTotal > 0
+              ? 'บันทึกค่าเช่ารอบเพิ่มสำเร็จ'
+              : overpayment.amount > 0
+                ? 'บันทึกคืนเงินสำเร็จ'
+                : 'บันทึกมัดจำสำเร็จ',
+          [
+            extraRoundsTotal > 0 ? `ค่าเช่ารอบเพิ่ม ${formatBaht(extraRoundsTotal)} บาท` : '',
+            fromDeposit > 0 ? `หักจากมัดจำ ${formatBaht(fromDeposit)} บาท` : '',
+            canPay ? `รับชำระเงิน ${paid.toLocaleString('th-TH')} บาท` : '',
+            overpayment.amount > 0 ? `คืนเงินที่ชำระเกิน ${formatBaht(overpayment.amount)} บาท` : '',
+            depositText,
+          ]
+            .filter(Boolean)
+            .join(' · ') + ' สำเร็จแล้ว',
           'SUCCESS'
         )
         setDepositAction('NONE')
         if (canPay) {
-          setSavedReturnInfo({ receiptNo, paidAmount: paid })
+          setSavedReturnInfo({ receiptNo, paidAmount: paid, depositApplied: fromDeposit, depositLeft: depositAfter })
           setPostSavePrintModal({
             isOpen: true,
             title: 'บันทึกรับชำระเงินสำเร็จ',
@@ -751,7 +894,13 @@ export function BillActionView({
         }
       } catch (err: any) {
         if (!isPinCancelled(err)) {
-          showToast('เกิดข้อผิดพลาดในการบันทึก', err?.message || 'ไม่สามารถบันทึกรายการได้', 'ERROR')
+          showToast('เกิดข้อผิดพลาดในการบันทึก', dbErrorMessage(err?.message || '') || 'ไม่สามารถบันทึกรายการได้', 'ERROR')
+        }
+        // Some steps may already be saved: show the bill as it is now
+        try {
+          setBills(await refreshBillsCache())
+        } catch {
+          // the bill list still offers a manual reload
         }
       } finally {
         setIsSubmitting(false)
@@ -801,9 +950,9 @@ export function BillActionView({
     try {
       let updatedBill: FullBill | null = null
       let returnNo = ''
-      let suggestedRefund = 0
 
-      if (hasDepositAction) await applyDeposit()
+      await addDeposit()
+      await saveExtraRounds()
 
       // 1) Goods back (+ damage cases/fees + lost + early-return recalculation) — one return per day.
       if (returnedItems.length > 0) {
@@ -827,7 +976,6 @@ export function BillActionView({
         returnSaved = true
         updatedBill = result.bill
         returnNo = result.returnNo || ''
-        suggestedRefund = result.suggestedRefund
       }
 
       // 2) เช่าต่อ: the goods that stay become a new bill (the old bill no longer holds them).
@@ -854,32 +1002,48 @@ export function BillActionView({
         childBillNo = latest.find((b) => b.id === childBillId)?.billNo || ''
       }
 
-      // 3) Money collected at the counter: the old bill first (what it now owes), the rest on the new bill.
+      // 3) "หักชำระ" ticked: the deposit pays what the old bill now owes; the bill keeps the rest of it.
+      let depositPaid = 0
+      const owesNow = Math.max(
+        0,
+        (updatedBill ?? activeBill).outstandingAmount - ((updatedBill ?? activeBill).depositOutstanding || 0)
+      )
+      const useDeposit = deductFromDeposit ? Math.min(depositHeld, owesNow) : 0
+      if (useDeposit > 0) {
+        const depositResult = await applyDepositToBill(activeBill.id, useDeposit, paymentDate)
+        updatedBill = depositResult.bill ?? updatedBill
+        depositPaid = depositResult.totalAmount ?? useDeposit
+      }
+
+      // 4) Money collected at the counter: the old bill first (what it now owes), the rest on the new bill.
       let receiptNo: string | null = null
       let paidAmount: number | null = null
-      if (paymentChannel !== 'UNPAID' && userCollectedAmount > 0) {
-        let left = userCollectedAmount
+      if (userCollectedAmount > 0) {
         const parentOwes = updatedBill ? Math.max(0, updatedBill.outstandingAmount) : 0
-        const toParent = Math.min(left, parentOwes)
-        if (toParent > 0) {
-          const paymentResult = await receivePayment(activeBill.id, [
-            { method: paymentChannel, amount: toParent, reference: bankRef || undefined },
-          ], paymentDate)
+        // Methods in the order taken: the old bill first, then the new bill
+        const [toParentTenders, leftTenders] = allocateTenders(pay.totals.tenders, parentOwes)
+        const [toChildTenders] = allocateTenders(leftTenders, continuationTotal)
+        const toChild = toChildTenders.reduce((sum, t) => sum + t.amount, 0)
+        if (toParentTenders.length > 0) {
+          const paymentResult = await receivePayment(activeBill.id, withRef(toParentTenders), paymentDate)
           updatedBill = paymentResult.bill
           receiptNo = paymentResult.receiptNo
           paidAmount = paymentResult.totalAmount
-          left -= toParent
         }
-        const toChild = Math.min(left, continuationTotal)
         if (childBillId && toChild > 0) {
-          const childPayment = await receivePayment(childBillId, [
-            { method: paymentChannel, amount: toChild, reference: bankRef || undefined },
-          ], paymentDate)
+          const childPayment = await receivePayment(childBillId, withRef(toChildTenders), paymentDate)
           receiptNo = receiptNo ?? childPayment.receiptNo
           paidAmount = (paidAmount ?? 0) + (childPayment.totalAmount ?? toChild)
           setBills(await refreshBillsCache())
         }
       }
+
+      // 5) Paid more than the bill now comes to (e.g. returned early): given back now (owner 2026-11-09).
+      const overpayment = await refundOverpayment(activeBill.id)
+      updatedBill = overpayment.bill ?? updatedBill
+
+      // 6) คืนมัดจำ last: the bill closes when nothing else is left on it.
+      updatedBill = (await giveBackDeposit()) ?? updatedBill
 
       if (updatedBill) {
         const fresh = updatedBill
@@ -888,27 +1052,31 @@ export function BillActionView({
 
       const parts = [
         returnedItems.length > 0 ? `รับคืนสินค้า ใบคืน ${returnNo}` : '',
+        depositPaid > 0 ? `หักจากมัดจำ ${formatBaht(depositPaid)} บาท` : '',
         paidAmount ? `รับชำระ ${paidAmount.toLocaleString('th-TH')} บาท` : '',
+        overpayment.amount > 0 ? `คืนเงินที่ชำระเกิน ${formatBaht(overpayment.amount)} บาท` : '',
         continuing.length > 0 ? `เช่าต่อ บิลใหม่ ${childBillNo}` : '',
         depositText,
       ].filter(Boolean)
       showToast(
         returnedItems.length > 0 ? 'บันทึกรับคืนสินค้าสำเร็จ' : 'บันทึกเช่าต่อสำเร็จ',
-        suggestedRefund > 0
-          ? `${parts.join(' · ')} — ลูกค้าจ่ายเกิน ${suggestedRefund.toLocaleString('th-TH')} กดปุ่ม "คืนเงินรับชำระ" เพื่อคืนเงิน`
-          : `${parts.join(' · ')} สำเร็จแล้ว`,
+        `${parts.join(' · ')} สำเร็จแล้ว`,
         'SUCCESS'
       )
 
       // Keep the documents exactly as previewed (the form resets when the bill is refreshed).
       setPrintDocs(
-        availableReturnDocs.map((docType, idx) => (
-          <div key={`${docType}-${idx}`} className="w-full">
-            {renderReturnDoc(docType, receiptNo || undefined, undefined, returnNo || undefined, childBillNo || undefined)}
-          </div>
-        ))
+        availableReturnDocs.flatMap((docType, idx) =>
+          printNodesFor(docType, `${docType}-${idx}`, receiptNo || undefined, returnNo || undefined, childBillNo || undefined)
+        )
       )
-      setSavedReturnInfo({ returnNo, receiptNo: receiptNo || undefined, paidAmount: paidAmount ?? undefined })
+      setSavedReturnInfo({
+        returnNo,
+        receiptNo: receiptNo || undefined,
+        paidAmount: paidAmount ?? undefined,
+        depositApplied: depositPaid,
+        depositLeft: depositAfter,
+      })
       setPostSavePrintModal({
         isOpen: true,
         title: returnedItems.length > 0 ? 'บันทึกรับคืนสินค้าสำเร็จ' : 'บันทึกเช่าต่อสำเร็จ',
@@ -927,7 +1095,7 @@ export function BillActionView({
       if (isPinCancelled(err)) return
       showToast(
         returnSaved ? 'บันทึกรับคืนแล้ว แต่ขั้นต่อไปไม่สำเร็จ' : 'เกิดข้อผิดพลาดในการรับคืนสินค้า',
-        err?.message || 'ไม่สามารถบันทึกรายการได้',
+        dbErrorMessage(err?.message || '') || 'ไม่สามารถบันทึกรายการได้',
         'ERROR'
       )
     } finally {
@@ -959,7 +1127,9 @@ export function BillActionView({
                 canNext={
                   hasReturnItems ||
                   continuationLines.length > 0 ||
-                  (activeBill.outstandingAmount > 0 && !isCancelledOrVoidBill(activeBill))
+                  extraRoundsTotal > 0 ||
+                  // a debt to take, or a deposit still held to give back (owner 2026-11-06)
+                  ((activeBill.outstandingAmount > 0 || activeBill.heldDepositAmount > 0) && !isCancelledOrVoidBill(activeBill))
                 }
                 onToggleSelectAll={handleToggleSelectAll}
                 onToggleSelectItem={handleToggleSelectItem}
@@ -1003,9 +1173,11 @@ export function BillActionView({
                     <div
                       className="flex-1 min-h-0 min-w-0 h-full relative"
                     >
-                      <A4FitPreview paddingPx={1} className="h-full w-full" align="center">
-                        {renderReturnDoc(availableReturnDocs[returnDocIndex])}
-                      </A4FitPreview>
+                      {availableReturnDocs.length > 0 && (
+                        <A4FitPreview paddingPx={1} className="h-full w-full" align="center">
+                          {renderReturnDoc(availableReturnDocs[returnDocIndex])}
+                        </A4FitPreview>
+                      )}
                     </div>
 
                     {/* Next Button Zone (Outside A4) */}
@@ -1015,7 +1187,7 @@ export function BillActionView({
                         onClick={handleNextReturnDoc}
                         aria-label="เอกสารถัดไป"
                         className="w-7 sm:w-9 h-full flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors z-10 shrink-0 cursor-pointer group"
-                        title="เอกสารถัดไป (ใบรับคืน / ใบเสร็จรับเงิน / ใบเสร็จค่าชำรุด)"
+                        title="เอกสารถัดไป (ใบรับคืน / ใบเสร็จรับเงิน)"
                       >
                         <ChevronRight className="w-5 h-5 opacity-50 group-hover:opacity-100 transition-opacity" />
                       </button>
@@ -1044,10 +1216,14 @@ export function BillActionView({
                           <div>
                             <div className="flex justify-between">
                               <span className="text-slate-600 dark:text-slate-400">ยอดรวมบิลเดิม:</span>
-                              <span className="font-bold tabular-nums">{formatBaht(calcResult.persistedGrandTotal + continuationTotal)}</span>
+                              <span className="font-bold tabular-nums">{formatBaht(calcResult.persistedGrandTotal)}</span>
                             </div>
+                            {/* owner 2026-11-05: the new bill's amount shows only when the money changes (เช่าต่อ) */}
                             {continuationTotal > 0 && (
-                              <p className="text-right text-[10px] text-blue-700 dark:text-blue-300">รวมเช่าต่อ {formatBaht(continuationTotal)}</p>
+                              <div className="flex justify-between">
+                                <span className="text-slate-600 dark:text-slate-400">ยอดบิลใหม่:</span>
+                                <span className="font-bold text-blue-700 dark:text-blue-300 tabular-nums">{formatBaht(continuationTotal)}</span>
+                              </div>
                             )}
                           </div>
                           <div className="flex justify-between">
@@ -1061,37 +1237,83 @@ export function BillActionView({
                             </span>
                           </div>
 
-                          {/* เงินมัดจำ: one row, one action. Neither box ticked = the amount stays as it is. */}
-                          <div className="col-span-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-200 dark:border-slate-700 pt-1">
-                            <span className="text-slate-600 dark:text-slate-400">เงินมัดจำ</span>
-                            <label className="flex items-center gap-1 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={depositAction === 'REFUND'}
-                                onChange={() => chooseDepositAction('REFUND')}
-                                disabled={activeBill.heldDepositAmount <= 0}
-                                className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-500 cursor-pointer disabled:cursor-not-allowed"
+                          {/* เงินมัดจำ: หักชำระ only when ticked (owner 2026-11-07); what is left is given back from here */}
+                          <div className="col-span-2 space-y-0.5 border-t border-slate-200 dark:border-slate-700 pt-1">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                              <span className="text-slate-600 dark:text-slate-400">เงินมัดจำ</span>
+                              <label className="flex items-center gap-1 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={deductFromDeposit}
+                                  onChange={() => setDeductFromDeposit((v) => !v)}
+                                  disabled={depositHeld <= 0 || calcResult.netAmount <= 0}
+                                  className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-500 cursor-pointer disabled:cursor-not-allowed"
+                                />
+                                หักชำระ
+                              </label>
+                              <label className="flex items-center gap-1 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={depositAction === 'REFUND'}
+                                  onChange={() => chooseDepositAction('REFUND')}
+                                  disabled={depositLeft <= 0}
+                                  className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-500 cursor-pointer disabled:cursor-not-allowed"
+                                />
+                                คืน
+                              </label>
+                              <label className="flex items-center gap-1 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={depositAction === 'ADD'}
+                                  onChange={() => chooseDepositAction('ADD')}
+                                  className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-500 cursor-pointer"
+                                />
+                                เพิ่ม
+                              </label>
+                              <NumericInput
+                                value={depositAction === 'NONE' ? depositLeft : depositAmount || ''}
+                                onChange={(val) => setDepositAmount(val === '' ? 0 : Math.max(0, val))}
+                                disabled={depositAction === 'NONE'}
+                                min={0}
+                                max={depositAction === 'REFUND' ? depositLeft : undefined}
+                                aria-label="จำนวนเงินมัดจำ"
+                                className="ml-auto w-24 h-7 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-1.5 text-right text-xs font-bold tabular-nums disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:text-slate-600 dark:disabled:text-slate-400"
                               />
-                              คืน
-                            </label>
-                            <label className="flex items-center gap-1 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={depositAction === 'ADD'}
-                                onChange={() => chooseDepositAction('ADD')}
-                                className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-500 cursor-pointer"
-                              />
-                              เพิ่ม
-                            </label>
-                            <NumericInput
-                              value={depositAction === 'NONE' ? activeBill.heldDepositAmount : depositAmount || ''}
-                              onChange={(val) => setDepositAmount(val === '' ? 0 : Math.max(0, val))}
-                              disabled={depositAction === 'NONE'}
-                              min={0}
-                              max={depositAction === 'REFUND' ? activeBill.heldDepositAmount : undefined}
-                              aria-label="จำนวนเงินมัดจำ"
-                              className="ml-auto w-24 h-7 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-1.5 text-right text-xs font-bold tabular-nums disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:text-slate-600 dark:disabled:text-slate-400"
-                            />
+                            </div>
+                            {depositAction === 'REFUND' && (
+                              <div className="flex items-center justify-end gap-1.5" role="radiogroup" aria-label="คืนมัดจำด้วย">
+                                <span className="text-slate-600 dark:text-slate-400">คืนด้วย</span>
+                                {(['CASH', 'TRANSFER'] as const).map((m) => (
+                                  <button
+                                    key={m}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={depositRefundMethod === m}
+                                    onClick={() => setDepositRefundMethod(m)}
+                                    className={`${COMMAND_BUTTON_SIZE_CLASSES} border cursor-pointer ${
+                                      depositRefundMethod === m
+                                        ? 'border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
+                                        : 'border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-300'
+                                    }`}
+                                  >
+                                    {m === 'CASH' ? 'เงินสด' : 'โอนเงิน'}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            {/* owner 2026-11-07: the tick row first, then what is left of the deposit */}
+                            {depositUse > 0 && (
+                              <div className="flex justify-between">
+                                <span className="text-slate-600 dark:text-slate-400">หักค่าบริการจากมัดจำ:</span>
+                                <span className="font-bold text-blue-700 dark:text-blue-300 tabular-nums">- {formatBaht(depositUse)}</span>
+                              </div>
+                            )}
+                            {depositHeld > 0 && (
+                              <div className="flex justify-between font-bold">
+                                <span className="text-slate-700 dark:text-slate-300">มัดจำคงเหลือ (ต้องคืนลูกค้า):</span>
+                                <span className="text-emerald-700 dark:text-emerald-400 tabular-nums">{formatBaht(depositLeft)}</span>
+                              </div>
+                            )}
                           </div>
                           {depositAction !== 'NONE' && depositAmount > 0 && (
                             <p className="col-span-2 text-right text-[10px] text-slate-600 dark:text-slate-400">
@@ -1112,17 +1334,19 @@ export function BillActionView({
                             ? 'ลูกค้าต้องชำระเพิ่ม'
                             : netCash < 0
                             ? 'ต้องคืนเงินให้ลูกค้า'
-                            : calcResult.netAmount < 0
-                            ? 'คืนเงินมัดจำให้ลูกค้า'
                             : 'ชำระครบถ้วนแล้ว (ไม่มีค่าใช้จ่ายเพิ่มเติม)'}
                         </span>
                         <h2 className="text-lg sm:text-xl font-black tabular-nums leading-tight">
-                          {netCash !== 0 ? '' : calcResult.netAmount < 0 ? '- ' : ''}
-                          {formatBaht(netCash !== 0 ? Math.abs(netCash) : Math.abs(calcResult.netAmount))}
+                          {formatBaht(Math.abs(netCash))}
                         </h2>
                         {depositDelta !== 0 && (
                           <span className="mt-0.5 block text-[11px] font-semibold opacity-80">
                             รวม{depositDelta > 0 ? 'มัดจำที่เพิ่ม' : 'มัดจำที่คืน'} {formatBaht(Math.abs(depositDelta))} บาทแล้ว
+                          </span>
+                        )}
+                        {depositAction !== 'REFUND' && depositAfter > 0 && (
+                          <span className="mt-0.5 block text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+                            มัดจำคงเหลือที่ต้องคืนลูกค้า {formatBaht(depositAfter)} บาท (ติ๊ก &quot;คืน&quot; เพื่อคืนตอนนี้ บิลจะปิดเมื่อคืนมัดจำแล้ว)
                           </span>
                         )}
                       </div>
@@ -1136,14 +1360,17 @@ export function BillActionView({
                           {/* Payment Method Selector */}
                           <PaymentMethodSelector
                             selectedMethod={paymentChannel}
-                            onSelectMethod={handleSelectPaymentMethod}
+                            selectedMethods={pay.selectedMethods}
+                            onSelectMethod={pay.selectMethod}
+                            autoSelectFirst={false}
                             itemsPerRow={3}
                           />
 
-                          {/* Dynamic Payment Content */}
+                          {/* Dynamic Payment Content (once a method is chosen) */}
+                          {paymentChannel && (
                           <PaymentDynamicContent
                             paymentMethod={paymentChannel}
-                            targetAmount={userCollectedAmount}
+                            targetAmount={pay.totals.restDue}
                             receivedCashInput={receivedCashInput}
                             onReceivedCashInputChange={setReceivedCashInput}
                             changeAmount={changeAmount}
@@ -1153,13 +1380,21 @@ export function BillActionView({
                             bankQrUrl={business?.bankQrDataUrl}
                             isQrLoading={isQrLoading}
                             promptPayId={promptPayId}
+                            onConfirmCash={pay.confirmCash}
+                            cashConfirmed={pay.cashConfirmed}
+                            split={pay.split}
+                            onClearSplit={pay.clearSplit}
+                            onOpenQr={pay.qr.open}
+                            focusCashSignal={pay.focusCash}
+                            cashConfirmEmptyAllowed={pay.cashConfirmEmptyAllowed}
                             unpaidMessage={
                               <>
-                                ⚠️ ยอดส่วนต่าง {payableNow.toLocaleString('th-TH', { minimumFractionDigits: 2 })}{' '}
+                                ⚠️ ยอดส่วนต่าง {pay.totals.restDue.toLocaleString('th-TH', { minimumFractionDigits: 2 })}{' '}
                                 จะถูกบันทึกเป็น <strong>&quot;ค้างชำระ &quot;</strong> ในระบบ
                               </>
                             }
                           />
+                          )}
                         </div>
                       )}
                     </div>
@@ -1169,7 +1404,7 @@ export function BillActionView({
                       <button
                         type="button"
                         onClick={handleBackStep}
-                        className="flex-1 min-w-0 rounded-xl bg-slate-100 dark:bg-slate-700/80 px-2 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.99] text-slate-700 dark:text-slate-300 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all min-h-[44px] cursor-pointer"
+                        className={`${COMMAND_BUTTON_SIZE_CLASSES} flex-1 min-w-0 bg-slate-100 dark:bg-slate-700/80 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.99] text-slate-700 dark:text-slate-300 flex items-center justify-center transition-all cursor-pointer`}
                       >
                         <span className="truncate">ย้อนกลับ</span>
                       </button>
@@ -1181,7 +1416,7 @@ export function BillActionView({
                           (paymentChannel !== 'UNPAID' && payableNow > 0 && userCollectedAmount <= 0)
                         }
                         onClick={() => handleFinalCloseAndConfirmReturn()}
-                        className="flex-1 min-w-0 rounded-xl bg-emerald-700 px-2 py-2.5 hover:bg-emerald-800 active:scale-[0.99] text-white font-black text-xs sm:text-sm md:text-base flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
+                        className={`${COMMAND_BUTTON_SIZE_CLASSES} flex-1 min-w-0 bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white flex items-center justify-center shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50 cursor-pointer`}
                       >
                         <FileCheck className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
                         <span className="truncate">{isSubmitting ? 'กำลังบันทึกบิล...' : 'ออกบิล'}</span>
@@ -1199,6 +1434,16 @@ export function BillActionView({
       </div>
 
       {/* Post-Save Print Confirmation Modal */}
+      <QrPaymentDialog
+        isOpen={pay.qr.isOpen}
+        onClose={pay.qr.close}
+        amount={pay.qr.amount}
+        editable={pay.qr.editable}
+        promptPayId={promptPayId}
+        bankQrUrl={business?.bankQrDataUrl}
+        onConfirm={pay.qr.confirm}
+      />
+
       <PostSavePrintModal
         isOpen={postSavePrintModal.isOpen}
         title={postSavePrintModal.title}

@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React from 'react'
 import { RefreshCw, Filter } from 'lucide-react'
@@ -62,7 +63,6 @@ export function ReportFilter({
             onChange={(val) => onPresetChange(String(val))}
             options={presetOptions}
             placeholder="ช่วงเวลา"
-            buttonClassName="h-9 px-2.5 py-0 text-xs rounded-xl"
           />
         </div>
 
@@ -72,7 +72,6 @@ export function ReportFilter({
             value={startDate}
             onChange={onStartDateChange}
             placeholder="วันที่เริ่ม"
-            buttonClassName="h-9 px-2.5 py-0 text-xs rounded-xl font-mono font-bold"
           />
         </div>
 
@@ -84,7 +83,6 @@ export function ReportFilter({
             value={endDate}
             onChange={onEndDateChange}
             placeholder="วันที่สิ้นสุด"
-            buttonClassName="h-9 px-2.5 py-0 text-xs rounded-xl font-mono font-bold"
           />
         </div>
 
@@ -95,7 +93,6 @@ export function ReportFilter({
             onChange={(val) => onGranularityChange(val as 'daily' | 'monthly')}
             options={granularityOptions}
             placeholder="ความละเอียด"
-            buttonClassName="h-9 px-2.5 py-0 text-xs rounded-xl"
           />
         </div>
       </div>
@@ -106,7 +103,7 @@ export function ReportFilter({
           type="button"
           onClick={onRefresh}
           disabled={isRefreshing}
-          className="h-9 px-3.5 py-0 flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors cursor-pointer shadow-xs"
+          className={`${COMMAND_BUTTON_SIZE_CLASSES} flex items-center border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer shadow-xs`}
           title="รีเฟรชข้อมูลตามช่วงเวลา"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}`} />

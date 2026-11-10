@@ -50,11 +50,15 @@ test.beforeEach(({}, info) => {
 });
 
 test.beforeAll(async () => {
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+  if (!secretKey) {
+    throw new Error('Set SUPABASE_SECRET_KEY to the local Supabase secret key before running this test.');
+  }
   const res = await fetch(`${local.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users`, {
     method: 'POST',
     headers: {
-      apikey: local.SUPABASE_SECRET_KEY,
-      Authorization: `Bearer ${local.SUPABASE_SECRET_KEY}`,
+      apikey: secretKey,
+      Authorization: `Bearer ${secretKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({

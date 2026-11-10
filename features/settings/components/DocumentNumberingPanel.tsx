@@ -49,18 +49,14 @@ export function DocumentNumberingPanel({ config, setConfig }: DocumentNumberingP
   return (
     <div className="space-y-2.5">
       <h4 className={SETTINGS_SECTION_TITLE}>
-        <Hash className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
         <span>รูปแบบเลขเอกสาร</span>
       </h4>
-      <p className={SETTINGS_HELPER}>
-        รูปแบบ PREFIX-วันเดือนปี พ.ศ.-ลำดับ เช่น ABC-07102569-001 · ลำดับเริ่มใหม่ทุกวันตามเวลาของร้าน ({config.timezone}) · เลขที่ออกแล้วไม่ถูกใช้ซ้ำ
-      </p>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead className="text-[11px] text-slate-600 dark:text-slate-400">
             <tr className="border-b border-slate-200 dark:border-slate-700">
               <th className="text-left font-semibold py-1.5 pr-2">เอกสาร</th>
-              <th className="text-left font-semibold py-1.5 pr-2 w-32">Prefix</th>
+              <th className="text-left font-semibold py-1.5 pr-2 w-32">ตัวย่อชือเอกสาร</th>
               <th className="text-left font-semibold py-1.5 pr-2 w-24">จำนวนหลักลำดับ</th>
               <th className="text-left font-semibold py-1.5">เลขถัดไป (จากเซิร์ฟเวอร์)</th>
             </tr>

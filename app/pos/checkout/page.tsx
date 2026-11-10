@@ -2,8 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { RentalBillTemplate, BillTemplateData } from '@/templates/rental-bill/RentalBillTemplate'
-import { billBusinessFields, printRentalBillDocument } from '@/features/documents/utils/rental-bill-print'
+import type { BillTemplateData } from '@/features/documents/utils/rental-bill-print'
 import { A4FitPreview } from '@/features/pos/components/A4FitPreview'
 import { FileText, Printer } from 'lucide-react'
 import { PaymentMethodSelector, type PaymentMethodType } from '@/features/pos/components/payment/PaymentMethodSelector'
@@ -12,6 +11,11 @@ import { type VatMode } from '@/features/pos/components/VatModeButtons'
 import { DocumentSummaryLayout, DocumentSummaryPanel, documentSummaryRows } from '@/features/pos/components/DocumentSummaryPanel'
 import { RentalBill, Customer, Product } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
+import { useNotice } from '@/components/common/ConfirmDialogProvider'
+import { PAYMENT_NOT_CHOSEN_NOTICE } from '@/features/pos/hooks/useCashConfirmation'
+import { useSplitPayment } from '@/features/pos/hooks/useSplitPayment'
+import { allocateTenders } from '@/features/pos/services/split-payment'
+import { QrPaymentDialog } from '@/features/pos/components/payment/QrPaymentDialog'
 import { PostSavePrintModal } from '@/components/common/PostSavePrintModal'
 import { getLocalDateString } from '@/components/common/CustomDatePicker'
 import { isVatRateConfigured } from '@/features/settings/services/settings-storage'
@@ -20,16 +24,19 @@ import {
   saveActiveCart,
   clearActiveCart,
   isSaleCartItem,
-  defaultBillDocumentType,
   validateCartCustomer,
   cartLineUnitPriceForServer,
-  isCashShort,
+  customerContactPhones,
 } from '@/features/pos/services/cart-storage'
 import { saveBillDraft, confirmBill, deliverBill, type BillDraftInput, type BillLineInput } from '@/features/bills/services/bill-service'
 import { fetchBillByIdFromSupabase, fetchBillsFromSupabase, loadBillById } from '@/features/bills/services/bill-storage'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { calculateBillTotals } from '@/lib/calculation-service'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
+import type { DocumentTemplate } from '@/lib/types/document'
+import { loadDocumentNames, refreshSharedTemplates } from '@/features/documents/services/template-library-storage'
+import { MAIN_BILL_FORM_NAME, pickBillFormTemplate, printBillForm, renderBillFormPagesHtml } from '@/features/documents/utils/transaction-print'
+import { isNoChargeRental } from '@/features/pos/services/accessory-rules'
 
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : '')
 
@@ -97,6 +104,8 @@ export default function CheckoutPage() {
       if (cart.shippingFee !== undefined) setShippingFee(cart.shippingFee)
       if (cart.depositAmount !== undefined) setDepositAmount(cart.depositAmount)
       if (cart.documentType) setDocumentType(cart.documentType)
+      // The issue date picked in the cart (📝) is the bill's date on the form, not today.
+      if (cart.documentDate) setBillDate(new Date(`${cart.documentDate.slice(0, 10)}T00:00:00`))
       if (cart.shippingAddress) setShippingAddress(cart.shippingAddress)
       if (cart.remark) setRemark(cart.remark)
       if (cart.contactPhone) setContactPhone(cart.contactPhone)
@@ -110,6 +119,35 @@ export default function CheckoutPage() {
     }
     cartLoadedRef.current = true
   }, [])
+
+  // ประเภทเอกสาร = a name of จัดการเอกสาร › แบบฟอร์มบิล: the bill shows and prints on that form, the same
+  // form whatever the payment (owner 2026-11-07); any other value is printed on the shop's main bill form. null = still reading.
+  const [library, setLibrary] = useState<{ templates: DocumentTemplate[]; formNames: string[] } | null>(null)
+  useEffect(() => {
+    let alive = true
+    refreshSharedTemplates()
+      .then((templates) => {
+        if (!alive) return
+        const formNames = loadDocumentNames().filter((n) => n.targetGroup === 'BILL').map((n) => n.name)
+        setLibrary({ templates, formNames })
+      })
+      .catch((err: unknown) => {
+        console.error('Reading the bill forms failed:', err)
+        if (alive) setLibrary({ templates: [], formNames: [] })
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+  // Names already read by the POS cart are known while this page reads the forms again.
+  const formNames = library
+    ? library.formNames
+    : loadDocumentNames().filter((n) => n.targetGroup === 'BILL').map((n) => n.name)
+  // A cart kept from before the forms (บิลเช่า/ขาย, nothing picked) prints on the main bill form.
+  const formName = formNames.includes(documentType) ? documentType : MAIN_BILL_FORM_NAME
+  const billForm = library ? pickBillFormTemplate(library.templates, formName) : undefined
+  // Printing waits for the forms; it never prints without one.
+  const billFormPending = library === null
 
   // The mode in use: the button pressed here, else the shop's price mode for a bill that came with VAT on.
   const shopVatMode = settings.taxDiscount?.vatMode ?? null
@@ -176,20 +214,22 @@ export default function CheckoutPage() {
     description: '',
   })
 
-  const receivedCash = receivedCashInput === '' ? amountToCollect : (parseFloat(receivedCashInput) || 0)
-  const changeAmount = paymentMethod === 'CASH' ? Math.max(0, receivedCash - amountToCollect) : 0
+  const notice = useNotice()
+  // เงินสด / QR Code / both (the first one pressed is taken first, the other takes the rest)
+  const pay = useSplitPayment({
+    due: amountToCollect,
+    method: paymentMethod,
+    setMethod: setPaymentMethod,
+    cashInput: receivedCashInput,
+    setCashInput: setReceivedCashInput,
+  })
+  const changeAmount = paymentMethod === 'CASH' ? pay.totals.change : 0
 
   // Format template data for live preview
   const billData: BillTemplateData = {
-    documentType: documentType || defaultBillDocumentType(items),
-    // A quotation is not a payment request: no bank block, no "paid" lines on the blue area
-    showBankDetails: quotationId ? false : undefined,
-    showPaymentSummary: quotationId ? false : undefined,
-    // Shop details come from Settings → ข้อมูลร้าน (never made-up values)
-    ...billBusinessFields(settings.business),
     customerName: customer?.customerName || 'ลูกค้าทั่วไป',
     customerAddress: customer?.address,
-    customerPhone: contactPhone.trim() || customer?.phone,
+    customerPhone: contactPhone.trim() || customerContactPhones(customer) || undefined,
     customerTaxId: customer?.taxId,
     billNo: `BILL-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-DRAFT`,
     billDate: safeFormatDateStr(billDate),
@@ -209,17 +249,19 @@ export default function CheckoutPage() {
       dailyStartDate: safeFormatDateStr(i.dailyStartDate),
       dailyEndDate: safeFormatDateStr(i.dailyEndDate),
       lineTotal: i.lineTotal,
+      // "ไม่คิดเงิน" rental: the printed form shows ราคา / การเช่า / จำนวนเงิน as "-" (owner 2026-11-09).
+      isNoCharge: i.rentalType !== 'SALE' && isNoChargeRental(i.product),
     })),
     subtotal,
     discount: discount || 0,
     shippingFee: shippingFee || 0,
     taxAmount: tax,
     vatRatePercent: tax > 0 ? Math.round(totals.vatRate * 10000) / 100 : undefined,
-    vatInclusive: tax > 0 && vatInclusive,
     depositAmount: depositAmount || 0,
     grandTotal,
-    paidAmount: paymentMethod && paymentMethod !== 'UNPAID' ? grandTotal : 0,
-    outstandingAmount: paymentMethod === 'UNPAID' || paymentMethod === null ? grandTotal : 0,
+    // ค้างชำระ keeps cash already confirmed (owner 2026-11-11); what is not taken stays owed, deposit included
+    paidAmount: !paymentMethod ? 0 : paymentMethod === 'UNPAID' ? Math.min(grandTotal, pay.totals.collected) : grandTotal,
+    outstandingAmount: !paymentMethod ? amountToCollect : paymentMethod === 'UNPAID' ? pay.totals.remaining : 0,
     remark: remark || undefined,
   }
 
@@ -306,8 +348,9 @@ export default function CheckoutPage() {
       router.push(`${backToPosHref}&customerRequired=1`)
       return false
     }
-    if (isCashShort(selectedPaymentMethod, receivedCash, amountToCollect)) {
-      showToast('เงินสดไม่ถูกต้อง', 'เงินสดที่รับมาต้องไม่น้อยกว่ายอดชำระ', 'ERROR')
+    // A bill is paid in full here (or ค้างชำระ); cash + QR together must cover the whole amount
+    if (selectedPaymentMethod !== 'UNPAID' && pay.totals.remaining > 0.004) {
+      showToast('ยังรับเงินไม่ครบ', `ขาดอีก ${pay.totals.remaining.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`, 'ERROR')
       return false
     }
     return true
@@ -326,16 +369,26 @@ export default function CheckoutPage() {
     savedDraftIdRef.current = billId
     const draft = await fetchBillByIdFromSupabase(billId)
     const total = draft?.grandTotal ?? grandTotal
-    // The server's total can differ from the screen's; the cash typed in must still cover it
-    if (!isUnpaid && receivedCashInput !== '' && isCashShort(selectedPaymentMethod, receivedCash, total + depositToCollect)) {
+    const totalWithDeposit = total + depositToCollect
+    // One method for the exact amount (QR Code, or an empty cash box) pays whatever the server's total is
+    const exact = !pay.part && (selectedPaymentMethod !== 'CASH' || receivedCashInput === '')
+    // Otherwise the server's total can differ from the screen's; the money typed in must still cover it
+    if (!isUnpaid && !exact && pay.totals.collected + 0.005 < totalWithDeposit) {
       return {
         ok: false,
-        message: `ยอดสุทธิจากระบบ (รวมมัดจำ) ${(total + depositToCollect).toLocaleString('th-TH', { minimumFractionDigits: 2 })} มากกว่าเงินสดที่รับมา — บิลบันทึกเป็นแบบร่างไว้แล้ว`,
+        message: `ยอดสุทธิจากระบบ (รวมมัดจำ) ${totalWithDeposit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} มากกว่าเงินที่รับมา — บิลบันทึกเป็นแบบร่างไว้แล้ว`,
       }
     }
+    // All the money taken (bill + deposit), methods in the order taken; the server cuts it
+    // ค่าสินค้าขาย → ค่าขนส่ง → มัดจำ → ค่าเช่า and keeps the rest owed (owner 2026-11-11).
+    // ค้างชำระ after cash confirmed for part of the amount sends that cash only.
+    const tenders = exact
+      ? [{ method: selectedPaymentMethod, amount: totalWithDeposit }]
+      : allocateTenders(pay.totals.tenders, totalWithDeposit)[0]
+    const send = isUnpaid ? (pay.part ? tenders : []) : totalWithDeposit <= 0 ? [] : tenders
     const confirmed = await confirmBill(
       billId,
-      isUnpaid || total <= 0 ? [] : [{ method: selectedPaymentMethod, amount: total, reference: bankRef || undefined }]
+      send.map((t) => ({ ...t, reference: t.method === 'CASH' ? undefined : bankRef || undefined }))
     )
     savedDraftIdRef.current = null
     return { ok: true, confirmed, billId, total }
@@ -356,13 +409,17 @@ export default function CheckoutPage() {
   }
 
   const handleConfirmBill = async () => {
+    const selectedPaymentMethod = paymentMethod
+    if (!selectedPaymentMethod) {
+      await notice(PAYMENT_NOT_CHOSEN_NOTICE)
+      return
+    }
+    if (pay.blocker) {
+      await notice(pay.blocker)
+      return
+    }
     setIsSubmitting(true)
     try {
-      const selectedPaymentMethod = paymentMethod
-      if (!selectedPaymentMethod) {
-        showToast('กรุณาเลือกช่องทางชำระเงิน', '', 'ERROR')
-        return
-      }
       if (!validateCheckout(selectedPaymentMethod)) return
 
       const allItemsAreSale = items.length > 0 && items.every((it) => isSaleCartItem(it))
@@ -370,7 +427,7 @@ export default function CheckoutPage() {
 
       const settled = await saveAndConfirmBill(selectedPaymentMethod, isUnpaid)
       if (!settled.ok) {
-        showToast('เงินสดไม่ถูกต้อง', settled.message, 'ERROR')
+        showToast('ยอดเงินที่รับไม่พอ', settled.message, 'ERROR')
         return
       }
 
@@ -383,8 +440,9 @@ export default function CheckoutPage() {
         ...billData,
         billNo,
         grandTotal: savedTotal,
-        paidAmount: isUnpaid ? 0 : savedTotal,
-        outstandingAmount: isUnpaid ? savedTotal : 0,
+        // The server's numbers: what the bill got and what is still owed (an unpaid deposit included)
+        paidAmount: confirmed ? confirmed.paidAmount : isUnpaid ? 0 : savedTotal,
+        outstandingAmount: confirmed ? confirmed.outstandingAmount : isUnpaid ? savedTotal : 0,
       })
       clearCart()
 
@@ -442,17 +500,33 @@ export default function CheckoutPage() {
   if (draftBillId) backToPosParams.set('draftBillId', draftBillId)
   const backToPosHref = `/pos?${backToPosParams.toString()}`
 
+  // The bill on the left: the shop form picked in ประเภทเอกสาร (else the main bill form).
+  let billPreview: React.ReactNode
+  if (billForm) {
+    billPreview = (
+      <A4FitPreview paddingPx={1} className="h-full w-full" align="center">
+        <div
+          className="h-full w-full bg-white p-8 font-sans text-xs text-slate-900"
+          // Pages come from renderDocumentTemplate, which already sanitizes the HTML.
+          dangerouslySetInnerHTML={{ __html: renderBillFormPagesHtml(savedPrintData ?? billData, settings.business, billForm)[0] ?? '' }}
+        />
+      </A4FitPreview>
+    )
+  } else {
+    billPreview = (
+      <div className="flex h-full items-center justify-center p-6 text-center text-xs text-slate-600 dark:text-slate-400">
+        {billFormPending ? 'กำลังโหลดแบบฟอร์ม...' : `ไม่พบแบบฟอร์มของ "${formName}" กรุณาเพิ่มที่เมนูจัดการเอกสาร`}
+      </div>
+    )
+  }
+
   return (
     <>
     <DocumentSummaryLayout
       className="pos-checkout-print-root"
       formTabLabel="ฟอร์มชำระเงิน"
       previewTabLabel="ดูตัวอย่างบิล A4"
-      preview={
-        <A4FitPreview paddingPx={1} className="h-full w-full" align="center">
-          <RentalBillTemplate data={savedPrintData ?? billData} />
-        </A4FitPreview>
-      }
+      preview={billPreview}
     >
       <DocumentSummaryPanel
         title="ชำระเงิน"
@@ -496,7 +570,7 @@ export default function CheckoutPage() {
               <button
                 type="button"
                 onClick={handleConfirmBill}
-                disabled={isSubmitting || !paymentMethod}
+                disabled={isSubmitting}
                 className="flex-1 min-w-0 rounded-xl bg-emerald-700 px-2 py-2.5 hover:bg-emerald-800 active:scale-[0.99] text-white font-black text-xs sm:text-sm md:text-base flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
               >
                 <Printer className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
@@ -511,7 +585,8 @@ export default function CheckoutPage() {
         {/* Payment Method Selector — one row, equal-size buttons */}
         <PaymentMethodSelector
           selectedMethod={paymentMethod}
-          onSelectMethod={setPaymentMethod}
+          selectedMethods={pay.selectedMethods}
+          onSelectMethod={pay.selectMethod}
           autoSelectFirst={false}
           showLabel={false}
           itemsPerRow={3}
@@ -521,7 +596,7 @@ export default function CheckoutPage() {
         {paymentMethod ? (
           <PaymentDynamicContent
             paymentMethod={paymentMethod}
-            targetAmount={amountToCollect}
+            targetAmount={pay.totals.restDue}
             receivedCashInput={receivedCashInput}
             onReceivedCashInputChange={setReceivedCashInput}
             changeAmount={changeAmount}
@@ -529,10 +604,27 @@ export default function CheckoutPage() {
             onBankRefChange={setBankRef}
             bankQrUrl={settings.business?.bankQrDataUrl}
             promptPayId={settings.business?.promptPayValue}
+            onConfirmCash={pay.confirmCash}
+            cashConfirmed={pay.cashConfirmed}
+            split={pay.split}
+            onClearSplit={pay.clearSplit}
+            onOpenQr={pay.qr.open}
+            focusCashSignal={pay.focusCash}
+            cashConfirmEmptyAllowed={pay.cashConfirmEmptyAllowed}
           />
         ) : null}
       </DocumentSummaryPanel>
     </DocumentSummaryLayout>
+
+      <QrPaymentDialog
+        isOpen={pay.qr.isOpen}
+        onClose={pay.qr.close}
+        amount={pay.qr.amount}
+        editable={pay.qr.editable}
+        promptPayId={settings.business?.promptPayValue}
+        bankQrUrl={settings.business?.bankQrDataUrl}
+        onConfirm={pay.qr.confirm}
+      />
 
       {/* Post-Save Print Confirmation Modal */}
       <PostSavePrintModal
@@ -540,7 +632,16 @@ export default function CheckoutPage() {
         title={postSavePrintModal.title}
         description={postSavePrintModal.description}
         onPrint={() => {
-          printRentalBillDocument(savedPrintData ?? billData)
+          const printData = savedPrintData ?? billData
+          if (billFormPending) {
+            showToast('กำลังโหลดแบบฟอร์ม', 'กรุณากดพิมพ์อีกครั้ง', 'INFO')
+            return
+          }
+          if (!billForm) {
+            showToast('พิมพ์ไม่ได้', `ไม่พบแบบฟอร์มของ "${formName}" — บิลบันทึกแล้ว`, 'ERROR')
+            return
+          }
+          printBillForm(printData, settings.business, billForm)
           clearCart()
           setPostSavePrintModal({ isOpen: false, title: '', description: '' })
           router.push('/pos')

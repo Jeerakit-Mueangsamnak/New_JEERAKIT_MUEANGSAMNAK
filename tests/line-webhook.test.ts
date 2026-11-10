@@ -112,6 +112,13 @@ describe('LINE webhook', () => {
     expect(provider.replied).toHaveLength(1)
   })
 
+  it('an event that fails is counted in "failed" (still 200, so LINE does not resend the batch)', async () => {
+    const store = memoryStore()
+    ;(store.recordEvent as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('db down'))
+    const { res } = await call([textEvent('f1', STAFF, 'สวัสดี'), textEvent('f2', STAFF, 'สวัสดี')], { store, provider })
+    expect(res).toMatchObject({ status: 200, body: { ok: true, processed: 1, failed: 1 } })
+  })
+
   it('staff: 6-digit code links and replies with the spec text', async () => {
     const { res } = await call([textEvent('e1', STAFF, ' 123456 ')], { provider })
     expect(res.status).toBe(200)

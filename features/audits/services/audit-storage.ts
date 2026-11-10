@@ -35,32 +35,6 @@ export interface AuditLogEntry {
   channel?: string | null
   result?: string | null
 }
-
-/** Actions that move money or stock out of the normal flow (shown highlighted). */
-export const HIGH_RISK_ACTIONS = [
-  'REFUND_PAY',
-  'PAYMENT_VOID',
-  'BILL_VOID',
-  'BILL_CANCEL',
-  'BILL_CORRECT',
-  'BILL_ADJUST',
-  'STOCK_ADJUST',
-  'STOCK_RECEIVE',
-  'STOCK_CONVERT',
-  'STOCK_COUNT_CONFIRM',
-  'LOST_RECORD',
-  'WRITE_OFF',
-  'EXPENSE_CREATE',
-  'EXPENSE_VOID',
-  'PRODUCT_PRICE_CHANGE',
-  'PIN_RESET',
-  'PIN_BLOCKED',
-]
-
-export function isHighRiskAction(action: string): boolean {
-  return HIGH_RISK_ACTIONS.includes(action)
-}
-
 /** Group of the audit screen (จัดการสิทธิ์ › ประวัติการทำรายการ) each database entity_type belongs to. */
 export type AuditCategory = 'BILL' | 'CUSTOMER' | 'STOCK' | 'MEMBER' | 'FINANCE' | 'SYSTEM'
 
@@ -93,12 +67,6 @@ const AUDIT_CATEGORY_BY_ENTITY: Record<string, AuditCategory> = {
 export function auditCategoryOf(entityType: string | null | undefined): AuditCategory {
   return AUDIT_CATEGORY_BY_ENTITY[entityType || ''] ?? 'SYSTEM'
 }
-
-export function generateCorrelationId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
-
 interface AuditRow {
   id: string
   actor_id: string | null

@@ -26,8 +26,7 @@ import {
   TAB_CONTAINER_CLASSES,
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
-  TAB_BUTTON_INACTIVE_CLASSES,
-} from '@/components/common/ActionButton'
+  TAB_BUTTON_INACTIVE_CLASSES, COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 import { SecuritySettings } from '@/features/auth/components/SecuritySettings'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { useTheme } from '@/lib/contexts/ThemeContext'
@@ -323,7 +322,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
                         <button
                           type="button"
                           onClick={() => avatarInputRef.current?.click()}
-                          className="h-8 px-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] flex items-center gap-1"
+                          className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-blue-600 hover:bg-blue-700 text-white flex items-center`}
                         >
                           <Upload className="w-3.5 h-3.5" />
                           <span>{user?.avatarUrl ? 'เปลี่ยนรูป' : 'อัปโหลดรูป'}</span>
@@ -332,7 +331,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
                           <button
                             type="button"
                             onClick={handleRemoveAvatar}
-                            className="h-8 px-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-red-600 font-bold text-[11px] flex items-center gap-1"
+                            className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-red-600 flex items-center`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>ลบรูป</span>
@@ -394,7 +393,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
                       type="button"
                       onClick={handleSaveProfile}
                       disabled={profileSaving || !profileLoaded}
-                      className="h-9 px-3.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center gap-1.5 disabled:opacity-50"
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 text-white flex items-center disabled:opacity-50`}
                     >
                       <Save className="w-4 h-4" />
                       <span>{profileSaving ? 'กำลังบันทึก...' : 'บันทึกโปรไฟล์'}</span>
@@ -437,7 +436,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
                       type="button"
                       onClick={handleChangePassword}
                       disabled={pwdLoading}
-                      className="h-9 px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs disabled:opacity-50"
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-slate-800 hover:bg-slate-700 text-white disabled:opacity-50`}
                     >
                       {pwdLoading ? 'กำลังบันทึก...' : 'บันทึกรหัสผ่านใหม่'}
                     </button>
@@ -457,7 +456,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
                         clearUnlockFlags()
                         await signOut()
                       }}
-                      className="h-9 px-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1.5"
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-rose-600 hover:bg-rose-700 text-white flex items-center`}
                     >
                       <LogOut className="w-4 h-4" />
                       <span>ออกจากระบบเครื่องนี้</span>
@@ -465,7 +464,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
                     <button
                       type="button"
                       onClick={handleLogoutAll}
-                      className="h-9 px-3.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 font-bold text-xs flex items-center gap-1.5"
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center`}
                     >
                       <Shield className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                       <span>ออกจากระบบทุกอุปกรณ์</span>
@@ -478,15 +477,12 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
             {tab === 'NOTIFICATIONS' && (
               <div className={SECTION_CLASSES}>
                 <NotificationSettingsPanel value={prefsDraft} onChange={setPrefsDraft} />
-                <p className="text-[11px] text-slate-600 dark:text-slate-400">
-                  ตั้งเฉพาะของคุณเอง · เห็นเฉพาะเรื่องในเมนูที่คุณมีสิทธิ์ · มีผลกับการแจ้งเตือนรอบถัดไป
-                </p>
                 <div className="flex justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => setPrefsDraft(savedPrefs)}
                     disabled={!prefsDirty || prefsSaving}
-                    className="h-9 px-3.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs disabled:opacity-50"
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 disabled:opacity-50`}
                   >
                     ยกเลิก
                   </button>
@@ -494,7 +490,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
                     type="button"
                     onClick={() => void handleSavePrefs()}
                     disabled={!prefsDirty || prefsSaving}
-                    className="h-9 px-3.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs flex items-center gap-1.5 disabled:opacity-50"
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 text-white flex items-center disabled:opacity-50`}
                   >
                     <Save className="w-4 h-4" />
                     <span>{prefsSaving ? 'กำลังบันทึก…' : 'บันทึก'}</span>
@@ -534,7 +530,6 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
                     )
                   })}
                 </div>
-                <p className="text-[11px] text-slate-600 dark:text-slate-400">ใช้กับเครื่อง/เบราว์เซอร์นี้เท่านั้น ไม่ถูกบันทึกไปที่เซิร์ฟเวอร์</p>
               </div>
             )}
           </div>

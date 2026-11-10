@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useEffect, useState } from 'react'
 import { WalletCards } from 'lucide-react'
@@ -8,6 +9,7 @@ import { FullBill } from '@/lib/types/rental-return'
 import { useToast } from '@/components/common/Toast'
 import { correctBill } from '@/features/bills/services/bill-service'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
+import { dbErrorMessage } from '@/lib/db/rpc'
 
 interface DepositModalProps {
   isOpen: boolean
@@ -41,12 +43,13 @@ export function DepositModal({ isOpen, bill, onClose, onSaved }: DepositModalPro
     if (!changed) return onClose()
     setIsSaving(true)
     try {
-      await correctBill(bill.id, { depositAmount: amount, depositNote: note || null }, '')
+      // The box is the deposit held; the part not received yet stays on the bill as it is
+      await correctBill(bill.id, { depositAmount: amount + (bill.depositOutstanding || 0), depositNote: note || null }, '')
       showToast('แก้ไขมัดจำแล้ว', `บิล ${bill.billNo}`, 'SUCCESS')
       await onSaved()
       onClose()
     } catch (err) {
-      if (!isPinCancelled(err)) showToast('แก้ไขมัดจำไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
+      if (!isPinCancelled(err)) showToast('แก้ไขมัดจำไม่สำเร็จ', dbErrorMessage(err instanceof Error ? err.message : ''), 'ERROR')
     } finally {
       setIsSaving(false)
     }
@@ -72,9 +75,9 @@ export function DepositModal({ isOpen, bill, onClose, onSaved }: DepositModalPro
         </div>
       </AppModalBody>
       <AppModalFooter>
-        <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl border text-sm font-semibold">ปิด</button>
+        <button type="button" onClick={onClose} className={`${COMMAND_BUTTON_SIZE_CLASSES} border`}>ปิด</button>
         {changed && (
-          <button type="button" disabled={isSaving} onClick={() => void handleSave()} className="px-4 py-2 rounded-xl bg-amber-500 text-slate-900 text-sm font-bold disabled:opacity-50">
+          <button type="button" disabled={isSaving} onClick={() => void handleSave()} className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-amber-500 text-slate-900 disabled:opacity-50`}>
             {isSaving ? 'กำลังบันทึก…' : 'บันทึกการแก้ไข'}
           </button>
         )}

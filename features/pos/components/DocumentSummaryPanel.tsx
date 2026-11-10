@@ -169,11 +169,11 @@ export function DocumentSummaryPanel({
             <div key={label}>
               <span className="text-slate-600 dark:text-slate-400 block mb-0.5">{label}</span>
               <NumericInput
+                aria-label={label}
                 value={value || ''}
                 onChange={(val) => onChange(val === '' ? 0 : val)}
                 defaultValueOnBlur={0}
                 min={0}
-                placeholder="0"
                 disabled={disabled}
                 className={INPUT_CLASSES}
               />

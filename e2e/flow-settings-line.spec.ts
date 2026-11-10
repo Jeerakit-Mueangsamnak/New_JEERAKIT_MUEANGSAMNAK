@@ -17,7 +17,7 @@ test('ตั้งค่ากิจการ: บันทึกชื่อร
   await expect(page.getByRole('heading', { level: 1, name: 'ตั้งค่าระบบ' })).toBeVisible({ timeout: 20000 });
   await field(page, 'ชื่อกิจการ / ร้านค้า').fill('ร้านเช่านั่งร้าน E2E');
   await field(page, 'เบอร์โทรศัพท์').fill(phone);
-  await page.getByRole('button', { name: 'บันทึก', exact: true }).click();
+  await page.getByRole('button', { name: 'บันทึกการตั้งค่า', exact: true }).click();
   await expect(page.getByText('บันทึกแล้ว', { exact: true })).toBeVisible({ timeout: 20000 });
   expect(sql('select company_name, phone from public.store_settings where singleton')[0]).toEqual(['ร้านเช่านั่งร้าน E2E', phone]);
 
@@ -31,7 +31,7 @@ test('ตั้งค่ากิจการ: ไม่ใส่ชื่อร
   await expect(name).toBeVisible({ timeout: 20000 });
   const before = sql('select company_name from public.store_settings where singleton')[0][0];
   await name.fill('');
-  const save = page.getByRole('button', { name: 'บันทึก', exact: true });
+  const save = page.getByRole('button', { name: 'บันทึกการตั้งค่า', exact: true });
   if (await save.isEnabled()) await save.click();
   await page.waitForTimeout(1500);
   expect(sql('select company_name from public.store_settings where singleton')[0][0]).toBe(before);

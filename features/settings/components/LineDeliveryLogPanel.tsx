@@ -110,11 +110,6 @@ export function LineDeliveryLogPanel() {
 
   return (
     <div className={SETTINGS_SECTION}>
-      <h4 className={SETTINGS_SECTION_TITLE}>
-        <History className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />
-        <span>ประวัติการส่ง LINE</span>
-      </h4>
-      <p className={SETTINGS_HELPER}>100 รายการล่าสุด · ระบบส่งใหม่เองเมื่อ LINE ขัดข้องชั่วคราว · &quot;ส่งไม่สำเร็จ&quot; กดส่งใหม่ได้</p>
       <div className="flex flex-wrap items-center gap-2">
         <div className="w-48">
           <CustomSelect
@@ -131,8 +126,6 @@ export function LineDeliveryLogPanel() {
       {error && <p className="text-[11px] text-amber-700 dark:text-amber-300">{error}</p>}
       <DataTableFrame
         rowCount={rows.length}
-        empty={rows.length === 0}
-        emptyState={<p className="py-6 text-center text-slate-600 dark:text-slate-400">{loading ? 'กำลังโหลด…' : 'ยังไม่มีการส่ง'}</p>}
       >
         <table className="w-full text-left border-collapse table-auto text-xs" aria-label="ประวัติการส่ง LINE">
           <thead>
@@ -161,7 +154,7 @@ export function LineDeliveryLogPanel() {
                   <td className={`${TD} text-slate-600 dark:text-slate-400`}>{d.last_error_code ? (ERROR_TEXT[d.last_error_code] ?? d.last_error_code) : '-'}</td>
                   <td className={`${TD} text-right`}>
                     {['DEAD', 'FAILED', 'CANCELLED'].includes(d.status) && (
-                      <ActionButton size="sm" variant="outline" icon={<RotateCcw />} disabled={busy === d.id} onClick={() => void retry(d)}>
+                      <ActionButton variant="outline" icon={<RotateCcw />} disabled={busy === d.id} onClick={() => void retry(d)}>
                         ส่งใหม่
                       </ActionButton>
                     )}

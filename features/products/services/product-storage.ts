@@ -12,6 +12,7 @@ import {
   fetchProductsFromSupabase,
   saveProductToSupabase,
   deleteProductFromSupabase,
+  hardDeleteProductInSupabase,
   reactivateProductInSupabase,
   confirmStockCount,
   adjustStock,
@@ -65,27 +66,12 @@ export async function syncProductsFromSupabase(): Promise<Product[]> {
   notifyProductsChanged()
   return remoteProducts
 }
-
-/** Cache-only replace (no database write) — used by tests and optimistic UI. */
-export function saveProducts(products: Product[]): void {
-  _cachedProducts = products
-}
-
 /** Create one or more new products on the server, then reload. */
 export async function addProductsAsync(incoming: Product | Product[]): Promise<Product[]> {
   const arr = Array.isArray(incoming) ? incoming : [incoming]
   for (const p of arr) await saveProductToSupabase(p, null)
   return syncProductsFromSupabase()
 }
-
-/** Create or update (by id) on the server, then reload. */
-export async function upsertProductsAsync(incoming: Product | Product[]): Promise<Product[]> {
-  const arr = Array.isArray(incoming) ? incoming : [incoming]
-  const current = loadProducts()
-  for (const p of arr) await saveProductToSupabase(p, current.find((c) => c.id === p.id) ?? null)
-  return syncProductsFromSupabase()
-}
-
 export async function updateProductAsync(updated: Product): Promise<Product[]> {
   const previous = loadProducts().find((p) => p.id === updated.id) ?? null
   await saveProductToSupabase(updated, previous)
@@ -95,6 +81,11 @@ export async function updateProductAsync(updated: Product): Promise<Product[]> {
 /** Products are never hard-deleted (history): this deactivates. */
 export async function deleteProductAsync(id: string, reason?: string): Promise<Product[]> {
   await deleteProductFromSupabase(id, reason)
+  return syncProductsFromSupabase()
+}
+
+export async function hardDeleteProductAsync(id: string): Promise<Product[]> {
+  await hardDeleteProductInSupabase(id)
   return syncProductsFromSupabase()
 }
 
@@ -114,27 +105,6 @@ export interface ProductAvailabilityResult {
   lost: number
   inRepair: number
 }
-
-/** Read-only view of the server balances (the server re-checks stock at confirm time). */
-export function getProductAvailability(productId: string): ProductAvailabilityResult {
-  const p = loadProducts().find((prod) => prod.id === productId)
-  if (!p) {
-    return { total: 0, usable: 0, available: 0, availableForRange: 0, reserved: 0, rented: 0, damaged: 0, lost: 0, inRepair: 0 }
-  }
-  const available = Math.max(0, p.availableQuantity || 0)
-  return {
-    total: p.totalQuantity || 0,
-    usable: available + (p.rentedQuantity || 0) + (p.reservedQuantity || 0),
-    available,
-    availableForRange: available,
-    reserved: p.reservedQuantity || 0,
-    rented: p.rentedQuantity || 0,
-    damaged: p.damagedQuantity || 0,
-    lost: p.lostQuantity || 0,
-    inRepair: p.inRepairQuantity || 0,
-  }
-}
-
 export interface StockCountAdjustmentInput {
   normalQty?: number
   damagedQty?: number

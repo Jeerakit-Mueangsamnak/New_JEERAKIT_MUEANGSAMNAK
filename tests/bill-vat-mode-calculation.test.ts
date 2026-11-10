@@ -23,6 +23,13 @@ describe('VAT mode chosen per bill (รวม VAT / ไม่รวม VAT)', ()
     expect(t.subtotalWithoutTax).toBe(934.58)
   })
 
+  it('รวม VAT with shipping: the merchandise subtotal excludes only the merchandise VAT', () => {
+    const t = calculateBillTotals({ settings: shop(7, null), items: [{ lineTotal: 107 }], shippingFee: 107, enableVat: true, vatMode: 'INCLUSIVE' })
+    expect(t.vatAmount).toBe(14)
+    expect(t.grandTotal).toBe(214)
+    expect(t.subtotalWithoutTax).toBe(100)
+  })
+
   it('the deposit is added to the amount to pay in both modes, and VAT never covers it', () => {
     const excl = calculateBillTotals({ settings: shop(7, null), items, enableVat: true, vatMode: 'EXCLUSIVE', depositAmount: 500 })
     const incl = calculateBillTotals({ settings: shop(7, null), items, enableVat: true, vatMode: 'INCLUSIVE', depositAmount: 500 })

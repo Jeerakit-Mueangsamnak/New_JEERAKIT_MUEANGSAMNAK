@@ -6,6 +6,34 @@ import { getSupabasePublicKey, getSupabaseUrl } from '@/lib/supabase/env'
 const PROFILE_CHECK_TIMEOUT_MS = 5000
 const AUTH_CHECK_TIMEOUT_MS = 5000
 
+/**
+ * Members already seen as ACTIVE + approved, kept for a short time so page switches and link prefetches
+ * do not ask the database again on every request. Only a positive answer is kept; a suspended member is
+ * cut off from pages within MEMBER_OK_TTL_MS, and every database action (RPC) checks the member itself
+ * at once regardless of this cache.
+ */
+const MEMBER_OK_TTL_MS = 30_000
+const MEMBER_OK_MAX = 500
+const memberOkUntil = new Map<string, number>()
+
+function memberRecentlyOk(userId: string, now: number): boolean {
+  const until = memberOkUntil.get(userId)
+  if (until === undefined) return false
+  if (until > now) return true
+  memberOkUntil.delete(userId)
+  return false
+}
+
+function rememberMemberOk(userId: string, now: number) {
+  if (memberOkUntil.size >= MEMBER_OK_MAX) memberOkUntil.clear()
+  memberOkUntil.set(userId, now + MEMBER_OK_TTL_MS)
+}
+
+/** Tests: start from an empty member cache. */
+export function clearMemberStatusCache() {
+  memberOkUntil.clear()
+}
+
 /** 503 "try again" when the session or member status could not be read; keeps any refreshed auth cookies. */
 function profileCheckUnavailable(request: NextRequest, supabaseResponse: NextResponse) {
   const wantsPage = (request.headers.get('accept') ?? '').includes('text/html')
@@ -28,6 +56,23 @@ function profileCheckUnavailable(request: NextRequest, supabaseResponse: NextRes
   return response
 }
 
+function supabaseConfigUnavailable(request: NextRequest) {
+  const wantsPage = (request.headers.get('accept') ?? '').includes('text/html')
+  const body = wantsPage
+    ? '<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ตั้งค่าระบบไม่ครบ</title></head>' +
+      '<body style="font-family:sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;background:#f8fafc;color:#334155">' +
+      '<div style="text-align:center;padding:16px"><p style="font-weight:700">ระบบยังตั้งค่าการเชื่อมต่อไม่ครบถ้วน</p>' +
+      '<p style="font-size:14px">กรุณาติดต่อผู้ดูแลระบบ</p></div></body></html>'
+    : 'Supabase authentication is not configured'
+  return new NextResponse(body, {
+    status: 503,
+    headers: {
+      'Content-Type': wantsPage ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  })
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -37,7 +82,7 @@ export async function updateSession(request: NextRequest) {
   const supabasePublishableKey = getSupabasePublicKey()
 
   if (!supabaseUrl || !supabasePublishableKey) {
-    return supabaseResponse
+    return isPublicRoute(request.nextUrl.pathname) ? supabaseResponse : supabaseConfigUnavailable(request)
   }
 
   const supabase = createServerClient(supabaseUrl, supabasePublishableKey, {
@@ -58,8 +103,10 @@ export async function updateSession(request: NextRequest) {
   })
 
   // IMPORTANT: Do not run code between createServerClient and
-  // supabase.auth.getUser(). A simple mistake could make it very hard to debug
+  // supabase.auth.getClaims(). A simple mistake could make it very hard to debug
   // issues with users being randomly logged out.
+  // getClaims verifies the access token here (signature + expiry against the project's ES256 key, JWKS
+  // cached) instead of asking the Auth server on every request; it still refreshes an expired token.
   let hasUser = false
   let authUnreachable = false
   let userId: string | null = null
@@ -68,15 +115,17 @@ export async function updateSession(request: NextRequest) {
     const authTimeout = new Promise<'timeout'>((resolve) => {
       authTimer = setTimeout(() => resolve('timeout'), AUTH_CHECK_TIMEOUT_MS)
     })
-    const answer = await Promise.race([supabase.auth.getUser(), authTimeout])
+    const answer = await Promise.race([supabase.auth.getClaims(), authTimeout])
     if (answer === 'timeout') {
       authUnreachable = true
     } else {
       const { data, error } = answer
-      hasUser = Boolean(data?.user)
-      userId = data?.user?.id ?? null
-      // Network/5xx failures must not log people out; only a definite "no session" blocks access
-      authUnreachable = Boolean(error) && (error?.name === 'AuthRetryableFetchError' || !error?.status || error.status >= 500)
+      const sub = typeof data?.claims?.sub === 'string' ? data.claims.sub : null
+      hasUser = Boolean(sub)
+      userId = sub
+      // Network/5xx failures must not log people out; an invalid or missing token blocks access
+      const status = (error as { status?: number } | null)?.status
+      authUnreachable = Boolean(error) && (error?.name === 'AuthRetryableFetchError' || (typeof status === 'number' && status >= 500))
     }
   } catch {
     // Supabase unreachable: the session is unknown (handled below, never as signed out)
@@ -110,8 +159,9 @@ export async function updateSession(request: NextRequest) {
   }
 
   // A session alone is not enough: only an ACTIVE member may use protected routes.
-  // Re-checked on every request so a member suspended mid-session is cut off.
-  if (userId) {
+  // Re-checked at least every MEMBER_OK_TTL_MS so a member suspended mid-session is cut off.
+  const now = Date.now()
+  if (userId && !memberRecentlyOk(userId, now)) {
     let profile: { status?: string | null; is_approved?: boolean | null } | null = null
     let profileUnreadable = false
     const abort = new AbortController()
@@ -148,6 +198,7 @@ export async function updateSession(request: NextRequest) {
       }
       return redirectToLogin()
     }
+    rememberMemberOk(userId, now)
   }
 
   return supabaseResponse

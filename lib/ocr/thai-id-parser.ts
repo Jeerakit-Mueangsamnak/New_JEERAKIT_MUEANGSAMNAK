@@ -110,14 +110,6 @@ export function datesInText(text: string): string[] {
   }
   return out
 }
-
-/** A Thai ID card date, kept for callers that format one value (e.g. an expiry typed as text). */
-export function normalizeThaiIdExpiryDate(value: string): string {
-  const iso = value.match(/\b(20\d{2})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])\b/)
-  if (iso) return isoDate(Number(iso[1]), Number(iso[2]), Number(iso[3]))
-  return datesInText(value)[0] || ''
-}
-
 const NAME_PREFIX = '(?:นางสาว|นาย|นาง|เด็กชาย|เด็กหญิง|ด\\.ช\\.|ด\\.ญ\\.|น\\.ส\\.)'
 const NAME_PATTERN = new RegExp(`(${NAME_PREFIX})\\s*([ก-ฮ][ก-๙]+)\\s+([ก-ฮ][ก-๙]+)\\s*$`)
 

@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/client'
 import { rpc, selectRows } from '@/lib/db/rpc'
 import { withPinIfRequired } from '@/lib/db/pin-confirm'
 import type { Quotation, QuotationItem, QuotationStatus } from '@/lib/types/rental-pos'
+import type { CustomerSnapshot } from '@/features/bills/api/bill-repository'
 
 /**
  * Quotations (Master v4.3.1 §10) on the v4.3 schema. A quotation is an offer — it does not
@@ -20,6 +21,7 @@ interface QuotationRow {
   vat_amount: number
   grand_total: number
   pricing_snapshot: { vat_enabled?: boolean; vat_rate?: number | null; vat_mode?: string | null } | null
+  customer_snapshot?: CustomerSnapshot | null
   converted_bill_id: string | null
   note: string | null
   site_name: string | null
@@ -43,6 +45,9 @@ interface QuotationItemRow {
   rental_end_at: string | null
   discount_amount: number
   line_total: number
+  product_sku?: string | null
+  product_name?: string | null
+  unit_name?: string | null
 }
 
 /** Local calendar day (yyyy-mm-dd) of a timestamp — a slice of the UTC text would show the day before for Thai midnight. */
@@ -77,7 +82,8 @@ export async function fetchQuotationsFromSupabase(): Promise<Quotation[]> {
   }
 
   return quotes.map((q) => {
-    const c = q.customer_id ? customerMap.get(q.customer_id) : undefined
+    // The customer and products as written on the quotation (document_snapshot_v1); live data only as a fallback.
+    const c = q.customer_snapshot ?? (q.customer_id ? customerMap.get(q.customer_id) : undefined)
     const rows = (itemsByQuote.get(q.id) || []).sort((a, b) => a.line_no - b.line_no)
     const starts = rows.map((r) => r.rental_start_at).filter(Boolean) as string[]
     const ends = rows.map((r) => r.rental_end_at).filter(Boolean) as string[]
@@ -86,10 +92,10 @@ export async function fetchQuotationsFromSupabase(): Promise<Quotation[]> {
       return {
         id: r.id,
         productId: r.product_id,
-        productName: p?.name || '',
+        productName: r.product_name ?? p?.name ?? '',
         rentalType: r.line_mode === 'SALE' ? 'SALE' : r.rental_calculation_type === 'PER_DAY' ? 'DAILY' : 'NORMAL',
         quantity: Number(r.quantity),
-        unitName: p ? unitMap.get(p.unit_id) : undefined,
+        unitName: r.unit_name ?? (p ? unitMap.get(p.unit_id) : undefined),
         unitPrice: Number(r.unit_price),
         usageCountOrDays: Number(r.period_count ?? 1),
         lineTotal: Number(r.line_total),

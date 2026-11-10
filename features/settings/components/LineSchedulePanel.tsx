@@ -52,9 +52,6 @@ export function LineSchedulePanel({ config, setConfig }: Props) {
           <CalendarClock className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
           <span>ตารางเตือนลูกค้าทาง LINE</span>
         </h4>
-        <p className={SETTINGS_HELPER}>
-          ส่งถึงลูกค้าที่ผูก LINE แล้วเท่านั้น · ระบบไม่ส่งซ้ำในรอบเดียวกัน · ข้อความแก้ได้ที่แท็บบล็อกข้อความ · ทุกข้อความนับโควต้า LINE OA ของร้าน
-        </p>
         <div className="space-y-2 max-w-3xl">
           {LINE_REMINDER_RULES.map((rule) => {
             const s = reminders[rule.key] ?? {}
@@ -72,7 +69,6 @@ export function LineSchedulePanel({ config, setConfig }: Props) {
                   />
                   <span>
                     <span className="block text-xs font-bold text-slate-800 dark:text-slate-200">{rule.label}</span>
-                    <span className={SETTINGS_HELPER}>{rule.hint}</span>
                   </span>
                 </label>
                 {rule.fields.length > 0 && (
@@ -93,7 +89,6 @@ export function LineSchedulePanel({ config, setConfig }: Props) {
                           onChange={(v) => setRule(rule.key, { [f.key]: v === '' ? f.default : Math.min(Math.max(v, f.min), f.max) })}
                           className={SETTINGS_INPUT}
                         />
-                        <p className={SETTINGS_HELPER}>{f.hint}</p>
                       </div>
                     ))}
                   </div>
@@ -109,7 +104,6 @@ export function LineSchedulePanel({ config, setConfig }: Props) {
           <Route className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
           <span>แจ้งลูกค้าเมื่อคนขับกดขั้นตอนงาน</span>
         </h4>
-        <p className={SETTINGS_HELPER}>ร้านได้รับแจ้งทุกขั้นเสมอ (แจ้งเตือนในระบบ) · เลือกขั้นที่ให้ส่ง LINE ถึงลูกค้าของงานนั้นด้วย</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
           {LINE_CUSTOMER_STAGES.map((st) => (
             <label key={st.key} className="flex items-start gap-2.5 py-1.5 cursor-pointer">
@@ -156,7 +150,6 @@ export function LineSchedulePanel({ config, setConfig }: Props) {
                   onChange={(v) => setOther(key, v === '' ? undefined : Math.min(Math.max(v, o.min), o.max))}
                   className={SETTINGS_INPUT}
                 />
-                {o.hint && <p className={SETTINGS_HELPER}>{o.hint}</p>}
               </div>
             )
           })}

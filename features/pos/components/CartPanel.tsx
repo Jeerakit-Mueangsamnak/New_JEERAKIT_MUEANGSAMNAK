@@ -19,11 +19,23 @@ import { NewCustomerModal } from '@/features/customers/components/NewCustomerMod
 import { CalendarPanel, getLocalDateString } from '@/components/common/CustomDatePicker'
 import { CustomSelect, SelectOption } from '@/components/common/CustomSelect'
 import { CustomerUnifiedSelector } from '@/features/pos/components/CustomerUnifiedSelector'
-import { CartItem, defaultBillDocumentType, isSaleCartItem, saveActiveCart, validateCartCustomer } from '@/features/pos/services/cart-storage'
+import {
+  type ActiveCartData,
+  CartItem,
+  clearActiveCart,
+  customerContactPhones,
+  isSaleCartItem,
+  saveActiveCart,
+  validateCartCustomer,
+} from '@/features/pos/services/cart-storage'
+import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { calculateBillTotals } from '@/lib/calculation-service'
 import { isVatRateConfigured } from '@/features/settings/services/settings-storage'
 import { type VatMode } from '@/features/pos/components/VatModeButtons'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
+import { loadDocumentNames, refreshSharedTemplates } from '@/features/documents/services/template-library-storage'
+import { billFormDocumentNames } from '@/features/documents/utils/transaction-print'
+import { isNoChargeRental } from '@/features/pos/services/accessory-rules'
 
 export type { CartItem }
 
@@ -59,6 +71,8 @@ interface CartPanelProps {
   initialCustomerAttention?: boolean
   /** Contact phone of this bill (restored when coming back from checkout). */
   initialContactPhone?: string
+  /** ประเภทเอกสาร picked before (restored when coming back from checkout). */
+  initialDocumentType?: string
 }
 
 export function CartPanel({
@@ -86,9 +100,11 @@ export function CartPanel({
   initialDocumentDate,
   initialCustomerAttention = false,
   initialContactPhone,
+  initialDocumentType,
 }: CartPanelProps) {
   const { showToast } = useToast()
   const { settings } = useSystemSettings()
+  const { user } = useAuth()
   // VAT belongs to THIS bill / quotation only (never written to the shop settings) and starts off for
   // every new cart. Owner 2026-11-04: the rate comes from Settings; รวม / ไม่รวม VAT is this document's own
   // button (quotations here, bills on the payment page).
@@ -127,13 +143,28 @@ export function CartPanel({
       phoneFirstRun.current = false
       if (initialContactPhone) return
     }
-    setContactPhone(customer?.phone || '')
+    setContactPhone(customerContactPhones(customer))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customer?.id, customer?.phone])
+  }, [customer?.id, customer?.phone, customer?.phone2])
   const [headerRentalDate, setHeaderRentalDate] = useState<Date | null>(new Date())
   const [headerReturnDate, setHeaderReturnDate] = useState<Date | null>(new Date())
-  // Empty = not picked: the bill title then follows the cart (บิลขาย / บิลเช่า / บิลเช่า/ขาย).
-  const [documentType, setDocumentType] = useState<string>('')
+  // A name of จัดการเอกสาร › แบบฟอร์มบิล: the bill prints on the form saved under that name. Empty = not picked.
+  const [documentType, setDocumentType] = useState<string>(initialDocumentType ?? '')
+  // A bill must have its ประเภทเอกสาร picked every time (owner 2026-11-09): blinks red like the customer field.
+  const [documentTypeAttention, setDocumentTypeAttention] = useState(false)
+  const [billFormNames, setBillFormNames] = useState<string[]>([])
+  useEffect(() => {
+    let alive = true
+    refreshSharedTemplates()
+      .then((templates) => alive && setBillFormNames(billFormDocumentNames(loadDocumentNames(), templates)))
+      .catch((err: unknown) => console.error('Reading the bill forms failed:', err))
+    return () => {
+      alive = false
+    }
+  }, [])
+  useEffect(() => {
+    if (initialDocumentType !== undefined) setDocumentType(initialDocumentType)
+  }, [initialDocumentType])
   const [documentDate, setDocumentDate] = useState<Date | null>(new Date())
 
   const removeItem = (id: string) => {
@@ -231,6 +262,50 @@ export function CartPanel({
     if (initialRentalEndDate) setHeaderReturnDate(new Date(initialRentalEndDate))
   }, [initialRentalEndDate])
 
+  // A restored cart keeps the phone typed for it (declared after the customer effect, so it wins).
+  useEffect(() => {
+    if (initialContactPhone !== undefined) setContactPhone(initialContactPhone)
+  }, [initialContactPhone])
+
+  /** The cart as the payment page and the header cart icon read it. */
+  const buildActiveCart = (): ActiveCartData => ({
+    customer,
+    items,
+    discount: Number(discount) || 0,
+    shippingFee: Number(shippingFee) || 0,
+    depositAmount: Number(depositAmount) || 0,
+    taxRate: taxRate,
+    vatEnabled: vatOn,
+    vatMode: vatOn ? effectiveVatMode : null,
+    shippingAddress,
+    contactPhone: contactPhone.trim() || undefined,
+    headerRentalDate: getLocalDateString(headerRentalDate ?? new Date()),
+    headerReturnDate: getLocalDateString(headerReturnDate ?? new Date()),
+    documentType,
+    documentDate: getLocalDateString(documentDate ?? new Date()),
+    subtotal,
+    tax,
+    grandTotal,
+    quotationId: quotationId || undefined,
+    quotationNo: quotationNo || undefined,
+    draftBillId: draftBillId || undefined,
+    quotationMode: isQuotationMode || undefined,
+    ownerId: user?.id,
+  })
+
+  // Held cart (owner 2026-11-09): every change of a bill cart is kept on this device, so switching menus
+  // never loses it (header cart icon). Nothing reaches the database until the bill is saved. Emptying the
+  // cart removes it; an empty cart at mount never does (the page may be about to restore one).
+  const keptItemCount = useRef(0)
+  const latestCart = useRef(buildActiveCart)
+  latestCart.current = buildActiveCart
+  useEffect(() => {
+    if (isQuotationMode) return
+    if (items.length > 0) saveActiveCart(latestCart.current())
+    else if (keptItemCount.current > 0) clearActiveCart('BILL')
+    keptItemCount.current = items.length
+  }, [isQuotationMode, items, customer, contactPhone, shippingAddress, headerRentalDate, headerReturnDate, documentType, documentDate, docVatMode, draftBillId, quotationId])
+
   const handleOpenAddCustomerModal = () => {
     setShowAddCustomerModal(true)
   }
@@ -300,11 +375,11 @@ export function CartPanel({
               <input
                 type="tel"
                 inputMode="tel"
-                maxLength={20}
+                maxLength={45}
                 aria-label="เบอร์โทรติดต่อ"
                 placeholder="เบอร์โทรติดต่อ..."
                 value={contactPhone}
-                onChange={(e) => setContactPhone(e.target.value.replace(/[^0-9+\-\s()]/g, ''))}
+                onChange={(e) => setContactPhone(e.target.value.replace(/[^0-9+\-\s(),]/g, ''))}
                 className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
               />
             </div>
@@ -312,17 +387,16 @@ export function CartPanel({
 
           {/* Row 3: Document Type (Left) + Add Customer Button (Right) */}
           <div className="flex items-center gap-1.5">
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0" onMouseDown={() => documentTypeAttention && setDocumentTypeAttention(false)}>
               <CustomSelect
+                ariaLabel="ประเภทเอกสาร"
                 value={documentType}
-                onChange={setDocumentType}
-                options={[
-                  { value: 'บิลเช่า/ขาย', label: 'บิลเช่า/ขาย' },
-                  { value: 'ใบเสนอราคา', label: 'ใบเสนอราคา' },
-                  { value: 'ใบแจ้งหนี้', label: 'ใบแจ้งหนี้' },
-                  { value: 'ใบเสร็จรับเงิน', label: 'ใบเสร็จรับเงิน' },
-                  { value: 'ใบส่งของ', label: 'ใบส่งของ' },
-                ]}
+                onChange={(v) => {
+                  setDocumentType(String(v))
+                  setDocumentTypeAttention(false)
+                }}
+                buttonClassName={`h-9 px-2.5 py-0 rounded-xl ${documentTypeAttention ? 'field-attention' : ''}`}
+                options={billFormNames.map((name) => ({ value: name, label: name }))}
                 placeholder="ประเภทเอกสาร"
                 align="left"
               />
@@ -365,68 +439,76 @@ export function CartPanel({
           <div className="flex flex-col items-center justify-center h-full py-12 text-center text-slate-600 dark:text-slate-400">
             <ShoppingBag className="w-12 h-12 stroke-1 mb-2 text-slate-300" />
             <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">ตะกร้ายังว่างอยู่</p>
-            <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">เลือกสินค้าจากรายการด้านซ้ายเพื่อเพิ่มในตะกร้า</p>
           </div>
         ) : (
-          items.map((item) => (
-            <div
-              key={item.id}
-              className="px-2.5 py-1.5 rounded-xl border border-slate-100 dark:border-slate-700/80 bg-slate-50/50 dark:bg-slate-900/30 flex items-start justify-between gap-2 group"
-            >
-              <div className="flex-1 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-slate-900 dark:text-slate-100">
-                    {item.productName || item.product.name || item.product.product_name}
-                  </span>
-                  <span className="font-extrabold text-xs text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                    {item.lineTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
-                  </span>
+          items.map((item) => {
+            // "ไม่คิดเงิน" rental (owner 2026-11-09): the line shows only its จำนวน and หน่วย; the amount,
+            // price and period are "-" (the price is a per-unit figure, so "-" everywhere money would be).
+            const noCharge = item.rentalType !== 'SALE' && isNoChargeRental(item.product)
+            return (
+              <div
+                key={item.id}
+                className="px-2.5 py-1.5 rounded-xl border border-slate-100 dark:border-slate-700/80 bg-slate-50/50 dark:bg-slate-900/30 flex items-start justify-between gap-2 group"
+              >
+                <div className="flex-1 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-slate-900 dark:text-slate-100">
+                      {item.productName || item.product.name || item.product.product_name}
+                    </span>
+                    <span className="font-extrabold text-xs text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                      {noCharge ? '-' : `${item.lineTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`}
+                    </span>
+                  </div>
+
+                  {/* Calculation detail */}
+                  <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">
+                    {noCharge ? (
+                      <span className="text-slate-700 dark:text-slate-300">
+                        ไม่คิดเงิน · {item.quantity} {item.unitName || item.product.unit || item.product.unit_name || 'ชิ้น'}
+                      </span>
+                    ) : item.rentalType === 'DAILY' ? (
+                      <span className="text-blue-600 dark:text-blue-400">
+                        {item.unitPrice.toLocaleString('th-TH')} บาท × {item.quantity} {item.unitName || item.product.unit || item.product.unit_name || 'ชิ้น'} × {item.billableDays} วัน
+                      </span>
+                    ) : item.rentalType === 'NORMAL' ? (
+                      <span className="text-emerald-700 dark:text-emerald-400">
+                        {item.unitPrice.toLocaleString('th-TH')} บาท × {item.quantity} {item.unitName || item.product.unit || item.product.unit_name || 'ชิ้น'} × {item.usageCount} รอบ
+                      </span>
+                    ) : (
+                      <span className="text-purple-600 dark:text-purple-400 font-bold">
+                        {item.unitPrice.toLocaleString('th-TH')} บาท × {item.quantity} {item.unitName || item.product.unit || item.product.unit_name || 'ชิ้น'} (ขาย)
+                      </span>
+                    )}
+                  </div>
                 </div>
 
-                {/* Calculation detail */}
-                <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">
-                  {item.rentalType === 'DAILY' ? (
-                    <span className="text-blue-600 dark:text-blue-400">
-                      {item.unitPrice.toLocaleString('th-TH')} บาท × {item.quantity} {item.unitName || item.product.unit || item.product.unit_name || 'ชิ้น'} × {item.billableDays} วัน
-                    </span>
-                  ) : item.rentalType === 'NORMAL' ? (
-                    <span className="text-emerald-700 dark:text-emerald-400">
-                      {item.unitPrice.toLocaleString('th-TH')} บาท × {item.quantity} {item.unitName || item.product.unit || item.product.unit_name || 'ชิ้น'} × {item.usageCount} รอบ
-                    </span>
-                  ) : (
-                    <span className="text-purple-600 dark:text-purple-400 font-bold">
-                      {item.unitPrice.toLocaleString('th-TH')} บาท × {item.quantity} {item.unitName || item.product.unit || item.product.unit_name || 'ชิ้น'} (ขาย)
-                    </span>
+                {/* One icon per text line (each h-4 = one text-xs line, gap-1 = space-y-1),
+                    so the icons never reach below the 2 lines of text. */}
+                <div className="flex flex-col items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => removeItem(item.id)}
+                    className="flex h-4 w-4 items-center justify-center text-slate-600 dark:text-slate-400 hover:text-red-500 transition-colors"
+                    title="ลบรายการ"
+                    aria-label="ลบรายการ"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                  {onEditItem && (
+                    <button
+                      type="button"
+                      onClick={() => onEditItem(item)}
+                      className="flex h-4 w-4 items-center justify-center text-slate-600 dark:text-slate-400 hover:text-blue-600 transition-colors"
+                      title="แก้ไขจำนวน"
+                      aria-label="แก้ไขจำนวน"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
                   )}
                 </div>
               </div>
-
-              {/* One icon per text line (each h-4 = one text-xs line, gap-1 = space-y-1),
-                  so the icons never reach below the 2 lines of text. */}
-              <div className="flex flex-col items-center gap-1 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => removeItem(item.id)}
-                  className="flex h-4 w-4 items-center justify-center text-slate-600 dark:text-slate-400 hover:text-red-500 transition-colors"
-                  title="ลบรายการ"
-                  aria-label="ลบรายการ"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-                {onEditItem && (
-                  <button
-                    type="button"
-                    onClick={() => onEditItem(item)}
-                    className="flex h-4 w-4 items-center justify-center text-slate-600 dark:text-slate-400 hover:text-blue-600 transition-colors"
-                    title="แก้ไขจำนวน"
-                    aria-label="แก้ไขจำนวน"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))
+            )
+          })
         )}
       </div>
 
@@ -449,37 +531,21 @@ export function CartPanel({
                 if (!validateRentalPeriods()) return
                 // A quotation may be for a walk-in customer; a bill needs the customer details first.
                 if (!isQuotationMode) {
+                  let missing = false
                   try {
                     validateCartCustomer(items, customer)
                   } catch {
                     setCustomerAttention(true)
-                    return
+                    missing = true
                   }
+                  if (!documentType) {
+                    setDocumentTypeAttention(true)
+                    missing = true
+                  }
+                  if (missing) return
                 }
 
-                saveActiveCart({
-                  customer,
-                  items,
-                  discount: Number(discount) || 0,
-                  shippingFee: Number(shippingFee) || 0,
-                  depositAmount: Number(depositAmount) || 0,
-                  taxRate: taxRate,
-                  vatEnabled: vatOn,
-                  vatMode: vatOn ? effectiveVatMode : null,
-                  shippingAddress,
-                  contactPhone: contactPhone.trim() || undefined,
-                  headerRentalDate: getLocalDateString(headerRentalDate ?? new Date()),
-                  headerReturnDate: getLocalDateString(headerReturnDate ?? new Date()),
-                  documentType: documentType || defaultBillDocumentType(items),
-                  documentDate: getLocalDateString(documentDate ?? new Date()),
-                  subtotal,
-                  tax,
-                  grandTotal,
-                  quotationId: quotationId || undefined,
-                  quotationNo: quotationNo || undefined,
-                  draftBillId: draftBillId || undefined,
-                  quotationMode: isQuotationMode || undefined,
-                })
+                saveActiveCart(buildActiveCart())
                 onCheckout()
               }}
               disabled={items.length === 0}
@@ -520,7 +586,9 @@ export function CartPanel({
               </p>
             </div>
             
-            <div className="flex justify-center p-2 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 shadow-inner">
+            {/* No grey backing; a black frame around the calendar itself (owner 2026-11-11). `!` because the
+                panel's own border / shadow classes would otherwise win. */}
+            <div className="flex justify-center">
                <CalendarPanel
                  value={dateStep === 0 ? documentDate : dateStep === 1 ? headerRentalDate : headerReturnDate}
                  onChange={(d) => {
@@ -550,7 +618,7 @@ export function CartPanel({
                  }}
                  showClear={false}
                  showToday={true}
-                 className="shadow-none border-0 p-0 w-full bg-transparent dark:bg-transparent"
+                 className="w-full !shadow-none !border-slate-900 dark:!border-slate-100"
                />
             </div>
             

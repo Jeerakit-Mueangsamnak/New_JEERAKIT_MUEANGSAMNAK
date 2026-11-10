@@ -14,7 +14,8 @@ for (const theme of ['light', 'dark'] as const) {
         const r = (el: Element | null) => (el ? Math.round(el.getBoundingClientRect().height * 10) / 10 : null);
         const bottom = (el: Element | null) => (el ? Math.round(el.getBoundingClientRect().bottom * 10) / 10 : null);
         const header = document.querySelector('main header')
-        const menuHead = [...document.querySelectorAll('aside div')].find((d) => d.textContent?.trim().startsWith('เมนูหลัก') && d.children.length <= 2) || null
+        // The sidebar's top row (shop logo since 2026-11-10).
+        const menuHead = document.querySelector('aside > div:first-child')
         const visible = (el: Element) => { const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0 }
         const items = header ? [...header.querySelectorAll(':scope > div > *')].filter(visible).map((el) => ({
           what: (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 18),
@@ -33,7 +34,7 @@ for (const theme of ['light', 'dark'] as const) {
         const boxes = ctrls.map((el) => el.getBoundingClientRect())
         const gaps = boxes.slice(1).map((b, i) => Math.round((b.left - boxes[i].right) * 10) / 10)
         const vgap = boxes.map((b) => hb ? `${Math.round(b.top - hb.top)}/${Math.round(hb.bottom - 1 - b.bottom)}` : '')
-        const menuLabel = [...document.querySelectorAll('aside span')].find((s) => s.textContent?.trim() === 'เมนูหลัก')
+        const menuLabel = document.querySelector('aside > div:first-child img')
         const firstItem = document.querySelector('aside nav a, aside nav [role="button"]')
         const ab = aside?.getBoundingClientRect()
         const menu = ab && menuLabel && firstItem ? {

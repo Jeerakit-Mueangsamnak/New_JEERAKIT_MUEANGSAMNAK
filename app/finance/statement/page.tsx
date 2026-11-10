@@ -1,4 +1,15 @@
 'use client'
+import {
+  COMMAND_BUTTON_SIZE_CLASSES,
+  SEARCH_INPUT_CLASSES,
+  SEARCH_ICON_CLASSES,
+  TABLE_TOOLBAR_CLASSES,
+  TAB_CONTAINER_CLASSES,
+  TAB_BUTTON_BASE_CLASSES,
+  TAB_BUTTON_ACTIVE_CLASSES,
+  TAB_BUTTON_INACTIVE_CLASSES,
+  TAB_BAR_SURFACE_CLASSES,
+} from '@/components/common/ActionButton'
 
 import React, { useState, useMemo, useEffect } from 'react'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
@@ -10,7 +21,6 @@ import { NumericInput } from '@/components/common/NumericInput'
 import { CustomDatePicker, getLocalDateString } from '@/components/common/CustomDatePicker'
 import { useToast } from '@/components/common/Toast'
 import { logger } from '@/lib/utils/logger'
-import * as XLSX from 'xlsx'
 import {
   loadTransactions,
   fetchTransactionsFromSupabase,
@@ -165,7 +175,7 @@ export default function StatementPage() {
     })
   }, [dateFilteredTransactions, searchTerm, typeFilter])
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     const dataToExport = filtered.map((t) => ({
       'วัน-เวลา': formatDateTime(t.dateTime),
       'เลขที่รายการ': t.refNo,
@@ -178,6 +188,7 @@ export default function StatementPage() {
       'ช่องทาง': t.channel,
     }))
 
+    const XLSX = await import('xlsx')
     const ws = XLSX.utils.json_to_sheet(dataToExport)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Financial Statement')
@@ -391,41 +402,41 @@ export default function StatementPage() {
       <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
         
         {/* Table Toolbar */}
-        <div className="p-2 border-b border-slate-100 dark:border-slate-700 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2">
+        <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-col lg:flex-row items-stretch lg:items-center justify-between`}>
           
           {/* Search & Type Filters & 2 DatePickers */}
           <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
             <div className="relative min-w-[140px] flex-1 max-w-xs">
-              <Search className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <Search className={SEARCH_ICON_CLASSES} />
               <input
                 type="text"
                 placeholder="ค้นหาเลขที่, รายละเอียด..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full h-9 pl-9 pr-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className={SEARCH_INPUT_CLASSES}
               />
             </div>
 
             {/* Type Filter Buttons */}
-            <div className="h-9 flex items-center bg-slate-100 dark:bg-slate-900 p-1 gap-1 rounded-xl shrink-0">
+            <div className={TAB_CONTAINER_CLASSES}>
               <button
                 type="button"
                 onClick={() => setTypeFilter('ALL')}
-                className={`h-7 px-3.5 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center justify-center ${typeFilter === 'ALL' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-xs' : 'text-slate-600 dark:text-slate-400'}`}
+                className={`${TAB_BUTTON_BASE_CLASSES} ${typeFilter === 'ALL' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
               >
                 ทั้งหมด
               </button>
               <button
                 type="button"
                 onClick={() => setTypeFilter('INCOME')}
-                className={`h-7 px-3.5 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center justify-center ${typeFilter === 'INCOME' ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-400 shadow-xs' : 'text-slate-600 dark:text-slate-400'}`}
+                className={`${TAB_BUTTON_BASE_CLASSES} ${typeFilter === 'INCOME' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
               >
                 เข้า
               </button>
               <button
                 type="button"
                 onClick={() => setTypeFilter('EXPENSE')}
-                className={`h-7 px-3.5 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center justify-center ${typeFilter === 'EXPENSE' ? 'bg-white dark:bg-slate-800 text-red-700 dark:text-red-400 shadow-xs' : 'text-slate-600 dark:text-slate-400'}`}
+                className={`${TAB_BUTTON_BASE_CLASSES} ${typeFilter === 'EXPENSE' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
               >
                 ออก
               </button>
@@ -440,7 +451,6 @@ export default function StatementPage() {
                   placeholder="จากวันที่"
                   align="left"
                   showClear={true}
-                  buttonClassName="h-9 px-2.5 py-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-mono font-semibold hover:border-slate-300 dark:hover:border-slate-600"
                 />
               </div>
               <span className="text-slate-600 dark:text-slate-400 font-bold text-xs shrink-0">ถึง</span>
@@ -451,7 +461,6 @@ export default function StatementPage() {
                   placeholder="ถึงวันที่"
                   align="left"
                   showClear={true}
-                  buttonClassName="h-9 px-2.5 py-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-mono font-semibold hover:border-slate-300 dark:hover:border-slate-600"
                 />
               </div>
             </div>
@@ -462,7 +471,7 @@ export default function StatementPage() {
             <button
               type="button"
               onClick={handleExportExcel}
-              className="h-9 px-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs whitespace-nowrap"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center transition-colors cursor-pointer shadow-xs whitespace-nowrap`}
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
               <span>Excel</span>
@@ -474,7 +483,7 @@ export default function StatementPage() {
                 setModalView('FORM')
                 setShowAddModal(true)
               }}
-              className="h-9 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs whitespace-nowrap"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-blue-600 hover:bg-blue-700 text-white flex items-center transition-colors cursor-pointer shadow-xs whitespace-nowrap`}
             >
               <Plus className="w-4 h-4" />
               <span>บันทึกรายการ</span>
@@ -573,14 +582,14 @@ export default function StatementPage() {
                     <button
                       type="button"
                       onClick={() => setManualType('INCOME')}
-                      className={`h-9 py-0 rounded-xl font-bold border transition-colors cursor-pointer flex items-center justify-center text-xs ${manualType === 'INCOME' ? 'bg-emerald-700 text-white border-emerald-600 shadow-xs' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700'}`}
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} border transition-colors cursor-pointer flex items-center justify-center ${manualType === 'INCOME' ? 'bg-emerald-700 text-white border-emerald-600 shadow-xs' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700'}`}
                     >
                       รายรับ (เงินเข้า)
                     </button>
                     <button
                       type="button"
                       onClick={() => setManualType('EXPENSE')}
-                      className={`h-9 py-0 rounded-xl font-bold border transition-colors cursor-pointer flex items-center justify-center text-xs ${manualType === 'EXPENSE' ? 'bg-red-600 text-white border-red-600 shadow-xs' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700'}`}
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} border transition-colors cursor-pointer flex items-center justify-center ${manualType === 'EXPENSE' ? 'bg-red-600 text-white border-red-600 shadow-xs' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700'}`}
                     >
                       รายจ่าย (เงินออก)
                     </button>
@@ -597,7 +606,6 @@ export default function StatementPage() {
                         onChange={(val) => setQuickItem(String(val))}
                         options={quickItemOptions}
                         placeholder="-- เลือกรายการด่วน (ไม่ระบุก็ได้) --"
-                        buttonClassName="h-9 px-2.5 py-0 rounded-xl text-xs"
                       />
                     </div>
                     <button
@@ -606,7 +614,7 @@ export default function StatementPage() {
                         setCategoryManageType(manualType)
                         setModalView('MANAGE_CATEGORIES')
                       }}
-                      className="h-9 w-9 p-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors shadow-xs flex items-center justify-center shrink-0 cursor-pointer"
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center border border-slate-200 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors shadow-xs shrink-0 cursor-pointer`}
                       title="จัดการรายการด่วน"
                     >
                       <Settings className="w-4 h-4" />
@@ -631,7 +639,6 @@ export default function StatementPage() {
                   <CustomSelect
                     value={manualChannel}
                     onChange={(val) => setManualChannel(String(val))}
-                    buttonClassName="h-9 px-2.5 py-0 rounded-xl text-xs"
                     options={[
                       { value: 'เงินสด', label: 'เงินสด' },
                       { value: 'โอนธนาคาร', label: 'โอนธนาคาร' },
@@ -657,14 +664,14 @@ export default function StatementPage() {
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="h-9 px-4 py-0 rounded-xl border border-slate-300 dark:border-slate-700 font-semibold text-slate-700 dark:text-slate-300 cursor-pointer text-xs flex items-center justify-center"
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer flex items-center justify-center`}
                 >
                   ยกเลิก
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="h-9 px-5 py-0 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center justify-center disabled:opacity-60 disabled:cursor-not-allowed"
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 text-white shadow-md cursor-pointer flex items-center justify-center disabled:opacity-60 disabled:cursor-not-allowed`}
                 >
                   บันทึกรายการ
                 </button>
@@ -687,7 +694,7 @@ export default function StatementPage() {
                 <button
                   type="button"
                   onClick={() => setModalView('FORM')}
-                  className="px-2.5 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors flex items-center gap-1 text-xs font-bold cursor-pointer border border-slate-200 dark:border-slate-700"
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors flex items-center cursor-pointer border border-slate-200 dark:border-slate-700`}
                   title="กลับสู่ฟอร์ม"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
@@ -698,26 +705,18 @@ export default function StatementPage() {
 
             <AppModalBody className="space-y-4 text-xs">
               {/* Sub-tab: Income vs Expense */}
-              <div className="h-9 grid grid-cols-2 gap-1 bg-slate-100 dark:bg-slate-800/60 p-1 rounded-xl">
+              <div className={`${TAB_BAR_SURFACE_CLASSES} grid grid-cols-2`}>
                 <button
                   type="button"
                   onClick={() => setCategoryManageType('INCOME')}
-                  className={`h-7 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center justify-center ${
-                    categoryManageType === 'INCOME'
-                      ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-400 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                  }`}
+                  className={`${TAB_BUTTON_BASE_CLASSES} ${categoryManageType === 'INCOME' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
                 >
                   รายการด่วนรายรับ
                 </button>
                 <button
                   type="button"
                   onClick={() => setCategoryManageType('EXPENSE')}
-                  className={`h-7 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center justify-center ${
-                    categoryManageType === 'EXPENSE'
-                      ? 'bg-white dark:bg-slate-800 text-red-700 dark:text-red-400 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                  }`}
+                  className={`${TAB_BUTTON_BASE_CLASSES} ${categoryManageType === 'EXPENSE' ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
                 >
                   รายการด่วนรายจ่าย
                 </button>
@@ -746,7 +745,7 @@ export default function StatementPage() {
                     type="button"
                     onClick={handleCreateCategory}
                     disabled={!newCatLabel.trim()}
-                    className="h-9 px-3.5 py-0 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-1 shadow-xs transition-all cursor-pointer shrink-0"
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white flex items-center shadow-xs transition-all cursor-pointer shrink-0`}
                   >
                     <Plus className="w-3.5 h-3.5" />
                     เพิ่ม
@@ -835,7 +834,7 @@ export default function StatementPage() {
               <button
                 type="button"
                 onClick={() => setModalView('FORM')}
-                className="w-full h-9 py-0 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 font-extrabold text-xs transition-colors cursor-pointer text-center shadow-sm flex items-center justify-center"
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 transition-colors cursor-pointer text-center shadow-sm flex items-center justify-center`}
               >
                 เสร็จสิ้น / กลับสู่หน้าฟอร์ม
               </button>

@@ -17,7 +17,6 @@ vi.mock('@/features/documents/api/customer-document-repository', () => ({
   fetchCustomerDocuments: vi.fn(async () => []),
   getDocumentFileUrl: vi.fn(),
 }))
-vi.mock('@/features/customers/components/CustomerLineLink', () => ({ CustomerLineLink: () => null }))
 vi.mock('@/features/customers/components/IDCardScannerModal', () => ({ IDCardScannerModal: () => null }))
 
 import {
@@ -67,9 +66,10 @@ describe('ข้อมูลลูกค้า › การบันทึก',
     expect(callsOf('customer_set_active')[0]).toEqual({ p_customer_id: ID, p_active: true, p_reason: 'ชำระแล้ว' })
   })
 
-  it('ลบลูกค้า: ปิดใช้งาน (ไม่ลบจริง) พร้อมเหตุผล', async () => {
-    await deleteCustomerAsync(ID, ' ลูกค้าเลิกกิจการ ')
-    expect(callsOf('customer_set_active')[0]).toEqual({ p_customer_id: ID, p_active: false, p_reason: 'ลูกค้าเลิกกิจการ' })
+  it('ลบลูกค้า: ลบถาวรผ่าน customer_delete (เซิร์ฟเวอร์ตรวจว่าไม่เคยถูกใช้)', async () => {
+    await deleteCustomerAsync(ID)
+    expect(callsOf('customer_delete')[0]).toEqual({ p_customer_id: ID })
+    expect(callsOf('customer_set_active')).toHaveLength(0)
   })
 
   it('สร้างลูกค้าสำเร็จแต่อัปโหลดบัตรไม่ผ่าน: แจ้งว่าบันทึกแล้ว และไม่สร้างซ้ำ', async () => {

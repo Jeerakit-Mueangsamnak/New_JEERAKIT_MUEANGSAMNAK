@@ -14,11 +14,14 @@ interface A4DocumentWorkspaceProps {
   onDownload?: () => void
   hideHeader?: boolean
   onDoubleClick?: () => void
+  /** Replaces the "nothing picked" message when something is picked but has nothing to show. */
+  emptyTitle?: string
 }
 
 export function A4DocumentWorkspace({
   htmlContent,
   onDoubleClick,
+  emptyTitle,
 }: A4DocumentWorkspaceProps) {
   const safeHtml = useMemo(() => sanitizeDocumentHtml(htmlContent), [htmlContent])
 
@@ -38,10 +41,12 @@ export function A4DocumentWorkspace({
           ) : (
             <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-slate-400 space-y-2 text-center p-4">
               <Eye className="w-10 h-10 stroke-[1.5] text-slate-300" />
-              <p className="font-extrabold text-slate-500 text-xs">ยังไม่ได้เลือกเอกสารเพื่อพรีวิว</p>
-              <p className="text-[10px] text-slate-400 max-w-xs">
-                โปรดเลือกรายการแบบฟอร์มเพื่อแสดง Preview สัดส่วน A4 จริง
-              </p>
+              <p className="font-extrabold text-slate-500 text-xs">{emptyTitle ?? 'ยังไม่ได้เลือกเอกสารเพื่อพรีวิว'}</p>
+              {!emptyTitle && (
+                <p className="text-[10px] text-slate-400 max-w-xs">
+                  โปรดเลือกรายการแบบฟอร์มเพื่อแสดง Preview สัดส่วน A4 จริง
+                </p>
+              )}
             </div>
           )}
         </A4FitPreview>

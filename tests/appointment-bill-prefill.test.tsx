@@ -184,7 +184,7 @@ describe('Appointment and bill work-order integration', () => {
     fireEvent.click(checkbox)
     const dialog = screen.getByRole('dialog')
     fireEvent.click(within(dialog).getByText('เลือกคนขับ'))
-    fireEvent.click(await screen.findByText('D001 สมชาย'))
+    fireEvent.click(await screen.findByText('สมชาย'))
     fireEvent.click(within(dialog).getByRole('button', { name: 'สั่งงานทันที' }))
 
     await waitFor(() => expect(mocks.addAppointment).toHaveBeenCalledOnce())

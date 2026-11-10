@@ -2,11 +2,10 @@
 
 import { useActionPermission, NO_ACTION_PERMISSION_TITLE } from '@/features/auth/hooks/useActionPermission'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
-import { printRentalBillA4 } from '@/features/documents/utils/rental-bill-print'
+import { MAIN_BILL_FORM_MISSING, printSavedBill } from '@/features/documents/utils/rental-bill-print'
 import { BillPreviewOverlay } from '@/features/bills/components/BillPreviewOverlay'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import React, { useState } from 'react'
-import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
 import { BillActionView } from '@/features/bills/components/BillActionView'
 import { BillRevisionView } from '@/features/bills/components/BillRevisionView'
 import { AuditLogViewerModal } from '@/features/bills/components/AuditLogViewerModal'
@@ -18,7 +17,8 @@ import { AppointmentDispatchModal } from '@/features/appointments/components/App
 import { useToast } from '@/components/common/Toast'
 import { useRouter } from 'next/navigation'
 import { FullBill, loadBills as fetchBills, fetchBillsFromSupabase, canHardDeleteBill } from '@/features/bills/services/bill-storage'
-import { cancelOrVoidBill, cancelBill, confirmBill } from '@/features/bills/services/bill-service'
+import { cancelOrVoidBill, confirmBill, deleteDraftBill } from '@/features/bills/services/bill-service'
+import { useDataActions } from '@/components/common/useDataActions'
 import {
   getBillListReturnDate,
   getBillOverdueDays,
@@ -28,6 +28,7 @@ import {
   isOwingBill,
 } from '@/features/bills/utils/bill-list-presentation'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
+import { dbErrorMessage } from '@/lib/db/rpc'
 import {
   Search,
   RefreshCw,
@@ -50,12 +51,17 @@ import {
   Send,
 } from 'lucide-react'
 import { CustomSelect } from '@/components/common/CustomSelect'
-import { ActionButton } from '@/components/common/ActionButton'
+import {
+  ActionButton,
+  COMMAND_BUTTON_SIZE_CLASSES,
+  SEARCH_INPUT_CLASSES,
+  SEARCH_ICON_CLASSES,
+  TABLE_TOOLBAR_CLASSES, ROW_ICON_BUTTON_CLASSES } from '@/components/common/ActionButton'
 import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_THEAD_CLASSES, DATA_TABLE_TH_CLASSES } from '@/components/common/DataTableFrame'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
 
 // Only the Bills toolbar uses these compact dimensions; other ActionButton usages stay unchanged.
-const BILL_TOOLBAR_BUTTON_CLASSES = '!h-8 !px-2 !gap-1 !rounded-lg shrink-0 [&>svg]:!w-3.5 [&>svg]:!h-3.5'
+const BILL_TOOLBAR_BUTTON_CLASSES = 'shrink-0'
 
 export default function BillsPage() {
   const router = useRouter()
@@ -66,7 +72,8 @@ export default function BillsPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [billLoadError, setBillLoadError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  // Owner 2026-11-02: one dropdown for bills still in work + one "บิลทั้งหมด" button that shows closed bills only.
+  // Owner 2026-11-02: one dropdown for bills still in work + one button that shows closed bills only
+  // (named "บิลที่ปิดแล้ว" since 2026-11-05; it used to read "บิลทั้งหมด").
   const [statusFilter, setStatusFilter] = useState<string>('ALL')
   const [showClosedBills, setShowClosedBills] = useState(false)
 
@@ -95,16 +102,50 @@ export default function BillsPage() {
   const [showDelivery, setShowDelivery] = useState(false)
   const [selectedBillForDispatch, setSelectedBillForDispatch] = useState<FullBill | null>(null)
 
-  // Cancel Modal State
-  const [selectedBillForCancel, setSelectedBillForCancel] = useState<FullBill | null>(null)
-  // UI hint only; the server checks menu -> OWNER grant -> PIN on every call.
+  // UI hint only; the server checks menu -> OWNER grant, the reason, and (for a member) own bill of today.
   const canAction = useActionPermission()
+  const { askVoidReason, confirmHardDelete } = useDataActions()
   const [isCancellingBill, setIsCancellingBill] = useState(false)
-  const openCancelBill = (bill: FullBill) => {
-    setSelectedBillForCancel(bill)
+
+  // ยกเลิก (void) a confirmed bill: it stays in the list with its number, its money leaves the reports.
+  const openCancelBill = async (bill: FullBill) => {
+    if (isCancellingBill) return
+    if (!canAction('BILL_VOID')) {
+      showToast('ไม่มีสิทธิ์ยกเลิกบิลนี้', NO_ACTION_PERMISSION_TITLE, 'ERROR')
+      return
+    }
+    const reason = await askVoidReason(bill.billNo)
+    if (reason === null) return
+    setIsCancellingBill(true)
+    try {
+      const updated = await cancelOrVoidBill(bill, reason)
+      // The command already reloaded the list cache: take its bill, and only fall back to a full
+      // reload when the server did not return it.
+      if (updated) setBills((prev) => prev.map((b) => (b.id === updated.id ? updated : b)))
+      else await loadBills()
+      showToast('ยกเลิกบิลสำเร็จ', `ยกเลิกบิล ${bill.billNo} เรียบร้อยแล้ว`, 'SUCCESS')
+      setSelectedRowBill(null)
+    } catch (err: any) {
+      if (isPinCancelled(err)) return
+      showToast('เกิดข้อผิดพลาดในการยกเลิกบิล', dbErrorMessage(err?.message || '') || 'ไม่สามารถยกเลิกบิลได้', 'ERROR')
+    } finally {
+      setIsCancellingBill(false)
+    }
   }
-  const closeCancelBill = () => {
-    setSelectedBillForCancel(null)
+
+  // ลบ (hard delete) a draft: no number, no stock, no money yet.
+  const deleteDraft = async (bill: FullBill) => {
+    if (!(await confirmHardDelete(`บิลร่าง ${bill.billNo}`))) return
+    try {
+      await deleteDraftBill(bill.id)
+      showToast('ลบบิลร่างแล้ว', `ลบบิลร่าง ${bill.billNo} ออกจากระบบแล้ว`, 'SUCCESS')
+      if (selectedRowBill?.id === bill.id) setSelectedRowBill(null)
+      // The draft is gone from the server: drop the row now and refresh the rest in the background.
+      setBills((prev) => prev.filter((b) => b.id !== bill.id))
+      void loadBills()
+    } catch (err: any) {
+      showToast('ลบบิลร่างไม่สำเร็จ', dbErrorMessage(err?.message || '') || 'ไม่สามารถลบบิลร่างได้', 'ERROR')
+    }
   }
 
   // Link from a notice: /bills?id=<bill> opens that bill; &send=line opens the LINE send window.
@@ -131,7 +172,7 @@ export default function BillsPage() {
       setBillLoadError(null)
     } catch (error) {
       setBills(fetchBills())
-      setBillLoadError(error instanceof Error ? error.message : String(error))
+      setBillLoadError(dbErrorMessage(error instanceof Error ? error.message : String(error)))
     } finally {
       setIsLoading(false)
     }
@@ -158,7 +199,7 @@ export default function BillsPage() {
       b.customerName.toLowerCase().includes(term) ||
       b.customerPhone.toLowerCase().includes(term)
 
-    // "บิลทั้งหมด" button: closed bills only. Otherwise only bills still in work
+    // "บิลที่ปิดแล้ว" button: closed bills only. Otherwise only bills still in work
     // (not closed / cancelled / void), narrowed by the status dropdown.
     if (showClosedBills) return matchesSearch && b.rentalStatus === 'CLOSED'
     if (['CLOSED', 'CANCELLED', 'VOID'].includes(b.rentalStatus)) return false
@@ -196,36 +237,15 @@ export default function BillsPage() {
   const unpaidCount = bills.filter((b) => isOwingBill(b) && b.paymentStatus !== 'PAID').length
   const closedCount = bills.filter((b) => b.rentalStatus === 'CLOSED').length
 
-  const handleConfirmCancelBill = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!selectedBillForCancel || isCancellingBill) return
-
-    // A confirmed bill is cancelled / voided only by a member granted BILL_VOID (the server checks it too)
-    if (selectedBillForCancel.serverStatus !== 'DRAFT' && !canAction('BILL_VOID')) {
-      showToast('ไม่มีสิทธิ์ยกเลิกบิลนี้', NO_ACTION_PERMISSION_TITLE, 'ERROR')
-      return
-    }
-    setIsCancellingBill(true)
-    try {
-      await cancelOrVoidBill(selectedBillForCancel, '')
-
-      const updatedBills = fetchBills()
-      setBills(updatedBills)
-
-      showToast('ยกเลิกบิลสำเร็จ', `ยกเลิกบิล ${selectedBillForCancel.billNo} เรียบร้อยแล้ว`, 'SUCCESS')
-      setSelectedBillForCancel(null)
-      setSelectedRowBill(null)
-    } catch (err: any) {
-      if (isPinCancelled(err)) return
-      showToast('เกิดข้อผิดพลาดในการยกเลิกบิล', err?.message || 'ไม่สามารถยกเลิกบิลได้', 'ERROR')
-    } finally {
-      setIsCancellingBill(false)
-    }
-  }
-
   // Double-click a bill row: real-size A4 preview of the bill (same template as print).
   const [previewBill, setPreviewBill] = useState<FullBill | null>(null)
   const closeBillPreview = React.useCallback(() => setPreviewBill(null), [])
+  // A saved bill is printed again on the shop's main bill form.
+  const printBill = (bill: FullBill) => {
+    printSavedBill(bill, systemSettings.business)
+      .then((ok) => ok || showToast('พิมพ์บิลไม่ได้', MAIN_BILL_FORM_MISSING, 'ERROR'))
+      .catch((err: unknown) => showToast('พิมพ์บิลไม่ได้', err instanceof Error ? err.message : 'โหลดแบบฟอร์มไม่สำเร็จ', 'ERROR'))
+  }
   const openBillPreview = (e: React.MouseEvent | React.KeyboardEvent, b: FullBill) => {
     if ((e.target as HTMLElement).closest('button, a, input, select, textarea')) return
     window.getSelection()?.removeAllRanges()
@@ -324,17 +344,17 @@ export default function BillsPage() {
 
           <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
             {/* Filter Toolbar */}
-          <div className="p-2 sm:p-2.5 border-b border-slate-200 dark:border-slate-700 flex flex-col gap-2 shrink-0">
+          <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-col`}>
             {/* Row 1: Search & Filter Dropdowns */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <div className="relative flex-1 min-w-0">
-                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400" />
+                <Search className={SEARCH_ICON_CLASSES} />
                 <input
                   type="text"
                   placeholder="ค้นหาเลขบิล, ชื่อลูกค้า หรือ เบอร์โทรศัพท์..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full h-9 pl-10 pr-4 py-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+                  className={SEARCH_INPUT_CLASSES}
                 />
               </div>
 
@@ -364,7 +384,7 @@ export default function BillsPage() {
                   onClick={() => setShowClosedBills((v) => !v)}
                   title={showClosedBills ? 'กลับไปดูบิลที่กำลังทำงานอยู่' : 'ดูบิลที่ปิดไปแล้ว'}
                 >
-                  บิลทั้งหมด
+                  บิลที่ปิดแล้ว
                 </ActionButton>
               </div>
             </div>
@@ -390,11 +410,13 @@ export default function BillsPage() {
                       onClick={async () => {
                         if (await confirmDialog({ title: `ยืนยันการเปิดบิลจากแบบร่าง ${selectedRowBill.billNo} ใช่หรือไม่?` })) {
                           try {
-                            await confirmBill(selectedRowBill.id)
+                            const updated = await confirmBill(selectedRowBill.id)
                             showToast('ยืนยันบิลสำเร็จ', `ยืนยันบิล ${selectedRowBill.billNo} เรียบร้อยแล้ว`, 'SUCCESS')
-                            await loadBills()
+                            // The command returned the confirmed bill: put it in the list instead of reloading everything.
+                            if (updated) setBills((prev) => prev.map((b) => (b.id === updated.id ? updated : b)))
+                            else await loadBills()
                           } catch (err: any) {
-                            showToast('เกิดข้อผิดพลาด', err.message || 'ไม่สามารถยืนยันบิลได้', 'ERROR')
+                            showToast('เกิดข้อผิดพลาด', dbErrorMessage(err?.message || '') || 'ไม่สามารถยืนยันบิลได้', 'ERROR')
                           }
                         }
                       }}
@@ -408,18 +430,7 @@ export default function BillsPage() {
                     {canHardDeleteBill(selectedRowBill) && (
                       <ActionButton
                         className={BILL_TOOLBAR_BUTTON_CLASSES}
-                        onClick={async () => {
-                          if (await confirmDialog({ title: `คุณต้องการลบแบบร่าง ${selectedRowBill.billNo} หรือไม่?` })) {
-                            try {
-                              await cancelBill(selectedRowBill.id, 'ลบแบบร่าง')
-                              showToast('ลบแบบร่างสำเร็จ', `ลบแบบร่าง ${selectedRowBill.billNo} เรียบร้อยแล้ว`, 'SUCCESS')
-                              setSelectedRowBill(null)
-                              await loadBills()
-                            } catch (err: any) {
-                              showToast('เกิดข้อผิดพลาด', err.message || 'ไม่สามารถลบแบบร่างได้', 'ERROR')
-                            }
-                          }
-                        }}
+                        onClick={() => void deleteDraft(selectedRowBill)}
                         variant="danger"
                         icon={<Trash2 className="w-3.5 h-3.5" />}
                         title="ลบแบบร่างนี้ทิ้ง"
@@ -509,7 +520,7 @@ export default function BillsPage() {
               <button
                 type="button"
                 onClick={() => void loadBills()}
-                className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-amber-400 dark:border-amber-700 font-bold hover:bg-amber-100 dark:hover:bg-amber-900"
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} shrink-0 inline-flex items-center border border-amber-400 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900`}
               >
                 <RefreshCw className="w-3 h-3" />
                 ลองอีกครั้ง
@@ -613,17 +624,9 @@ export default function BillsPage() {
                             <FileEdit className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={async (e) => {
+                            onClick={(e) => {
                               e.stopPropagation()
-                              if (await confirmDialog({ title: `ต้องการลบแบบร่าง ${b.billNo} หรือไม่?` })) {
-                                try {
-                                  await cancelBill(b.id, 'ลบแบบร่าง')
-                                  showToast('ลบแบบร่างสำเร็จ', `ลบแบบร่าง ${b.billNo} แล้ว`, 'SUCCESS')
-                                  await loadBills()
-                                } catch (err: any) {
-                                  showToast('เกิดข้อผิดพลาด', err?.message || 'ไม่สามารถลบแบบร่างได้', 'ERROR')
-                                }
-                              }
+                              void deleteDraft(b)
                             }}
                             className="p-1.5 rounded-xl text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60"
                             title="ลบแบบร่าง"
@@ -647,7 +650,7 @@ export default function BillsPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
-                              printRentalBillA4(b, systemSettings.business)
+                              printBill(b)
                             }}
                             className="p-1.5 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer"
                             title="พิมพ์บิล (A4)"
@@ -672,9 +675,9 @@ export default function BillsPage() {
                                 e.stopPropagation()
                                 openCancelBill(b)
                               }}
-                              disabled={b.serverStatus !== 'DRAFT' && !canAction('BILL_VOID')}
+                              disabled={!canAction('BILL_VOID')}
                               className="p-1.5 rounded-xl text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60 disabled:opacity-40 disabled:cursor-not-allowed"
-                              title={b.serverStatus !== 'DRAFT' && !canAction('BILL_VOID') ? NO_ACTION_PERMISSION_TITLE : 'ยกเลิกบิล'}
+                              title={!canAction('BILL_VOID') ? NO_ACTION_PERMISSION_TITLE : 'ยกเลิกบิล'}
                             >
                               <XCircle className="w-4 h-4" />
                             </button>
@@ -690,7 +693,6 @@ export default function BillsPage() {
               <div className="flex-1 flex flex-col items-center justify-center py-12 text-slate-600 dark:text-slate-400">
                 <Receipt className="w-8 h-8 opacity-40 mb-1" />
                 <span className="text-xs font-semibold">ไม่พบรายการบิล</span>
-                <span className="text-[10px] mt-1 text-slate-600 dark:text-slate-400">ลองปรับตัวกรองหรือเพิ่มบิลใหม่จาก POS</span>
               </div>
             )}
             </div>
@@ -712,7 +714,7 @@ export default function BillsPage() {
             >
               {/* Shared table layout: like other menus; thead stays sticky inside DataTableFrame. */}
               <table className={`${DATA_TABLE_CLASSES} text-[10px] leading-tight`}>
-                <thead className={`${DATA_TABLE_THEAD_CLASSES} text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 shadow-sm text-xs`}>
+                <thead className={`${DATA_TABLE_THEAD_CLASSES} border-b border-slate-200 dark:border-slate-700 shadow-sm text-xs`}>
                   <tr className="uppercase tracking-wider text-xs">
                     <th className={`px-1 ${DATA_TABLE_TH_CLASSES}`}>เลขที่บิล</th>
                     <th className={`px-1 ${DATA_TABLE_TH_CLASSES}`}>ลูกค้า / เบอร์</th>
@@ -795,7 +797,7 @@ export default function BillsPage() {
                                   e.stopPropagation()
                                   router.push(`/pos?draftBillId=${b.id}`)
                                 }}
-                                className="inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/60 transition-colors cursor-pointer"
+                                className={`${ROW_ICON_BUTTON_CLASSES} text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/60`}
                                 title="แก้ไขแบบร่างใน POS"
                               >
                                 <FileEdit className="w-3.5 h-3.5" />
@@ -808,32 +810,24 @@ export default function BillsPage() {
                                       const res = await confirmBill(b.id)
                                       if (res) {
                                         showToast('เปิดบิลสำเร็จ', `แปลงแบบร่าง ${b.billNo} เป็นบิลเช่าเรียบร้อยแล้ว`, 'SUCCESS')
-                                        await loadBills()
+                                        setBills((prev) => prev.map((prevBill) => (prevBill.id === res.id ? res : prevBill)))
                                       }
                                     } catch (err: any) {
-                                      showToast('เกิดข้อผิดพลาด', err?.message || 'ไม่สามารถยืนยันบิลได้', 'ERROR')
+                                      showToast('เกิดข้อผิดพลาด', dbErrorMessage(err?.message || '') || 'ไม่สามารถยืนยันบิลได้', 'ERROR')
                                     }
                                   }
                                 }}
-                                className="inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 transition-colors cursor-pointer"
+                                className={`${ROW_ICON_BUTTON_CLASSES} text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60`}
                                 title="ยืนยันเปิดบิลจริง"
                               >
                                 <CheckCircle2 className="w-3.5 h-3.5" />
                               </button>
                               <button
-                                onClick={async (e) => {
+                                onClick={(e) => {
                                   e.stopPropagation()
-                                  if (await confirmDialog({ title: `ต้องการลบแบบร่าง ${b.billNo} หรือไม่?` })) {
-                                    try {
-                                      await cancelBill(b.id, 'ลบแบบร่าง')
-                                      showToast('ลบแบบร่างสำเร็จ', `ลบแบบร่าง ${b.billNo} แล้ว`, 'SUCCESS')
-                                      await loadBills()
-                                    } catch (err: any) {
-                                      showToast('เกิดข้อผิดพลาด', err?.message || 'ไม่สามารถลบแบบร่างได้', 'ERROR')
-                                    }
-                                  }
+                                  void deleteDraft(b)
                                 }}
-                                className="inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60 transition-colors cursor-pointer"
+                                className={`${ROW_ICON_BUTTON_CLASSES} text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60`}
                                 title="ลบแบบร่าง"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -846,7 +840,7 @@ export default function BillsPage() {
                                   e.stopPropagation()
                                   setSelectedBillForLog(b)
                                 }}
-                                className="inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                                className={`${ROW_ICON_BUTTON_CLASSES} text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700`}
                                 title="ดูประวัติ"
                               >
                                 <History className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
@@ -857,7 +851,7 @@ export default function BillsPage() {
                                   e.stopPropagation()
                                   setSelectedBillForLine(b as any)
                                 }}
-                                className="inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 transition-colors cursor-pointer"
+                                className={`${ROW_ICON_BUTTON_CLASSES} text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60`}
                                 title="ส่งการแจ้งเตือน LINE"
                               >
                                 <MessageSquare className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
@@ -866,9 +860,9 @@ export default function BillsPage() {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  printRentalBillA4(b, systemSettings.business)
+                                  printBill(b)
                                 }}
-                                className="inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer transition-colors"
+                                className={`${ROW_ICON_BUTTON_CLASSES} text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700`}
                                 title="พิมพ์บิล (A4)"
                               >
                                 <Printer className="w-3.5 h-3.5" />
@@ -880,9 +874,9 @@ export default function BillsPage() {
                                     e.stopPropagation()
                                     openCancelBill(b)
                                   }}
-                                  disabled={b.serverStatus !== 'DRAFT' && !canAction('BILL_VOID')}
-                                  className="inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                  title={b.serverStatus !== 'DRAFT' && !canAction('BILL_VOID') ? NO_ACTION_PERMISSION_TITLE : 'ยกเลิกบิล'}
+                                  disabled={!canAction('BILL_VOID')}
+                                  className={`${ROW_ICON_BUTTON_CLASSES} text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60`}
+                                  title={!canAction('BILL_VOID') ? NO_ACTION_PERMISSION_TITLE : 'ยกเลิกบิล'}
                                 >
                                   <XCircle className="w-3.5 h-3.5" />
                                 </button>
@@ -901,7 +895,6 @@ export default function BillsPage() {
                         <div className="flex flex-col items-center justify-center gap-1.5">
                           <Receipt className="w-8 h-8 opacity-40 mb-1" />
                           <span className="font-semibold">ยังไม่มีรายการบิล</span>
-                          <span className="text-[11px] text-slate-600 dark:text-slate-400">ลองปรับตัวกรองหรือเพิ่มบิลใหม่จาก POS</span>
                         </div>
                       </td>
                     </tr>
@@ -938,7 +931,8 @@ export default function BillsPage() {
           onClose={() => setShowPaymentRefund(false)}
           onSuccess={async (message) => {
             showToast('คืนเงินสำเร็จ', message, 'SUCCESS')
-            await loadBills()
+            // The server already refreshed the bill cache (refund_pay): no full reload and no loading screen.
+            setBills(fetchBills())
           }}
         />
       )}
@@ -952,49 +946,6 @@ export default function BillsPage() {
           onClose={() => setSelectedBillForLog(null)}
         />
       )}
-
-      {/* Cancel Modal */}
-      <AppModal
-        isOpen={!!selectedBillForCancel}
-        onClose={closeCancelBill}
-        size="sm"
-      >
-        {selectedBillForCancel && (
-          <>
-            <AppModalHeader
-              onClose={closeCancelBill}
-              icon={<XCircle className="w-5 h-5 text-red-700 dark:text-red-400" />}
-              title={`ยกเลิกบิลเช่า (${selectedBillForCancel.billNo})`}
-            />
-
-            <form onSubmit={handleConfirmCancelBill} className="flex-1 min-h-0 flex flex-col">
-              <AppModalBody className="space-y-3 text-xs">
-                <p className="text-slate-600 dark:text-slate-300">
-                  คุณกำลังจะยกเลิกบิลเช่าของ <strong className="text-slate-900 dark:text-slate-100">{selectedBillForCancel.customerName}</strong>
-                </p>
-
-              </AppModalBody>
-
-              <AppModalFooter>
-                <button
-                  type="button"
-                  onClick={closeCancelBill}
-                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                >
-                  ยกเลิก
-                </button>
-                <button
-                  type="submit"
-                  disabled={isCancellingBill}
-                  className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs shadow-md cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  ยืนยันยกเลิกบิล
-                </button>
-              </AppModalFooter>
-            </form>
-          </>
-        )}
-      </AppModal>
 
       {/* Line Notify Modal */}
       <LineNotifyModal

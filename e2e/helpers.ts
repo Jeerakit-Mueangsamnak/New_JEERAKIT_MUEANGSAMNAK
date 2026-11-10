@@ -43,6 +43,23 @@ export function trackPageErrors(page: Page) {
 export const amountBox = (page: Page, label: string) =>
   page.locator('div').filter({ has: page.getByText(label, { exact: true }) }).last().getByRole('textbox').first();
 
+/** Types the cash received and confirms it (ยืนยัน → ถูกต้อง); required before ออกบิล (owner 2026-11-05). */
+export async function fillCash(page: Page, value: string) {
+  const card = page.locator('div').filter({ has: page.getByText('เงินสดที่รับมา (บาท)', { exact: true }) }).last();
+  await card.getByRole('textbox').first().fill(value);
+  await card.getByRole('button', { name: 'ยืนยัน', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'ถูกต้อง' }).click();
+  await expect(card.getByRole('button', { name: 'ยืนยันแล้ว' })).toBeVisible();
+}
+
+/** The cash box as it is (empty = exactly the rest): ยืนยัน → ถูกต้อง. */
+export async function confirmCashAsIs(page: Page) {
+  const card = page.locator('div').filter({ has: page.getByText('เงินสดที่รับมา (บาท)', { exact: true }) }).last();
+  await card.getByRole('button', { name: 'ยืนยัน', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'ถูกต้อง' }).click();
+  await expect(card.getByRole('button', { name: 'ยืนยันแล้ว' })).toBeVisible();
+}
+
 /** Reads the bill number from the "saved" dialog after ออกบิล and closes it. */
 export async function issuedBillNo(page: Page) {
   const done = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: /^บันทึก(บิลเช่า|การขาย)สำเร็จ$/ }) });

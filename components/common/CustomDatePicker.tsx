@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useState, useRef, useEffect } from 'react'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown, Check, X } from 'lucide-react'
@@ -309,7 +310,7 @@ export function CalendarPanel({
             <button
               type="button"
               onClick={handleClear}
-              className="text-slate-600 dark:text-slate-400 hover:text-red-500 font-semibold transition-colors cursor-pointer"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} text-slate-600 dark:text-slate-400 hover:text-red-500 transition-colors cursor-pointer`}
             >
               ล้างข้อมูล
             </button>
@@ -319,7 +320,7 @@ export function CalendarPanel({
             <button
               type="button"
               onClick={handleSelectToday}
-              className="text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} text-blue-600 dark:text-blue-400 hover:underline cursor-pointer`}
             >
               วันนี้
             </button>

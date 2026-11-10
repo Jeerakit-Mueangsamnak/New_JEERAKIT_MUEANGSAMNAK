@@ -14,7 +14,7 @@ import {
   loadCompositeRules,
 } from '@/lib/category-rules-storage'
 import { Unit } from '@/lib/unit-storage'
-import { ActionButton } from '@/components/common/ActionButton'
+import { ActionButton, COMMAND_BUTTON_SIZE_CLASSES, TABLE_FOOTER_CLASSES } from '@/components/common/ActionButton'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
 import { ProductCreateDraftRow, createInitialDraftRows } from '@/lib/product-draft-types'
 import { listItemOptions } from '@/features/products/utils/list-items'
@@ -402,7 +402,6 @@ export function ProductCreateView({
                       </span>
                       <NumericInput
                         value={row.price ?? ''}
-                        placeholder="0"
                         onChange={(val) => handleUpdateRow(row.id, 'price', val === '' ? null : val)}
                         min={0}
                         allowDecimals={true}
@@ -421,7 +420,6 @@ export function ProductCreateView({
                     </span>
                     <NumericInput
                       value={row.costPrice ?? ''}
-                      placeholder="0"
                       onChange={(val) => handleUpdateRow(row.id, 'costPrice', val === '' ? null : val)}
                       min={0}
                       allowDecimals={true}
@@ -439,7 +437,6 @@ export function ProductCreateView({
                     </span>
                     <NumericInput
                       value={row.damageFee ?? ''}
-                      placeholder="0"
                       onChange={(val) => handleUpdateRow(row.id, 'damageFee', val === '' ? null : val)}
                       min={0}
                       allowDecimals={true}
@@ -457,7 +454,6 @@ export function ProductCreateView({
                     </span>
                     <NumericInput
                       value={row.lossFee ?? ''}
-                      placeholder="0"
                       onChange={(val) => handleUpdateRow(row.id, 'lossFee', val === '' ? null : val)}
                       min={0}
                       allowDecimals={true}
@@ -475,7 +471,6 @@ export function ProductCreateView({
                     </span>
                     <NumericInput
                       value={row.quantityAdded ? row.quantityAdded : ''}
-                      placeholder="0"
                       onChange={(val) =>
                         handleUpdateRow(row.id, 'quantityAdded', val === '' ? 0 : Number(val))
                       }
@@ -502,13 +497,13 @@ export function ProductCreateView({
         </div>
 
         {/* Footer Area */}
-        <div className="shrink-0 p-2.5 sm:p-3 bg-slate-50 dark:bg-slate-850 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
+        <div className={`${TABLE_FOOTER_CLASSES} bg-slate-50 dark:bg-slate-850 flex flex-wrap items-center justify-between`}>
           {/* ซ้าย: ปุ่ม "เพิ่มแถวสินค้า" และสรุปแถว */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <ActionButton
               type="button"
               onClick={handleAddRow}
-              variant="dashed"
+              variant="info"
               icon={<Plus />}
             >
               เพิ่มแถวสินค้า
@@ -552,9 +547,6 @@ export function ProductCreateView({
         />
         <form onSubmit={handleSaveQuickCategory}>
           <AppModalBody className="space-y-3.5 p-4 sm:p-5 text-xs">
-            <p className="text-[11px] text-slate-600 dark:text-slate-400">
-              หมวดหมู่ที่เพิ่มจะถูกบันทึกและเลือกใช้ได้ทันที ข้อมูลแบบร่างจะไม่สูญหาย
-            </p>
             <div>
               <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
                 ชื่อหมวดหมู่ <span className="text-red-700 dark:text-red-400">*</span>
@@ -611,7 +603,7 @@ export function ProductCreateView({
                     setShowQuickAddCategoryModal(false)
                     onNavigateToSettings()
                   }}
-                  className="text-[11px] text-purple-600 dark:text-purple-400 hover:underline font-bold flex items-center gap-1 cursor-pointer"
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} text-purple-600 dark:text-purple-400 hover:underline flex items-center cursor-pointer`}
                 >
                   <span>หรือไปจัดการหมวดหมู่และหน่วยนับในแท็บตั้งค่าเสริม</span>
                   <ArrowRight className="w-3 h-3" />
@@ -652,9 +644,6 @@ export function ProductCreateView({
         />
         <form onSubmit={handleSaveQuickUnit}>
           <AppModalBody className="space-y-3.5 p-4 sm:p-5 text-xs">
-            <p className="text-[11px] text-slate-600 dark:text-slate-400">
-              หน่วยนับที่เพิ่มจะสามารถเลือกใช้ได้ทันที
-            </p>
             <div>
               <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
                 ชื่อหน่วยนับ <span className="text-red-700 dark:text-red-400">*</span>
@@ -677,7 +666,7 @@ export function ProductCreateView({
                     setShowQuickAddUnitModal(false)
                     onNavigateToSettings()
                   }}
-                  className="text-[11px] text-purple-600 dark:text-purple-400 hover:underline font-bold flex items-center gap-1 cursor-pointer"
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} text-purple-600 dark:text-purple-400 hover:underline flex items-center cursor-pointer`}
                 >
                   <span>หรือไปจัดการหมวดหมู่และหน่วยนับในแท็บตั้งค่าเสริม</span>
                   <ArrowRight className="w-3 h-3" />

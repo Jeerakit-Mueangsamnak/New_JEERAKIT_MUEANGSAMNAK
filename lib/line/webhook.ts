@@ -71,7 +71,7 @@ export interface WebhookDeps {
 
 export interface WebhookResponse {
   status: number
-  body: { ok: boolean; processed?: number; skipped?: number; error?: string }
+  body: { ok: boolean; processed?: number; skipped?: number; failed?: number; error?: string }
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -342,5 +342,6 @@ export async function handleLineWebhook(deps: WebhookDeps): Promise<WebhookRespo
       logger.error('line webhook: event failed', { error, raw })
     }
   }
-  return { status: 200, body: { ok: true, processed, skipped } }
+  // still 200: LINE must not resend the batch; failed events are logged above
+  return { status: 200, body: { ok: true, processed, skipped, failed } }
 }

@@ -8,6 +8,7 @@ import {
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
   TAB_BUTTON_INACTIVE_CLASSES,
+  TAB_BAR_SURFACE_CLASSES,
 } from '@/components/common/ActionButton'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { CustomerDocumentsWorkspace } from '@/features/documents/components/CustomerDocumentsWorkspace'
@@ -27,7 +28,7 @@ export default function DocumentsPage() {
   const tabButton = (active: boolean) => `${TAB_BUTTON_BASE_CLASSES} ${active ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`
 
   const mainTabs = (
-    <div className={`grid grid-cols-2 ${TAB_CONTAINER_CLASSES} w-full`}>
+    <div className={`${TAB_BAR_SURFACE_CLASSES} grid grid-cols-2 w-full`}>
       <button type="button" onClick={() => setTab('CREATE')} className={tabButton(tab === 'CREATE')}>
         <FilePlus className="w-3.5 h-3.5 shrink-0" />
         <span>สร้างเอกสาร</span>
@@ -62,7 +63,7 @@ export default function DocumentsPage() {
             <>
               {mainTabs}
               {divider}
-              <div className={`grid grid-cols-2 ${TAB_CONTAINER_CLASSES} w-full`}>
+              <div className={`${TAB_BAR_SURFACE_CLASSES} grid grid-cols-2 w-full`}>
                 <button type="button" onClick={() => setLibraryMode('LIBRARY')} className={tabButton(libraryMode === 'LIBRARY')}>
                   <FileCode className="w-3.5 h-3.5 shrink-0" />
                   <span>คลังแบบฟอร์ม</span>

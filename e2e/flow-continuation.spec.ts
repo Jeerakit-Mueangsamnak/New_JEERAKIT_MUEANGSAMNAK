@@ -55,7 +55,7 @@ test('คืนปกติ 1 + เช่าต่อ 2 (1 รอบ): ได้
   await page.getByRole('button', { name: 'ถัดไป' }).click();
 
   await expect(page.getByRole('heading', { name: 'สรุปยอดและรับชำระเงิน' })).toBeVisible();
-  await expect(page.getByText(/รวมเช่าต่อ/)).toBeVisible();
+  await expect(page.getByText('ยอดบิลใหม่:')).toBeVisible();
   // ค้างชำระ: nothing is collected now
   await page.getByRole('button', { name: 'ค้างชำระ' }).click();
   await page.getByRole('button', { name: 'ออกบิล', exact: true }).click();

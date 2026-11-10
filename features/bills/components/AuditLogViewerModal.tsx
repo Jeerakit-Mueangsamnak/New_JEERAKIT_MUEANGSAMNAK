@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useState, useEffect } from 'react'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
@@ -22,6 +23,7 @@ export const AUDIT_ACTION_LABELS:Record<string, { label: string; color: string }
   STOCK_RETURN: { label: 'รับคืนสต็อกสินค้า', color: 'bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border border-teal-300/40' },
   STOCK_RESTORE: { label: 'คืนสต็อกสินค้า', color: 'bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border border-cyan-300/40' },
   PAYMENT_RECEIVE: { label: 'บันทึกรายรับการเงิน', color: 'bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 border border-green-300/40' },
+  PAYMENT_ALLOCATE: { label: 'ตัดชำระตามลำดับ', color: 'bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 border border-green-300/40' },
   CORRECTION: { label: 'แก้ไขรายละเอียดบิล', color: 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300/40' },
   EXTENSION: { label: 'ขยายระยะเวลาเช่า', color: 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-300/40' },
 }
@@ -202,7 +204,7 @@ export function AuditLogViewerModal({
           </span>
           <button
             onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs cursor-pointer"
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-slate-800 hover:bg-slate-900 text-white cursor-pointer`}
           >
             ปิดหน้าต่าง
           </button>

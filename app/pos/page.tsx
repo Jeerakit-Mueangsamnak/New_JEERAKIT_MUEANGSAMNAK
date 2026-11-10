@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { ProductGrid } from '@/features/pos/components/ProductGrid'
 import { CartPanel } from '@/features/pos/components/CartPanel'
 import { QuantityModal } from '@/features/pos/components/QuantityModal'
+import { NutAccessoryModal, ScaffoldAccessoryModal, type AccessoryLine } from '@/features/pos/components/AccessoryModals'
+import { accessoryWindowFor } from '@/features/pos/services/accessory-rules'
 import { Product, Customer, Quotation, Appointment } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
 import { useCreateCustomer } from '@/features/customers/hooks/useCreateCustomer'
@@ -17,7 +19,16 @@ import {
 import { ShoppingBag, Package, FileText, ArrowLeft } from 'lucide-react'
 import { loadProducts, validateProductMode } from '@/features/products/services/product-storage'
 import { loadCustomers, isIdCardUploadError } from '@/features/customers/services/customer-storage'
-import { CartItem, cartLineListPrice, isSaleCartItem, loadActiveCart, saveActiveCart } from '@/features/pos/services/cart-storage'
+import {
+  CART_CHANGED_EVENT,
+  CartItem,
+  cartLineListPrice,
+  isSaleCartItem,
+  loadActiveCart,
+  loadHeldCart,
+  saveActiveCart,
+} from '@/features/pos/services/cart-storage'
+import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { fetchAppointmentsFromSupabase } from '@/features/appointments/services/appointment-storage'
 import { getLocalDateString } from '@/components/common/CustomDatePicker'
 import {
@@ -47,6 +58,7 @@ function POSContent() {
   // Cart line being edited through the quantity screen (null = adding a new line).
   const [editingCartItem, setEditingCartItem] = useState<CartItem | null>(null)
   const [selectedProductMode, setSelectedProductMode] = useState<'RENT' | 'SALE'>('RENT')
+  const [accessoryWindow, setAccessoryWindow] = useState<'NUT' | 'SCAFFOLD' | null>(null)
   const [customersList, setCustomersList] = useState<Customer[]>([])
   const [productsList, setProductsList] = useState<Product[]>([])
   const [cartItems, setCartItems] = useState<CartItem[]>([])
@@ -65,8 +77,12 @@ function POSContent() {
     rentalStartDate?: string
     rentalEndDate?: string
     documentDate?: string
+    documentType?: string
   }>({})
   const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null)
+  // Draft / quotation a held cart belongs to (the URL no longer carries them after switching menus).
+  const [heldDocIds, setHeldDocIds] = useState<{ draftBillId?: string; quotationId?: string }>({})
+  const { user } = useAuth()
 
   // Edit / copy: load the quotation (also after a page reload, when the list cache is empty).
   useEffect(() => {
@@ -117,9 +133,12 @@ function POSContent() {
     setProductsList(prods)
     setCustomersList(custs)
 
-    if (resumeCheckout) {
-      const saved = loadActiveCart()
+    // Back from checkout, or a plain visit while a cart is held (header cart icon): put the cart back.
+    const plainVisit = !isQuotationMode && !appointmentId && !quotationId && !draftBillId
+    if (resumeCheckout || plainVisit) {
+      const saved = resumeCheckout ? loadActiveCart(isQuotationMode ? 'QUOTATION' : 'BILL') : loadHeldCart(user?.id)
       if (saved && saved.items?.length > 0) {
+        setHeldDocIds({ draftBillId: saved.draftBillId, quotationId: saved.quotationId })
         setSelectedCustomer(saved.customer)
         setCartItems(saved.items)
         setQuotationValues({
@@ -133,6 +152,7 @@ function POSContent() {
           rentalStartDate: saved.headerRentalDate,
           rentalEndDate: saved.headerReturnDate,
           documentDate: saved.documentDate,
+          documentType: saved.documentType,
         })
         if (saved.quotationNo) setLoadedQuotationNo(saved.quotationNo)
         return
@@ -332,7 +352,8 @@ function POSContent() {
           depositAmount: draftBill.heldDepositAmount || draftBill.paidDepositAmount || 0,
           vatEnabled: Boolean(draftBill.vatMode) || (draftBill.taxAmount ?? 0) > 0,
           vatMode: draftBill.vatMode ?? null,
-          shippingAddress: draftBill.siteName || draftBill.customerAddress || '',
+          // Never the customer's address (owner 2026-11-07): only the place saved with the bill.
+          shippingAddress: draftBill.siteName || '',
           rentalStartDate: draftBill.rentalStartDate,
           rentalEndDate: draftBill.scheduledReturnDate,
         })
@@ -347,11 +368,90 @@ function POSContent() {
         showToast('ไม่พบแบบร่าง', `ไม่พบแบบร่างที่มีรหัส ${draftBillId}`, 'ERROR')
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loads once per entry; user/mode are fixed for it
   }, [resumeCheckout, appointmentId, quotationId, draftBillId, router, showToast])
 
+  // The held cart was cleared from the header icon (X) while this page is open: empty the screen too.
+  useEffect(() => {
+    if (isQuotationMode) return
+    const onCartChanged = () => {
+      if (loadActiveCart('BILL')) return
+      setCartItems((prev) => (prev.length ? [] : prev))
+      setSelectedCustomer(null)
+      setHeldDocIds({})
+    }
+    window.addEventListener(CART_CHANGED_EVENT, onCartChanged)
+    return () => window.removeEventListener(CART_CHANGED_EVENT, onCartChanged)
+  }, [isQuotationMode])
+
   const handleSelectProduct = (product: Product, mode: 'RENT' | 'SALE' = 'RENT') => {
+    // Column nuts and scaffold parts open their own window (owner 2026-11-09); everything else the quantity window.
+    const accessory = mode === 'RENT' ? accessoryWindowFor(product) : null
+    if (accessory) {
+      setAccessoryWindow(accessory)
+      return
+    }
     setSelectedProduct(product)
     setSelectedProductMode(mode)
+  }
+
+  /**
+   * Accessory lines from the nut / scaffold windows: rental lines with no rental charge, following the bill's
+   * own rental dates. All lines are checked first (none is added if one fails); an accessory already in the
+   * cart gets the new quantity added to its line.
+   */
+  const handleAddAccessories = (lines: AccessoryLine[]): boolean => {
+    for (const { product, quantity } of lines) {
+      if (product.status !== 'ACTIVE') {
+        showToast('สินค้าไม่พร้อมทำรายการ', `สินค้า ${product.name} ไม่ได้เปิดใช้งานแล้ว`, 'ERROR')
+        return false
+      }
+      const inCart = cartItems.filter((item) => item.productId === product.id).reduce((sum, item) => sum + item.quantity, 0)
+      const free = Number(product.availableQuantity ?? product.available_qty ?? 0)
+      if (inCart + quantity > free) {
+        if (!isQuotationMode) {
+          showToast('สินค้าไม่เพียงพอ', `${product.name}: ในตะกร้ามี ${inCart} ต้องการเพิ่มอีก ${quantity} แต่สต็อกพร้อมใช้มีเพียง ${free}`, 'ERROR')
+          return false
+        }
+        showToast('สต็อกพร้อมใช้ไม่พอ (เสนอราคาได้)', `${product.name}: ในใบนี้มี ${inCart + quantity} แต่สต็อกพร้อมใช้มี ${free}`, 'INFO')
+      }
+    }
+    setCartItems((prev) => {
+      let next = [...prev]
+      lines.forEach(({ product, quantity }, idx) => {
+        const unitPrice = cartLineListPrice({ product, rentalType: 'NORMAL', itemType: 'RENT' }) ?? 0
+        const existing = next.find(
+          (item) => item.productId === product.id && item.rentalType === 'NORMAL' && !isSaleCartItem(item) && item.unitPrice === unitPrice
+        )
+        if (existing) {
+          const qty = existing.quantity + quantity
+          next = next.map((item) =>
+            item.id === existing.id ? { ...item, quantity: qty, lineTotal: qty * unitPrice * Math.max(1, item.usageCount) } : item
+          )
+          return
+        }
+        next.push({
+          id: `cart-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+          product,
+          productId: product.id,
+          productName: product.name,
+          itemType: 'RENT',
+          unitName: product.unit || product.unit_name,
+          calculationType: product.calculationType as CartItem['calculationType'],
+          calculationLabel: product.calculationLabel,
+          rentalType: 'NORMAL',
+          quantity,
+          unitPrice,
+          usageCount: 1,
+          billableDays: 1,
+          lineTotal: quantity * unitPrice,
+          requiresReturn: true,
+        })
+      })
+      return next
+    })
+    showToast('เพิ่มอุปกรณ์ลงตะกร้าแล้ว', lines.map((l) => `${l.product.name} × ${l.quantity}`).join(', '), 'SUCCESS')
+    return true
   }
 
   const handleAddToCart = (data: {
@@ -564,9 +664,9 @@ function POSContent() {
             onAddCustomer={handleAddCustomer}
             onCheckout={handleCheckout}
             isQuotationMode={isQuotationMode}
-            quotationId={quotationId || undefined}
+            quotationId={quotationId || heldDocIds.quotationId || undefined}
             quotationNo={loadedQuotationNo ?? editingQuotation?.quotationNo}
-            draftBillId={draftBillId || undefined}
+            draftBillId={draftBillId || heldDocIds.draftBillId || undefined}
             onEditItem={setEditingCartItem}
             initialDiscount={quotationValues.discount}
             initialShippingFee={quotationValues.shippingFee}
@@ -580,6 +680,7 @@ function POSContent() {
             initialDocumentDate={quotationValues.documentDate}
             initialCustomerAttention={searchParams.get('customerRequired') === '1'}
             initialContactPhone={quotationValues.contactPhone}
+            initialDocumentType={quotationValues.documentType}
           />
         </div>
       </div>
@@ -593,6 +694,14 @@ function POSContent() {
           onAdd={handleAddToCart}
           onClose={() => setSelectedProduct(null)}
         />
+      )}
+
+      {/* Accessory windows: column nuts / scaffold parts worked out by formula */}
+      {accessoryWindow === 'NUT' && (
+        <NutAccessoryModal products={productsList} allowOverStock={isQuotationMode} onAdd={handleAddAccessories} onClose={() => setAccessoryWindow(null)} />
+      )}
+      {accessoryWindow === 'SCAFFOLD' && (
+        <ScaffoldAccessoryModal products={productsList} allowOverStock={isQuotationMode} onAdd={handleAddAccessories} onClose={() => setAccessoryWindow(null)} />
       )}
 
       {/* Quantity Modal — edit a cart line */}

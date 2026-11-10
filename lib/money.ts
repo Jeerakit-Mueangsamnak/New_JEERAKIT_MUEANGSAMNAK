@@ -43,18 +43,6 @@ export function toBaht(satang: number): number {
   if (isNaN(satang) || !isFinite(satang)) return 0
   return satang / 100
 }
-
-/**
- * Formats a monetary amount (in Baht or Satang) as THB string with 2 decimal places.
- */
-export function formatMoneyTHB(amount: number, isSatang = false): string {
-  const baht = isSatang ? toBaht(amount) : amount
-  return baht.toLocaleString('th-TH', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
-}
-
 /**
  * Adds multiple Satang amounts safely.
  */

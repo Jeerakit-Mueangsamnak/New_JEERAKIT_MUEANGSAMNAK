@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useEffect, useState } from 'react'
 import { Truck } from 'lucide-react'
@@ -7,6 +8,7 @@ import { NumericInput } from '@/components/common/NumericInput'
 import { useToast } from '@/components/common/Toast'
 import type { FullBill } from '@/lib/types/rental-return'
 import { deliverBill } from '@/features/bills/services/bill-service'
+import { dbErrorMessage } from '@/lib/db/rpc'
 
 interface DeliveryModalProps {
   isOpen: boolean
@@ -50,7 +52,7 @@ export function DeliveryModal({ isOpen, bill, onClose, onSaved }: DeliveryModalP
       await onSaved()
       onClose()
     } catch (err) {
-      showToast('บันทึกส่งของไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
+      showToast('บันทึกส่งของไม่สำเร็จ', dbErrorMessage(err instanceof Error ? err.message : ''), 'ERROR')
     } finally {
       setSaving(false)
     }
@@ -85,9 +87,9 @@ export function DeliveryModal({ isOpen, bill, onClose, onSaved }: DeliveryModalP
         )}
       </AppModalBody>
       <AppModalFooter>
-        <button type="button" onClick={onClose} disabled={saving} className="rounded-xl border px-4 py-2 font-bold text-sm">ปิด</button>
+        <button type="button" onClick={onClose} disabled={saving} className={`${COMMAND_BUTTON_SIZE_CLASSES} border`}>ปิด</button>
         {open.length > 0 && (
-          <button type="button" onClick={() => void save()} disabled={saving} className="rounded-xl bg-blue-600 text-white px-4 py-2 font-bold text-sm disabled:opacity-50">
+          <button type="button" onClick={() => void save()} disabled={saving} className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-blue-600 text-white disabled:opacity-50`}>
             {saving ? 'กำลังบันทึก…' : 'บันทึกส่งของ'}
           </button>
         )}

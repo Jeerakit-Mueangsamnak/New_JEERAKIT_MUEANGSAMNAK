@@ -50,7 +50,7 @@ export function LineInviteButton({ kind, target, name, disabled }: { kind: LineI
 
   return (
     <>
-      <ActionButton size="sm" variant="primary" icon={<Send />} disabled={disabled || busy} onClick={() => void open()}>
+      <ActionButton variant="primary" icon={<Send />} disabled={disabled || busy} onClick={() => void open()}>
         ส่งลิงก์ผูก LINE
       </ActionButton>
       <AppModal isOpen={Boolean(invite)} onClose={() => setInvite(null)} size="sm">
@@ -80,7 +80,6 @@ export function LineInviteButton({ kind, target, name, disabled }: { kind: LineI
                     <Send className="w-4 h-4" /> แชร์ไปที่ LINE
                   </a>
                 )}
-                <p className={SETTINGS_HELPER}>ผู้รับกดลิงก์ในแอป LINE → กรอกชื่อ{kind === 'CUSTOMER' ? ' เบอร์โทร' : ''} และไอดีไลน์ → ระบบผูกให้อัตโนมัติ</p>
               </>
             ) : (
               <p className="text-[11px] text-amber-700 dark:text-amber-300">
@@ -89,12 +88,12 @@ export function LineInviteButton({ kind, target, name, disabled }: { kind: LineI
             )}
             <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2">
               <span>
-                <span className={SETTINGS_HELPER}>รหัส (พิมพ์ในแชต LINE ร้านแทนการกดลิงก์ได้)</span>
+                <span className={SETTINGS_HELPER}>รหัส</span>
                 <span className="block font-mono font-extrabold tracking-wider text-slate-900 dark:text-slate-100" data-testid="line-invite-code">
                   {invite.code}
                 </span>
               </span>
-              <ActionButton size="sm" variant="ghost" icon={<Copy />} onClick={() => void copy(invite.code, 'ส่งรหัสนี้ในแชต LINE ร้าน')} aria-label="คัดลอกรหัส" />
+              <ActionButton variant="ghost" icon={<Copy />} onClick={() => void copy(invite.code, 'ส่งรหัสนี้ในแชต LINE ร้าน')} aria-label="คัดลอกรหัส" />
             </div>
             <p className={SETTINGS_HELPER}>
               ใช้ได้ครั้งเดียว · หมดอายุ{' '}
@@ -145,7 +144,7 @@ export function LineContactInfo({ contact, onChanged }: { contact: LineReviewCon
           <span className="inline-flex items-center gap-1 h-6 px-2 rounded-lg text-[11px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
             <ShieldAlert className="w-3.5 h-3.5" /> ข้อมูลไม่ตรง ให้ตรวจ
           </span>
-          <ActionButton size="sm" variant="outline" icon={<CheckCircle2 />} disabled={busy} onClick={() => void confirm()}>
+          <ActionButton variant="outline" icon={<CheckCircle2 />} disabled={busy} onClick={() => void confirm()}>
             ตรวจแล้ว ถูกคน
           </ActionButton>
         </>

@@ -1,5 +1,10 @@
 'use client'
-import { isQuotationPrintTemplate, pickQuotationPrintTemplate, printQuotationA4, renderQuotationA4PagesHtml } from '@/features/documents/utils/transaction-print'
+import {
+  COMMAND_BUTTON_SIZE_CLASSES,
+  SEARCH_INPUT_CLASSES,
+  SEARCH_ICON_CLASSES,
+  TABLE_TOOLBAR_CLASSES, ROW_ICON_BUTTON_CLASSES } from '@/components/common/ActionButton'
+import { isQuotationFormTemplate, pickQuotationPrintTemplate, printQuotationA4, renderQuotationA4PagesHtml } from '@/features/documents/utils/transaction-print'
 import { QuotationPreviewOverlay } from '@/features/quotations/components/QuotationPreviewOverlay'
 import { loadTemplateLibrary, refreshSharedTemplates } from '@/features/documents/services/template-library-storage'
 import type { DocumentTemplate } from '@/lib/types/document'
@@ -19,6 +24,7 @@ import {
   Printer,
   Pencil,
   Copy,
+  XCircle,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { CustomSelect } from '@/components/common/CustomSelect'
@@ -37,6 +43,7 @@ import {
   QUOTATION_WAITING_STATUSES,
 } from '@/features/quotations/services/quotation-storage'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
+import { isNoChargeBillLine } from '@/features/pos/services/accessory-rules'
 
 interface ReservationFulfillmentResult {
   hasShortage: boolean
@@ -66,8 +73,7 @@ export default function QuotationsPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('ALL')
-  const [printTemplates, setPrintTemplates] = useState<DocumentTemplate[]>(() => loadTemplateLibrary().filter(isQuotationPrintTemplate))
-  const [printTemplateId, setPrintTemplateId] = useState('')
+  const [printTemplates, setPrintTemplates] = useState<DocumentTemplate[]>(() => loadTemplateLibrary().filter(isQuotationFormTemplate))
 
   const [selectedQuotationForConversion, setSelectedQuotationForConversion] = useState<Quotation | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -146,13 +152,8 @@ export default function QuotationsPage() {
     refreshSharedTemplates()
       .then((templates) => {
         if (!active) return
-        const valid = templates.filter(isQuotationPrintTemplate)
+        const valid = templates.filter(isQuotationFormTemplate)
         setPrintTemplates(valid)
-        setPrintTemplateId((oldId) => {
-          if (valid.some((tpl) => tpl.id === oldId)) return oldId
-          // The shop form marked default, else the first usable quotation form.
-          return pickQuotationPrintTemplate(valid)?.id ?? ''
-        })
       })
       .catch((error: unknown) => {
         if (active) showToast('โหลดเทมเพลตไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
@@ -160,8 +161,8 @@ export default function QuotationsPage() {
     return () => { active = false }
   }, [showToast])
 
-  const selectedPrintTemplate = printTemplates.find((tpl) => tpl.id === printTemplateId)
-    ?? pickQuotationPrintTemplate(printTemplates)
+  // No form picker here (owner 2026-11-07): the quotation form is chosen at POS; reprints use the shop quotation form.
+  const selectedPrintTemplate = pickQuotationPrintTemplate(printTemplates)
 
   const filteredQuotations = quotations.filter((q) => {
     const matchesSearch =
@@ -300,18 +301,6 @@ export default function QuotationsPage() {
         </div>
       </div>
 
-      <div className="shrink-0 flex flex-wrap items-center gap-2 px-2 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-        <span className="font-semibold text-slate-700 dark:text-slate-300">แบบพิมพ์ใบเสนอราคา</span>
-        <div className="flex-1 min-w-[200px] max-w-[430px]">
-          <CustomSelect
-            value={selectedPrintTemplate?.id ?? ''}
-            onChange={(value) => setPrintTemplateId(String(value))}
-            buttonClassName="h-9 rounded-lg"
-            options={printTemplates.map((tpl) => ({ value: tpl.id, label: tpl.name }))}
-          />
-        </div>
-      </div>
-
       {isLoading && (
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center py-16 text-slate-600 dark:text-slate-400">
           <RefreshCw className="w-8 h-8 animate-spin mb-3" />
@@ -326,13 +315,13 @@ export default function QuotationsPage() {
             {/* Mobile Toolbar */}
             <div className="bg-white dark:bg-slate-800 p-2 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-2 shrink-0">
               <div className="relative w-full">
-                <Search className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <Search className={SEARCH_ICON_CLASSES} />
                 <input
                   type="text"
                   placeholder="ค้นหาเลขที่ใบเสนอราคา หรือ ชื่อลูกค้า..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full h-9 pl-9 pr-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className={SEARCH_INPUT_CLASSES}
                 />
               </div>
 
@@ -341,7 +330,6 @@ export default function QuotationsPage() {
                   <CustomSelect
                     value={statusFilter}
                     onChange={(value) => setStatusFilter(String(value))}
-                    buttonClassName="h-9 px-2.5 py-0 rounded-xl"
                     options={[
                       { value: 'ALL', label: 'สถานะ: ทั้งหมด' },
                       { value: 'ACCEPTED', label: 'ตอบรับแล้ว' },
@@ -353,7 +341,7 @@ export default function QuotationsPage() {
 
                 <button
                   onClick={() => router.push('/pos?mode=quotation')}
-                  className="h-9 px-3.5 py-0 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-xs transition-all shrink-0 cursor-pointer"
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 text-white flex items-center shadow-xs transition-all shrink-0 cursor-pointer`}
                 >
                   <Plus className="w-4 h-4" />
                   <span>สร้าง</span>
@@ -412,59 +400,31 @@ export default function QuotationsPage() {
                         </div>
 
                         <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handlePrintQuotation(q)}
-                            className="px-2.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs inline-flex items-center gap-1 shadow-xs hover:bg-slate-50 active:scale-95 cursor-pointer min-h-[36px]"
-                            title="พิมพ์ใบเสนอราคา"
-                          >
-                            <Printer className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                            <span>พิมพ์</span>
+                          <button type="button" onClick={() => handlePrintQuotation(q)} className="p-1.5 rounded-xl text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/60 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" title="พิมพ์ใบเสนอราคา" aria-label="พิมพ์">
+                            <Printer className="w-4 h-4" />
                           </button>
-
                           {view.editable && (
-                            <button
-                              type="button"
-                              onClick={() => handleEditQuotation(q)}
-                              className="px-2 py-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs inline-flex items-center gap-1 shadow-xs cursor-pointer min-h-[36px]"
-                              title="แก้ไขใบเสนอราคา (ใช้เลขเดิม)"
-                              aria-label={`แก้ไข ${q.quotationNo}`}
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
+                            <button type="button" onClick={() => handleEditQuotation(q)} className="p-1.5 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" title="แก้ไขใบเสนอราคา (ใช้เลขเดิม)" aria-label={`แก้ไข ${q.quotationNo}`}>
+                              <Pencil className="w-4 h-4" />
                             </button>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => handleCopyQuotation(q)}
-                            className="px-2 py-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs inline-flex items-center gap-1 shadow-xs cursor-pointer min-h-[36px]"
-                            title="คัดลอกเป็นใบเสนอราคาใหม่"
-                            aria-label={`คัดลอก ${q.quotationNo}`}
-                          >
-                            <Copy className="w-3.5 h-3.5" />
+                          <button type="button" onClick={() => handleCopyQuotation(q)} className="p-1.5 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" title="คัดลอกเป็นใบเสนอราคาใหม่" aria-label={`คัดลอก ${q.quotationNo}`}>
+                            <Copy className="w-4 h-4" />
                           </button>
                           {view.cancellable && (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenReleaseModal(q)}
-                              className="px-2.5 py-1.5 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold text-xs inline-flex items-center gap-1 shadow-xs cursor-pointer min-h-[36px]"
-                              title="ยกเลิกใบเสนอราคา"
-                            >
-                              <span>ยกเลิก</span>
+                            <button type="button" onClick={() => handleOpenReleaseModal(q)} className="p-1.5 rounded-xl text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" title="ยกเลิกใบเสนอราคา" aria-label="ยกเลิก">
+                              <XCircle className="w-4 h-4" />
                             </button>
                           )}
-
                           <button
+                            type="button"
                             disabled={isConverted}
                             onClick={() => !isConverted && handleOpenConversionVerification(q)}
-                            className={`px-3 py-1.5 rounded-xl text-white font-extrabold text-xs inline-flex items-center gap-1.5 shadow-sm transition-all min-h-[36px] ${
-                              isConverted
-                                ? 'bg-slate-400 cursor-not-allowed'
-                                : 'bg-emerald-700 hover:bg-emerald-800 active:scale-95 cursor-pointer'
-                            }`}
+                            className="p-1.5 rounded-xl text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                            title={buttonLabel}
+                            aria-label={buttonLabel}
                           >
-                            <ShoppingBag className="w-3.5 h-3.5" />
-                            <span>{buttonLabel}</span>
-                            {!isConverted && <ArrowRight className="w-3.5 h-3.5" />}
+                            {q.status === 'ACCEPTED' || isConverted ? <ShoppingBag className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
                           </button>
                         </div>
                       </div>
@@ -484,17 +444,17 @@ export default function QuotationsPage() {
             className="hidden md:flex bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex-1 min-h-0 flex-col"
           >
             {/* Table Toolbar */}
-            <div className="p-2 border-b border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0">
+            <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-col sm:flex-row items-stretch sm:items-center justify-between`}>
               <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
                 {/* Search */}
                 <div className="relative min-w-[140px] flex-1 max-w-xs">
-                  <Search className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <Search className={SEARCH_ICON_CLASSES} />
                   <input
                     type="text"
                     placeholder="ค้นหาเลขที่ใบเสนอราคา หรือ ชื่อลูกค้า..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full h-9 pl-9 pr-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    className={SEARCH_INPUT_CLASSES}
                   />
                 </div>
 
@@ -503,7 +463,6 @@ export default function QuotationsPage() {
                   <CustomSelect
                     value={statusFilter}
                     onChange={(value) => setStatusFilter(String(value))}
-                    buttonClassName="h-9 px-2.5 py-0 rounded-xl"
                     options={[
                       { value: 'ALL', label: 'สถานะ: ทั้งหมด' },
                       { value: 'ACCEPTED', label: 'ตอบรับแล้ว' },
@@ -518,7 +477,7 @@ export default function QuotationsPage() {
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => router.push('/pos?mode=quotation')}
-                  className="h-9 px-3.5 py-0 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs whitespace-nowrap"
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 text-white flex items-center transition-colors cursor-pointer shadow-xs whitespace-nowrap`}
                 >
                   <Plus className="w-4 h-4" />
                   <span>สร้างใบเสนอราคา</span>
@@ -553,7 +512,6 @@ export default function QuotationsPage() {
                           <div className="flex flex-col items-center justify-center">
                             <FileText className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-400 mb-1.5 opacity-50" />
                             <p className="font-bold text-xs text-slate-600 dark:text-slate-400">ไม่พบรายการใบเสนอราคา</p>
-                            <span className="text-[10px] text-slate-600 dark:text-slate-400">ลองปรับตัวกรองหรือสร้างใบเสนอราคาใหม่</span>
                           </div>
                         </td>
                       </tr>
@@ -577,58 +535,56 @@ export default function QuotationsPage() {
                               </span>
                             </td>
                             <td className="py-1.5 px-3 text-center whitespace-nowrap">
-                              <div className="inline-flex flex-wrap items-center justify-center gap-1">
+                              <div className="inline-flex items-center justify-center gap-0.5">
                                 <button
                                   type="button"
                                   onClick={() => handlePrintQuotation(q)}
-                                  className="shrink-0 px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[10px] inline-flex items-center gap-1 shadow-xs hover:bg-slate-50 hover:scale-[1.02] cursor-pointer"
+                                  className={`${ROW_ICON_BUTTON_CLASSES} text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/60`}
                                   title="พิมพ์ใบเสนอราคา"
+                                  aria-label="พิมพ์"
                                 >
-                                  <Printer className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-                                  <span>พิมพ์</span>
+                                  <Printer className="w-3.5 h-3.5" />
                                 </button>
-
                                 {view.editable && (
                                   <button
                                     type="button"
                                     onClick={() => handleEditQuotation(q)}
-                                    className="shrink-0 p-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 inline-flex items-center shadow-xs hover:bg-slate-50 cursor-pointer"
+                                    className={`${ROW_ICON_BUTTON_CLASSES} text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700`}
                                     title="แก้ไขใบเสนอราคา (ใช้เลขเดิม)"
                                     aria-label={`แก้ไข ${q.quotationNo}`}
                                   >
-                                    <Pencil className="w-3 h-3" />
+                                    <Pencil className="w-3.5 h-3.5" />
                                   </button>
                                 )}
                                 <button
                                   type="button"
                                   onClick={() => handleCopyQuotation(q)}
-                                  className="shrink-0 p-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 inline-flex items-center shadow-xs hover:bg-slate-50 cursor-pointer"
+                                  className={`${ROW_ICON_BUTTON_CLASSES} text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700`}
                                   title="คัดลอกเป็นใบเสนอราคาใหม่"
                                   aria-label={`คัดลอก ${q.quotationNo}`}
                                 >
-                                  <Copy className="w-3 h-3" />
+                                  <Copy className="w-3.5 h-3.5" />
                                 </button>
                                 {view.cancellable && (
                                   <button
                                     type="button"
                                     onClick={() => handleOpenReleaseModal(q)}
-                                    className="shrink-0 px-2 py-1 rounded-lg border border-rose-300 dark:border-rose-800 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold text-[10px] inline-flex items-center gap-1 shadow-xs hover:scale-[1.02] cursor-pointer"
+                                    className={`${ROW_ICON_BUTTON_CLASSES} text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60`}
                                     title="ยกเลิกใบเสนอราคา"
+                                    aria-label="ยกเลิก"
                                   >
-                                    <span>ยกเลิก</span>
+                                    <XCircle className="w-3.5 h-3.5" />
                                   </button>
                                 )}
-
                                 <button
+                                  type="button"
                                   disabled={isConverted}
                                   onClick={() => !isConverted && handleOpenConversionVerification(q)}
-                                  className={`shrink-0 px-2 py-1 rounded-lg text-white font-extrabold text-[10px] inline-flex items-center gap-1 shadow-md transition-all ${
-                                    isConverted ? 'bg-slate-400 cursor-not-allowed' : 'bg-emerald-700 hover:bg-emerald-800 hover:scale-[1.02] cursor-pointer'
-                                  }`}
+                                  className={`${ROW_ICON_BUTTON_CLASSES} text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60`}
+                                  title={buttonLabel}
+                                  aria-label={buttonLabel}
                                 >
-                                  <ShoppingBag className="w-3 h-3" />
-                                  <span>{buttonLabel}</span>
-                                  {!isConverted && <ArrowRight className="w-3 h-3" />}
+                                  {q.status === 'ACCEPTED' || isConverted ? <ShoppingBag className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
                                 </button>
                               </div>
                             </td>
@@ -662,15 +618,23 @@ export default function QuotationsPage() {
 
               <h4 className="font-bold">รายการสินค้า</h4>
               <div className="border rounded-xl overflow-hidden divide-y divide-slate-100 dark:divide-slate-800">
-                {selectedQuotationForConversion.items.map((item, idx) => (
+                {selectedQuotationForConversion.items.map((item, idx) => {
+                  // A "ไม่คิดเงิน" rental (owner 2026-11-09): จำนวน only; ราคา and จำนวนเงิน are "-".
+                  const noCharge = item.rentalType !== 'SALE' && isNoChargeBillLine(item)
+                  return (
                   <div key={idx} className="p-3 flex justify-between items-center bg-white dark:bg-slate-900">
                     <div>
                       <span className="font-bold block">{item.productName}</span>
-                      <span className="text-[11px] text-slate-600 dark:text-slate-400">จำนวน: {item.quantity} | ราคา: {item.unitPrice} บาท</span>
+                      <span className="text-[11px] text-slate-600 dark:text-slate-400">
+                        จำนวน: {item.quantity}{noCharge ? ' | ราคา: -' : ` | ราคา: ${item.unitPrice} บาท`}
+                      </span>
                     </div>
-                    <span className="font-extrabold text-blue-600 dark:text-blue-400">{item.lineTotal.toLocaleString()} บาท</span>
+                    <span className="font-extrabold text-blue-600 dark:text-blue-400">
+                      {noCharge ? '-' : `${item.lineTotal.toLocaleString()} บาท`}
+                    </span>
                   </div>
-                ))}
+                  )
+                })}
               </div>
 
               <div className="p-3 bg-blue-50 dark:bg-blue-950/40 rounded-xl space-y-1 text-right border border-blue-100 dark:border-blue-900">
@@ -716,7 +680,7 @@ export default function QuotationsPage() {
                     type="button"
                     disabled={isProcessing}
                     onClick={() => handleOpenReleaseModal(selectedQuotationForConversion)}
-                    className="px-3.5 py-2.5 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold text-xs disabled:opacity-50 cursor-pointer"
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-rose-300 dark:border-rose-800 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 disabled:opacity-50 cursor-pointer`}
                   >
                     ยกเลิกใบเสนอราคานี้
                   </button>
@@ -728,7 +692,7 @@ export default function QuotationsPage() {
                   type="button"
                   disabled={isProcessing}
                   onClick={closeActionModal}
-                  className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 font-semibold disabled:opacity-50"
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 disabled:opacity-50`}
                 >
                   {reservationResult?.hasShortage ? 'ปิด' : 'ยกเลิก'}
                 </button>
@@ -738,7 +702,7 @@ export default function QuotationsPage() {
                     type="button"
                     disabled={isProcessing}
                     onClick={handleConfirmConvertToPos}
-                    className="px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold shadow-lg shadow-emerald-500/30 flex items-center gap-2 disabled:opacity-50"
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 text-white shadow-lg shadow-emerald-500/30 flex items-center disabled:opacity-50`}
                   >
                     {isProcessing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ShoppingBag className="w-4 h-4" />}
                     <span>{selectedQuotationForConversion.status === 'ACCEPTED' ? 'เข้า POS เพื่อเปิดบิล' : 'ยืนยันตอบรับ'}</span>
@@ -797,7 +761,7 @@ export default function QuotationsPage() {
                 type="button"
                 disabled={isReleasing}
                 onClick={handleCloseReleaseModal}
-                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 font-semibold disabled:opacity-50 cursor-pointer"
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 disabled:opacity-50 cursor-pointer`}
               >
                 ยกเลิก
               </button>
@@ -806,7 +770,7 @@ export default function QuotationsPage() {
                 type="button"
                 disabled={isReleasing}
                 onClick={handleConfirmRelease}
-                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold shadow-lg shadow-rose-500/30 flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-500/30 flex items-center disabled:opacity-50 cursor-pointer`}
               >
                 {isReleasing ? <RefreshCw className="w-4 h-4 animate-spin" /> : null}
                 <span>ยืนยันยกเลิก</span>

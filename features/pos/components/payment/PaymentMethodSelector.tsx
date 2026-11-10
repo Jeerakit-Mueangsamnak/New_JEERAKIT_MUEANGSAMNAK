@@ -8,6 +8,8 @@ export type PaymentMethodType = 'CASH' | 'TRANSFER' | 'QR' | 'UNPAID'
 
 interface PaymentMethodSelectorProps {
   selectedMethod: PaymentMethodType | null
+  /** เงินสด + QR Code: every button in this list is lit (replaces `selectedMethod` for the look). */
+  selectedMethods?: PaymentMethodType[]
   onSelectMethod: (method: PaymentMethodType) => void
   disabled?: boolean
   showPromptPay?: boolean
@@ -23,6 +25,7 @@ interface PaymentMethodSelectorProps {
 
 export function PaymentMethodSelector({
   selectedMethod,
+  selectedMethods,
   onSelectMethod,
   disabled = false,
   showPromptPay = true,
@@ -96,8 +99,9 @@ export function PaymentMethodSelector({
             type="button"
             disabled={disabled}
             onClick={() => onSelectMethod(item.key)}
+            aria-pressed={selectedMethods ? selectedMethods.includes(item.key) : selectedMethod === item.key}
             className={`p-2 sm:p-2.5 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-1.5 sm:gap-2 transition-all min-h-[44px] ${
-              selectedMethod === item.key
+              (selectedMethods ? selectedMethods.includes(item.key) : selectedMethod === item.key)
                 ? item.activeClass
                 : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
             } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}

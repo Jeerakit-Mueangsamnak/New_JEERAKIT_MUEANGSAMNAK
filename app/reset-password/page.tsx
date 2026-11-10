@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
@@ -181,7 +182,7 @@ export default function ResetPasswordPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-700 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-700 text-white shadow-lg shadow-blue-500/25 flex items-center justify-center transition-all disabled:opacity-50`}
             >
               {isSubmitting ? (
                 <span>กำลังบันทึก...</span>

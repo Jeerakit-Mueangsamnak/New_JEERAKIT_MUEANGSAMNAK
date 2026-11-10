@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import CheckoutPage from '@/app/pos/checkout/page'
 import { SystemSettingsProvider } from '@/lib/contexts/SystemSettingsContext'
+import { ConfirmDialogProvider } from '@/components/common/ConfirmDialogProvider'
 import { loadSystemSettings, setCachedSystemSettings } from '@/features/settings/services/settings-storage'
 import {
   CartItem,
@@ -34,12 +35,25 @@ vi.mock('@/features/settings/api/settings-repository', () => ({
   saveSharedSystemConfig: vi.fn(async () => {}),
 }))
 vi.mock('@/features/pos/components/A4FitPreview', () => ({ A4FitPreview: ({ children }: any) => children }))
-vi.mock('@/templates/rental-bill/RentalBillTemplate', () => ({ RentalBillTemplate: () => null }))
+// The bill is shown and printed on the shop's main bill form (จัดการเอกสาร › แบบฟอร์มบิล).
+vi.mock('@/features/documents/services/template-library-storage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/documents/services/template-library-storage')>()),
+  refreshSharedTemplates: vi.fn(async () => [{
+    id: 'tpl-main', name: 'ใบส่งของ/ใบเสร็จรับเงิน', category: 'ใบส่งของ/ใบเสร็จรับเงิน', targetGroup: 'BILL',
+    paperSize: 'A4', orientation: 'PORTRAIT', templateSchema: '<div>{{document.number}}</div>',
+  }]),
+  loadDocumentNames: () => [],
+}))
 vi.mock('@/components/common/PostSavePrintModal', () => ({ PostSavePrintModal: () => null }))
-// Only the cash box matters here
+// Only the cash box (and its ยืนยัน button) matters here
 vi.mock('@/features/pos/components/payment/PaymentDynamicContent', () => ({
-  PaymentDynamicContent: ({ receivedCashInput, onReceivedCashInputChange }: any) => (
-    <input aria-label="cash" value={receivedCashInput} onChange={(e) => onReceivedCashInputChange(e.target.value)} />
+  PaymentDynamicContent: ({ receivedCashInput, onReceivedCashInputChange, onConfirmCash, onOpenQr, split }: any) => (
+    <>
+      <input aria-label="cash" value={receivedCashInput} onChange={(e) => onReceivedCashInputChange(e.target.value)} />
+      <button type="button" onClick={() => onConfirmCash?.()}>ยืนยันยอดเงินสด</button>
+      <button type="button" onClick={() => onOpenQr?.()}>แสดง QR กลางจอ</button>
+      {split && <p>จ่าย 2 ช่องทาง</p>}
+    </>
   ),
 }))
 
@@ -55,11 +69,19 @@ function mountCheckout(items: CartItem[]) {
     shippingAddress: '', documentType: 'บิลขาย', documentDate: '2026-10-07',
     headerRentalDate: '2026-10-07', headerReturnDate: '2026-10-07',
   })
-  return render(<SystemSettingsProvider><CheckoutPage /></SystemSettingsProvider>)
+  return render(<ConfirmDialogProvider><SystemSettingsProvider><CheckoutPage /></SystemSettingsProvider></ConfirmDialogProvider>)
 }
 
 function selectCashPayment() {
   fireEvent.click(screen.getByRole('button', { name: 'เงินสด' }))
+}
+
+/** Types the cash, presses ยืนยัน and answers ถูกต้อง in the centre pop-up (records nothing). */
+async function typeAndConfirmCash(value: string) {
+  fireEvent.change(screen.getByLabelText('cash'), { target: { value } })
+  fireEvent.click(screen.getByRole('button', { name: 'ยืนยันยอดเงินสด' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'ถูกต้อง' }))
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'ถูกต้อง' })).toBeNull())
 }
 
 beforeEach(() => {
@@ -79,30 +101,130 @@ describe('P0-2 cash taken at checkout must cover the payment', () => {
     expect(isCashShort('UNPAID', 0, 1000)).toBe(false)
   })
 
-  it('blocks confirm when cash received is less than the total (nothing saved)', async () => {
+  it('เงินสด then QR Code: back to the cash box, ยืนยัน → the QR for the rest → ได้รับเงินแล้ว → saved (owner 2026-11-06)', async () => {
+    mountCheckout([saleItem])
+    selectCashPayment()
+    fireEvent.click(screen.getByRole('button', { name: 'QR Code' }))
+    // both buttons lit, no QR yet: the cash amount comes first
+    expect(screen.getByRole('button', { name: 'เงินสด' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'QR Code' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByRole('dialog', { name: 'สแกนจ่ายด้วย QR Code' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
+    expect(await screen.findByText('ยังไม่ได้กรอกเงินสด')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'ตกลง' }))
+
+    fireEvent.change(screen.getByLabelText('cash'), { target: { value: '700' } })
+    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันยอดเงินสด' }))
+    expect(await screen.findByText(/ส่วนที่เหลือ 300\.00 บาท จ่ายด้วย QR Code/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'ถูกต้อง' }))
+    const qr = await screen.findByRole('dialog', { name: 'สแกนจ่ายด้วย QR Code' })
+    expect(qr.textContent).toMatch(/300\.00 บาท/)
+
+    // the QR closed before ได้รับเงินแล้ว: the bill waits for it
+    fireEvent.click(screen.getByRole('button', { name: 'ปิด' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
+    expect(await screen.findByText('ยังไม่ได้รับเงินทาง QR Code')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'ตกลง' }))
+    expect(mocks.saveDraft).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'แสดง QR กลางจอ' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'ได้รับเงินแล้ว' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
+    await waitFor(() =>
+      expect(mocks.confirm).toHaveBeenCalledWith('bill-1', [
+        expect.objectContaining({ method: 'CASH', amount: 700 }),
+        expect.objectContaining({ method: 'QR', amount: 300 }),
+      ])
+    )
+  })
+
+  it('QR Code then เงินสด: the QR first (the transfer typed there) → ได้รับเงินแล้ว → the cash for the rest → ยืนยัน → saved', async () => {
+    mountCheckout([saleItem])
+    fireEvent.click(screen.getByRole('button', { name: 'QR Code' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'ปิด' }))
+    selectCashPayment()
+    expect(await screen.findByRole('dialog', { name: 'สแกนจ่ายด้วย QR Code' })).toBeTruthy()
+    fireEvent.change(screen.getByRole('textbox', { name: 'ยอดที่ลูกค้าโอน' }), { target: { value: '400' } })
+    fireEvent.click(screen.getByRole('button', { name: 'ได้รับเงินแล้ว' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'สแกนจ่ายด้วย QR Code' })).toBeNull())
+
+    // the cash box for the rest must be confirmed, even left empty (= exactly the rest)
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
+    expect(await screen.findByText('ยังไม่ได้ยืนยันยอดเงินสด')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'ตกลง' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันยอดเงินสด' }))
+    expect(await screen.findByText(/ยอดที่ต้องชำระ 600\.00 บาท/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'ถูกต้อง' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'ถูกต้อง' })).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
+    await waitFor(() =>
+      expect(mocks.confirm).toHaveBeenCalledWith('bill-1', [
+        expect.objectContaining({ method: 'QR', amount: 400 }),
+        expect.objectContaining({ method: 'CASH', amount: 600 }),
+      ])
+    )
+  })
+
+  it('cash alone below the total does not move to QR by itself; the bill needs the whole amount', async () => {
     mountCheckout([saleItem])
     selectCashPayment()
     fireEvent.change(screen.getByLabelText('cash'), { target: { value: '500' } })
+    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันยอดเงินสด' }))
+    expect(await screen.findByText(/กดปุ่ม "QR Code" เพิ่ม/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'ถูกต้อง' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'ถูกต้อง' })).toBeNull())
+    expect(screen.queryByRole('dialog', { name: 'สแกนจ่ายด้วย QR Code' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
-    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith('เงินสดไม่ถูกต้อง', expect.any(String), 'ERROR'))
-    expect(mocks.saveDraft).not.toHaveBeenCalled()
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith('ยังรับเงินไม่ครบ', expect.stringContaining('500'), 'ERROR'))
     expect(mocks.confirm).not.toHaveBeenCalled()
+  })
+
+  it('pressing one of the two again takes it out (nothing is locked)', async () => {
+    mountCheckout([saleItem])
+    selectCashPayment()
+    fireEvent.click(screen.getByRole('button', { name: 'QR Code' }))
+    expect(screen.getByText('จ่าย 2 ช่องทาง')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'QR Code' }))
+    expect(screen.queryByText('จ่าย 2 ช่องทาง')).toBeNull()
+    expect(screen.getByRole('button', { name: 'QR Code' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByRole('button', { name: 'เงินสด' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('ค้างชำระ after a part was taken keeps that part; the rest stays owed (owner 2026-11-11)', async () => {
+    mountCheckout([saleItem])
+    selectCashPayment()
+    fireEvent.click(screen.getByRole('button', { name: 'QR Code' }))
+    await typeAndConfirmCash('500')
+    fireEvent.click(await screen.findByRole('button', { name: 'ปิด' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ค้างชำระ' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
+    await waitFor(() => expect(mocks.confirm).toHaveBeenCalledWith('bill-1', [expect.objectContaining({ method: 'CASH', amount: 500 })]))
+  })
+
+  it('cash confirmed for part of the amount, then ค้างชำระ: the bill is issued with that cash (owner 2026-11-11)', async () => {
+    mountCheckout([saleItem])
+    selectCashPayment()
+    await typeAndConfirmCash('500')
+    fireEvent.click(screen.getByRole('button', { name: 'ค้างชำระ' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
+    await waitFor(() => expect(mocks.confirm).toHaveBeenCalledWith('bill-1', [expect.objectContaining({ method: 'CASH', amount: 500 })]))
+    expect(mocks.toast).not.toHaveBeenCalledWith('ยังรับเงินไม่ครบ', expect.anything(), 'ERROR')
   })
 
   it('blocks confirm when the server total is above the cash typed in', async () => {
     mocks.fetchBill.mockResolvedValueOnce({ id: 'bill-1', grandTotal: 1200 })
     mountCheckout([saleItem])
     selectCashPayment()
-    fireEvent.change(screen.getByLabelText('cash'), { target: { value: '1000' } })
+    await typeAndConfirmCash('1000')
     fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
-    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith('เงินสดไม่ถูกต้อง', expect.any(String), 'ERROR'))
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith('ยอดเงินที่รับไม่พอ', expect.any(String), 'ERROR'))
     expect(mocks.confirm).not.toHaveBeenCalled()
   })
 
   it('pays the server total when cash covers it, and when the cash box is left empty', async () => {
     mountCheckout([saleItem])
     selectCashPayment()
-    fireEvent.change(screen.getByLabelText('cash'), { target: { value: '1500' } })
+    await typeAndConfirmCash('1500')
     fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledWith('bill-1', [expect.objectContaining({ method: 'CASH', amount: 1000 })]))
     cleanup()
@@ -113,14 +235,47 @@ describe('P0-2 cash taken at checkout must cover the payment', () => {
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledWith('bill-1', [expect.objectContaining({ method: 'CASH', amount: 1000 })]))
   })
 
-  it('requires an explicit payment choice; the system has three buttons: เงินสด, QR Code, ค้างชำระ (owner 2026-11-04)', () => {
+  it('requires an explicit payment choice; the system has three buttons: เงินสด, QR Code, ค้างชำระ (owner 2026-11-04)', async () => {
     mountCheckout([saleItem])
-    const confirmButton = screen.getByRole('button', { name: 'ออกบิล' }) as HTMLButtonElement
-    expect(confirmButton.disabled).toBe(true)
     expect(screen.getByRole('button', { name: 'QR Code' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /เงินโอน|โอนเงิน/ })).toBeNull()
+    // owner 2026-11-05: ออกบิล can be pressed; with no choice a centre warning says what to do
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
+    expect(await screen.findByText('ยังไม่ได้เลือกวิธีรับเงิน')).toBeTruthy()
+    expect(mocks.saveDraft).not.toHaveBeenCalled()
+  })
+
+  it('typed cash must be confirmed (ยืนยัน → ถูกต้อง) before ออกบิล; the pop-up itself saves nothing (owner 2026-11-05)', async () => {
+    mountCheckout([saleItem])
     selectCashPayment()
-    expect(confirmButton.disabled).toBe(false)
+    fireEvent.change(screen.getByLabelText('cash'), { target: { value: '1500' } })
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
+    expect(await screen.findByText('ยังไม่ได้ยืนยันยอดเงินสด')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'ตกลง' }))
+    expect(mocks.saveDraft).not.toHaveBeenCalled()
+
+    // แก้ไข = not confirmed
+    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันยอดเงินสด' }))
+    expect(await screen.findByText(/รับเงินสดมา 1,500\.00 บาท/)).toBeTruthy()
+    expect(screen.getByText(/เงินทอน 500\.00 บาท/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'แก้ไข' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
+    expect(await screen.findByText('ยังไม่ได้ยืนยันยอดเงินสด')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'ตกลง' }))
+    expect(mocks.saveDraft).not.toHaveBeenCalled()
+
+    // ถูกต้อง, then the amount is changed: confirm again
+    await typeAndConfirmCash('1500')
+    expect(mocks.saveDraft).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('cash'), { target: { value: '2000' } })
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
+    expect(await screen.findByText('ยังไม่ได้ยืนยันยอดเงินสด')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'ตกลง' }))
+    expect(mocks.saveDraft).not.toHaveBeenCalled()
+
+    await typeAndConfirmCash('2000')
+    fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
+    await waitFor(() => expect(mocks.confirm).toHaveBeenCalledWith('bill-1', [expect.objectContaining({ method: 'CASH', amount: 1000 })]))
   })
 
   it('records unpaid bills without credit classification or an immediate tender', async () => {
@@ -207,10 +362,10 @@ describe('P1-B2 retry after a failed confirm reuses the saved draft', () => {
     mocks.fetchBill.mockResolvedValueOnce({ id: 'bill-1', grandTotal: 1200 })
     mountCheckout([saleItem])
     selectCashPayment()
-    fireEvent.change(screen.getByLabelText('cash'), { target: { value: '1000' } })
+    await typeAndConfirmCash('1000')
     fireEvent.click(confirmButton())
-    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith('เงินสดไม่ถูกต้อง', expect.any(String), 'ERROR'))
-    fireEvent.change(screen.getByLabelText('cash'), { target: { value: '1500' } })
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith('ยอดเงินที่รับไม่พอ', expect.any(String), 'ERROR'))
+    await typeAndConfirmCash('1500')
     fireEvent.click(confirmButton())
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledOnce())
     expect(mocks.saveDraft.mock.calls[1][0]).toMatchObject({ billId: 'bill-1' })

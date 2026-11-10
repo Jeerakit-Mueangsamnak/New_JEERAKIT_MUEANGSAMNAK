@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useEffect, useState } from 'react'
 import { CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
@@ -146,7 +147,7 @@ export default function LineBindPage() {
             <button
               type="submit"
               disabled={phase === 'sending'}
-              className="w-full h-10 rounded-xl bg-[#06C755] hover:brightness-95 text-white font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full bg-[#06C755] hover:brightness-95 text-white flex items-center justify-center disabled:opacity-60`}
             >
               {phase === 'sending' && <Loader2 className="w-4 h-4 animate-spin" />}
               ยืนยันตัวตน
@@ -160,7 +161,7 @@ export default function LineBindPage() {
               <CheckCircle2 className="w-5 h-5 shrink-0" /> {message}
             </p>
             {liff?.isInClient() && (
-              <button type="button" onClick={() => liff.closeWindow()} className="w-full h-10 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-sm">
+              <button type="button" onClick={() => liff.closeWindow()} className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full border border-slate-300 dark:border-slate-700`}>
                 ปิดหน้านี้
               </button>
             )}

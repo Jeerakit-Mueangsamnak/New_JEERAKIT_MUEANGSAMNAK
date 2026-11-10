@@ -36,6 +36,13 @@ describe('server errors are shown in plain Thai', () => {
     expect(dbErrorMessage('FORBIDDEN: menu finance required')).toBe('บัญชีนี้ไม่มีสิทธิ์ใช้เมนูนี้')
     expect(dbErrorMessage('Failed to fetch')).toContain('รายการยังไม่ถูกบันทึก')
   })
+
+  it('connection / timeout / permission failures never show raw English', () => {
+    expect(dbErrorMessage('Expected 3 parts in JWT; got 1')).toContain('การเชื่อมต่อฐานข้อมูลไม่ถูกต้อง')
+    expect(dbErrorMessage('Invalid API key')).toContain('การเชื่อมต่อฐานข้อมูลไม่ถูกต้อง')
+    expect(dbErrorMessage('canceling statement due to statement timeout')).toContain('ใช้เวลานานเกินกำหนด')
+    expect(dbErrorMessage('new row violates row-level security policy for table "bills"')).toContain('ไม่มีสิทธิ์เข้าถึงข้อมูล')
+  })
 })
 
 describe('risky action PIN flow (Master §4.4: confirm → PIN → do it once)', () => {
@@ -100,7 +107,7 @@ describe('bill rows → bill screen (server numbers only)', () => {
     ...over,
   })
   const ctx = {
-    products: new Map([['p1', { id: 'p1', sku: 'NR-001', name: 'นั่งร้าน', default_damage_fee: 0, default_loss_fee: 0, unit_id: 'u1' }]]),
+    products: new Map([['p1', { id: 'p1', sku: 'NR-001', name: 'นั่งร้าน', default_damage_fee: 0, default_loss_fee: 0, unit_id: 'u1', is_rent_chargeable: true }]]),
     units: new Map([['u1', 'ชุด']]),
     customers: new Map([['c1', { id: 'c1', name: 'สมชาย', phone: '081', address: 'บางพลี' }]]),
     payments: [], refunds: [], charges: [],
@@ -134,6 +141,16 @@ describe('bill rows → bill screen (server numbers only)', () => {
 
   it('a draft shows a temporary label until the server gives the number', () => {
     expect(mapBill({ ...baseBill, bill_no: null, status: 'DRAFT' } as never, [], ctx).billNo).toMatch(/^ร่าง-/)
+  })
+
+  it('a confirmed bill shows the product and customer as written on it, not today\'s renamed master data', () => {
+    const b = mapBill(
+      { ...baseBill, customer_snapshot: { name: 'สมชาย (วันออกบิล)', phone: '089', address: 'บางนา' } } as never,
+      [line({ product_sku: 'NR-OLD', product_name: 'นั่งร้าน (ชื่อเดิม)', unit_name: 'ชุดเดิม' }) as never],
+      ctx
+    )
+    expect(b).toMatchObject({ customerName: 'สมชาย (วันออกบิล)', customerPhone: '089', customerAddress: 'บางนา' })
+    expect(b.items[0]).toMatchObject({ productCode: 'NR-OLD', productName: 'นั่งร้าน (ชื่อเดิม)', unit: 'ชุดเดิม' })
   })
 })
 
@@ -212,7 +229,6 @@ describe('return preview mirrors the server rules (no late fee, early return pro
     expect(r.netAmount).toBe(-400)
     expect(r.netRefundAmount).toBe(400)
     expect(r.deductFromDeposit).toBe(false)
-    expect(r.lateFeeTotal).toBe(0)
   })
   it('per-round items: an early return changes nothing; late return has no fee', () => {
     const r = computeReturnCalculation('2026-10-01', '2026-10-07', '2026-10-03', [item({ rentalType: 'NORMAL', usageCount: 1 })], 0, false, 0, undefined,
@@ -221,7 +237,7 @@ describe('return preview mirrors the server rules (no late fee, early return pro
     const late = computeReturnCalculation('2026-10-01', '2026-10-07', '2026-10-12', [item({})], 0, false, 0, undefined,
       { grandTotal: 700, paidAmount: 700, outstandingAmount: 0 })
     expect(late.lateDays).toBe(5)
-    expect(late.lateFeeTotal).toBe(0)
+    expect(late).not.toHaveProperty('lateFeeTotal') // no late fee anywhere (owner 2026-11-06)
     expect(late.netAmount).toBe(0)
   })
   it('damage and lost fees are what staff confirm', () => {

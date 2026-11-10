@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
@@ -182,8 +183,8 @@ export function PaymentRefundModal({ isOpen, rentalBillId, billNo, onClose, onSu
         </div>
       </AppModalBody>
       <AppModalFooter>
-        <button type="button" onClick={onClose} disabled={saving} className="rounded-xl border border-slate-300 px-4 py-2 font-bold text-slate-700 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200">ยกเลิก</button>
-        <button type="button" onClick={submit} disabled={saving || loading || !selected} className="rounded-xl bg-red-600 px-4 py-2 font-extrabold text-white hover:bg-red-700 disabled:opacity-50">{saving ? 'กำลังคืนเงิน...' : 'ยืนยันคืนเงิน'}</button>
+        <button type="button" onClick={onClose} disabled={saving} className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 text-slate-700 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200`}>ยกเลิก</button>
+        <button type="button" onClick={submit} disabled={saving || loading || !selected} className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-red-600 text-white hover:bg-red-700 disabled:opacity-50`}>{saving ? 'กำลังคืนเงิน...' : 'ยืนยันคืนเงิน'}</button>
       </AppModalFooter>
     </AppModal>
   )

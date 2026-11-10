@@ -39,32 +39,3 @@ function cleanCustom(raw: unknown): AppointmentTypeOption[] {
     .map((t) => ({ id: String(t.id ?? '').trim(), label: String(t.label ?? '').trim(), code: 'GENERAL' as const, custom: true }))
     .filter((t) => t.id && t.label)
 }
-
-export function loadAppointmentTypes(): AppointmentTypeOption[] {
-  return [...BUILT_IN_APPOINTMENT_TYPES, ...cleanCustom(getPolicy<unknown>(APPOINTMENT_TYPES_POLICY_KEY, []))]
-}
-
-/** Empty or duplicate names are refused (message in Thai); returns the saved type. */
-export async function addAppointmentType(name: string): Promise<AppointmentTypeOption> {
-  const label = name.trim()
-  if (!plainTypeName(label)) throw new Error('กรุณาระบุชื่อประเภทนัดหมาย')
-  const all = loadAppointmentTypes()
-  if (all.some((t) => sameName(t.label, label))) throw new Error(`ประเภท "${label}" มีอยู่แล้ว`)
-  const custom = all.filter((t) => t.custom)
-  const id = `custom-${Date.now()}`
-  const saved = await savePolicies(
-    { [APPOINTMENT_TYPES_POLICY_KEY]: [...custom.map((t) => ({ id: t.id, label: t.label })), { id, label }] },
-    `เพิ่มประเภทนัดหมาย: ${label}`
-  )
-  const added = cleanCustom(saved[APPOINTMENT_TYPES_POLICY_KEY]).find((t) => t.id === id)
-  if (!added) throw new Error('บันทึกประเภทนัดหมายไม่สำเร็จ')
-  return added
-}
-
-/** The type an appointment shows: the added type it was saved with, else its built-in type. */
-export function appointmentTypeOf(apt: { type: AppointmentType; appointmentTypeId?: string; appointmentTypeLabel?: string }): AppointmentTypeOption {
-  if (apt.appointmentTypeId && apt.appointmentTypeLabel) {
-    return { id: apt.appointmentTypeId, label: apt.appointmentTypeLabel, code: apt.type, custom: true }
-  }
-  return BUILT_IN_APPOINTMENT_TYPES.find((t) => t.id === apt.type) ?? BUILT_IN_APPOINTMENT_TYPES[BUILT_IN_APPOINTMENT_TYPES.length - 1]
-}

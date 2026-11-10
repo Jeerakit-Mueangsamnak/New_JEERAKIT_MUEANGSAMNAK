@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES, TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
 
 /**
  * Settings › LINE: the driver list (ทะเบียนคนขับ). Drivers are not app users; each gets a code
@@ -8,13 +9,16 @@
  * shop, or the link sent to the driver); it opens the shop chat with the code typed in and one send
  * links that LINE (one driver code = one LINE). Shown on คนใน LINE (/line).
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import QRCode from 'qrcode'
 import Image from 'next/image'
 import { Copy, Link2Off, Pencil, Plus, RefreshCw, Truck } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
+import { useDataActions } from '@/components/common/useDataActions'
 import { createClient } from '@/lib/supabase/client'
+import { DbError } from '@/lib/db/rpc'
+import { loadAppointments } from '@/features/appointments/services/appointment-storage'
 import { createDriverLineLinkCode, unlinkLineContact } from '@/app/actions/line'
 import { LineContactInfo, type LineReviewContact } from '@/features/settings/components/LineInviteButton'
 import {
@@ -23,13 +27,8 @@ import {
   saveDrivers,
   type DeliveryDriver,
 } from '@/features/appointments/services/driver-registry'
-import {
-  SETTINGS_HELPER,
-  SETTINGS_INPUT,
-  SETTINGS_LABEL,
-  SETTINGS_SECTION,
-  SETTINGS_SECTION_TITLE,
-} from '@/features/settings/components/settings-ui'
+import { SETTINGS_HELPER, SETTINGS_INPUT } from '@/features/settings/components/settings-ui'
+import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_TH_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
 
 interface DriverContact extends LineReviewContact {
   driver_code: string
@@ -46,11 +45,13 @@ function leftText(ms: number) {
   return s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} นาที` : 'หมดอายุแล้ว'
 }
 
-const PILL = 'inline-flex items-center h-5 px-2 rounded-full text-[10px] font-bold'
+const PILL = 'inline-flex items-center h-5 px-2 rounded-full text-[10px] font-bold whitespace-nowrap'
 
-export function DeliveryDriversPanel() {
+/** `tabs`: the page tab bar, shown first in the toolbar row before the add-driver fields. */
+export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
   const { showToast } = useToast()
   const confirm = useConfirm()
+  const { confirmSuspend, deleteOrSuspend } = useDataActions()
   const [now, setNow] = useState(() => Date.now())
   const [contacts, setContacts] = useState<Record<string, DriverContact>>({})
   const [lineReady, setLineReady] = useState(true)
@@ -162,7 +163,7 @@ export function DeliveryDriversPanel() {
             type="button"
             disabled={lineBusy === d.id}
             onClick={() => void unlink(d, contact)}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer"
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer`}
           >
             <Link2Off className="w-3.5 h-3.5" /> ยกเลิกการผูก
           </button>
@@ -205,7 +206,7 @@ export function DeliveryDriversPanel() {
                 <button
                   type="button"
                   onClick={() => void copyLink(code.oaUrl as string)}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-300 cursor-pointer"
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer`}
                 >
                   <Copy className="w-3 h-3" /> คัดลอกลิงก์
                 </button>
@@ -214,7 +215,7 @@ export function DeliveryDriversPanel() {
                 type="button"
                 disabled={lineBusy === d.id}
                 onClick={() => void issueCode(d.id)}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50"
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50`}
               >
                 <RefreshCw className="w-3 h-3" /> สร้างลิงก์ใหม่
               </button>
@@ -228,7 +229,7 @@ export function DeliveryDriversPanel() {
         type="button"
         disabled={lineBusy === d.id}
         onClick={() => void issueCode(d.id)}
-        className="px-2 py-1 rounded-lg text-[11px] font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer disabled:opacity-50"
+        className={`${COMMAND_BUTTON_SIZE_CLASSES} text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer disabled:opacity-50`}
       >
         สร้างลิงก์
       </button>
@@ -280,110 +281,158 @@ export function DeliveryDriversPanel() {
     }
   }
 
-  const toggleActive = (d: DeliveryDriver) =>
-    void persist(
-      drivers.map((x) => (x.id === d.id ? { ...x, active: !x.active } : x)),
-      `${d.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}คนขับ ${d.id}`,
-      d.active ? `ปิดใช้งาน ${d.name} แล้ว` : `เปิดใช้งาน ${d.name} แล้ว`
+  const setActive = (d: DeliveryDriver, active: boolean) =>
+    persist(
+      drivers.map((x) => (x.id === d.id ? { ...x, active } : x)),
+      `${active ? 'เปิดใช้งาน' : 'ระงับ'}คนขับ ${d.id}`,
+      active ? `เปิดใช้งาน ${d.name} แล้ว` : `ระงับการใช้งาน ${d.name} แล้ว`
     )
 
-  return (
-    <div className={SETTINGS_SECTION}>
-      <h4 className={SETTINGS_SECTION_TITLE}>
-        <Truck className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-        <span>พนักงานส่งของ (คนขับ)</span>
-      </h4>
-      <p className={SETTINGS_HELPER}>
-        ใช้เพิ่มพนักงานส่งของที่ไม่ต้องเข้าใช้ระบบ · ระบบออกรหัสให้เอง (D001, D002, …) และรายชื่อนี้จะขึ้นในช่องเลือกคนขับตอนกดสั่งงานในเมนูนัดหมาย · บันทึกทันทีเมื่อกดปุ่ม
-      </p>
+  const toggleActive = async (d: DeliveryDriver) => {
+    if (d.active && !(await confirmSuspend(`พนักงานส่งของ "${d.name}" (${d.id})`))) return
+    await setActive(d, !d.active)
+  }
 
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-end max-w-2xl">
-        <div>
-          <label className={SETTINGS_LABEL} htmlFor="driver-name">
-            ชื่อ-นามสกุลพนักงานส่งของ {editingId && <span className="text-blue-600 dark:text-blue-400">(กำลังแก้ {editingId})</span>}
-          </label>
-          <input id="driver-name" className={SETTINGS_INPUT} value={name} maxLength={100} onChange={(e) => setName(e.target.value)} placeholder="เช่น สมชาย" />
-        </div>
-        <div>
-          <label className={SETTINGS_LABEL} htmlFor="driver-phone">
-            เบอร์โทร (ไม่บังคับ)
-          </label>
-          <input id="driver-phone" className={SETTINGS_INPUT} value={phone} maxLength={20} inputMode="tel" onChange={(e) => setPhone(e.target.value)} placeholder="08x-xxx-xxxx" />
-        </div>
-        <div className="flex gap-2">
+  // Drivers live in the shop settings, so the dependency check is here: appointments sent to the driver,
+  // LINE tasks for the driver, and a linked LINE. Any of them = used (ระงับ instead of ลบ).
+  const driverUses = async (d: DeliveryDriver): Promise<number> => {
+    const appointments = loadAppointments().filter((a) => a.driverId === d.id).length
+    const { count, error } = await createClient()
+      .from('line_tasks')
+      .select('id', { count: 'exact', head: true })
+      .eq('driver_code', d.id)
+    if (error && lineReady) throw new Error('ตรวจสอบประวัติงานของพนักงานไม่สำเร็จ กรุณาลองใหม่')
+    return appointments + (count ?? 0) + (contacts[d.id] ? 1 : 0)
+  }
+
+  const removeDriver = async (d: DeliveryDriver) => {
+    try {
+      await deleteOrSuspend({
+        name: `พนักงานส่งของ "${d.name}" (${d.id})`,
+        remove: async () => {
+          const uses = await driverUses(d)
+          if (uses > 0) throw new DbError(`DRIVER_IN_USE: ${uses}`)
+          if (!(await persist(drivers.filter((x) => x.id !== d.id), `ลบคนขับ ${d.id}`, `ลบ ${d.name} แล้ว`))) {
+            throw new Error('ลบพนักงานส่งของไม่สำเร็จ')
+          }
+        },
+        suspend: d.active ? () => setActive(d, false) : undefined,
+      })
+    } catch (err) {
+      showToast('ลบพนักงานส่งของไม่สำเร็จ', err instanceof Error ? err.message : 'เกิดข้อผิดพลาด', 'ERROR')
+    }
+  }
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col">
+      {/* Toolbar: the page tabs, then add / edit a driver in the same row */}
+      <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-wrap items-center`}>
+        {tabs}
+        <form onSubmit={handleSubmit} className="flex-1 min-w-[min(100%,26rem)] flex items-center gap-2">
+          <input
+            id="driver-name"
+            aria-label="ชื่อ-นามสกุลพนักงานส่งของ"
+            className={`${SETTINGS_INPUT} flex-1 min-w-0`}
+            value={name}
+            maxLength={100}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="ชื่อ-นามสกุลพนักงานส่งของ"
+          />
+          <input
+            id="driver-phone"
+            aria-label="เบอร์โทร (ไม่บังคับ)"
+            className={`${SETTINGS_INPUT} flex-1 min-w-0`}
+            value={phone}
+            maxLength={20}
+            inputMode="tel"
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="เบอร์โทร (ไม่บังคับ)"
+          />
           <button
             type="submit"
             disabled={saving}
-            className="h-9 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} shrink-0 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white flex items-center cursor-pointer`}
           >
             {editingId ? <Pencil className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
             {editingId ? 'บันทึกการแก้ไข' : lineReady ? 'บันทึกและสร้างลิงก์' : 'เพิ่มพนักงานส่งของ'}
           </button>
           {editingId && (
-            <button type="button" onClick={resetForm} className="h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
+            <button type="button" onClick={resetForm} className={`${COMMAND_BUTTON_SIZE_CLASSES} shrink-0 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer`}>
               ยกเลิก
             </button>
           )}
-        </div>
-      </form>
+        </form>
+        {!lineReady && <p className="basis-full text-[11px] text-amber-700 dark:text-amber-300">ระบบ LINE ยังไม่พร้อมในฐานข้อมูลนี้ จึงยังผูก LINE คนขับไม่ได้</p>}
+      </div>
 
-      {!lineReady && <p className="text-[11px] text-amber-700 dark:text-amber-300">ระบบ LINE ยังไม่พร้อมในฐานข้อมูลนี้ จึงยังผูก LINE คนขับไม่ได้</p>}
-      {drivers.length === 0 ? (
-        <p className={SETTINGS_HELPER}>ยังไม่มีพนักงานส่งของ</p>
-      ) : (
-        <div className="overflow-x-auto max-w-3xl">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-left text-[11px] text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
-                <th className="py-1.5 pr-2 font-semibold">รหัส</th>
-                <th className="py-1.5 pr-2 font-semibold">ชื่อ</th>
-                <th className="py-1.5 pr-2 font-semibold">เบอร์โทร</th>
-                <th className="py-1.5 pr-2 font-semibold">LINE</th>
-                <th className="py-1.5 pr-2 font-semibold">สถานะ</th>
-                <th className="py-1.5 font-semibold" />
+      <DataTableFrame
+        fill
+        rowCount={drivers.length}
+        className="flex-1 min-h-0 min-w-0 rounded-none bg-transparent"
+      >
+        <table className={`${DATA_TABLE_CLASSES} text-[11px] leading-tight`}>
+          <thead className={`${DATA_TABLE_THEAD_CLASSES} text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 text-xs`}>
+            <tr>
+              <th className={`px-3 ${DATA_TABLE_TH_CLASSES}`}>รหัส</th>
+              <th className={`px-2 ${DATA_TABLE_TH_CLASSES}`}>ชื่อ</th>
+              <th className={`px-2 ${DATA_TABLE_TH_CLASSES}`}>เบอร์โทร</th>
+              <th className={`px-2 ${DATA_TABLE_TH_CLASSES}`}>LINE</th>
+              <th className={`px-2 text-center ${DATA_TABLE_TH_CLASSES}`}>สถานะ</th>
+              <th className={`px-3 text-right ${DATA_TABLE_TH_CLASSES}`}>จัดการ</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+            {drivers.map((d) => (
+              <tr key={d.id} className={`hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors ${d.active ? '' : 'opacity-60'}`}>
+                <td className="px-3 py-2 font-mono font-bold text-blue-600 dark:text-blue-400">{d.id}</td>
+                <td className="px-2 py-2 font-bold text-slate-900 dark:text-slate-100">
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                    {d.name}
+                    {d.active && statusPill(d)}
+                  </span>
+                </td>
+                <td className="px-2 py-2 tabular-nums text-slate-600 dark:text-slate-400">{d.phone || '-'}</td>
+                <td className="px-2 py-2">{lineCell(d)}</td>
+                <td className="px-2 py-2 text-center">
+                  <span className={`${PILL} ${d.active ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}>
+                    {d.active ? 'ใช้งาน' : 'ปิดใช้งาน'}
+                  </span>
+                </td>
+                <td className="px-3 py-2 text-right whitespace-nowrap">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => {
+                      setEditingId(d.id)
+                      setName(d.name)
+                      setPhone(d.phone || '')
+                    }}
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 cursor-pointer`}
+                  >
+                    แก้ไข
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void toggleActive(d)}
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer`}
+                  >
+                    {d.active ? 'ระงับ' : 'เปิดใช้งาน'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void removeDriver(d)}
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer`}
+                  >
+                    ลบ
+                  </button>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {drivers.map((d) => (
-                <tr key={d.id} className={`border-b border-slate-100 dark:border-slate-800 ${d.active ? '' : 'opacity-60'}`}>
-                  <td className="py-1.5 pr-2 font-mono font-bold">{d.id}</td>
-                  <td className="py-1.5 pr-2 font-semibold text-slate-800 dark:text-slate-200">
-                    <span className="inline-flex flex-wrap items-center gap-1.5">
-                      {d.name}
-                      {d.active && statusPill(d)}
-                    </span>
-                  </td>
-                  <td className="py-1.5 pr-2 font-mono">{d.phone || '-'}</td>
-                  <td className="py-1.5 pr-2">{lineCell(d)}</td>
-                  <td className="py-1.5 pr-2">{d.active ? 'ใช้งาน' : 'ปิดใช้งาน'}</td>
-                  <td className="py-1.5 text-right whitespace-nowrap">
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={() => {
-                        setEditingId(d.id)
-                        setName(d.name)
-                        setPhone(d.phone || '')
-                      }}
-                      className="px-2 py-1 rounded-lg text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 cursor-pointer"
-                    >
-                      แก้ไข
-                    </button>
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={() => toggleActive(d)}
-                      className="px-2 py-1 rounded-lg text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                    >
-                      {d.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+            ))}
+          </tbody>
+        </table>
+      </DataTableFrame>
     </div>
   )
 }

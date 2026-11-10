@@ -25,141 +25,6 @@ function useEscape(open: boolean, close: () => void) {
     return () => document.removeEventListener('keydown', onKey, true)
   }, [open, close])
 }
-
-/* ---------------- ประเภทนัดหมาย: pick one or type a new name in the same box ---------------- */
-
-export function AppointmentTypeCombobox({
-  value,
-  options,
-  onSelect,
-  onCreate,
-}: {
-  /** Selected type id */
-  value: string
-  options: AppointmentTypeOption[]
-  onSelect: (type: AppointmentTypeOption) => void
-  /** Saves a new type; rejects with a Thai message (empty / duplicate / not allowed). */
-  onCreate: (name: string) => Promise<AppointmentTypeOption>
-}) {
-  const selected = options.find((o) => o.id === value)
-  const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const [error, setError] = useState('')
-  const [saving, setSaving] = useState(false)
-  const boxRef = useRef<HTMLDivElement>(null)
-  const listRef = useRef<HTMLDivElement>(null)
-  const listId = React.useId()
-  const { coords } = useFloatingPlacement(boxRef, open, { matchTriggerWidth: true, estimatedHeight: 240, offset: 4 })
-
-  const close = React.useCallback(() => {
-    setOpen(false)
-    setQuery('')
-    setError('')
-  }, [])
-  useClickOutside([boxRef, listRef], close, open)
-  useEscape(open, close)
-
-  const q = plainTypeName(query).toLocaleLowerCase()
-  const shown = q ? options.filter((o) => plainTypeName(o.label).toLocaleLowerCase().includes(q)) : options
-  const exact = q !== '' && options.some((o) => plainTypeName(o.label).toLocaleLowerCase() === q)
-
-  const pick = (o: AppointmentTypeOption) => {
-    onSelect(o)
-    close()
-  }
-  const create = async () => {
-    if (saving) return
-    setSaving(true)
-    setError('')
-    try {
-      pick(await onCreate(query))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'บันทึกประเภทนัดหมายไม่สำเร็จ')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div ref={boxRef} className="relative">
-      <input
-        type="text"
-        role="combobox"
-        aria-label="ประเภทนัดหมาย"
-        aria-expanded={open}
-        aria-controls={listId}
-        value={open ? query : selected?.label ?? ''}
-        placeholder={open ? selected?.label || 'พิมพ์ค้นหาหรือเพิ่มประเภทใหม่' : 'เลือกประเภทนัดหมาย'}
-        onFocus={() => setOpen(true)}
-        onClick={() => setOpen(true)}
-        onChange={(e) => {
-          setQuery(e.target.value)
-          setError('')
-          setOpen(true)
-        }}
-        onKeyDown={(e) => {
-          if (e.key !== 'Enter') return
-          e.preventDefault()
-          if (exact) pick(shown.find((o) => plainTypeName(o.label).toLocaleLowerCase() === q)!)
-          else if (q) void create()
-        }}
-        className={`${FIELD} pr-7`}
-      />
-      <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-600 dark:text-slate-400 pointer-events-none" />
-      {open && (
-        <ModalPortal>
-          <div
-            ref={listRef}
-            id={listId}
-            role="listbox"
-            style={{
-              position: 'fixed',
-              top: coords.top,
-              bottom: coords.bottom,
-              left: coords.left,
-              width: coords.width,
-              maxHeight: coords.maxHeight ?? 240,
-              zIndex: 9999,
-            }}
-            className={`${POPOVER} overflow-y-auto space-y-0.5`}
-          >
-            {shown.map((o) => (
-              <button
-                key={o.id}
-                type="button"
-                role="option"
-                aria-selected={o.id === value}
-                onClick={() => pick(o)}
-                className={`w-full text-left px-3 py-2 rounded-lg font-bold flex items-center justify-between gap-2 cursor-pointer ${
-                  o.id === value
-                    ? 'bg-slate-100 dark:bg-slate-700 text-emerald-700 dark:text-emerald-300'
-                    : 'text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/80'
-                }`}
-              >
-                <span className="truncate">{o.label}</span>
-                {o.id === value && <Check className="w-3.5 h-3.5 shrink-0" />}
-              </button>
-            ))}
-            {q && !exact && (
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void create()}
-                className="w-full text-left px-3 py-2 rounded-lg font-bold flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer disabled:opacity-50"
-              >
-                <Plus className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">เพิ่มประเภท &quot;{query.trim()}&quot;</span>
-              </button>
-            )}
-            {shown.length === 0 && !q && <div className="px-3 py-2 text-center text-slate-600 dark:text-slate-400 text-[11px]">ยังไม่มีรายการ</div>}
-            {error && <div className="px-3 py-1.5 text-[11px] font-bold text-red-700 dark:text-red-400">{error}</div>}
-          </div>
-        </ModalPortal>
-      )}
-    </div>
-  )
-}
-
 /* ---------------- เวลา: type HH:MM or pick hour / minute (24 hours) ---------------- */
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -250,7 +115,8 @@ export function TimeField({ value, onChange, label }: { value: string; onChange:
             ].map((col) => (
               <div key={col.title} role="group" aria-label={col.title} className="min-w-0">
                 <p className="px-1 py-0.5 text-[10px] font-bold text-slate-600 dark:text-slate-400 text-center">{col.title}</p>
-                <div className="h-48 overflow-y-auto space-y-0.5 pr-0.5">
+                {/* Scrolls by wheel / touch / keyboard; the scroll bar itself is hidden */}
+                <div className="h-48 overflow-y-auto no-scrollbar space-y-0.5">
                   {col.list.map((v) => (
                     <button key={v} type="button" data-selected={v === col.on} onClick={() => col.set(v)} className={cell(v === col.on)}>
                       {v}

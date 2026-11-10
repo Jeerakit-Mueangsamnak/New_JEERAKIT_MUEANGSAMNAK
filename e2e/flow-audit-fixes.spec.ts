@@ -31,7 +31,7 @@ test('แบบฟอร์ม PDF 10 หน้า บันทึกเข้�
   await page.getByLabel('ไฟล์ต้นฉบับแบบฟอร์ม').setInputFiles({ name: 'contract-10.pdf', mimeType: 'application/pdf', buffer: tenPagePdf() });
   await expect(page.getByText('แปลงครบ 10 หน้า')).toBeVisible({ timeout: 60000 });
   await page.getByPlaceholder('ชื่อแบบฟอร์ม / ชื่อเอกสาร').fill(name);
-  await page.getByRole('button', { name: /บันทึก Template เข้าคลังระบบ/ }).click();
+  await page.getByRole('button', { name: /บันทึกเข้าคลังระบบ/ }).click();
 
   await expect.poll(() => sql(`select page_count, octet_length(template_schema) from public.document_templates where name = ${lit(name)}`)[0], { timeout: 20000 })
     .toEqual([expect.stringMatching(/^10$/), expect.any(String)]);
@@ -48,9 +48,9 @@ test('ปิดใช้งานสินค้า (ไม่ลบ) แล้�
     await page.getByPlaceholder('ค้นหาชื่อหรือรหัสสินค้า...').fill(productName);
     const row = page.locator('tr', { hasText: productName }).first();
     await row.getByRole('button', { name: 'ปิดใช้งานสินค้า' }).click();
-    await expect(page.getByText('ไม่สามารถเรียกคืน')).toHaveCount(0);
-    await expect(page.getByText(/ข้อมูลและประวัติเดิมยังอยู่ครบ/)).toBeVisible();
-    await page.getByRole('button', { name: 'ยืนยันปิดใช้งาน' }).click();
+    await expect(page.getByText('ยืนยันการระงับการใช้งานข้อมูล')).toBeVisible();
+    await expect(page.getByText(/ข้อมูลในบิลเก่าและรายงานย้อนหลังจะยังคงอยู่ครบถ้วน/)).toBeVisible();
+    await page.getByRole('button', { name: 'ยืนยันการระงับ' }).click();
     await expect.poll(active, { timeout: 20000 }).toBe('f');
     await expect(row.getByText('ปิดใช้งาน', { exact: true })).toBeVisible();
 

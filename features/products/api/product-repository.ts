@@ -13,16 +13,6 @@ import type { Product, RentalType } from '@/lib/types/rental-pos'
 export function isValidUUID(val?: string | null): boolean {
   return typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)
 }
-
-export function generateUUID(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0
-    const v = c === 'x' ? r : (r & 0x3) | 0x8
-    return v.toString(16)
-  })
-}
-
 function isPlaceholderConfig(): boolean {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
@@ -309,6 +299,14 @@ export async function deleteProductFromSupabase(id: string, reason?: string): Pr
   await rpc('product_set_active', { p_product_id: id, p_active: false, p_reason: reason?.trim() || 'ปิดใช้งานสินค้า' })
 }
 
+/**
+ * Deletes a product (product_delete). Never used: deleted for real with its own stock history.
+ * Used: refused with PRODUCT_IN_USE: <documents>, and the app offers ระงับ instead (standard 2026-11-08).
+ */
+export async function hardDeleteProductInSupabase(id: string): Promise<void> {
+  await rpc('product_delete', { p_product_id: id, p_reason: 'ลบสินค้า' })
+}
+
 /** Turns a deactivated product back on (it shows in POS / quotations again). */
 export async function reactivateProductInSupabase(id: string): Promise<void> {
   await rpc('product_set_active', { p_product_id: id, p_active: true, p_reason: 'เปิดใช้งานสินค้า' })
@@ -323,9 +321,9 @@ export async function saveCategoryToSupabase(category: { id?: string; name: stri
   return r.id
 }
 
-/** Categories in use cannot disappear: "delete" = deactivate. */
-export async function deleteCategoryFromSupabase(id: string, name: string): Promise<void> {
-  await rpc('product_category_save', { p_category_id: id, p_name: name, p_active: false })
+/** ลบถาวร a category no product uses (CATEGORY_IN_USE otherwise); ระงับ = saveCategoryToSupabase isActive false. */
+export async function deleteCategoryFromSupabase(id: string): Promise<void> {
+  await rpc('product_category_delete', { p_category_id: id })
 }
 
 export async function saveUnitToSupabase(unit: { id?: string; name: string; isActive?: boolean; sortOrder?: number }): Promise<string> {
@@ -338,8 +336,9 @@ export async function saveUnitToSupabase(unit: { id?: string; name: string; isAc
   return r.id
 }
 
-export async function deleteUnitFromSupabase(id: string, name: string): Promise<void> {
-  await rpc('unit_save', { p_unit_id: id, p_name: name, p_active: false })
+/** ลบถาวร a unit no product uses (UNIT_IN_USE otherwise); ระงับ = saveUnitToSupabase isActive false. */
+export async function deleteUnitFromSupabase(id: string): Promise<void> {
+  await rpc('unit_delete', { p_unit_id: id })
 }
 
 // ─── stock (all PIN + audit, Master §4.4 / §11) ─────────────────────────────
@@ -356,15 +355,6 @@ export interface StockMovementRow {
   created_at: string
   created_by: string
 }
-
-export async function fetchStockMovementsFromSupabase(productId?: string): Promise<StockMovementRow[]> {
-  if (isPlaceholderConfig()) return []
-  const supabase = createClient()
-  let q = supabase.from('stock_movements').select('*').order('created_at', { ascending: false }).limit(2000)
-  if (productId) q = q.eq('product_id', productId)
-  return selectRows<StockMovementRow>(q)
-}
-
 /** รับสินค้าเข้าสต็อก — PIN + audit (owner decision 2026-10-04). */
 export async function receiveStock(productId: string, quantity: number, reason: string, productName?: string): Promise<void> {
   const key = newIdempotencyKey()

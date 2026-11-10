@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -46,7 +47,7 @@ function ForgotPin() {
       type="button"
       onClick={handleBack}
       aria-label="ย้อนกลับ"
-      className="fixed bottom-3 right-3 sm:bottom-5 sm:right-5 z-[60] px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+      className={`${COMMAND_BUTTON_SIZE_CLASSES} fixed bottom-3 right-3 sm:bottom-5 sm:right-5 z-[60] bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 flex items-center transition-colors shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600`}
     >
       <ArrowLeft className="w-4 h-4" aria-hidden="true" />
       <span>ย้อนกลับ</span>
@@ -121,7 +122,6 @@ function ForgotPin() {
       <div className="w-full max-w-sm mx-auto space-y-4">
         <div>
           <h2 className="text-[26px] font-bold text-slate-900 dark:text-white">ลืม PIN</h2>
-          <p className="text-xs text-slate-600 dark:text-slate-400">ยืนยันตัวตนก่อน แล้วตั้ง PIN ใหม่ — ระบบเปลี่ยนเฉพาะ PIN ไม่แตะข้อมูลอื่น</p>
         </div>
 
         {error && (
@@ -138,7 +138,7 @@ function ForgotPin() {
         {!verified ? (
           <div className="space-y-4">
             <button type="button" disabled={busy} onClick={() => void sendEmailLink()}
-              className="w-full flex items-center justify-center gap-2 rounded-2xl bg-blue-600 text-white py-3 text-sm font-bold disabled:opacity-50">
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full flex items-center justify-center bg-blue-600 text-white disabled:opacity-50`}>
               <Mail className="w-4 h-4" /> ส่งลิงก์ยืนยันทางอีเมล
             </button>
             <div className="text-center text-[11px] text-slate-600 dark:text-slate-400">หรือ</div>
@@ -146,7 +146,7 @@ function ForgotPin() {
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="รหัสผ่านของบัญชี"
                 className="w-full rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2.5 text-sm" />
               <button type="button" disabled={busy || !password} onClick={() => void verifyPassword()}
-                className="w-full flex items-center justify-center gap-2 rounded-2xl border border-slate-300 dark:border-slate-700 py-2.5 text-sm font-bold disabled:opacity-50">
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full flex items-center justify-center border border-slate-300 dark:border-slate-700 disabled:opacity-50`}>
                 <KeyRound className="w-4 h-4" /> ยืนยันด้วยรหัสผ่าน
               </button>
             </div>
@@ -158,7 +158,7 @@ function ForgotPin() {
             <input type="password" inputMode="numeric" value={pin2} onChange={(e) => setPin2(e.target.value.replace(/\D/g, '').slice(0, 6))}
               placeholder="ยืนยัน PIN ใหม่" className="w-full rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2.5 text-center tracking-[0.4em] font-mono" />
             <button type="button" disabled={busy || pin.length !== 6 || pin2.length !== 6} onClick={() => void saveNewPin()}
-              className="w-full rounded-2xl bg-blue-600 text-white py-3 text-sm font-bold disabled:opacity-50">
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full bg-blue-600 text-white disabled:opacity-50`}>
               ตั้ง PIN ใหม่
             </button>
           </div>

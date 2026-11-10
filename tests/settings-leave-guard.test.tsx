@@ -55,4 +55,31 @@ describe('settings: leaving with unsaved edits (audit UX-15)', () => {
     window.dispatchEvent(event)
     expect(event.defaultPrevented).toBe(true)
   })
+
+  it('unsaved edits → browser back asks first; staying restores the current page', async () => {
+    const pushState = vi.spyOn(window.history, 'pushState')
+    const back = vi.spyOn(window.history, 'back').mockImplementation(() => {})
+    renderPage(true)
+
+    act(() => window.dispatchEvent(new PopStateEvent('popstate')))
+
+    expect(screen.getByText('ยังไม่ได้บันทึกการตั้งค่า')).toBeTruthy()
+    expect(pushState).toHaveBeenCalled()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'อยู่หน้านี้ต่อ' }))
+    })
+    expect(back).not.toHaveBeenCalled()
+  })
+
+  it('unsaved edits → browser back proceeds only after confirmation', async () => {
+    const back = vi.spyOn(window.history, 'back').mockImplementation(() => {})
+    renderPage(true)
+
+    act(() => window.dispatchEvent(new PopStateEvent('popstate')))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'ออกโดยไม่บันทึก' }))
+    })
+
+    expect(back).toHaveBeenCalledTimes(1)
+  })
 })

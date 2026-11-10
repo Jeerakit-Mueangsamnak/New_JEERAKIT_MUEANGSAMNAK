@@ -26,7 +26,7 @@ import {
   QUOTATION_WAITING_STATUSES,
 } from '@/features/quotations/services/quotation-storage'
 import { renderQuotationA4Html, thaiDocDate } from '@/features/documents/utils/transaction-print'
-import { QUOTATION_STARTER_TEMPLATE } from '@/features/documents/constants/initialDocumentTemplates'
+import type { DocumentTemplate } from '@/lib/types/document'
 import { thaiBahtText, rentalTermLabel } from '@/features/documents/utils/documentRenderer'
 import type { Product, Quotation } from '@/lib/types/rental-pos'
 
@@ -146,29 +146,32 @@ describe('quotation list status', () => {
   })
 })
 
+// The shop's quotation form (จัดการเอกสาร › แบบฟอร์มบิล › ใบเสนอราคา): one field per item cell.
+const quotationForm: DocumentTemplate = {
+  id: 'tpl-q', name: 'ใบเสนอราคา', category: 'ใบเสนอราคา', targetGroup: 'BILL', source: 'CONVERTED_IMPORT', fileType: 'HTML',
+  paperSize: 'A4', orientation: 'PORTRAIT', pageCount: 1, version: 1, isDefault: false,
+  templateSchema: '<div>{{document.number}} {{document.date}} {{customer.name}} {{customer.phone}} <i>{{document.site_name}}</i>'
+    + '<table><tbody>' + Array.from({ length: 20 }, (_, i) => `<tr><td>{{items.${i + 1}.name}}</td><td>{{items.${i + 1}.rental}}</td><td>{{items.${i + 1}.amount}}</td></tr>`).join('') + '</tbody></table>'
+    + '<b id="ship">{{bill.shipping_fee}}</b><b id="dep">{{bill.deposit_amount}}</b><b id="total">{{bill.grand_total}}</b><b id="vat">{{document.vat_label}}</b></div>',
+} as DocumentTemplate
+
 describe('A4 quotation print', () => {
-  it('fills the form: number, date, customer, rows before discount, totals, delivery fee, deposit, amount in words', () => {
-    const html = renderQuotationA4Html(quote(), {}, QUOTATION_STARTER_TEMPLATE)
+  it('fills the shop form: number, date, customer, site, rows before discount, delivery fee, deposit, total', () => {
+    const html = renderQuotationA4Html(quote(), {}, quotationForm)
     expect(html).toContain('QT-18102569-002')
-    expect(html).toContain('15/10/2569')
+    expect(html).toContain('15 ตุลาคม 2569')
     expect(html).toContain('ลูกค้า ก')
     expect(html).toContain('081-000-0001')
-    expect(html).toContain('ไซต์ B')
-    expect(html).toContain('แบบคาน 40x0.50')
-    expect(html).toContain('3 รอบ')
-    expect(html).toContain('120.00') // 4 × 10 × 3 before discount
-    expect(html).toContain('ค่าขนส่ง (Delivery)')
-    expect(html).toContain('มัดจำ (ไม่รวมยอด)')
-    expect(html).toContain('186.00')
-    expect(html).toContain('หนึ่งร้อยแปดสิบหกบาทถ้วน')
+    expect(html).toContain('<i>ไซต์ B</i>')
+    expect(html).toContain('<td>แบบคาน 40x0.50</td><td>3 รอบ</td><td>120.00</td>') // 4 × 10 × 3 before discount
+    expect(html).toContain('<b id="ship">40.00</b>')
+    expect(html).toContain('<b id="dep">200.00</b>')
+    expect(html).toContain('<b id="total">186.00</b>')
     expect(html).not.toMatch(/\{\{/)
   })
   it('VAT label follows the quotation: the saved rate, or "ไม่คิด" — never a fixed 7%', () => {
-    expect(renderQuotationA4Html(quote({ vatEnabled: false }), {}, QUOTATION_STARTER_TEMPLATE)).toContain('>ไม่คิด<')
-    expect(renderQuotationA4Html(quote({ vatEnabled: true, vatRate: 10, taxAmount: 18.6 }), {}, QUOTATION_STARTER_TEMPLATE)).toContain('>10%<')
-  })
-  it('the printed terms no longer promise a validity period', () => {
-    expect(renderQuotationA4Html(quote(), {}, QUOTATION_STARTER_TEMPLATE)).not.toContain('กำหนดยืนราคา')
+    expect(renderQuotationA4Html(quote({ vatEnabled: false }), {}, quotationForm)).toContain('<b id="vat">ไม่คิด</b>')
+    expect(renderQuotationA4Html(quote({ vatEnabled: true, vatRate: 10, taxAmount: 18.6 }), {}, quotationForm)).toContain('<b id="vat">10%</b>')
   })
   it('helpers: Thai baht words, rental term, Buddhist-year date', () => {
     expect(thaiBahtText(0)).toBe('ศูนย์บาทถ้วน')

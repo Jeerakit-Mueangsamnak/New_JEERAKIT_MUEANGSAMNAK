@@ -14,7 +14,12 @@ const fake = vi.hoisted(() => ({
   loads: [] as string[],
   currentUserId: '' as string,
   profileFails: false,
+  configFails: false,
+  pathname: '/pos',
+  holdConfig: null as Promise<void> | null,
 }))
+
+vi.mock('next/navigation', () => ({ usePathname: () => fake.pathname }))
 
 // AuthProvider talks to Supabase only through this client; it delivers auth events the same way supabase-js does.
 vi.mock('@/lib/supabase/client', () => {
@@ -55,6 +60,8 @@ vi.mock('@/app/actions/auth', () => ({ logout: vi.fn(async () => {}) }))
 vi.mock('@/features/settings/api/settings-repository', () => ({
   fetchSharedSystemConfig: vi.fn(async () => {
     fake.loads.push(fake.session?.user.id ?? 'none')
+    if (fake.holdConfig) await fake.holdConfig
+    if (fake.configFails) throw new Error('fetch failed')
     return null
   }),
 }))
@@ -97,7 +104,7 @@ function Workspace() {
   )
 }
 
-async function mountSignedIn(userId = 'user-a') {
+async function mountSignedIn(userId = 'user-a', waitForWorkspace = true) {
   fake.session = sessionFor(userId)
   render(
     <AuthProvider>
@@ -106,7 +113,7 @@ async function mountSignedIn(userId = 'user-a') {
       </MasterDataProvider>
     </AuthProvider>
   )
-  await screen.findByRole('button', { name: 'open form' })
+  if (waitForWorkspace) await screen.findByRole('button', { name: 'open form' })
 }
 
 async function fire(event: string, session: FakeSession | null) {
@@ -126,6 +133,9 @@ beforeEach(() => {
   fake.callback = null
   fake.loads = []
   fake.profileFails = false
+  fake.configFails = false
+  fake.pathname = '/pos'
+  fake.holdConfig = null
 })
 afterEach(cleanup)
 
@@ -182,5 +192,52 @@ describe('P1-A1 master data survives auth events of the same user', () => {
     expect((screen.getByLabelText('customer name') as HTMLInputElement).value).toBe('สมศรี ยังไม่บันทึก')
     expect(loadCustomers()).toHaveLength(1)
     expect(fake.loads).toEqual(['user-a'])
+  })
+
+  it('a failed initial load can be retried without reloading the whole page', async () => {
+    fake.configFails = true
+    await mountSignedIn('user-a', false)
+    expect(await screen.findByText('เชื่อมต่อฐานข้อมูลล้มเหลว')).toBeTruthy()
+    fake.configFails = false
+    fireEvent.click(screen.getByRole('button', { name: 'ลองโหลดข้อมูลอีกครั้ง' }))
+
+    await screen.findByRole('button', { name: 'open form' })
+    expect(fake.loads).toEqual(['user-a', 'user-a'])
+  })
+})
+
+describe('signing in on the login page', () => {
+  it('keeps the login page (and what it shows) while shop data loads, so it never looks like a bounce', async () => {
+    fake.pathname = '/login'
+    let release = () => {}
+    fake.holdConfig = new Promise<void>((resolve) => { release = resolve })
+    render(
+      <AuthProvider>
+        <MasterDataProvider>
+          <Workspace />
+        </MasterDataProvider>
+      </AuthProvider>
+    )
+    await screen.findByRole('button', { name: 'open form' })
+    await fillForm()
+
+    // Signed in: shop data starts loading (held open here) while /pos is still opening
+    await fire('SIGNED_IN', sessionFor('user-a'))
+    await waitFor(() => expect(fake.loads).toEqual(['user-a']))
+    expect(screen.queryByText('กำลังโหลดข้อมูลระบบ...')).toBeNull()
+    expect((screen.getByLabelText('customer name') as HTMLInputElement).value).toBe('สมศรี ยังไม่บันทึก')
+
+    await act(async () => { release() })
+    expect((screen.getByLabelText('customer name') as HTMLInputElement).value).toBe('สมศรี ยังไม่บันทึก')
+  })
+
+  it('a protected page still waits for shop data behind the loading screen', async () => {
+    let release = () => {}
+    fake.holdConfig = new Promise<void>((resolve) => { release = resolve })
+    await mountSignedIn('user-a', false)
+    expect(await screen.findByText('กำลังโหลดข้อมูลระบบ...')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'open form' })).toBeNull()
+    await act(async () => { release() })
+    await screen.findByRole('button', { name: 'open form' })
   })
 })

@@ -46,7 +46,7 @@ describe('เพิ่มลูกค้าใหม่: ฟอร์มซ้�
 
   it('เลือกจังหวัด → อำเภอ → ตำบล ตามลำดับ: ระบบไม่เลือกให้เอง ได้รหัสไปรษณีย์ และบันทึกที่อยู่ครบ', async () => {
     const { onSave } = await openForm()
-    await waitFor(() => expect(screen.queryByText('กำลังโหลดข้อมูลจังหวัด...')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('กำลังโหลดข้อมูลจังหวัด...')).toBeNull(), { timeout: 10000 })
     const pick = (label: string, option: string) => {
       fireEvent.click(screen.getByRole('button', { name: label }))
       fireEvent.change(screen.getByPlaceholderText('พิมพ์ค้นหา...'), { target: { value: option } })

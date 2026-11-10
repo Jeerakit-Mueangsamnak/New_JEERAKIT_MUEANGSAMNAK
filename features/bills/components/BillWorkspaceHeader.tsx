@@ -1,13 +1,14 @@
 'use client'
 
+import { TAB_BAR_SURFACE_CLASSES, TAB_BUTTON_BASE_CLASSES, TAB_BUTTON_ACTIVE_CLASSES, TAB_BUTTON_INACTIVE_CLASSES } from '@/components/common/ActionButton'
 import React from 'react'
 
 export type BillWorkspaceTab = 'RETURN' | 'DOCS' | 'HISTORY'
 
-const TABS: { tab: BillWorkspaceTab; label: string; activeClass: string }[] = [
-  { tab: 'RETURN', label: 'รับคืนสินค้า', activeClass: 'bg-emerald-700 border-emerald-600 text-white shadow-sm' },
-  { tab: 'DOCS', label: 'เอกสาร', activeClass: 'bg-slate-700 border-slate-700 text-white shadow-sm' },
-  { tab: 'HISTORY', label: 'ประวัติรายการ', activeClass: 'bg-slate-700 border-slate-700 text-white shadow-sm' },
+const TABS: { tab: BillWorkspaceTab; label: string }[] = [
+  { tab: 'RETURN', label: 'รับคืนสินค้า' },
+  { tab: 'DOCS', label: 'เอกสาร' },
+  { tab: 'HISTORY', label: 'ประวัติรายการ' },
 ]
 
 interface BillWorkspaceHeaderProps {
@@ -21,7 +22,12 @@ interface BillWorkspaceHeaderProps {
 export function BillWorkspaceHeader({ tab, onTab, returnDisabled = false }: BillWorkspaceHeaderProps) {
   return (
     <div className="shrink-0 flex items-center gap-2">
-      <div role="tablist" aria-label="งานของบิล" className="grid min-w-0 flex-1 grid-cols-3 gap-1.5 sm:gap-2">
+      {/* owner 2026-11-07: the three tabs sit in a coloured strip, like the customer page tabs */}
+      <div
+        role="tablist"
+        aria-label="งานของบิล"
+        className={`${TAB_BAR_SURFACE_CLASSES} grid min-w-0 flex-1 grid-cols-3`}
+      >
         {TABS.map((t) => {
           const active = tab === t.tab
           const disabled = t.tab === 'RETURN' && returnDisabled
@@ -34,11 +40,7 @@ export function BillWorkspaceHeader({ tab, onTab, returnDisabled = false }: Bill
               disabled={disabled}
               title={disabled ? 'บิลยกเลิก/โมฆะ รับคืนสินค้าไม่ได้' : undefined}
               onClick={() => onTab(t.tab)}
-              className={`py-1.5 sm:py-2 px-2 rounded-xl text-center text-xs font-bold transition-all truncate whitespace-nowrap min-w-0 border ${
-                active
-                  ? t.activeClass
-                  : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-              } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+              className={`${TAB_BUTTON_BASE_CLASSES} min-w-0 truncate ${active ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               {t.label}
             </button>

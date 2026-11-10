@@ -13,6 +13,10 @@ export interface NumericInputProps
   allowNegative?: boolean
 }
 
+/** What the box shows for a value: nothing for empty or 0 (owner 2026-11-07: an unfilled box is blank, never a 0). */
+const displayText = (value: number | string | undefined | null): string =>
+  value === null || value === undefined || value === '' || Number(value) === 0 ? '' : String(value)
+
 export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
   function NumericInput(
     {
@@ -32,8 +36,7 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
     ref
   ) {
     const isControlled = value !== undefined
-    const initialText =
-      value === null || value === undefined || value === '' ? '' : String(value)
+    const initialText = displayText(value)
 
     const [rawText, setRawText] = useState<string>(initialText)
     const isFocusedRef = useRef(false)
@@ -42,8 +45,7 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
     useEffect(() => {
       if (!isControlled) return
 
-      const formattedVal =
-        value === null || value === undefined || value === '' ? '' : String(value)
+      const formattedVal = displayText(value)
 
       if (!isFocusedRef.current) {
         setRawText(formattedVal)
@@ -102,7 +104,7 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
 
       if (rawText === '' || rawText === '-') {
         if (defaultValueOnBlur !== undefined) {
-          setRawText(String(defaultValueOnBlur))
+          setRawText(displayText(defaultValueOnBlur))
           onChange(defaultValueOnBlur)
         } else {
           setRawText('')
@@ -112,13 +114,13 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
         let parsed = parseFloat(rawText)
         if (isNaN(parsed)) {
           const fallback = defaultValueOnBlur !== undefined ? defaultValueOnBlur : ''
-          setRawText(fallback !== '' ? String(fallback) : '')
+          setRawText(displayText(fallback))
           onChange(fallback)
         } else {
           if (!allowDecimals) parsed = Math.floor(parsed)
           if (min !== undefined && parsed < min) parsed = min
           if (max !== undefined && parsed > max) parsed = max
-          setRawText(String(parsed))
+          setRawText(displayText(parsed))
           onChange(parsed)
         }
       }

@@ -262,7 +262,8 @@ export function mapQuotationToPos(
     depositAmount: quote.depositAmount,
     vatEnabled: quote.vatEnabled ?? quote.taxAmount > 0,
     vatMode: quote.vatMode ?? null,
-    shippingAddress: quote.siteName || quote.customerAddress || '',
+    // Never the customer's address (owner 2026-11-07): only the place given on the quotation.
+    shippingAddress: quote.siteName || '',
     rentalStartDate: quote.rentalStartDate,
     rentalEndDate: quote.rentalEndDate,
     documentDate: quote.quotationDate,

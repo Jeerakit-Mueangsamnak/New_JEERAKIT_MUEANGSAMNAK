@@ -6,6 +6,7 @@ import { Product } from '@/lib/types/rental-pos'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
 import { CustomDatePicker, getLocalDateString } from '@/components/common/CustomDatePicker'
 import { NumericInput } from '@/components/common/NumericInput'
+import { QuickQuantityGrid } from '@/features/pos/components/QuickQuantityGrid'
 
 export type CartRentalType = 'NORMAL' | 'DAILY' | 'SALE'
 
@@ -180,10 +181,8 @@ export function QuantityModal({ product, mode = 'RENT', onAdd, onClose, allowOve
               defaultValueOnBlur={0}
               min={0}
               allowDecimals={true}
-              placeholder="0.00"
               className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold text-base focus:ring-2 focus:ring-emerald-500 focus:outline-none"
             />
-            <p className="mt-1 text-[10px] text-slate-600 dark:text-slate-400">เปลี่ยนราคาตรงนี้มีผลเฉพาะรายการ/บิลนี้ ไม่แก้ราคา Master</p>
           </div>
 
           <div>
@@ -282,32 +281,12 @@ export function QuantityModal({ product, mode = 'RENT', onAdd, onClose, allowOve
           </div>
         )}
 
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
-              เลือกจำนวนแบบเร็ว (1-50) — <span className="text-blue-600 dark:text-blue-400">กดครั้งที่ 2 เพื่อยืนยันทันที</span>
-            </span>
-          </div>
-          <div className="grid grid-cols-5 sm:grid-cols-10 gap-1 max-h-44 overflow-y-auto p-1 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-900/30">
-            {Array.from({ length: 50 }, (_, i) => i + 1).map((num) => {
-              const isSelected = selectedQty === num
-              return (
-                <button
-                  key={num}
-                  type="button"
-                  onClick={() => handleNumberButtonClick(num)}
-                  className={`py-1.5 rounded-lg font-bold text-xs transition-all duration-150 ${
-                    isSelected
-                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 ring-2 ring-emerald-500 shadow-md scale-105'
-                      : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  {num}
-                </button>
-              )
-            })}
-          </div>
-        </div>
+        <QuickQuantityGrid
+          selected={selectedQty}
+          pendingConfirm={pendingConfirm}
+          onPick={handleNumberButtonClick}
+          onConfirm={handleNumberButtonClick}
+        />
       </AppModalBody>
 
       <AppModalFooter>

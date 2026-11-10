@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, FileText, FolderOpen, Printer, Trash2, Upload } from 'lucide-react'
@@ -553,9 +554,7 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
                             )}
                           </p>
                         </div>
-                      </div>
-                      {isPreview && <span className="px-1.5 py-0.5 rounded bg-blue-600 text-white font-extrabold text-[10px] shrink-0">พรีวิว</span>}
-                    </div>
+                      </div>                    </div>
                   )
                 })
               ) : (
@@ -571,7 +570,6 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
                   ) : (
                     <>
                       <p className="font-bold text-xs text-slate-600 dark:text-slate-400">ยังไม่มีเอกสารในรายการ</p>
-                      <p className="text-[10px] text-slate-600 dark:text-slate-400">{customer ? 'เลือกแบบฟอร์มจากเมนูด้านบนเพื่อเพิ่มเอกสาร' : 'เลือกลูกค้าก่อน แล้วเลือกแบบฟอร์มเพื่อเพิ่มเอกสาร'}</p>
                     </>
                   )}
                 </div>
@@ -610,7 +608,7 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
                         <button
                           type="button"
                           onClick={() => updateDraft(previewDraft.id, { items: [...previewDraft.items, { productId: '', productName: '', quantity: 1, unit: '', normalPrice: 0, damageFee: 0 }] })}
-                          className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                          className={`${COMMAND_BUTTON_SIZE_CLASSES} text-blue-600 dark:text-blue-400 hover:underline`}
                         >
                           + เพิ่มรายการ
                         </button>
@@ -642,7 +640,7 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
                     <button
                       type="button"
                       onClick={() => draftFileInputRef.current?.click()}
-                      className="w-full h-9 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 flex items-center justify-center gap-2 hover:bg-white dark:hover:bg-slate-700"
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full border border-dashed border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 flex items-center justify-center hover:bg-white dark:hover:bg-slate-700`}
                     >
                       <Upload className="w-4 h-4" />
                       <span className="truncate">{previewDraft.file ? `เปลี่ยนรูป · ${previewDraft.file.name}` : 'เลือกรูป / ถ่ายรูปเอกสาร'}</span>
@@ -664,7 +662,7 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
                 type="button"
                 onClick={() => void handlePrint()}
                 disabled={listItems.length === 0}
-                className="py-1.5 px-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 text-white flex items-center justify-center shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed`}
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>พิมพ์ ({checked.length > 0 ? checked.length : 'ทั้งหมด'})</span>
@@ -673,7 +671,7 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
                 type="button"
                 onClick={() => setDeleteOpen(true)}
                 disabled={deletable.length === 0}
-                className={`py-1.5 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} flex items-center justify-center transition-all ${
                   deletable.length > 0
                     ? 'bg-red-600 text-white shadow-sm hover:bg-red-700'
                     : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400 cursor-not-allowed'
@@ -687,7 +685,7 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
               type="button"
               onClick={() => void handleSave()}
               disabled={saving}
-              className="w-full py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full bg-emerald-700 hover:bg-emerald-800 text-white shadow-md shadow-emerald-600/20 flex items-center justify-center transition-all disabled:opacity-50`}
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>{saving ? 'กำลังบันทึก...' : customerDrafts.length > 0 ? `บันทึก (${customerDrafts.length})` : 'บันทึก'}</span>

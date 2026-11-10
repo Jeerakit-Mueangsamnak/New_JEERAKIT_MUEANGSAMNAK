@@ -1,10 +1,12 @@
 'use client'
 
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
+import { useDataActions } from '@/components/common/useDataActions'
 import { loadQuotationPrintTemplate, printQuotationA4 } from '@/features/documents/utils/transaction-print'
-import { printRentalBillA4 } from '@/features/documents/utils/rental-bill-print'
+import { MAIN_BILL_FORM_MISSING, printSavedBill } from '@/features/documents/utils/rental-bill-print'
 import { fetchQuotationsFromSupabase, quotationStatusView } from '@/features/quotations/services/quotation-storage'
 import type { Quotation } from '@/lib/types/rental-pos'
+import type { FullBill } from '@/lib/types/rental-return'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { CustomerLineLinkButton } from '@/features/customers/components/CustomerLineLinkButton'
 import React, { useState, useEffect } from 'react'
@@ -26,7 +28,6 @@ import {
   Upload,
   CheckCircle2,
   Trash2,
-  AlertTriangle,
   Printer,
   Receipt,
   Save,
@@ -40,6 +41,11 @@ import {
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
   TAB_BUTTON_INACTIVE_CLASSES,
+  COMMAND_BUTTON_SIZE_CLASSES,
+  SEARCH_INPUT_CLASSES,
+  SEARCH_ICON_CLASSES,
+  TABLE_TOOLBAR_CLASSES,
+  TAB_BAR_SURFACE_CLASSES,
 } from '@/components/common/ActionButton'
 import {
   Customer,
@@ -84,6 +90,12 @@ export default function CustomersPage() {
       showToast('พิมพ์ใบเสนอราคาไม่ได้', err instanceof Error ? err.message : 'โหลดแบบฟอร์มไม่สำเร็จ', 'ERROR')
     }
   }
+  // A saved bill is printed again on the shop's main bill form.
+  const printBill = (bill: FullBill) => {
+    printSavedBill(bill, systemSettings.business)
+      .then((ok) => ok || showToast('พิมพ์บิลไม่ได้', MAIN_BILL_FORM_MISSING, 'ERROR'))
+      .catch((err: unknown) => showToast('พิมพ์บิลไม่ได้', err instanceof Error ? err.message : 'โหลดแบบฟอร์มไม่สำเร็จ', 'ERROR'))
+  }
   const [customers, setCustomers] = useState<Customer[]>([])
   const [bills, setBills] = useState<RentalBill[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -110,8 +122,7 @@ export default function CustomersPage() {
   const [showAddEditModal, setShowAddEditModal] = useState(false)
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
 
-  // Delete Customer Confirmation State
-  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null)
+  const { confirmSuspend, deleteOrSuspend } = useDataActions()
 
   // Active Tab State inside Customer Details
   const [active360Tab, setActive360Tab] = useState<
@@ -333,30 +344,30 @@ export default function CustomersPage() {
     setShowAddEditModal(true)
   }
 
+  // ระงับ / ปลดระงับ: one active flag in the DB (status and isSuspended both mirror it).
+  const setCustomerSuspended = async (c: Customer, suspend: boolean) => {
+    const updatedCustomer: Customer = { ...c, isSuspended: suspend, status: suspend ? 'INACTIVE' : 'ACTIVE' }
+    await updateCustomerAsync(updatedCustomer)
+    setCustomers((prev) => prev.map((item) => (item.id === updatedCustomer.id ? updatedCustomer : item)))
+    showToast(
+      suspend ? 'ระงับสิทธิ์ลูกค้าแล้ว' : 'ปลดระงับสิทธิ์แล้ว',
+      `ปรับเปลี่ยนสถานะสิทธิ์ของ ${updatedCustomer.customerName} เรียบร้อยแล้ว`,
+      suspend ? 'ERROR' : 'SUCCESS'
+    )
+  }
+
   const handleToggleSuspend = async (c: Customer) => {
     if (suspendingCustomerId) return
 
     const targetSuspend = !c.isSuspended
-    const ok = await confirm({
-      title: targetSuspend ? `ระงับสิทธิ์ลูกค้า "${c.customerName}"` : `ปลดระงับสิทธิ์ลูกค้า "${c.customerName}"`,
-      danger: targetSuspend,
-    })
+    const ok = targetSuspend
+      ? await confirmSuspend(`ลูกค้า "${c.customerName}"`)
+      : await confirm({ title: `ปลดระงับสิทธิ์ลูกค้า "${c.customerName}"` })
     if (!ok) return
 
     setSuspendingCustomerId(c.id)
-
     try {
-      // Active state is one flag in the DB (status and isSuspended both mirror it): flip both.
-      const updatedCustomer: Customer = { ...c, isSuspended: targetSuspend, status: targetSuspend ? 'INACTIVE' : 'ACTIVE' }
-      await updateCustomerAsync(updatedCustomer)
-      setCustomers((prev) =>
-        prev.map((item) => (item.id === updatedCustomer.id ? updatedCustomer : item))
-      )
-      showToast(
-        targetSuspend ? 'ระงับสิทธิ์ลูกค้าแล้ว' : 'ปลดระงับสิทธิ์แล้ว',
-        `ปรับเปลี่ยนสถานะสิทธิ์ของ ${updatedCustomer.customerName} เรียบร้อยแล้ว`,
-        targetSuspend ? 'ERROR' : 'SUCCESS'
-      )
+      await setCustomerSuspended(c, targetSuspend)
     } catch (err: any) {
       showToast('ไม่สามารถเปลี่ยนสถานะได้', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
     } finally {
@@ -364,20 +375,18 @@ export default function CustomersPage() {
     }
   }
 
-  const handleConfirmDelete = async () => {
-    if (!customerToDelete) return
+  // ลบถาวร: only a customer never used; a used one is blocked and may be suspended instead.
+  const handleDeleteCustomer = async (c: Customer) => {
     try {
-      await deleteCustomerAsync(customerToDelete.id)
-      setCustomers((prev) => prev.map((item) => (item.id === customerToDelete.id ? { ...item, isSuspended: true, status: 'INACTIVE' } : item)))
-      if (selectedCustomerId === customerToDelete.id) {
-        setSelectedCustomerId('')
+      const outcome = await deleteOrSuspend({
+        name: `ลูกค้า "${c.customerName}"`,
+        remove: async () => setCustomers(await deleteCustomerAsync(c.id)),
+        suspend: c.isSuspended ? undefined : () => setCustomerSuspended(c, true),
+      })
+      if (outcome === 'deleted') {
+        if (selectedCustomerId === c.id) setSelectedCustomerId('')
+        showToast('ลบลูกค้าแล้ว', `ลบ ${c.customerName} ออกจากระบบแล้ว`, 'SUCCESS')
       }
-      showToast(
-        'ระงับลูกค้าสำเร็จ',
-        `ทำการระงับข้อมูลลูกค้า ${customerToDelete.customerName} เรียบร้อยแล้ว`,
-        'SUCCESS'
-      )
-      setCustomerToDelete(null)
     } catch (err: any) {
       showToast('ไม่สามารถลบข้อมูลลูกค้าได้', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
     }
@@ -474,8 +483,8 @@ export default function CustomersPage() {
       {/* Main Workspace Card (การ์ดเนื้อหา โดยมีปุ่มแถบติดอยู่บนหัวการ์ดเนื้อหา) */}
       <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col">
         {/* Sub-tabs Navigation Bar (ปุ่มแถบติดอยู่บนหัวการ์ดเนื้อหา) */}
-        <div className="p-2 bg-slate-50/50 dark:bg-slate-900/30 border-b border-slate-200 dark:border-slate-700 shrink-0">
-          <div className="bg-slate-100 dark:bg-slate-900/80 h-9 p-1 gap-1 rounded-xl border border-slate-200 dark:border-slate-700 grid grid-cols-8 items-center w-full min-w-0">
+        <div className={`${TABLE_TOOLBAR_CLASSES}`}>
+          <div className={`${TAB_BAR_SURFACE_CLASSES} grid grid-cols-8 items-center w-full min-w-0`}>
             <button
               type="button"
               onClick={() => setActive360Tab('GENERAL')}
@@ -614,7 +623,7 @@ export default function CustomersPage() {
                       type="button"
                       disabled={!selectedCustomer}
                       onClick={() => selectedCustomer && handleOpenEdit(selectedCustomer)}
-                      className={`px-2.5 py-1.5 font-bold text-xs rounded-xl flex items-center gap-1.5 border border-slate-700 shadow-sm transition-all ${
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} flex items-center border border-slate-700 shadow-sm transition-all ${
                         !selectedCustomer
                           ? 'opacity-40 cursor-not-allowed bg-slate-800 text-white'
                           : 'bg-slate-800 hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600 text-white cursor-pointer'
@@ -628,7 +637,7 @@ export default function CustomersPage() {
                       type="button"
                       disabled={!selectedCustomer || suspendingCustomerId === selectedCustomer?.id}
                       onClick={() => selectedCustomer && handleToggleSuspend(selectedCustomer)}
-                      className={`px-2.5 py-1.5 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow-sm ${
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} flex items-center transition-all shadow-sm ${
                         !selectedCustomer || suspendingCustomerId === selectedCustomer?.id
                           ? 'opacity-40 cursor-not-allowed bg-slate-400 text-white'
                           : selectedCustomer.isSuspended
@@ -652,8 +661,8 @@ export default function CustomersPage() {
                     <button
                       type="button"
                       disabled={!selectedCustomer}
-                      onClick={() => selectedCustomer && setCustomerToDelete(selectedCustomer)}
-                      className={`px-2.5 py-1.5 font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm transition-all ${
+                      onClick={() => selectedCustomer && void handleDeleteCustomer(selectedCustomer)}
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} flex items-center shadow-sm transition-all ${
                         !selectedCustomer
                           ? 'opacity-40 cursor-not-allowed bg-red-600/60 text-white'
                           : 'bg-red-600 hover:bg-red-700 text-white shadow-red-500/20 cursor-pointer'
@@ -884,7 +893,6 @@ export default function CustomersPage() {
                         <div className="w-[min(100cqw,calc(100cqh*85.6/53.98))] aspect-[85.6/53.98] p-3 bg-slate-50 dark:bg-slate-900/60 text-slate-600 dark:text-slate-400 flex flex-col items-center justify-center text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800 space-y-1">
                           <CreditCard className="w-8 h-8 opacity-40 text-slate-600 dark:text-slate-400" />
                           <p className="text-xs font-bold text-slate-600 dark:text-slate-400">กรุณาเลือกลูกค้าเพื่อแสดงข้อมูล</p>
-                          <span className="text-[10px] text-slate-600 dark:text-slate-400">เลือกรายชื่อลูกค้าจากเมนูด้านบน</span>
                         </div>
                       )}
                     </div>
@@ -924,13 +932,13 @@ export default function CustomersPage() {
                     ประวัติบิลการเช่าย้อนหลังทั้งหมด ({customerBills.length} รายการ)
                   </h4>
                   <div className="relative w-full sm:w-64">
-                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400" />
+                    <Search className={SEARCH_ICON_CLASSES} />
                     <input
                       type="text"
                       placeholder="ค้นหาเลขที่บิล..."
                       value={billSearchTerm}
                       onChange={(e) => setBillSearchTerm(e.target.value)}
-                      className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs text-slate-900 dark:text-slate-100"
+                      className={SEARCH_INPUT_CLASSES}
                     />
                   </div>
                 </div>
@@ -1007,7 +1015,7 @@ export default function CustomersPage() {
                                   <div className="flex items-center justify-center gap-1 flex-nowrap shrink-0">
                                     <button
                                       type="button"
-                                      onClick={() => fullBill && printRentalBillA4(fullBill, systemSettings.business)}
+                                      onClick={() => fullBill && printBill(fullBill)}
                                       disabled={!fullBill}
                                       title="พิมพ์เอกสาร A4"
                                       className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 transition-colors shadow-xs cursor-pointer shrink-0"
@@ -1202,7 +1210,7 @@ export default function CustomersPage() {
                               <button
                                 type="button"
                                 onClick={() => handlePrintQuotation(q)}
-                                className="px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer"
+                                className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 inline-flex items-center cursor-pointer`}
                                 title="พิมพ์ใบเสนอราคา"
                               >
                                 <Printer className="w-3 h-3" />
@@ -1275,7 +1283,7 @@ export default function CustomersPage() {
                           <th className="px-2 py-2.5 text-right whitespace-nowrap">เช่าทั้งหมด</th>
                           <th className="px-2 py-2.5 text-right whitespace-nowrap">คืนแล้ว</th>
                           <th className="px-2 py-2.5 text-right whitespace-nowrap">ชำรุด/สูญหาย</th>
-                          <th className="px-2 py-2.5 text-right whitespace-nowrap text-amber-700 dark:text-amber-400 font-extrabold">ค้างคืน</th>
+                          <th className="px-2 py-2.5 text-right whitespace-nowrap font-extrabold">ค้างคืน</th>
                           <th className="px-2 py-2.5 text-center whitespace-nowrap">สถานะ</th>
                         </tr>
                       </thead>
@@ -1341,7 +1349,6 @@ export default function CustomersPage() {
                 <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
                   <div>
                     <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100">เอกสารส่วนตัวลูกค้า</h4>
-                    <p className="text-[10px] text-slate-600 dark:text-slate-400">แสดงเฉพาะไฟล์เอกสารที่บันทึกไว้จริงในระบบ และข้อมูลประกอบของลูกค้า</p>
                   </div>
                 </div>
 
@@ -1349,7 +1356,6 @@ export default function CustomersPage() {
                   <div className="p-8 text-center text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center space-y-2">
                     <FileText className="w-8 h-8 opacity-40 mx-auto" />
                     <p className="font-bold text-xs text-slate-600 dark:text-slate-400">กรุณาเลือกลูกค้าเพื่อแสดงข้อมูล</p>
-                    <span className="text-[10px] text-slate-600 dark:text-slate-400">เลือกรายชื่อลูกค้าจากเมนูด้านบน เพื่อดูเอกสารส่วนตัว</span>
                   </div>
                 ) : (
 
@@ -1390,7 +1396,7 @@ export default function CustomersPage() {
                                 setZoomIDCardUrl(selectedCustomer.idCardImageUrl)
                               }
                             }}
-                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                            className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-indigo-600 hover:bg-indigo-700 text-white flex items-center transition-all shadow-xs cursor-pointer`}
                           >
                             <Eye className="w-3.5 h-3.5" />
                             <span>เปิดดูสำเนาบัตร</span>
@@ -1399,7 +1405,7 @@ export default function CustomersPage() {
                             type="button"
                             onClick={() => handleOpenEdit(selectedCustomer)}
                             title="แก้ไข / อัปโหลดรูปใหม่"
-                            className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                            className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer`}
                           >
                             <Edit className="w-3.5 h-3.5" />
                           </button>
@@ -1414,7 +1420,7 @@ export default function CustomersPage() {
                         <button
                           type="button"
                           onClick={() => handleOpenEdit(selectedCustomer)}
-                          className="px-3 py-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold rounded-lg text-[11px] self-end sm:self-center cursor-pointer transition-colors"
+                          className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 self-end sm:self-center cursor-pointer transition-colors`}
                         >
                           + อัปโหลดไฟล์สำเนาบัตร
                         </button>
@@ -1479,7 +1485,6 @@ export default function CustomersPage() {
                     <strong className="text-xl font-black text-blue-600 dark:text-blue-400 block mt-0.5">
                       {activeBillCount} บิล
                     </strong>
-                    <span className="text-[10px] text-slate-600 dark:text-slate-400">บิลที่ใช้งานจริงทั้งหมด</span>
                   </div>
 
                   <div className="p-3 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-100 dark:border-emerald-900 rounded-xl">
@@ -1501,7 +1506,6 @@ export default function CustomersPage() {
                         ? `${Math.round(totalSpent / activeBillCount).toLocaleString('th-TH')}`
                         : '-'}
                     </strong>
-                    <span className="text-[10px] text-slate-600 dark:text-slate-400">คำนวณจากยอดบิลจริง</span>
                   </div>
                 </div>
 
@@ -1528,14 +1532,12 @@ export default function CustomersPage() {
               <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-0.5 p-2">
                 <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
                   <div>
-                    <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100">หมายเหตุภายในเกี่ยวกับลูกค้า</h4>
-                    <p className="text-[10px] text-slate-600 dark:text-slate-400">บันทึกข้อความประสานงาน ข้อมูลติดต่อพิเศษ หรือข้อควรระวัง (บันทึกลงฐานข้อมูล)</p>
-                  </div>
+                    <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100">หมายเหตุภายในเกี่ยวกับลูกค้า</h4>                  </div>
                   <button
                     type="button"
                     disabled={!selectedCustomer || isSavingNote}
                     onClick={handleSaveNote}
-                    className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 text-white flex items-center shadow-md shadow-emerald-500/20 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed`}
                   >
                     <Save className="w-3.5 h-3.5" />
                     <span>{isSavingNote ? 'กำลังบันทึก...' : 'บันทึกหมายเหตุ'}</span>
@@ -1569,57 +1571,6 @@ export default function CustomersPage() {
         editingCustomer={editingCustomer}
       />
 
-      {/* Delete Confirmation Modal */}
-      <AppModal
-        isOpen={!!customerToDelete}
-        onClose={() => setCustomerToDelete(null)}
-        size="sm"
-      >
-        {customerToDelete && (
-          <>
-            <AppModalHeader
-              onClose={() => setCustomerToDelete(null)}
-              icon={<AlertTriangle className="w-5 h-5 text-red-700 dark:text-red-400" />}
-              title="ยืนยันการลบลูกค้า"
-            />
-
-            <AppModalBody className="space-y-3 text-center">
-              <div className="w-14 h-14 rounded-full bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-400 flex items-center justify-center mx-auto">
-                <AlertTriangle className="w-7 h-7" />
-              </div>
-
-              <div className="space-y-1">
-                <h3 className="text-base font-black text-slate-900 dark:text-slate-100">
-                  ยืนยันการลบลูกค้า?
-                </h3>
-                <p className="text-xs text-slate-600 dark:text-slate-400">
-                  คุณกำลังจะลบข้อมูลลูกค้า <strong className="text-slate-800 dark:text-slate-200">{customerToDelete.customerName}</strong> ({customerToDelete.customerCode}) ลูกค้าจะถูกปิดใช้งานและซ่อนจากรายการ ประวัติบิลยังเก็บไว้ครบ และเปิดใช้งานกลับได้ภายหลัง
-                </p>
-              </div>
-
-            </AppModalBody>
-
-            <AppModalFooter>
-              <button
-                type="button"
-                onClick={() => setCustomerToDelete(null)}
-                className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-xs transition-colors cursor-pointer"
-              >
-                ยกเลิก
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                className="flex-1 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-300 dark:disabled:bg-red-900/40 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-red-500/20 flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>ยืนยันลบลูกค้า</span>
-              </button>
-            </AppModalFooter>
-          </>
-        )}
-      </AppModal>
-
       {/* ZOOM ID CARD MODAL */}
       <AppModal
         isOpen={!!zoomIDCardUrl}
@@ -1649,7 +1600,7 @@ export default function CustomersPage() {
               <button
                 type="button"
                 onClick={() => setZoomIDCardUrl(null)}
-                className="px-6 py-2 bg-slate-800 hover:bg-slate-700 text-white font-extrabold rounded-xl text-xs cursor-pointer"
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-slate-800 hover:bg-slate-700 text-white cursor-pointer`}
               >
                 ปิดหน้าต่าง
               </button>

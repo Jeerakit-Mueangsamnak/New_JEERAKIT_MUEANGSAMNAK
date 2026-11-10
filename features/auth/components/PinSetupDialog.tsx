@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, ShieldCheck } from 'lucide-react'
@@ -154,7 +155,7 @@ export function PinSetupDialog({ open, mode, onClose, onDone }: PinSetupDialogPr
             type="button"
             onClick={isFirstStep ? onClose : goBack}
             disabled={busy}
-            className="mt-3 w-full rounded-xl border border-slate-300 dark:border-slate-700 py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} mt-3 w-full border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50`}
           >
             {isFirstStep ? 'ยกเลิก' : 'ย้อนกลับ'}
           </button>

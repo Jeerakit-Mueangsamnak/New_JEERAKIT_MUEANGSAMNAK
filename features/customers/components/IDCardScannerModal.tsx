@@ -1,3 +1,4 @@
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { Camera, RefreshCw, AlertCircle, Scan, Sparkles } from 'lucide-react'
 import { AppModal, AppModalHeader, AppModalBody } from '@/components/common/AppModal'
@@ -257,7 +258,7 @@ export function IDCardScannerModal({ isOpen, onClose, onScanComplete }: IDCardSc
             <button
               type="button"
               onClick={startCamera}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 mx-auto transition-all"
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-blue-600 hover:bg-blue-700 text-white flex items-center mx-auto transition-all`}
             >
               <RefreshCw className="w-4 h-4" />
               <span>ลองเปิดกล้องอีกครั้ง</span>
@@ -327,9 +328,6 @@ export function IDCardScannerModal({ isOpen, onClose, onScanComplete }: IDCardSc
 
         {!cameraError && (
           <>
-            <p className="text-center font-bold text-[10px] text-slate-600 dark:text-slate-400">
-              ระบบจะหาขอบบัตร ปรับภาพให้ตรง ถ่ายให้เองเมื่อภาพชัด และดึงชื่อ-เลข 13 หลัก-ที่อยู่ให้อัตโนมัติ
-            </p>
             {cameraActive && !isScanning && (
               <p data-testid="id-card-hint" role="status" className={`text-center font-bold text-xs ${cardHint === 'searching' ? 'text-slate-600 dark:text-slate-400' : cardHint === 'blurred' ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-400'}`}>
                 {HINT_TEXT[cardHint]}
@@ -341,7 +339,7 @@ export function IDCardScannerModal({ isOpen, onClose, onScanComplete }: IDCardSc
                 type="button"
                 onClick={handleCaptureCamera}
                 disabled={isScanning || !cameraActive}
-                className="px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-sm rounded-2xl shadow-lg shadow-blue-500/30 flex items-center gap-2 transition-all hover:scale-102 active:scale-98 disabled:opacity-50 cursor-pointer"
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg shadow-blue-500/30 flex items-center transition-all hover:scale-102 active:scale-98 disabled:opacity-50 cursor-pointer`}
               >
                 <Camera className="w-5 h-5" />
                 <span>📸 ถ่ายภาพ Snap & สแกนอ่านบัตร</span>

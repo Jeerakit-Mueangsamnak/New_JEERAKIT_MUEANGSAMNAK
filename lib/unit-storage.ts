@@ -1,4 +1,5 @@
 import { saveUnitToSupabase, deleteUnitFromSupabase } from '@/features/products/api/product-repository'
+import { DbError } from '@/lib/db/rpc'
 import { Unit } from '@/lib/types/rental-pos'
 export type { Unit }
 
@@ -89,25 +90,23 @@ export async function updateUnitAsync(id: string, name: string): Promise<Unit[]>
   await saveUnitToSupabase(updatedUnit)
   return updateUnitInCache(id, updatedUnit)
 }
-
-export async function toggleUnitStatusAsync(id: string): Promise<Unit[]> {
-  const current = loadUnits()
-  const target = current.find((u) => u.id === id)
-  if (!target) return current
-  const updatedUnit = { ...target, isActive: !target.isActive }
-  await saveUnitToSupabase(updatedUnit)
-  return updateUnitInCache(id, updatedUnit)
-}
-
-export async function deleteUnitAsync(id: string, inUseCheck?: (unit: Unit) => boolean): Promise<Unit[]> {
-  const current = loadUnits()
-  const target = current.find((u) => u.id === id)
-  if (!target) return current
-  if (inUseCheck && inUseCheck(target)) {
-    throw new Error(`ไม่สามารถลบหน่วยนับ "${target.name}" ได้เนื่องจากกำลังถูกใช้งานอยู่`)
-  }
-  await deleteUnitFromSupabase(id, target.name)
-  const updated = current.filter((unit) => unit.id !== id)
+/**
+ * ลบถาวร: the server refuses a unit that products still use (UNIT_IN_USE: <products>). Rows of
+ * ตารางประกอบข้อมูล live in the shop settings, so they are counted here (`settingsUses`) the same way.
+ */
+export async function deleteUnitAsync(id: string, settingsUses = 0): Promise<Unit[]> {
+  if (settingsUses > 0) throw new DbError(`UNIT_IN_USE: ${settingsUses}`)
+  await deleteUnitFromSupabase(id)
+  const updated = loadUnits().filter((unit) => unit.id !== id)
   saveUnits(updated)
   return updated
+}
+
+/** ระงับ / เปิดใช้งาน: the unit stays on its products and in old documents. */
+export async function setUnitActiveAsync(id: string, active: boolean): Promise<Unit[]> {
+  const target = loadUnits().find((u) => u.id === id)
+  if (!target) throw new Error('ไม่พบหน่วยนับ')
+  const updatedUnit = { ...target, isActive: active }
+  await saveUnitToSupabase(updatedUnit)
+  return updateUnitInCache(id, updatedUnit)
 }

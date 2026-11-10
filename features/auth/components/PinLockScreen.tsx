@@ -1,4 +1,5 @@
 'use client'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Delete, LogOut, AlertCircle, ShieldAlert } from 'lucide-react'
@@ -269,7 +270,7 @@ export function PinLockScreen({ onUnlockSuccess }: PinLockScreenProps) {
       <button
         type="button"
         onClick={handleLogout}
-        className="fixed bottom-3 right-3 sm:bottom-5 sm:right-5 z-[60] px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-950/60 text-slate-700 dark:text-slate-200 hover:text-red-700 dark:hover:text-red-400 border border-slate-300 dark:border-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+        className={`${COMMAND_BUTTON_SIZE_CLASSES} fixed bottom-3 right-3 sm:bottom-5 sm:right-5 z-[60] bg-slate-100 dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-950/60 text-slate-700 dark:text-slate-200 hover:text-red-700 dark:hover:text-red-400 border border-slate-300 dark:border-slate-700 flex items-center transition-colors cursor-pointer shadow-sm`}
         title="ออกจากระบบ"
       >
         <LogOut className="w-4 h-4" />

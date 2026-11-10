@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useRef, useEffect, useId } from 'react'
-import { ChevronDown, Check, Search } from 'lucide-react'
+import { ChevronDown, Check, Search, Trash2 } from 'lucide-react'
 import { useClickOutside } from '@/lib/hooks/useClickOutside'
 import { useFloatingPlacement } from '@/lib/hooks/useFloatingPlacement'
 import { ModalPortal } from '@/components/common/ModalPortal'
@@ -29,6 +29,8 @@ interface CustomSelectProps {
   placeholderClassName?: string
   /** Accessible name when no visible <label> names the field. */
   ariaLabel?: string
+  /** When given, each option gets a bin icon at its end that removes that option. */
+  onRemoveOption?: (value: string | number) => void
 }
 
 export function CustomSelect({
@@ -45,6 +47,7 @@ export function CustomSelect({
   hideChevron = false,
   placeholderClassName = 'font-normal',
   ariaLabel,
+  onRemoveOption,
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -224,7 +227,7 @@ export function CustomSelect({
               filteredOptions.map((opt, index) => {
                 const isSelected = String(opt.value) === String(value)
                 const isHighlighted = index === highlight
-                return (
+                const optionButton = (
                   <button
                     key={String(opt.value)}
                     id={`${listId}-${index}`}
@@ -252,6 +255,24 @@ export function CustomSelect({
                     )}
                     {isSelected && <Check className="w-3.5 h-3.5 shrink-0 ml-1" />}
                   </button>
+                )
+                if (!onRemoveOption) return optionButton
+                return (
+                  <div key={String(opt.value)} className="flex items-center gap-0.5">
+                    <div className="flex-1 min-w-0">{optionButton}</div>
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      aria-label={`ลบ ${opt.label}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onRemoveOption(opt.value)
+                      }}
+                      className="p-1.5 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 shrink-0 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 )
               })
             )}

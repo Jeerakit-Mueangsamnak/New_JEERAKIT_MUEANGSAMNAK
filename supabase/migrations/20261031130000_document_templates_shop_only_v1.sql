@@ -157,9 +157,7 @@ SELECT
     </div>
   </div>
 
-  <div style="flex-shrink:0;padding:4px 10px;border:1.5px solid #111827;border-radius:6px;font-size:15px;">
-    <strong>จำนวนเงินตัวอักษร:</strong> <span style="font-weight:700;">({{bill.grand_total_text}})</span>
-  </div>
+  
 
   <div style="flex-shrink:0;margin-top:0;padding:8px 12px;border:1.5px solid #111827;border-radius:6px;">
     <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;text-align:center;">

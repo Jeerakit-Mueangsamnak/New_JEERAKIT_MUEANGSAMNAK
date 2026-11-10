@@ -1,13 +1,26 @@
 /**
- * Shared POS Cart Storage
+ * Shared POS Cart Storage (this device only, localStorage).
  *
- * Backed by localStorage key 'pos_active_cart'.
- * Bridges cart state from POS page to Checkout page with full fidelity.
+ * - BILL cart ('pos_active_cart'): the POS cart. It is kept while the user moves to other menus
+ *   (held cart, header icon) and carries it to the payment page; it is cleared when the bill is saved,
+ *   when the user clears it, or on sign-out. Nothing is written to the database until the bill is saved.
+ * - QUOTATION cart ('pos_quotation_cart'): POS quotation mode → สรุปใบเสนอราคา only, kept apart so a
+ *   quotation never replaces the held bill cart.
  */
 
 import { Customer, Product, QuotationStatus } from '@/lib/types/rental-pos'
 
-const STORAGE_KEY = 'pos_active_cart'
+export type CartKind = 'BILL' | 'QUOTATION'
+const STORAGE_KEYS: Record<CartKind, string> = { BILL: 'pos_active_cart', QUOTATION: 'pos_quotation_cart' }
+/** Fired on window whenever the BILL cart is saved or cleared (header cart icon, POS page). */
+export const CART_CHANGED_EVENT = 'pos_cart_changed'
+
+/** Contact phone the cart starts with and the issued bill prints: both of the customer's numbers when
+ *  a second one is saved (cart + bill only, owner 2026-11-08; other screens keep the main number). */
+export function customerContactPhones(customer?: Pick<Customer, 'phone' | 'phone2'> | null): string {
+  const phones = [customer?.phone, customer?.phone2].map((p) => (p || '').trim()).filter(Boolean)
+  return [...new Set(phones)].join(', ')
+}
 
 export interface CartItem {
   id: string
@@ -61,12 +74,23 @@ export interface ActiveCartData {
   quotationMode?: boolean
   /** The quotation being revised (quotation mode only); absent for a new one or a copy. */
   quotationEdit?: { id: string; quotationNo: string; status: QuotationStatus; remark?: string }
+  /** User who built the cart: another account on this device never gets it back. */
+  ownerId?: string
 }
 
-export function loadActiveCart(): ActiveCartData | null {
+function notifyCartChanged(kind: CartKind) {
+  if (kind !== 'BILL') return
+  try {
+    window.dispatchEvent(new Event(CART_CHANGED_EVENT))
+  } catch {
+    // best-effort
+  }
+}
+
+export function loadActiveCart(kind: CartKind = 'BILL'): ActiveCartData | null {
   if (typeof window === 'undefined') return null
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(STORAGE_KEYS[kind])
     if (!raw) return null
     return JSON.parse(raw) as ActiveCartData
   } catch {
@@ -74,22 +98,40 @@ export function loadActiveCart(): ActiveCartData | null {
   }
 }
 
+/** Saved under the quotation key when `data.quotationMode`, otherwise as the BILL cart. */
 export function saveActiveCart(data: ActiveCartData): void {
   if (typeof window === 'undefined') return
+  const kind: CartKind = data.quotationMode ? 'QUOTATION' : 'BILL'
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+    localStorage.setItem(STORAGE_KEYS[kind], JSON.stringify(data))
   } catch {
     // silently ignore quota issues
   }
+  notifyCartChanged(kind)
 }
 
-export function clearActiveCart(): void {
+export function clearActiveCart(kind: CartKind = 'BILL'): void {
   if (typeof window === 'undefined') return
   try {
-    localStorage.removeItem(STORAGE_KEY)
+    localStorage.removeItem(STORAGE_KEYS[kind])
   } catch {
     // silently ignore
   }
+  notifyCartChanged(kind)
+}
+
+/** Sign-out: nothing of this user's carts stays on the device. */
+export function clearAllCarts(): void {
+  clearActiveCart('QUOTATION')
+  clearActiveCart('BILL')
+}
+
+/** The BILL cart left on this device by this user (null when empty, a quotation, or someone else's). */
+export function loadHeldCart(userId: string | null | undefined): ActiveCartData | null {
+  const cart = loadActiveCart('BILL')
+  if (!cart || cart.quotationMode || !Array.isArray(cart.items) || cart.items.length === 0) return null
+  if (cart.ownerId && cart.ownerId !== userId) return null
+  return cart
 }
 
 /** Explicit line mode wins; older carts fall back to rentalType/product type. */
@@ -129,9 +171,3 @@ export function validateCartCustomer(
   }
 }
 
-/** Bill title when the cashier did not pick a document type: from what is in the cart. */
-export function defaultBillDocumentType(items: Array<Parameters<typeof isSaleCartItem>[0]>): string {
-  if (items.length > 0 && items.every(isSaleCartItem)) return 'บิลขาย'
-  if (items.some(isSaleCartItem)) return 'บิลเช่า/ขาย'
-  return 'บิลเช่า'
-}

@@ -1,3 +1,4 @@
+
 # rental-pos
 
 ระบบ POS สำหรับงานเช่าและขาย พัฒนาด้วย Next.js 15, Supabase, Zustand และ Tailwind CSS
@@ -11,43 +12,58 @@
 
 ติดตั้ง dependencies:
 
+```bash
 pnpm workspace:setup
+```
 
-สร้างไฟล์ environment จากตัวอย่าง:
+สร้างไฟล์ environment จากตัวอย่าง (PowerShell):
 
+```powershell
 Copy-Item .env.example .env.local
+```
 
-จากนั้นกำหนดค่าใน .env.local:
+กำหนดค่าใน `.env.local`:
 
+```env
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SECRET_KEY=
+```
 
-SUPABASE_SECRET_KEY ใช้เฉพาะฝั่ง server และห้ามนำไปใช้ใน client-side code
+**ความปลอดภัย:** `SUPABASE_SECRET_KEY` ใช้เฉพาะฝั่ง Server เท่านั้น ห้ามนำไปใช้ใน Client-side Code
 
 ## Development
 
+รัน Development Server:
+
+```bash
 pnpm dev
+```
 
-หรือรันเฉพาะ localhost:
+รันเฉพาะ localhost:
 
+```bash
 pnpm dev:local
+```
 
 ## Scripts
 
-- pnpm dev = รัน Next.js development server
-- pnpm dev:local = รันที่ 127.0.0.1:3000
-- pnpm build = สร้าง production build
-- pnpm start = รัน production server
-- pnpm test = รัน Vitest
-- pnpm test:watch = รัน Vitest แบบ watch
-- pnpm lint = ตรวจ ESLint
-- pnpm typecheck = ตรวจ TypeScript
-- pnpm quality = ตรวจ typecheck แบบ strict และ lint
-- pnpm verify = รัน typecheck, tests, lint และ build
+| คำสั่ง | หน้าที่ |
+|---|---|
+| `pnpm dev` | รัน Next.js Development Server |
+| `pnpm dev:local` | รันที่ 127.0.0.1:3000 |
+| `pnpm build` | สร้าง Production Build |
+| `pnpm start` | รัน Production Server |
+| `pnpm test` | รัน Vitest |
+| `pnpm test:watch` | รัน Vitest แบบ Watch |
+| `pnpm lint` | ตรวจ ESLint |
+| `pnpm typecheck` | ตรวจ TypeScript |
+| `pnpm quality` | ตรวจ Typecheck แบบ Strict และ Lint |
+| `pnpm verify` | รัน Typecheck, Tests, Lint และ Build |
 
 ## Project Structure
 
+```text
 app/
 components/
 features/
@@ -55,6 +71,4 @@ lib/
 supabase/
 tests/
 docs/
-
-กฎและข้อกำหนดหลักของโปรเจกต์:
-docs/PROJECT_RULES_MASTER_CURRENT.md
+```
