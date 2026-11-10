@@ -100,7 +100,7 @@ export function CustomerLineLinkDialog({
             <>
               <p className="text-slate-600 dark:text-slate-300">
                 <b className="text-slate-800 dark:text-slate-100">อยู่ที่ร้าน</b> ให้สแกน QR นี้ · <b className="text-slate-800 dark:text-slate-100">อยู่ไกล</b> คัดลอกลิงก์ส่งไปทางแชตหรือช่องทางที่ติดต่อลูกค้าอยู่
-                เมื่อกดแล้ว LINE จะเปิดแชตร้านพร้อมรหัส กดส่งครั้งเดียวก็ผูกเสร็จ
+                เมื่อกดแล้ว LINE จะเปิดแชตร้านพร้อมรหัส กดส่งครั้งเดียวก็ผูก แล้วรอร้านตรวจยืนยัน
               </p>
               <div className="flex gap-2">
                 <input readOnly value={issued.oaUrl} aria-label="ลิงก์ผูก LINE" className="flex-1 min-w-0 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono text-[11px] text-slate-700 dark:text-slate-300" />

@@ -47,8 +47,9 @@ SELECT t.check('LF-INVITE', 'a customer must type a phone',
     public.line_liff_bind('U' || repeat('b', 31) || '1', 'Manee', t.v('lf_cust_code'), 'มานี', '', NULL, true) ->> 'result' = 'PHONE_REQUIRED');
 SELECT t.set('lf_bind2', public.line_liff_bind('U' || repeat('b', 31) || '1', 'Manee', t.v('lf_cust_code'),
     'มานี', '0812345678', 'manee', true)::text);
-SELECT t.check('LF-INVITE', 'customer with matching name and phone links without a flag',
-    t.v('lf_bind2')::jsonb ->> 'result' = 'LINKED_CUSTOMER' AND NOT (t.v('lf_bind2')::jsonb ->> 'needs_review')::boolean, t.v('lf_bind2'));
+-- Owner 2026-11-11: a customer's link always waits for the shop to check it, even when name and phone match.
+SELECT t.check('LF-INVITE', 'customer with matching name and phone links, and waits for the shop to check',
+    t.v('lf_bind2')::jsonb ->> 'result' = 'LINKED_CUSTOMER' AND (t.v('lf_bind2')::jsonb ->> 'needs_review')::boolean, t.v('lf_bind2'));
 SELECT t.set('lf_cust_contact', (SELECT id::text FROM public.line_contacts WHERE customer_id = t.v('lf_cust')::uuid AND status = 'LINKED'));
 
 SELECT t.set('lf_drv_code', t.ok('LF-INVITE', 'owner invites the driver', 'owner',

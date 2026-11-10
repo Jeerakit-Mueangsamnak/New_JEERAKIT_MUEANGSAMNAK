@@ -36,6 +36,7 @@ const ERRORS: Array<[RegExp, string]> = [
   [/^BILL_NOT_FOUND/, 'ไม่พบบิลนี้'],
   [/^LINE_CONTACT_NOT_LINKED/, 'ผู้รับยังไม่ได้ผูก LINE'],
   [/^LINE_CONTACT_UNREACHABLE/, 'ส่งไม่ถึงผู้รับ อาจบล็อกหรือลบ LINE ร้านแล้ว'],
+  [/^LINE_CONTACT_NEEDS_REVIEW/, 'การผูก LINE ของลูกค้ายังรอร้านตรวจ กดยืนยันก่อนจึงจะส่งได้'],
   [/^LINE_RECIPIENT_MISMATCH/, 'ผู้รับไม่ตรงกับลูกค้าหรือผู้รับผิดชอบของรายการนี้'],
   [/^LINE_MESSAGE_INVALID|^LINE_TEXT_INVALID|^LINE_MESSAGE/, 'ข้อความไม่ถูกต้องหรือยาวเกินกำหนด'],
   [/^LINE_TASK_CLOSED/, 'งานนี้ปิดไปแล้ว'],
@@ -164,6 +165,12 @@ export type BillLineRecipient = {
   state: 'LINKED' | 'NOT_LINKED' | 'UNREACHABLE' | 'NO_CUSTOMER'
   customer_id?: string
   display_name?: string | null
+  /** The linked LINE (for the shop's check). */
+  contact_id?: string | null
+  /** A customer's link waits for the shop to check it (owner 2026-11-11): no bill is sent until then. */
+  needs_review?: boolean
+  typed_name?: string | null
+  typed_phone?: string | null
 }
 
 /** Whether this bill's customer can get LINE messages (no LINE user id leaves the database). */

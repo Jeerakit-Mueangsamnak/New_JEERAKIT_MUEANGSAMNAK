@@ -19,6 +19,8 @@ const m = vi.hoisted(() => ({
   send: vi.fn(),
   code: vi.fn(),
   confirm: vi.fn(),
+  review: vi.fn(),
+  unlink: vi.fn(),
 }))
 
 describe('sendBillViaLine (server action)', () => {
@@ -129,7 +131,7 @@ describe('LineNotifyModal (bill screen)', () => {
     vi.resetModules()
     vi.doMock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: m.toast }) }))
     vi.doMock('@/components/common/ConfirmDialogProvider', () => ({ useConfirm: () => m.confirm }))
-    vi.doMock('@/app/actions/line', () => ({ getBillLineRecipient: m.recipient, sendBillViaLine: m.send, createCustomerLineLinkCode: m.code }))
+    vi.doMock('@/app/actions/line', () => ({ getBillLineRecipient: m.recipient, sendBillViaLine: m.send, createCustomerLineLinkCode: m.code, confirmLineContactReview: m.review, unlinkLineContact: m.unlink }))
     vi.doMock('qrcode', () => ({ default: { toDataURL: async () => 'data:image/png;base64,QR' } }))
     const { LineNotifyModal } = await import('@/features/bills/components/LineNotifyModal')
     const onClose = vi.fn()
@@ -148,6 +150,8 @@ describe('LineNotifyModal (bill screen)', () => {
     m.send.mockReset()
     m.code.mockReset()
     m.confirm.mockReset()
+    m.review.mockReset()
+    m.unlink.mockReset()
     Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => undefined) } })
   })
   afterEach(() => {
@@ -288,5 +292,41 @@ describe('LineNotifyModal (bill screen)', () => {
     expect(sendButton().disabled).toBe(true)
     expect(linkTab().disabled).toBe(true)
     expect((screen.getByRole('button', { name: /คัดลอกไปส่งเอง/ }) as HTMLButtonElement).disabled).toBe(false)
+  })
+  it('a new customer link waits for the shop: send is off until ยืนยัน ถูกคน; ยกเลิกการผูก undoes a wrong one (owner 2026-11-11)', async () => {
+    const waiting = { success: true, data: { state: 'LINKED', customer_id: CUSTOMER, contact_id: 'c-1', display_name: 'Somchai', needs_review: true, typed_name: 'สมชาย', typed_phone: '0812345678' } }
+    m.recipient.mockResolvedValue(waiting)
+    m.review.mockResolvedValue({ success: true, data: { contact_id: 'c-1' } })
+    await open()
+    const bar = await screen.findByTestId('line-link-review')
+    expect(bar.textContent).toContain('รอร้านตรวจการผูก LINE')
+    expect(bar.textContent).toContain('Somchai')
+    expect(bar.textContent).toContain('สมชาย 0812345678')
+    expect(sendButton().disabled).toBe(true)
+
+    // wrong person: undone after a confirm, then a new link can be made
+    m.confirm.mockResolvedValueOnce(true)
+    m.unlink.mockResolvedValue({ success: true })
+    m.recipient.mockResolvedValue({ success: true, data: { state: 'NOT_LINKED', customer_id: CUSTOMER } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /ยกเลิกการผูก/ }))
+    })
+    expect(m.unlink).toHaveBeenCalledWith('c-1', 'ร้านตรวจแล้ว ผูกผิดคน')
+    await waitFor(() => expect(screen.queryByTestId('line-link-review')).toBeNull())
+    await waitFor(() => expect(linkTab().disabled).toBe(false))
+  })
+
+  it('ยืนยัน ถูกคน: the check is saved and sending opens', async () => {
+    m.recipient.mockResolvedValue({ success: true, data: { state: 'LINKED', customer_id: CUSTOMER, contact_id: 'c-1', needs_review: true } })
+    m.review.mockResolvedValue({ success: true, data: { contact_id: 'c-1' } })
+    await open()
+    await screen.findByTestId('line-link-review')
+    m.recipient.mockResolvedValue({ success: true, data: { state: 'LINKED', customer_id: CUSTOMER, contact_id: 'c-1', needs_review: false } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /ยืนยัน ถูกคน/ }))
+    })
+    expect(m.review).toHaveBeenCalledWith('c-1')
+    await sendReady()
+    expect(screen.queryByTestId('line-link-review')).toBeNull()
   })
 })

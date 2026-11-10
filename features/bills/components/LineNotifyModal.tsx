@@ -8,12 +8,18 @@ import {
 } from '@/components/common/ActionButton'
 
 import React, { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Clock, Copy, CreditCard, Link2, MessageSquare, Send, ShieldCheck, Sparkles, WalletCards } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, Copy, CreditCard, Link2, Link2Off, MessageSquare, Send, ShieldAlert, ShieldCheck, Sparkles, WalletCards } from 'lucide-react'
 import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
 import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { CustomerLineLinkDialog } from '@/features/customers/components/CustomerLineLinkButton'
-import { getBillLineRecipient, sendBillViaLine, type BillLineRecipient } from '@/app/actions/line'
+import {
+  confirmLineContactReview,
+  getBillLineRecipient,
+  sendBillViaLine,
+  unlinkLineContact,
+  type BillLineRecipient,
+} from '@/app/actions/line'
 
 /** ข้อความ = plain text; Flex Card = the bill as a card (title, the note, the bill's rows). */
 export type LineMessageMode = 'TEXT' | 'FLEX'
@@ -135,6 +141,7 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
   const [message, setMessage] = useState('')
   const [recipient, setRecipient] = useState<BillLineRecipient | null>(null)
   const [linkOpen, setLinkOpen] = useState(false)
+  const [checking, setChecking] = useState(false)
   const confirm = useConfirm()
 
   // Who the bill goes to on LINE (no notice box any more, owner 2026-11-11: ส่งทาง LINE is simply
@@ -169,7 +176,48 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const canSend = recipient?.state === 'LINKED'
+  // A customer's new link waits for the shop to check it (owner 2026-11-11): no sending until then
+  const waitsForCheck = recipient?.state === 'LINKED' && recipient.needs_review === true
+  const canSend = recipient?.state === 'LINKED' && !waitsForCheck
+  const confirmLink = async () => {
+    if (!recipient?.contact_id) return
+    setChecking(true)
+    try {
+      const r = await confirmLineContactReview(recipient.contact_id)
+      if (!r.success) {
+        showToast('ยืนยันไม่สำเร็จ', r.error || 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
+        return
+      }
+      showToast('ยืนยันการผูก LINE แล้ว', billData.customerName, 'SUCCESS')
+      setRecipientRound((n) => n + 1)
+    } finally {
+      setChecking(false)
+    }
+  }
+  // ผูกผิดคน: undo the link; then สร้างลิงก์ LINE makes a new one
+  const undoLink = async () => {
+    if (!recipient?.contact_id) return
+    const ok = await confirm({
+      title: 'ยกเลิกการผูก LINE',
+      message: `ยกเลิกการผูก LINE ${recipient.display_name || ''} ออกจากคุณ${billData.customerName} แล้วสร้างลิงก์ใหม่ได้`,
+      confirmLabel: 'ยกเลิกการผูก',
+      cancelLabel: 'ไม่ใช่',
+      danger: true,
+    })
+    if (!ok) return
+    setChecking(true)
+    try {
+      const r = await unlinkLineContact(recipient.contact_id, 'ร้านตรวจแล้ว ผูกผิดคน')
+      if (!r.success) {
+        showToast('ยกเลิกการผูกไม่สำเร็จ', r.error || 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
+        return
+      }
+      showToast('ยกเลิกการผูกแล้ว', 'สร้างลิงก์ LINE ใหม่ให้ลูกค้าได้เลย', 'SUCCESS')
+      setRecipientRound((n) => n + 1)
+    } finally {
+      setChecking(false)
+    }
+  }
   // สร้างลิงก์ LINE: only for a bill with a customer who is not linked yet
   const canLink = Boolean(recipient?.customer_id) && recipient?.state !== 'LINKED'
   const startLink = async () => {
@@ -272,6 +320,36 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
           </button>
         </div>
 
+        {/* The customer linked with the shop's link: the shop checks it before any bill is sent (owner 2026-11-11) */}
+        {waitsForCheck && (
+          <div data-testid="line-link-review" className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 p-2 text-xs">
+            <ShieldAlert className="w-4 h-4 shrink-0 text-amber-700 dark:text-amber-300" />
+            <span className="min-w-0 flex-1 text-amber-900 dark:text-amber-100">
+              <b>รอร้านตรวจการผูก LINE</b>
+              {` · LINE: ${recipient?.display_name || '-'}`}
+              {recipient?.typed_name || recipient?.typed_phone ? ` · กรอก: ${[recipient?.typed_name, recipient?.typed_phone].filter(Boolean).join(' ')}` : ''}
+            </span>
+            <button
+              type="button"
+              disabled={checking}
+              onClick={() => void confirmLink()}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} flex items-center bg-emerald-700 hover:bg-emerald-800 text-white disabled:opacity-50`}
+            >
+              <CheckCircle2 />
+              ยืนยัน ถูกคน
+            </button>
+            <button
+              type="button"
+              disabled={checking}
+              onClick={() => void undoLink()}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} flex items-center border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-50`}
+            >
+              <Link2Off />
+              ยกเลิกการผูก
+            </button>
+          </div>
+        )}
+
         <>
             <div className="space-y-1.5">
               <label className="font-bold text-slate-700 dark:text-slate-300 block text-[11px]">ข้อความสำเร็จรูป</label>
@@ -320,7 +398,7 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
         <button type="button" onClick={() => copyText(copyableText, 'นำไปวางในแชต LINE ของลูกค้าได้เลย')} className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950 flex items-center`}>
           <Copy className="w-4 h-4" />คัดลอกไปส่งเอง
         </button>
-        <button type="button" onClick={handleSendLine} disabled={sending || !canSend || (mode === 'TEXT' && !outgoingText.trim())} title={canSend ? undefined : 'ลูกค้ายังไม่ได้ผูก LINE กับร้าน'} className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white shadow-lg shadow-emerald-500/30 flex items-center transition-all`}>
+        <button type="button" onClick={handleSendLine} disabled={sending || !canSend || (mode === 'TEXT' && !outgoingText.trim())} title={canSend ? undefined : waitsForCheck ? 'การผูก LINE ยังรอร้านตรวจ' : 'ลูกค้ายังไม่ได้ผูก LINE กับร้าน'} className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white shadow-lg shadow-emerald-500/30 flex items-center transition-all`}>
           {sending ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />กำลังส่ง...</> : <><Send className="w-4 h-4" />ส่งทาง LINE</>}
         </button>
       </AppModalFooter>
