@@ -16,7 +16,10 @@ import type { FullBill } from '@/lib/types/rental-return'
 // ─── inputs ──────────────────────────────────────────────────────────────────
 
 export interface BillLineInput {
-  productId: string
+  /** null = รายการนอกร้าน: sent with its own name and unit, no product, no stock. */
+  productId: string | null
+  productName?: string
+  unitName?: string
   mode: 'SALE' | 'RENTAL'
   quantity: number
   /** Omit to use the list price; a different price is a price override (PIN + reason). */
@@ -91,6 +94,7 @@ export function dayToTimestamp(day?: string | null): string | undefined {
 function linePayload(l: BillLineInput) {
   const base: Record<string, unknown> = {
     product_id: l.productId,
+    ...(l.productId ? {} : { product_name: l.productName ?? '', unit_name: l.unitName ?? null }),
     line_mode: l.mode,
     ordered_qty: l.quantity,
     unit_price: l.unitPrice,

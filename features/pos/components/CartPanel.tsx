@@ -55,6 +55,8 @@ interface CartPanelProps {
   draftBillId?: string
   /** Pencil icon on a cart line: reopen the quantity screen for that line. */
   onEditItem?: (item: CartItem) => void
+  /** + รายการนอกร้าน: a line typed in at the counter (bills only). */
+  onAddCustomItem?: () => void
   initialDiscount?: number
   initialShippingFee?: number
   initialDepositAmount?: number
@@ -91,6 +93,7 @@ export function CartPanel({
   quotationNo,
   draftBillId,
   onEditItem,
+  onAddCustomItem,
   initialDiscount,
   initialShippingFee,
   initialDepositAmount,
@@ -339,14 +342,25 @@ export function CartPanel({
               {isQuotationMode ? 'รายการใบเสนอราคา' : 'ตะกร้าสินค้า'}
             </h3>
           </div>
-          {items.length > 0 && (
-            <button
-              onClick={clearCart}
-              className="text-xs text-red-700 dark:text-red-400 hover:text-red-700 font-semibold transition-colors"
-            >
-              ล้างตะกร้า
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {onAddCustomItem && !isQuotationMode && (
+              <button
+                type="button"
+                onClick={onAddCustomItem}
+                className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 font-semibold transition-colors whitespace-nowrap"
+              >
+                + รายการนอกร้าน
+              </button>
+            )}
+            {items.length > 0 && (
+              <button
+                onClick={clearCart}
+                className="text-xs text-red-700 dark:text-red-400 hover:text-red-700 font-semibold transition-colors"
+              >
+                ล้างตะกร้า
+              </button>
+            )}
+          </div>
         </div>
 
         {/* 4-Row Cart Header Controls */}

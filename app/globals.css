@@ -1,3 +1,7 @@
+/* Thai web font for the shop's forms on devices without Tahoma (iPad, phones), owner 2026-11-11.
+   Downloaded only where a form needs it (Tahoma comes first in FORM_FONT_FAMILY). */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

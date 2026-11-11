@@ -43,6 +43,61 @@ export interface CartItem {
   /** The product's own price for this line, kept when a quotation/draft puts its agreed price on `product`.
    *  `null` = unknown (product not loaded), so checkout always sends `unitPrice`. */
   listUnitPrice?: number | null
+  /** รายการนอกร้าน (owner 2026-11-11): typed in at the counter, no shop product, no stock. */
+  isCustom?: boolean
+}
+
+/** Category label of a typed-in line (รายการนอกร้าน). */
+export const CUSTOM_ITEM_CATEGORY = 'รายการนอกร้าน'
+
+/** A stand-in product for a typed-in line: carries its name, unit and price; never sent as a product. */
+export function customCartProduct(name: string, unit: string, rentalType: 'NORMAL' | 'DAILY' | 'SALE', unitPrice: number): Product {
+  return {
+    id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    code: '',
+    name,
+    category: CUSTOM_ITEM_CATEGORY,
+    unit,
+    rentalType,
+    normalPrice: unitPrice,
+    dailyPrice: unitPrice,
+    rentPrice: unitPrice,
+    salePrice: unitPrice,
+    defaultDamageFee: 0,
+    defaultLossFee: 0,
+    totalQuantity: 0,
+    availableQuantity: 0,
+    rentedQuantity: 0,
+    damagedQuantity: 0,
+    lostQuantity: 0,
+    minimumStock: 0,
+    status: 'ACTIVE',
+  }
+}
+
+/** A typed-in cart line, priced quantity × price × count (count = rounds or days; a sale counts once). */
+export function customCartItem(
+  data: { name: string; unit: string; quantity: number; unitPrice: number; count: number; rentalType: 'NORMAL' | 'DAILY' | 'SALE' },
+  id = `cart-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+): CartItem {
+  const isSale = data.rentalType === 'SALE'
+  const count = isSale ? 1 : Math.max(1, Math.floor(Number(data.count) || 1))
+  return {
+    id,
+    product: customCartProduct(data.name, data.unit, data.rentalType, data.unitPrice),
+    productName: data.name,
+    itemType: isSale ? 'SALE' : 'RENT',
+    unitName: data.unit,
+    rentalType: data.rentalType,
+    quantity: data.quantity,
+    unitPrice: data.unitPrice,
+    usageCount: data.rentalType === 'NORMAL' ? count : 1,
+    billableDays: data.rentalType === 'DAILY' ? count : 1,
+    lineTotal: Math.round(data.quantity * data.unitPrice * count * 100) / 100,
+    requiresReturn: false,
+    listUnitPrice: null,
+    isCustom: true,
+  }
 }
 
 export interface ActiveCartData {
@@ -168,8 +223,9 @@ export function validateCartCustomer(
 ): void {
   if (!items.some((item) => !isSaleCartItem(item))) return
   if (!customer) throw new Error('บิลที่มีรายการเช่าจำเป็นต้องระบุลูกค้า')
-  if (!customer.customerName?.trim() || !customer.phone?.trim() || !customer.address?.trim()) {
-    throw new Error('ลูกค้าต้องมี ชื่อ, เบอร์โทร, และที่อยู่')
+  // Only the name is required (owner 2026-11-11, same as the new-customer form): phone and address may be empty.
+  if (!customer.customerName?.trim()) {
+    throw new Error('ลูกค้าต้องมีชื่อ')
   }
 }
 

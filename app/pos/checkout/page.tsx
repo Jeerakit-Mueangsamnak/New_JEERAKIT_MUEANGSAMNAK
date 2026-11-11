@@ -69,6 +69,10 @@ export default function CheckoutPage() {
     lineTotal: number
     itemType?: 'RENT' | 'SALE'
     requiresReturn?: boolean
+    productName?: string
+    unitName?: string
+    /** รายการนอกร้าน (no product, no stock) */
+    isCustom?: boolean
   }>>([])
   const [billDate, setBillDate] = useState<Date | null>(new Date())
   const [headerRentalDate, setHeaderRentalDate] = useState<Date | null>(new Date())
@@ -282,12 +286,16 @@ export default function CheckoutPage() {
 
     const lines: BillLineInput[] = items.map((it) => {
       const unitPrice = cartLineUnitPriceForServer(it)
+      // รายการนอกร้าน: no product id; its own name and unit go with the line
+      const product = it.isCustom
+        ? { productId: null, productName: it.productName || it.product.name, unitName: it.unitName || it.product.unit }
+        : { productId: it.product.id }
       if (isSaleCartItem(it)) {
-        return { productId: it.product.id, mode: 'SALE', quantity: it.quantity, unitPrice }
+        return { ...product, mode: 'SALE', quantity: it.quantity, unitPrice }
       }
       if (it.rentalType === 'DAILY') {
         return {
-          productId: it.product.id,
+          ...product,
           mode: 'RENTAL',
           quantity: it.quantity,
           unitPrice,
@@ -298,7 +306,7 @@ export default function CheckoutPage() {
         }
       }
       return {
-        productId: it.product.id,
+        ...product,
         mode: 'RENTAL',
         quantity: it.quantity,
         unitPrice,

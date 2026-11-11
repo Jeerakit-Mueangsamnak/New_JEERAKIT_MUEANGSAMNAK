@@ -1,4 +1,4 @@
-// Generated from the Supabase Cloud schema (project kgfrxikiduqvejhlcyrv) after migrations
+// Generated from the Supabase Cloud schema (project heazhdbxphomgkezqhyw) after migrations
 // settings_architecture_v1 + member_action_grants (2026-10-07). Regenerate after schema changes (Supabase MCP generate_typescript_types).
 export type Json =
   | string

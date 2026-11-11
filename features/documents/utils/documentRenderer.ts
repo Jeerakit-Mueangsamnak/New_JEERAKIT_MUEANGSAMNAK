@@ -341,6 +341,48 @@ function colourLuminance(value: string): number | null {
 }
 
 /**
+ * One standard font for every form (owner 2026-11-11: "ดูดี ดูสวย ดูมาตรฐาน"). The forms mixed Tahoma, Arial
+ * (amounts) and Tahoma alone (signature dates); iPad / phones have no Tahoma, so they drew the forms in their
+ * own font, wider or narrower than on the shop's computer. Now every part uses Tahoma, and where Tahoma is
+ * missing the Thai web font Noto Sans Thai (loaded in app/globals.css) — never a random device font.
+ */
+export const FORM_FONT_FAMILY = "Tahoma, 'Noto Sans Thai', sans-serif"
+
+function standardizeFormFont(html: string): string {
+  return html.replace(/font-family\s*:\s*(?:&quot;[^&]*&quot;|'[^']*'|[^;"'<>}])+/gi, `font-family:${FORM_FONT_FAMILY}`)
+}
+
+/** Left and right paper margin of every form (owner 2026-11-11: 10 mm each side; the forms were drawn with 5 mm). */
+export const FORM_SIDE_MARGIN_MM = 10
+const PX_PER_MM = 96 / 25.4
+
+/**
+ * The form's A4 sheet (width 210mm) keeps its drawing; only its side margins change. The sheet's left /
+ * right padding becomes FORM_SIDE_MARGIN_MM and the drawing inside is scaled to the narrower width
+ * (CSS zoom, so it also takes less room) — text and lines keep their proportions. The room the smaller
+ * drawing leaves is shared equally above and below (owner 2026-11-11: top and bottom alike). Forms
+ * without that sheet are left as they are.
+ */
+function setFormSideMargins(html: string): string {
+  const m = /<div style="([^"]*\bwidth:\s*210mm\b[^"]*)">(\s*<div style=")/.exec(html)
+  if (!m) return html
+  const style = m[1]
+  const left = stylePx(style, 'padding-left')
+  const right = stylePx(style, 'padding-right')
+  const sheet = 210 * PX_PER_MM
+  const inner = sheet - left - right
+  const margin = FORM_SIDE_MARGIN_MM * PX_PER_MM
+  if (!(inner > 0) || (Math.abs(left - margin) < 0.5 && Math.abs(right - margin) < 0.5)) return html
+  const zoom = Math.round(((sheet - 2 * margin) / inner) * 10000) / 10000
+  const side = margin.toFixed(4)
+  const sheetHeight = 297 * PX_PER_MM
+  const innerHeight = sheetHeight - stylePx(style, 'padding-top') - stylePx(style, 'padding-bottom')
+  const vertical = Math.max(0, (sheetHeight - innerHeight * zoom) / 2).toFixed(4)
+  const sheetStyle = `${style}; padding-left:${side}px; padding-right:${side}px; padding-top:${vertical}px; padding-bottom:${vertical}px`
+  return `${html.slice(0, m.index)}<div style="${sheetStyle}">${m[2]}zoom:${zoom}; ${html.slice(m.index + m[0].length)}`
+}
+
+/**
  * Every form prints on white (owner 2026-11-11): light tinted fills (header cells, total rows, boxes)
  * become white. Dark fills are lines and bars of the form and stay as drawn.
  */
@@ -428,7 +470,11 @@ export function renderDocumentTemplate(
 
   // Print fixes that keep the shop's form as drawn (the stored form is not changed)
   let html = freeItemNumberWidth(
-    keepFormTextOnItsLine(centreEmptySignatureBrackets(whitenLightBackgrounds(enlargeBusinessLogo(removeThaiAmountTextParentheses(templateSchema)))))
+    keepFormTextOnItsLine(
+      centreEmptySignatureBrackets(
+        whitenLightBackgrounds(enlargeBusinessLogo(setFormSideMargins(standardizeFormFont(removeThaiAmountTextParentheses(templateSchema)))))
+      )
+    )
   )
 
   const replace = (pattern: RegExp, value: unknown) => {

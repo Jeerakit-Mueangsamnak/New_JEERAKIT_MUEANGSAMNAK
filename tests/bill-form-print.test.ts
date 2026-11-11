@@ -17,7 +17,7 @@ import type { DocumentName } from '@/features/documents/api/template-library-rep
 import type { Quotation } from '@/lib/types/rental-pos'
 import type { DocumentTemplate } from '@/lib/types/document'
 import type { BillTemplateData } from '@/features/documents/utils/rental-bill-print'
-import { renderDocumentTemplate } from '@/features/documents/utils/documentRenderer'
+import { renderDocumentTemplate, FORM_FONT_FAMILY, FORM_SIDE_MARGIN_MM } from '@/features/documents/utils/documentRenderer'
 
 // A shop form that draws its own 20 item rows, like the JEERAKIT ใบส่งของ/ใบเสร็จรับเงิน.
 const rows = Array.from({ length: 20 }, (_, i) =>
@@ -382,5 +382,42 @@ describe('ธนาคารและ QR ในฟอร์มมาจากห
     expect(out).toContain('ร้านทดสอบ')
     expect(out).toContain('src="data:image/png;base64,QUJD"')
     expect(out).not.toContain('font-size:0.9em')
+  })
+})
+
+describe('one standard font on every form (owner 2026-11-11)', () => {
+  it('Tahoma / Arial / quoted names all become Tahoma with the Thai web font behind it', () => {
+    const tpl = [
+      `<div style="color:#000; font-family:Tahoma, 'Noto Sans Thai', sans-serif; font-size:16px">ร้าน</div>`,
+      `<div style="font-family:Arial, sans-serif; font-size:12px; font-weight:700">{{bill.total}}</div>`,
+      `<div style="font-family:Tahoma; font-size:13px">วันที่ {{document.date}}</div>`,
+      `<div style="font-family:&quot;TH Sarabun New&quot;, serif">x</div>`,
+      `<style>.a { font-family: Garamond }</style>`,
+    ].join('')
+    const out = renderDocumentTemplate(tpl, {}, 'BL-1', '2026-11-11')
+    const families = [...out.matchAll(/font-family\s*:\s*([^;"}]+(?:'[^']*'[^;"}]*)*)/g)].map((m) => m[1].trim())
+    expect(families.length).toBe(5)
+    expect(new Set(families)).toEqual(new Set([FORM_FONT_FAMILY]))
+    expect(out).toContain('font-size:12px; font-weight:700')
+    expect(out).not.toMatch(/Arial|Garamond|Sarabun/)
+  })
+})
+
+describe('form side margins 10 mm (owner 2026-11-11)', () => {
+  const sheet = (pad: number) =>
+    `<div class="template-document"><div style="position:relative; width:793.688px; height:1122.52px; padding-top:${pad}px; padding-right:${pad}px; padding-bottom:${pad}px; padding-left:${pad}px; width:210mm; height:297mm"><div style="width:755.891px; height:1084.72px">ข้อความ</div></div></div>`
+
+  it('a sheet drawn with 5 mm sides gets 10 mm and its drawing scaled to fit (190 / 200 mm)', () => {
+    expect(FORM_SIDE_MARGIN_MM).toBe(10)
+    const out = renderDocumentTemplate(sheet(18.8976), {}, 'BL-1', '2026-11-11')
+    expect(out).toContain('padding-left:37.7953px; padding-right:37.7953px')
+    expect(out).toMatch(/<div style="zoom:0\.95; width:755\.891px/)
+    // 297 mm − 0.95 × 287 mm, shared equally: 12.18 mm above and below
+    expect(out).toContain('padding-top:46.0157px; padding-bottom:46.0157px')
+  })
+
+  it('a sheet already at 10 mm, or a form without an A4 sheet, is left as it is', () => {
+    expect(renderDocumentTemplate(sheet(37.7953), {}, 'BL-1', '2026-11-11')).not.toContain('zoom:')
+    expect(renderDocumentTemplate('<div style="width:500px"><div style="width:400px">x</div></div>', {}, 'BL-1', '2026-11-11')).not.toContain('zoom:')
   })
 })

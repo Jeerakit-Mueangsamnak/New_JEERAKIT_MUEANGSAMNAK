@@ -58,7 +58,8 @@ interface LineRow {
   id: string
   bill_id: string
   line_no: number
-  product_id: string
+  /** NULL = รายการนอกร้าน (typed in at the counter; its own product_name / unit_name). */
+  product_id: string | null
   line_mode: 'SALE' | 'RENTAL'
   ordered_qty: number
   unit_price: number
@@ -197,11 +198,13 @@ export function mapBill(
   const delivery = deliveryOf(sorted)
 
   const items: FullBillItem[] = sorted.map((l) => {
-    const p = ctx.products.get(l.product_id)
+    const p = l.product_id ? ctx.products.get(l.product_id) : undefined
     const isRental = l.line_mode === 'RENTAL'
+    // รายการนอกร้าน: no product, nothing to deliver or bring back
+    const isCustom = !l.product_id
     return {
       rentalBillItemId: l.id,
-      productId: l.product_id,
+      productId: l.product_id ?? '',
       // The product as written on the bill; renaming the product later does not change old bills.
       productCode: l.product_sku ?? p?.sku ?? '',
       productName: l.product_name ?? p?.name ?? '',
@@ -218,7 +221,7 @@ export function mapBill(
       unit: l.unit_name ?? ((p && ctx.units.get(p.unit_id)) || ''),
       defaultRepairFee: Number(p?.default_damage_fee ?? 0),
       defaultReplacementFee: Number(p?.default_loss_fee ?? 0),
-      requiresReturn: isRental,
+      requiresReturn: isRental && !isCustom,
       rentalStartDate: toDate(l.rental_start_at),
       scheduledReturnDate: toDate(l.rental_end_at),
       actualReturnDate: toDate(l.actual_return_at) || undefined,
@@ -227,7 +230,7 @@ export function mapBill(
       usageCount: l.period_count ?? undefined,
       lineTotal: Number(l.extended_amount),
       // "ไม่คิดเงิน" lives on the product; a line whose price was typed in always counts as charged.
-      isChargeable: p ? p.is_rent_chargeable !== false || Number(l.unit_price) > 0 : undefined,
+      isChargeable: p ? p.is_rent_chargeable !== false || Number(l.unit_price) > 0 : isCustom ? true : undefined,
       status: lineStatus(l),
       deliveryStatus: pendingDeliveryQty(l) === 0 ? 'DELIVERED' : l.delivered_qty > 0 ? 'PARTIAL_DELIVERED' : 'PENDING',
     }

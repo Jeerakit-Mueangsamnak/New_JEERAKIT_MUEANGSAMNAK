@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { ProductGrid } from '@/features/pos/components/ProductGrid'
 import { CartPanel } from '@/features/pos/components/CartPanel'
 import { QuantityModal } from '@/features/pos/components/QuantityModal'
+import { CustomItemModal, type CustomItemData } from '@/features/pos/components/CustomItemModal'
 import { NutAccessoryModal, ScaffoldAccessoryModal, type AccessoryLine } from '@/features/pos/components/AccessoryModals'
 import { accessoryWindowFor } from '@/features/pos/services/accessory-rules'
 import { Product, Customer, Quotation, Appointment } from '@/lib/types/rental-pos'
@@ -23,6 +24,7 @@ import {
   CART_CHANGED_EVENT,
   CartItem,
   cartLineListPrice,
+  customCartItem,
   isSaleCartItem,
   loadActiveCart,
   loadHeldCart,
@@ -59,6 +61,8 @@ function POSContent() {
   const [editingCartItem, setEditingCartItem] = useState<CartItem | null>(null)
   const [selectedProductMode, setSelectedProductMode] = useState<'RENT' | 'SALE'>('RENT')
   const [accessoryWindow, setAccessoryWindow] = useState<'NUT' | 'SCAFFOLD' | null>(null)
+  // รายการนอกร้าน window (owner 2026-11-11): open for a new typed-in line
+  const [customItemOpen, setCustomItemOpen] = useState(false)
   const [customersList, setCustomersList] = useState<Customer[]>([])
   const [productsList, setProductsList] = useState<Product[]>([])
   const [cartItems, setCartItems] = useState<CartItem[]>([])
@@ -279,6 +283,11 @@ function POSContent() {
         const invalidItemNames: string[] = []
         const draftProducts: Product[] = []
         draftBill.items.forEach((item) => {
+          // รายการนอกร้าน has no product: it comes back as a typed-in line below
+          if (!item.productId) {
+            draftProducts.push(undefined as unknown as Product)
+            return
+          }
           const product = productsById.get(item.productId)
           if (!product || product.status !== 'ACTIVE' || !Number.isFinite(item.quantity) || item.quantity <= 0) {
             invalidItemNames.push(item.productName)
@@ -309,6 +318,21 @@ function POSContent() {
         setSelectedCustomer(cust)
 
         const convertedItems: CartItem[] = draftBill.items.map((item, idx) => {
+          if (!item.productId) {
+            const rentalType: CartItem['rentalType'] =
+              item.rentalType === 'SALE' ? 'SALE' : item.rentalType === 'DAILY' ? 'DAILY' : 'NORMAL'
+            return customCartItem(
+              {
+                name: item.productName,
+                unit: item.unit || '',
+                quantity: item.quantity,
+                unitPrice: item.dailyRate,
+                count: item.usageCount || 1,
+                rentalType,
+              },
+              `cart-${Date.now()}-${idx}`,
+            )
+          }
           const matchedProd = draftProducts[idx]
           const isSale = item.rentalType === 'SALE'
           const rentalType: CartItem['rentalType'] =
@@ -542,6 +566,19 @@ function POSContent() {
     setSelectedProduct(null)
   }
 
+  /** รายการนอกร้าน: typed-in lines (no product, no stock), up to 5 at once; editing replaces the same line. */
+  const handleSaveCustomItems = (rows: CustomItemData[], replaceItem?: CartItem) => {
+    if (replaceItem) {
+      const [data] = rows
+      if (!data) return
+      setCartItems((prev) => prev.map((item) => (item.id === replaceItem.id ? customCartItem(data, replaceItem.id) : item)))
+      setEditingCartItem(null)
+      showToast('แก้ไขรายการแล้ว', `${data.name} × ${data.quantity}`, 'SUCCESS')
+      return
+    }
+    setCartItems((prev) => [...prev, ...rows.map((data, i) => customCartItem(data, `cart-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`))])
+  }
+
   /** false = not saved, so the customer form stays open with what was typed. */
   const handleAddCustomer = async (newCustomer: Customer): Promise<boolean> => {
     try {
@@ -670,6 +707,7 @@ function POSContent() {
             quotationNo={loadedQuotationNo ?? editingQuotation?.quotationNo}
             draftBillId={draftBillId || heldDocIds.draftBillId || undefined}
             onEditItem={setEditingCartItem}
+            onAddCustomItem={() => setCustomItemOpen(true)}
             initialDiscount={quotationValues.discount}
             initialShippingFee={quotationValues.shippingFee}
             initialDepositAmount={quotationValues.depositAmount}
@@ -710,8 +748,29 @@ function POSContent() {
         <ScaffoldAccessoryModal products={productsList} allowOverStock={isQuotationMode} onAdd={handleAddAccessories} onClose={() => setAccessoryWindow(null)} />
       )}
 
+      {/* รายการนอกร้าน — new line, or editing a typed-in line */}
+      {customItemOpen && (
+        <CustomItemModal onAdd={(rows) => handleSaveCustomItems(rows)} onClose={() => setCustomItemOpen(false)} />
+      )}
+      {editingCartItem?.isCustom && (
+        <CustomItemModal
+          key={editingCartItem.id}
+          initial={{
+            name: editingCartItem.productName || editingCartItem.product.name,
+            quantity: editingCartItem.quantity,
+            unit: editingCartItem.unitName || editingCartItem.product.unit,
+            unitPrice: editingCartItem.unitPrice,
+            count: editingCartItem.rentalType === 'DAILY' ? editingCartItem.billableDays || 1 : editingCartItem.usageCount || 1,
+            rentalType: editingCartItem.rentalType,
+          }}
+          submitLabel="บันทึกการแก้ไข"
+          onAdd={(rows) => handleSaveCustomItems(rows, editingCartItem)}
+          onClose={() => setEditingCartItem(null)}
+        />
+      )}
+
       {/* Quantity Modal — edit a cart line */}
-      {editingCartItem && (
+      {editingCartItem && !editingCartItem.isCustom && (
         <QuantityModal
           key={editingCartItem.id}
           product={editingCartItem.product}
