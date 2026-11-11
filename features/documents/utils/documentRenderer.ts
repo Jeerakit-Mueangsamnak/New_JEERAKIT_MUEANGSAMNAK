@@ -109,6 +109,13 @@ const isNoChargeLine = (item: { price?: number | null; rentalType?: string; isNo
 
 /** Columns of a shop form's item table that are centred and as wide as their header text (owner 2026-11-09). */
 const FITTED_ITEM_FIELDS = new Set(['quantity', 'unit', 'rental'])
+/**
+ * จำนวนเงิน columns (owner 2026-11-11): narrowed from their left edge to what an amount needs, still
+ * right-aligned; the width goes to รายการ.
+ */
+const MONEY_ITEM_FIELDS = new Set(['amount', 'fine'])
+/** Room for an amount up to 9,999,999.00 at the forms' 12px. */
+const MONEY_COLUMN_TEXT_PX = 72
 /** Room left beside the header text, on top of the cell's own padding. */
 const FITTED_COLUMN_SPARE_PX = 8
 
@@ -119,9 +126,9 @@ const setStyleWidth = (style: string, width: number) =>
 
 /**
  * A shop form drawn with one field per item cell ({{items.1.quantity}}): the จำนวน / หน่วย / การเช่า
- * columns are made as wide as their header text and their cells centred; the width they give up goes
- * to the รายการ column, so the table keeps its size and every row moves together. The stored form is
- * not changed. A table this cannot read cell by cell (merged cells, several header rows) is left as drawn.
+ * columns are made as wide as their header text and their cells centred, the จำนวนเงิน column as wide as
+ * an amount needs (still right-aligned); the width they give up goes to the รายการ column, so the table
+ * keeps its size and every row moves together. The stored form is not changed. A table this cannot read cell by cell (merged cells, several header rows) is left as drawn.
  */
 export function fitFormItemColumns(html: string): string {
   const firstField = html.search(/\{\{\s*items\.1\.(?:name|quantity|unit|rental)\s*\}\}/)
@@ -148,16 +155,21 @@ export function fitFormItemColumns(html: string): string {
   if (nameColumn < 0) return html
 
   const newWidths = new Map<number, number>()
+  const centred = new Set<number>()
   let freed = 0
   fields.forEach((field, index) => {
-    if (!FITTED_ITEM_FIELDS.has(field)) return
+    const money = MONEY_ITEM_FIELDS.has(field)
+    if (!FITTED_ITEM_FIELDS.has(field) && !money) return
     const [, , attrs, content] = header[index]
     const style = /style="([^"]*)"/.exec(attrs)?.[1] ?? ''
     const oldWidth = styleWidth(style)
     const textWidth = styleWidth(/style="([^"]*)"/.exec(content)?.[1] ?? '')
-    if (!Number.isFinite(oldWidth) || !Number.isFinite(textWidth)) return
-    const width = textWidth + stylePx(style, 'padding-left') + stylePx(style, 'padding-right') + FITTED_COLUMN_SPARE_PX
+    if (!Number.isFinite(oldWidth) || (!money && !Number.isFinite(textWidth))) return
+    const needed = money ? Math.max(Number.isFinite(textWidth) ? textWidth : 0, MONEY_COLUMN_TEXT_PX) : textWidth
+    const width = needed + stylePx(style, 'padding-left') + stylePx(style, 'padding-right') + FITTED_COLUMN_SPARE_PX
+    if (money && width >= oldWidth) return
     newWidths.set(index, width)
+    if (!money) centred.add(index)
     freed += oldWidth - width
   })
   if (newWidths.size === 0) return html
@@ -175,7 +187,7 @@ export function fitFormItemColumns(html: string): string {
       const cellAttrs = attrs.replace(/style="([^"]*)"/, (_m, style: string) => {
         delta = width - styleWidth(style)
         let next = setStyleWidth(style, width)
-        if (tag === 'td' && index !== nameColumn) {
+        if (tag === 'td' && centred.has(index)) {
           next = /text-align:\s*\w+/.test(next) ? next.replace(/text-align:\s*\w+/, 'text-align:center') : `text-align:center; ${next}`
         }
         return `style="${next}"`
@@ -195,8 +207,9 @@ export function fitFormItemColumns(html: string): string {
 
 const DOCUMENT_FIELD_STYLE = {
   terms: 'display:block;max-width:100%;box-sizing:border-box;white-space:pre-line;overflow-wrap:anywhere;word-break:break-word;line-height:1.45;vertical-align:top',
-  singleLine: 'display:inline-block;max-width:100%;box-sizing:border-box;white-space:nowrap;overflow-wrap:normal;word-break:keep-all;font-size:0.9em;vertical-align:bottom',
   signer: 'display:inline-block;max-width:100%;box-sizing:border-box;white-space:normal;overflow-wrap:anywhere;word-break:break-word;line-height:1.3;vertical-align:bottom',
+  /** A shop detail written inside the form's own text line (bank lines): same font as the line, never wrapped. */
+  inlineValue: 'white-space:nowrap',
 } as const
 
 /** Bill templates may put the Thai amount in parentheses; print the amount text without them. */
@@ -304,6 +317,92 @@ function centreFloatingDocumentDate(html: string): string {
   )
 }
 
+/** Relative luminance 0..1 of a CSS colour written as rgb()/rgba()/#hex; null when it is something else. */
+function colourLuminance(value: string): number | null {
+  const v = value.trim().toLowerCase()
+  let rgb: number[] | null = null
+  const fn = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)(?:[\s,/]+([\d.]+))?\s*\)$/.exec(v)
+  if (fn) {
+    if (fn[4] !== undefined && Number(fn[4]) === 0) return null // transparent
+    rgb = [Number(fn[1]), Number(fn[2]), Number(fn[3])]
+  } else {
+    const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(v)?.[1]
+    if (hex) {
+      const full = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex
+      rgb = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16))
+    }
+  }
+  if (!rgb) return null
+  const [r, g, b] = rgb.map((c) => {
+    const s = c / 255
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+/**
+ * Every form prints on white (owner 2026-11-11): light tinted fills (header cells, total rows, boxes)
+ * become white. Dark fills are lines and bars of the form and stay as drawn.
+ */
+function whitenLightBackgrounds(html: string): string {
+  return html.replace(/(background(?:-color)?\s*:\s*)(rgba?\([^)]*\)|#[0-9a-fA-F]{3,6})(?=\s*(?:;|"|'|!|$))/g, (match, prop: string, colour: string) => {
+    const lum = colourLuminance(colour)
+    return lum !== null && lum >= 0.7 ? `${prop}#ffffff` : match
+  })
+}
+
+/**
+ * Text the form wrote itself on a line of fixed height stays on that line. With a slightly wider font
+ * (another computer, the printer) it wrapped: the bank lines took 2 rows and the หมายเหตุ lines ran over
+ * each other (owner 2026-11-11). Shop details from Settings ({{business.*}}) count as the form's text;
+ * other fields keep their own rules.
+ */
+function keepFormTextOnItsLine(html: string): string {
+  return html.replace(
+    /<(div|span|p|h[1-6]|strong|b|td|th)\b([^>]*?)style="([^"]*)"([^>]*)>([^<]*)<\/\1>/g,
+    (match, tag: string, before: string, style: string, after: string, text: string) => {
+      if (!text.trim() || /\{\{(?!\s*business\.)/.test(text) || !/white-space:\s*pre-wrap/.test(style) || !/(?:^|;)\s*height:\s*[\d.]+px/.test(style)) return match
+      const next = `${style.replace(/white-space:\s*pre-wrap/g, 'white-space:pre')}; overflow:visible`
+      return `<${tag}${before}style="${next}"${after}>${text}</${tag}>`
+    }
+  )
+}
+
+/**
+ * The empty brackets under a signature for the customer's name — "(            )" drawn with spaces —
+ * wrapped or drifted apart (owner 2026-11-11). They are drawn as a centred pair with a fixed blank between.
+ */
+function centreEmptySignatureBrackets(html: string): string {
+  return html.replace(
+    /<(span|div)\b([^>]*?)style="([^"]*)"([^>]*)>\s*\(\s{3,}\)\s*<\/\1>/g,
+    (match, tag: string, before: string, style: string, after: string) => {
+      const width = styleWidth(style) - stylePx(style, 'padding-left') - stylePx(style, 'padding-right')
+      if (!(width > 40)) return match
+      // About as wide as the shop's own "( name )" beside it, and never wider than the line
+      const blank = Math.round(Math.min(width - 24, 100) * 100) / 100
+      return `<${tag}${before}style="${style}; white-space:nowrap; text-align:center; overflow:visible"${after}>(<span style="display:inline-block; width:${blank}px"></span>)</${tag}>`
+    }
+  )
+}
+
+/**
+ * ลำดับ: the form sized each number box for the number it showed when drawn (one digit for rows 1–9),
+ * so on later pages 21–29 printed as "2" (owner 2026-11-11). The number box takes the room it needs.
+ */
+function freeItemNumberWidth(html: string): string {
+  return html.replace(/(<span\b[^>]*?style=")([^"]*)("[^>]*>\s*\{\{\s*items\.\d+\.no\s*\}\})/g, (_m, open: string, style: string, close: string) => {
+    const next = style
+      .replace(/(?:^|;)\s*(?:width|min-width|max-width):\s*[^;]*/g, '')
+      .replace(/(?:^|;)\s*(?:overflow|overflow-x|text-overflow):\s*[^;]*/g, '')
+    return `${open}${next}; width:auto; overflow:visible${close}`
+  })
+}
+
+/** An image whose picture comes from Settings (e.g. {{business.qr_url}}) and is not set there prints nothing. */
+function hideEmptyImages(html: string): string {
+  return html.replace(/<img\b[^>]*\ssrc\s*=\s*(["'])\s*\1[^>]*>/gi, '')
+}
+
 export function formatBahtCurrency(val?: number | null): string {
   if (val === undefined || val === null || isNaN(val)) return '0.00'
   return val.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -327,7 +426,10 @@ export function renderDocumentTemplate(
   const biz = businessSettings || {}
   const bill = billSnapshot || {}
 
-  let html = enlargeBusinessLogo(removeThaiAmountTextParentheses(templateSchema))
+  // Print fixes that keep the shop's form as drawn (the stored form is not changed)
+  let html = freeItemNumberWidth(
+    keepFormTextOnItsLine(centreEmptySignatureBrackets(whitenLightBackgrounds(enlargeBusinessLogo(removeThaiAmountTextParentheses(templateSchema)))))
+  )
 
   const replace = (pattern: RegExp, value: unknown) => {
     html = html.replace(pattern, escapeDocumentHtml(value))
@@ -358,12 +460,14 @@ export function renderDocumentTemplate(
   replace(/\{\{\s*business\.line_id\s*\}\}/g, fallbackBizLine)
   replace(/\{\{\s*business\.description\s*\}\}/g, '')
   replaceStyled(/\{\{\s*business\.authorized_person\s*\}\}/g, fallbackBizSigner, DOCUMENT_FIELD_STYLE.signer)
-  replaceStyled(/\{\{\s*business\.bank_name\s*\}\}/g, fallbackBankName, DOCUMENT_FIELD_STYLE.singleLine)
-  replaceStyled(/\{\{\s*business\.bank_account_name\s*\}\}/g, fallbackAccountName, DOCUMENT_FIELD_STYLE.singleLine)
-  replaceStyled(/\{\{\s*business\.bank_account_number\s*\}\}/g, fallbackAccountNumber, DOCUMENT_FIELD_STYLE.singleLine)
-  replaceStyled(/\{\{\s*business\.promptpay\s*\}\}/g, fallbackPromptPay, DOCUMENT_FIELD_STYLE.singleLine)
+  // Bank details and the QR come from Settings → ข้อมูลร้าน (owner 2026-11-11: never fixed in a form)
+  replaceStyled(/\{\{\s*business\.bank_name\s*\}\}/g, fallbackBankName, DOCUMENT_FIELD_STYLE.inlineValue)
+  replaceStyled(/\{\{\s*business\.bank_account_name\s*\}\}/g, fallbackAccountName, DOCUMENT_FIELD_STYLE.inlineValue)
+  replaceStyled(/\{\{\s*business\.bank_account_number\s*\}\}/g, fallbackAccountNumber, DOCUMENT_FIELD_STYLE.inlineValue)
+  replaceStyled(/\{\{\s*business\.promptpay\s*\}\}/g, fallbackPromptPay, DOCUMENT_FIELD_STYLE.inlineValue)
   replace(/\{\{\s*business\.logo_url\s*\}\}/g, biz.logoDataUrl || biz.logoUrl || '/logo.png')
   replace(/\{\{\s*business\.qr_url\s*\}\}/g, biz.bankQrDataUrl || '')
+  html = hideEmptyImages(html)
 
   // Fitting fixes made while printing (the shop's form itself is not changed)
   html = centreFloatingDocumentDate(flowCustomerAddress(html, cust.address || ''))

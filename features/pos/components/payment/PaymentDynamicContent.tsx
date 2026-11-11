@@ -6,6 +6,7 @@ import { AlertCircle, CheckCircle2, Maximize2, QrCode, RefreshCw, X } from 'luci
 import { PaymentMethodType } from './PaymentMethodSelector'
 import { NumericInput } from '@/components/common/NumericInput'
 import type { SplitState } from '@/features/pos/hooks/useSplitPayment'
+import { formatPromptPayNumber } from '@/lib/promptpay'
 
 const METHOD_LABEL = { CASH: 'เงินสด', QR: 'QR Code' } as const
 const baht = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2 })
@@ -216,7 +217,7 @@ export function PaymentDynamicContent({
                 )}
               </div>
               <span className="text-[10px] text-slate-600 dark:text-slate-400 mt-1 font-semibold whitespace-nowrap">
-                {promptPayId ? `PromptPay: ${promptPayId}` : bankQrUrl ? 'QR Code รับเงิน' : 'ยังไม่ได้ตั้งค่า QR Code รับเงิน'}
+                {promptPayId ? `PromptPay: ${formatPromptPayNumber(promptPayId)}` : bankQrUrl ? 'QR Code รับเงิน' : 'ยังไม่ได้ตั้งค่า QR Code รับเงิน'}
               </span>
               {onOpenQr && (
                 <button

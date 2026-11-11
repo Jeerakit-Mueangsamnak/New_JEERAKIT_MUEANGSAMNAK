@@ -55,6 +55,8 @@ import { useLeaveGuard } from '@/features/settings/hooks/useLeaveGuard'
 import { autoLockLabel, validateSection } from '@/features/settings/utils/settings-validation'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { CustomSelect } from '@/components/common/CustomSelect'
+import { formatPromptPayNumber, promptPayDigits, PROMPTPAY_TYPES } from '@/lib/promptpay'
+import { THAI_BANKS } from '@/features/settings/utils/thai-banks'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { MyAccountPanel, type MyAccountTab } from '@/features/settings/components/MyAccountPanel'
 import { LinePeoplePage } from '@/features/settings/components/LinePeoplePage'
@@ -325,7 +327,19 @@ function PaymentSection({ cfg, set }: { cfg: SystemConfig; set: SetDraft }) {
           <span>บัญชีรับเงิน (แสดงบนบิล/ใบเสร็จ)</span>
         </h4>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <TextField label="ธนาคาร" value={b.bankName} onChange={(v) => setB({ bankName: v })} />
+          {/* A list of Thai banks, or type the shop's own (owner 2026-11-11) */}
+          <div>
+            <label className={SETTINGS_LABEL}>ธนาคาร</label>
+            <CustomSelect
+              ariaLabel="ธนาคาร"
+              searchable
+              allowCustom
+              placeholder="-- เลือกหรือพิมพ์ชื่อธนาคาร --"
+              value={b.bankName || ''}
+              onChange={(value) => setB({ bankName: String(value).trim() })}
+              options={THAI_BANKS.map((name) => ({ value: name, label: name }))}
+            />
+          </div>
           <TextField label="ชื่อบัญชี" value={b.bankAccountName} onChange={(v) => setB({ bankAccountName: v })} />
           <TextField label="เลขที่บัญชี" mono value={b.bankAccountNumber} onChange={(v) => setB({ bankAccountNumber: v })} />
           <div>
@@ -333,20 +347,17 @@ function PaymentSection({ cfg, set }: { cfg: SystemConfig; set: SetDraft }) {
             <CustomSelect
               ariaLabel="ประเภท PromptPay"
               value={b.promptPayType || ''}
-              onChange={(value) => setB({ promptPayType: String(value) })}
-              options={[
-                { value: '', label: 'ไม่ระบุ' },
-                { value: 'PHONE', label: 'เบอร์โทรศัพท์' },
-                { value: 'TAX_ID', label: 'เลขผู้เสียภาษี / บัตรประชาชน' },
-              ]}
+              // A shorter kind keeps only as many digits as it has
+              onChange={(value) => setB({ promptPayType: String(value), promptPayValue: (b.promptPayValue || '').slice(0, promptPayDigits(String(value))) })}
+              options={[{ value: '', label: 'ไม่ระบุ' }, ...PROMPTPAY_TYPES.map((t) => ({ value: t.value, label: t.label }))]}
             />
           </div>
+          {/* Shown with dashes (081-234-5678 / 1-2345-67890-12-3); only the digits are saved */}
           <TextField
             label="หมายเลข PromptPay"
             mono
-            maxLength={b.promptPayType === 'PHONE' ? 10 : 13}
-            value={b.promptPayValue}
-            onChange={(v) => setB({ promptPayValue: v.replace(/\D/g, '') })}
+            value={formatPromptPayNumber(b.promptPayValue, b.promptPayType || null)}
+            onChange={(v) => setB({ promptPayValue: v.replace(/\D/g, '').slice(0, promptPayDigits(b.promptPayType || null)) })}
           />
         </div>
       </div>

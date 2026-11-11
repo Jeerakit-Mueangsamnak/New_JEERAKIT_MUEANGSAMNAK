@@ -83,10 +83,8 @@ export function NewCustomerModal({
   const [photoError, setPhotoError] = useState('')
   const [isPhotoPreviewOpen, setIsPhotoPreviewOpen] = useState(false)
   const lastPhotoTapRef = useRef(0)
-  const [addressError, setAddressError] = useState(false)
 
   useEffect(() => {
-    setAddressError(false)
     setOcrFilled([])
     setOcrMissing([])
     setOcrSuggestions({})
@@ -340,12 +338,7 @@ export function NewCustomerModal({
       postalCode,
     ].filter(Boolean).join(' ')
 
-    // The database requires an address; ask for it instead of filling in a made-up one.
-    if (!fullFormattedAddress) {
-      setAddressError(true)
-      return
-    }
-
+    // Only the name is required (owner 2026-11-11): phone and address may stay empty.
     const newCustomer: Customer = {
       id: editingCustomer ? editingCustomer.id : `c_${Date.now()}`,
       customerCode: code || ('CUST-' + String(Date.now()).slice(-6)),
@@ -635,15 +628,9 @@ export function NewCustomerModal({
                 />
               </div>
 
-              {addressError && (
-                <p role="alert" className="col-span-2 sm:col-span-4 -mt-1 text-[11px] font-bold text-red-700 dark:text-red-400">
-                  กรุณากรอกที่อยู่อย่างน้อย 1 ช่อง
-                </p>
-              )}
-
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
-                  เบอร์โทรศัพท์หลัก <span className="text-rose-700 dark:text-rose-400">*</span>
+                  เบอร์โทรศัพท์หลัก
                 </label>
                 <input
                   type="tel"
@@ -651,7 +638,6 @@ export function NewCustomerModal({
                   value={phone}
                   onChange={(e) => setPhone(formatPhoneNumber(e.target.value))}
                   className="w-full px-3 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
                 />
               </div>
               <div>

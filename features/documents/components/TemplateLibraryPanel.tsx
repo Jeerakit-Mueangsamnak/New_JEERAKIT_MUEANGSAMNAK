@@ -14,7 +14,7 @@ import { CustomSelect } from '@/components/common/CustomSelect'
 import { useToast } from '@/components/common/Toast'
 import type { BusinessSettings } from '@/lib/types/rental-pos'
 import type { DocumentTemplate, TemplateTargetGroup } from '@/lib/types/document'
-import { renderDocumentTemplate } from '@/features/documents/utils/documentRenderer'
+import { removeThaiAmountTextParentheses, renderDocumentTemplate } from '@/features/documents/utils/documentRenderer'
 import { convertFileToInternalTemplate, TEMPLATE_UPLOAD_ACCEPT } from '@/features/documents/utils/documentConverter'
 import { A4DocumentWorkspace } from '@/features/documents/components/A4DocumentWorkspace'
 import { BatchDeleteModal } from '@/features/documents/components/BatchDeleteModal'
@@ -43,7 +43,8 @@ const PRINT_ONLY_FIELDS = /\{\{\s*(?:items\.\d+\.(?!no\b)\w+|return\.\w+|fine\.\
 /** The exact blank HTML used for both the preview and printout of one library form. */
 export function renderLibraryTemplate(tpl: DocumentTemplate, business?: Partial<BusinessSettings> | null): string {
   return renderDocumentTemplate(
-    tpl.templateSchema.replace(PRINT_ONLY_FIELDS, ''),
+    // The brackets around the amount in words go with it: a blank form shows no empty "()" (owner 2026-11-11)
+    removeThaiAmountTextParentheses(tpl.templateSchema).replace(PRINT_ONLY_FIELDS, ''),
     {},
     '',
     '',

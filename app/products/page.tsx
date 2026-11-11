@@ -731,73 +731,70 @@ function ProductsContent() {
 
   return (
     <div className="relative h-full min-h-0 min-w-0 flex flex-col overflow-hidden p-2 gap-2">
-      {/* AREA 1: การ์ดสรุปภาพรวม 7 ใบ (สต็อกรวม = พร้อมให้เช่า + จอง + อยู่ระหว่างเช่า + ชำรุด) */}
-      <div className="shrink-0">
-        {/* Stock Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
-          <div
-            role="button"
-            tabIndex={0}
-            aria-pressed={activeViewTab === 'ALL'}
-            onClick={() => setActiveViewTab('ALL')}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter' && e.key !== ' ') return
-              e.preventDefault()
-              setActiveViewTab('ALL')
-            }}
-            className={`focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 p-2.5 sm:p-3 bg-slate-100/70 dark:bg-slate-800/70 rounded-2xl border shadow-xs cursor-pointer transition-all ${
-              activeViewTab === 'ALL'
-                ? 'border-slate-400 ring-2 ring-slate-400/20'
-                : 'border-slate-200 dark:border-slate-800 hover:border-slate-400'
-            }`}
-          >
-            <span className="text-[11px] text-slate-600 dark:text-slate-400 font-semibold block">สต็อกรวม</span>
-            <span className="text-lg font-black text-slate-800 dark:text-slate-100 mt-0.5 block">{cardTotal.toLocaleString()}</span>
-          </div>
-          <div className="p-2.5 sm:p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-2xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-xs">
-            <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold block">พร้อมให้เช่า</span>
-            <span className="text-lg font-black text-emerald-700 dark:text-emerald-400 mt-0.5 block">{cardAvailable.toLocaleString()}</span>
-          </div>
-          <div className="p-2.5 sm:p-3 bg-indigo-50 dark:bg-indigo-950/30 rounded-2xl border border-indigo-200/60 dark:border-indigo-900/40 shadow-xs">
-            <span className="text-[11px] text-indigo-700 dark:text-indigo-300 font-semibold block">จอง (รอส่ง)</span>
-            <span className="text-lg font-black text-indigo-600 dark:text-indigo-400 mt-0.5 block">{cardReserved.toLocaleString()}</span>
-          </div>
-          <div className="p-2.5 sm:p-3 bg-blue-50 dark:bg-blue-950/30 rounded-2xl border border-blue-200/60 dark:border-blue-900/40 shadow-xs">
-            <span className="text-[11px] text-blue-700 dark:text-blue-300 font-semibold block">อยู่ระหว่างเช่า</span>
-            <span className="text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5 block">{cardRented.toLocaleString()}</span>
-          </div>
-          <div
-            role="button"
-            tabIndex={0}
-            aria-pressed={activeViewTab === 'DAMAGED'}
-            onClick={() => setActiveViewTab('DAMAGED')}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter' && e.key !== ' ') return
-              e.preventDefault()
-              setActiveViewTab('DAMAGED')
-            }}
-            className={`focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 p-2.5 sm:p-3 bg-amber-50 dark:bg-amber-950/30 rounded-2xl border shadow-xs cursor-pointer transition-all ${
-              activeViewTab === 'DAMAGED'
-                ? 'border-amber-500 ring-2 ring-amber-500/30'
-                : 'border-amber-200/60 dark:border-amber-900/40 hover:border-amber-400'
-            }`}
-          >
-            <span className="text-[11px] text-amber-700 dark:text-amber-300 font-semibold block">ชำรุด</span>
-            <span className="text-lg font-black text-amber-700 dark:text-amber-400 mt-0.5 block">{cardDamaged.toLocaleString()}</span>
-          </div>
-          <div className="p-2.5 sm:p-3 bg-red-50 dark:bg-red-950/30 rounded-2xl border border-red-200/60 dark:border-red-900/40 shadow-xs">
-            <span className="text-[11px] text-red-700 dark:text-red-300 font-semibold block">สูญหาย</span>
-            <span className="text-lg font-black text-red-700 dark:text-red-400 mt-0.5 block">{cardLost.toLocaleString()}</span>
-          </div>
-          <div className="p-2.5 sm:p-3 bg-purple-50 dark:bg-purple-950/30 rounded-2xl border border-purple-200/60 dark:border-purple-900/40 shadow-xs">
-            <span className="text-[11px] text-purple-700 dark:text-purple-300 font-semibold block">สินค้าใกล้หมด</span>
-            <span className="text-lg font-black text-purple-600 dark:text-purple-400 mt-0.5 block">{(focusedProduct ? Number(focusedIsLow) : lowStockCount).toLocaleString()}</span>
+      {/* One white work area: summary cards, the 4 main tabs, then the work area */}
+      <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
+        <div className="shrink-0 p-2 pb-0">
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
+            <div
+              role="button"
+              tabIndex={0}
+              aria-pressed={activeViewTab === 'ALL'}
+              onClick={() => setActiveViewTab('ALL')}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return
+                e.preventDefault()
+                setActiveViewTab('ALL')
+              }}
+              className={`focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 p-2.5 sm:p-3 bg-slate-100/70 dark:bg-slate-800/70 rounded-2xl border shadow-xs cursor-pointer transition-all ${
+                activeViewTab === 'ALL'
+                  ? 'border-slate-400 ring-2 ring-slate-400/20'
+                  : 'border-slate-200 dark:border-slate-800 hover:border-slate-400'
+              }`}
+            >
+              <span className="text-[11px] text-slate-600 dark:text-slate-400 font-semibold block">สต็อกรวม</span>
+              <span className="text-lg font-black text-slate-800 dark:text-slate-100 mt-0.5 block">{cardTotal.toLocaleString()}</span>
+            </div>
+            <div className="p-2.5 sm:p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-2xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-xs">
+              <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold block">พร้อมให้เช่า</span>
+              <span className="text-lg font-black text-emerald-700 dark:text-emerald-400 mt-0.5 block">{cardAvailable.toLocaleString()}</span>
+            </div>
+            <div className="p-2.5 sm:p-3 bg-indigo-50 dark:bg-indigo-950/30 rounded-2xl border border-indigo-200/60 dark:border-indigo-900/40 shadow-xs">
+              <span className="text-[11px] text-indigo-700 dark:text-indigo-300 font-semibold block">จอง (รอส่ง)</span>
+              <span className="text-lg font-black text-indigo-600 dark:text-indigo-400 mt-0.5 block">{cardReserved.toLocaleString()}</span>
+            </div>
+            <div className="p-2.5 sm:p-3 bg-blue-50 dark:bg-blue-950/30 rounded-2xl border border-blue-200/60 dark:border-blue-900/40 shadow-xs">
+              <span className="text-[11px] text-blue-700 dark:text-blue-300 font-semibold block">อยู่ระหว่างเช่า</span>
+              <span className="text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5 block">{cardRented.toLocaleString()}</span>
+            </div>
+            <div
+              role="button"
+              tabIndex={0}
+              aria-pressed={activeViewTab === 'DAMAGED'}
+              onClick={() => setActiveViewTab('DAMAGED')}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return
+                e.preventDefault()
+                setActiveViewTab('DAMAGED')
+              }}
+              className={`focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 p-2.5 sm:p-3 bg-amber-50 dark:bg-amber-950/30 rounded-2xl border shadow-xs cursor-pointer transition-all ${
+                activeViewTab === 'DAMAGED'
+                  ? 'border-amber-500 ring-2 ring-amber-500/30'
+                  : 'border-amber-200/60 dark:border-amber-900/40 hover:border-amber-400'
+              }`}
+            >
+              <span className="text-[11px] text-amber-700 dark:text-amber-300 font-semibold block">ชำรุด</span>
+              <span className="text-lg font-black text-amber-700 dark:text-amber-400 mt-0.5 block">{cardDamaged.toLocaleString()}</span>
+            </div>
+            <div className="p-2.5 sm:p-3 bg-red-50 dark:bg-red-950/30 rounded-2xl border border-red-200/60 dark:border-red-900/40 shadow-xs">
+              <span className="text-[11px] text-red-700 dark:text-red-300 font-semibold block">สูญหาย</span>
+              <span className="text-lg font-black text-red-700 dark:text-red-400 mt-0.5 block">{cardLost.toLocaleString()}</span>
+            </div>
+            <div className="p-2.5 sm:p-3 bg-purple-50 dark:bg-purple-950/30 rounded-2xl border border-purple-200/60 dark:border-purple-900/40 shadow-xs">
+              <span className="text-[11px] text-purple-700 dark:text-purple-300 font-semibold block">สินค้าใกล้หมด</span>
+              <span className="text-lg font-black text-purple-600 dark:text-purple-400 mt-0.5 block">{(focusedProduct ? Number(focusedIsLow) : lowStockCount).toLocaleString()}</span>
+            </div>
           </div>
         </div>
-      </div>
-
-      {/* AREA 2: กรอบเดียว ครอบแถบ 4 ปุ่มหลัก + พื้นที่ทำงาน */}
-      <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
         {/* Outer Row: p-2 border-b */}
         <div className={`${TABLE_TOOLBAR_CLASSES} flex items-center overflow-x-auto`}>
           <div className={TAB_CONTAINER_CLASSES}>

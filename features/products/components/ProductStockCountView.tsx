@@ -12,7 +12,6 @@ import { NumericInput } from '@/components/common/NumericInput'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import {
   ActionButton,
-  COMMAND_BUTTON_SIZE_CLASSES,
   SEARCH_INPUT_CLASSES,
   SEARCH_ICON_CLASSES,
   TABLE_TOOLBAR_CLASSES,
@@ -58,7 +57,6 @@ export function ProductStockCountView({
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL')
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [roundNote, setRoundNote] = useState('')
 
   // Initialize count items whenever products change
   useEffect(() => {
@@ -139,7 +137,6 @@ export function ProductStockCountView({
         soldQty: '',
       }))
     )
-    setRoundNote('')
     showToast('ล้างข้อมูลแล้ว', 'ล้างค่าที่กรอกในตารางตรวจนับทั้งหมดเรียบร้อย', 'INFO')
   }
 
@@ -149,7 +146,7 @@ export function ProductStockCountView({
     const qty = (v: number | '') => (v === '' ? '' : v)
     const ok = printTable({
       title: 'ใบตรวจนับสต็อกสินค้า',
-      subtitle: [categoryLabel, searchTerm.trim() && `ค้นหา "${searchTerm.trim()}"`, roundNote.trim() && `หมายเหตุ: ${roundNote.trim()}`]
+      subtitle: [categoryLabel, searchTerm.trim() && `ค้นหา "${searchTerm.trim()}"`]
         .filter(Boolean)
         .join(' · '),
       columns: [
@@ -222,9 +219,8 @@ export function ProductStockCountView({
             soldQty: item.soldQty === '' ? undefined : Number(item.soldQty),
           },
         })),
-        roundNote.trim() || 'ตรวจนับสต็อกจากหน้างาน'
+        'ตรวจนับสต็อกจากหน้างาน'
       )
-      setRoundNote('')
 
       if (onSuccess) {
         onSuccess(updatedList)
@@ -276,14 +272,6 @@ export function ProductStockCountView({
             />
           </div>
 
-          {/* หมายเหตุของรอบนับ (ใช้กับทุกรายการในรอบนี้) */}
-          <input
-            type="text"
-            value={roundNote}
-            onChange={(e) => setRoundNote(e.target.value)}
-            placeholder="หมายเหตุรอบนับ..."
-            className="min-w-[140px] flex-1 max-w-xs h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-purple-500 transition-all placeholder:text-slate-400"
-          />
         </div>
 
         {/* Action Buttons: Clear, Print, Save */}
@@ -445,33 +433,6 @@ export function ProductStockCountView({
             </tbody>
           </table>
         </DataTableFrame>
-
-        {/* Workspace Footer Bar */}
-        <div className="shrink-0 px-3 py-2 bg-slate-50/50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="text-slate-600 dark:text-slate-400 font-medium">
-            แสดง {filteredItems.length} รายการ {modifiedItems.length > 0 && (
-              <span className="text-purple-600 dark:text-purple-400 font-bold ml-1">
-                (มีการกรอกผลตรวจนับแล้ว {modifiedItems.length} รายการ)
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleConfirmStockCount}
-              disabled={isSubmitting || modifiedItems.length === 0}
-              className={`${COMMAND_BUTTON_SIZE_CLASSES} flex items-center transition-all cursor-pointer shadow-xs whitespace-nowrap ${
-                modifiedItems.length > 0
-                  ? 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-emerald-600/30'
-                  : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 cursor-not-allowed shadow-none'
-              }`}
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>บันทึกการนับสต็อก</span>
-            </button>
-          </div>
-        </div>
       </div>
 
     </div>

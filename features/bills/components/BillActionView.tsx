@@ -1094,8 +1094,9 @@ export function BillActionView({
   }
 
   return (
-    // One white work area for the return (owner 2026-11-11: no tab bar)
-    <div className="flex flex-col min-h-0 h-full w-full overflow-hidden animate-in fade-in duration-150 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
+    // One white work area for the return (owner 2026-11-11: no tab bar). The preview step sits straight on
+    // the page like the POS checkout (grey preview box + white summary card, no extra card around both).
+    <div className={`flex flex-col min-h-0 h-full w-full overflow-hidden animate-in fade-in duration-150 ${currentStep === 2 ? '' : 'rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm'}`}>
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* RETURN WORKFLOW STEPS */}
         {activeBill && (
@@ -1126,7 +1127,7 @@ export function BillActionView({
             {/* STEP 2: Preview + payment (Centered A4 Preview without Outer White Card + External Navigation + Double-click Full Preview) */}
             {currentStep === 2 && (() => {
               return (
-                <div className="flex-1 min-h-0 h-full w-full grid grid-cols-1 md:grid-cols-[minmax(0,58fr)_minmax(300px,42fr)] lg:grid-cols-[minmax(0,60fr)_minmax(340px,40fr)] gap-2 md:gap-2.5 lg:gap-3 overflow-hidden p-2">
+                <div className="flex-1 min-h-0 h-full w-full grid grid-cols-1 md:grid-cols-[minmax(0,58fr)_minmax(300px,42fr)] lg:grid-cols-[minmax(0,60fr)_minmax(340px,40fr)] gap-2 md:gap-2.5 lg:gap-3 overflow-hidden">
                   {/* Left: Document Preview Area (Centered A4, No outer white card, Outside Prev/Next buttons) */}
                   <div className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-100/60 dark:bg-slate-950/40">
                     {/* Previous Button Zone (Outside A4) */}

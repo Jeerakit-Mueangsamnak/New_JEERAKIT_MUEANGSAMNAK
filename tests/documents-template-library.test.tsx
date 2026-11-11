@@ -678,3 +678,11 @@ describe('ตัวอย่างแบบฟอร์มในคลัง', (
     expect(html).toContain('<td>1</td><td></td><td></td><td></td>')
   })
 })
+
+describe('ฟอร์มเปล่าในคลังแบบฟอร์ม: จำนวนเงินตัวอักษรไม่ขึ้น "()" (owner 2026-11-11)', () => {
+  it('the brackets around a blank amount in words are dropped with it', () => {
+    const tpl = { ...FORMS[0], templateSchema: '<p>{{document.number}}</p><span>({{return.total_payable_text}})</span><span>({{fine.total_text}})</span>' }
+    const html = renderLibraryTemplate(tpl, {})
+    expect(html).not.toContain('()')
+  })
+})

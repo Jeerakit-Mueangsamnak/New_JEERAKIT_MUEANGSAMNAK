@@ -20,6 +20,9 @@ interface A4FitPreviewProps {
 }
 
 const MIN_SCALE = 0.12
+// Full preview closes on the 3rd click/tap when all three land within this time.
+const CLOSE_TAP_COUNT = 3
+const CLOSE_TAP_WINDOW_MS = 800
 const MAX_SCALE = 1
 // 210mm × 297mm at 96dpi
 const A4_WIDTH_PX = 794
@@ -37,7 +40,7 @@ const PAGE_EDGE_STYLE: React.CSSProperties = {
  * The sheet itself always remains a real CSS A4 page (210mm × 297mm).
  * Only the on-screen presentation is scaled to fit the available viewport.
  * Supports Double Click / Double Tap to open Full Preview overlay,
- * and Single Click / Single Tap to close.
+ * and three quick clicks / taps to close (owner 2026-11-11: one tap or a swipe must not close it).
  */
 export function A4FitPreview({
   children,
@@ -187,7 +190,8 @@ interface A4FullPreviewOverlayProps {
 
 /**
  * Central full-screen A4 preview overlay (used by A4FitPreview and any page that
- * opens a document straight into full preview). Single click / tap or Esc closes.
+ * opens a document straight into full preview). Three quick clicks / taps or Esc close it;
+ * a single tap or a swipe (scrolling a long sheet) keeps it open.
  */
 export function A4FullPreviewOverlay({
   open,
@@ -199,6 +203,7 @@ export function A4FullPreviewOverlay({
   multiPage = false,
 }: A4FullPreviewOverlayProps) {
   const [fullScale, setFullScale] = useState(1)
+  const tapTimesRef = useRef<number[]>([])
 
   const fitFullScreen = useCallback(() => {
     if (typeof window === 'undefined') return
@@ -221,6 +226,7 @@ export function A4FullPreviewOverlay({
   useEffect(() => {
     if (!open) return
 
+    tapTimesRef.current = []
     fitFullScreen()
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -239,17 +245,24 @@ export function A4FullPreviewOverlay({
 
   if (!open) return null
 
-  const handleClose = (e: React.MouseEvent | React.TouchEvent) => {
+  // Browsers send a click for a tap but not for a swipe, so only clicks are counted.
+  const handleTap = (e: React.MouseEvent) => {
     e.stopPropagation()
-    onClose()
+    const now = Date.now()
+    const taps = [...tapTimesRef.current.filter((t) => now - t < CLOSE_TAP_WINDOW_MS), now]
+    if (taps.length >= CLOSE_TAP_COUNT) {
+      tapTimesRef.current = []
+      onClose()
+    } else {
+      tapTimesRef.current = taps
+    }
   }
 
   return (
     <ModalPortal>
       <div
         className="fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md flex flex-col items-center overflow-y-auto no-scrollbar select-none animate-in fade-in duration-200 cursor-pointer"
-        onClick={handleClose}
-        onTouchEnd={handleClose}
+        onClick={handleTap}
         role="dialog"
         aria-modal="true"
         aria-label="ตัวอย่างเอกสาร A4 เต็มจอ"
@@ -262,7 +275,6 @@ export function A4FullPreviewOverlay({
               width: `${sheetWidth * fullScale}px`,
               height: `${sheetHeight * fullScale}px`,
             }}
-            onClick={handleClose}
           >
             <div
               className={`absolute left-0 top-0 ${multiPage ? SHEET_GROWS : SHEET_FIXED} w-[210mm] origin-top-left bg-white shadow-2xl rounded-sm ring-1 ring-slate-400/40 pointer-events-none`}
@@ -275,7 +287,7 @@ export function A4FullPreviewOverlay({
 
         {/* Bottom Close Hint */}
         <div className="sticky bottom-4 text-center text-white/90 text-xs font-semibold bg-black/60 px-4 py-1.5 rounded-full backdrop-blur-md pointer-events-none shadow-lg border border-white/10 self-center">
-          คลิกหรือแตะที่ใดก็ได้เพื่อปิด Full Preview (Esc)
+          แตะหรือคลิก 3 ครั้งติดกันเพื่อปิด (Esc)
         </div>
       </div>
     </ModalPortal>

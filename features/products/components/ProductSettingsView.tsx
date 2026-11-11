@@ -933,8 +933,7 @@ export function ProductSettingsView({
           </ActionButton>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10">
+        <DataTableFrame fill className="flex-1 min-h-0 rounded-none bg-transparent">
             <table className="w-full text-center text-xs border-collapse table-fixed">
               <thead className="sticky top-0 z-10 bg-[#E3E3E3] dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs">
                 <tr className="border-b border-slate-200 dark:border-slate-700">
@@ -1162,9 +1161,7 @@ export function ProductSettingsView({
 
               </tbody>
             </table>
-          </div>
-
-        </div>
+        </DataTableFrame>
       </div>
     </div>
   )

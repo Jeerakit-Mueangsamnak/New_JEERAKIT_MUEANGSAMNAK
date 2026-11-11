@@ -1,4 +1,4 @@
-import { dailyRentalPeriodText, formatBahtCurrency, renderDocumentTemplate, removeThaiAmountTextParentheses, thaiBahtText } from '@/features/documents/utils/documentRenderer'
+import { dailyRentalPeriodText, fitFormItemColumns, formatBahtCurrency, renderDocumentTemplate, removeThaiAmountTextParentheses, thaiBahtText } from '@/features/documents/utils/documentRenderer'
 import { getTemplateTarget, refreshSharedTemplates } from '@/features/documents/services/template-library-storage'
 import type { DocumentName } from '@/features/documents/api/template-library-repository'
 import { printDocuments } from '@/lib/print/print-service'
@@ -406,7 +406,8 @@ export function renderFineFormPagesHtml(
     const offset = pageIndex * BILL_FORM_ROWS_PER_PAGE
     const pageRows = rows.slice(offset, offset + BILL_FORM_ROWS_PER_PAGE)
     const isLast = pageIndex === pageCount - 1
-    const schema = removeThaiAmountTextParentheses(template.templateSchema)
+    // Columns are fitted while the item fields are still there (จำนวนเงิน is found by its field)
+    const schema = fitFormItemColumns(removeThaiAmountTextParentheses(template.templateSchema))
       .replace(FINE_TOTAL_FIELDS, (match) => {
         if (!isLast) return ''
         const field = /fine\.([a-z_]+)/.exec(match)?.[1] || ''

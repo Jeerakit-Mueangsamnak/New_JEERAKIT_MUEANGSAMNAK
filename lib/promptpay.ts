@@ -1,3 +1,6 @@
+import { formatPhoneNumber } from '@/lib/utils/format'
+import { formatThaiNationalId } from '@/lib/ocr/thai-id-parser'
+
 /**
  * Thai PromptPay QR payload (EMVCo "Thai QR Payment"). The shop's PromptPay number comes from
  * ตั้งค่าระบบ › ข้อมูลร้าน; the amount is written into the QR so the customer's app fills it in.
@@ -6,6 +9,30 @@
  *   e-wallet 15 digits           → tag 03
  */
 const PROMPTPAY_AID = 'A000000677010111'
+
+/** Kinds of PromptPay number the shop can give (ตั้งค่า › การชำระเงิน) and how many digits each has. */
+export const PROMPTPAY_TYPES = [
+  { value: 'PHONE', label: 'เบอร์โทรศัพท์', digits: 10 },
+  { value: 'ID_CARD', label: 'เลขบัตรประชาชน', digits: 13 },
+  { value: 'TAX_ID', label: 'เลขผู้เสียภาษี', digits: 13 },
+] as const
+
+/** Digits a PromptPay number of this kind has (13 when the kind is not set). */
+export function promptPayDigits(type: string | null | undefined): number {
+  return PROMPTPAY_TYPES.find((t) => t.value === type)?.digits ?? 13
+}
+
+/**
+ * A PromptPay number with dashes, as people write it (owner 2026-11-11): phone 081-234-5678,
+ * ID card / tax ID 1-2345-67890-12-3. Only the digits are stored and put in the QR.
+ */
+export function formatPromptPayNumber(value: string | null | undefined, type?: string | null): string {
+  const digits = String(value ?? '').replace(/\D/g, '').slice(0, type ? promptPayDigits(type) : 15)
+  const phone = type === 'PHONE' || (!type && digits.length === 10 && digits.startsWith('0'))
+  if (phone) return formatPhoneNumber(digits)
+  if (digits.length > 13) return digits
+  return formatThaiNationalId(digits)
+}
 
 const field = (id: string, value: string) => `${id}${String(value.length).padStart(2, '0')}${value}`
 

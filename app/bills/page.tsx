@@ -62,6 +62,12 @@ import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
 
 // Only the Bills toolbar uses these compact dimensions; other ActionButton usages stay unchanged.
 const BILL_TOOLBAR_BUTTON_CLASSES = 'shrink-0'
+/**
+ * ลูกค้า / เบอร์ column of the bill table (owner 2026-11-11): one fixed width that never grows with the
+ * screen or the name; a longer name runs on behind the column edge (full name on hover).
+ */
+const BILL_CUSTOMER_COLUMN_WIDTH = 'w-[140px] max-w-[140px] min-w-0 overflow-hidden whitespace-nowrap'
+const BILL_CUSTOMER_COLUMN_CELL = 'w-[148px] min-w-[148px] max-w-[148px]'
 
 export default function BillsPage() {
   const router = useRouter()
@@ -716,7 +722,7 @@ export default function BillsPage() {
                 <thead className={`${DATA_TABLE_THEAD_CLASSES} border-b border-slate-200 dark:border-slate-700 shadow-sm text-xs`}>
                   <tr className="uppercase tracking-wider text-xs">
                     <th className={`px-1 ${DATA_TABLE_TH_CLASSES}`}>เลขที่บิล</th>
-                    <th className={`px-1 ${DATA_TABLE_TH_CLASSES}`}>ลูกค้า / เบอร์</th>
+                    <th className={`px-1 ${BILL_CUSTOMER_COLUMN_CELL} ${DATA_TABLE_TH_CLASSES}`}>ลูกค้า / เบอร์</th>
                     <th className={`px-1 ${DATA_TABLE_TH_CLASSES}`}>กำหนดคืน</th>
                     <th className={`px-1 text-center ${DATA_TABLE_TH_CLASSES}`}>วันเกิน</th>
                     <th className={`px-1 text-right ${DATA_TABLE_TH_CLASSES}`}>ยอดสุทธิ</th>
@@ -748,13 +754,14 @@ export default function BillsPage() {
                         <td className="px-1 py-1.5 font-bold font-mono text-blue-600 dark:text-blue-400 text-[10px]">
                           <span className="block w-full min-w-0 truncate" title={b.billNo}>{b.billNo}</span>
                         </td>
-                        <td className="px-1 py-1.5 space-y-px overflow-hidden">
-                          <div className="w-full min-w-0 font-bold text-slate-900 dark:text-slate-100 truncate text-[10px]" title={b.customerName}>
+                        {/* Fixed width (owner 2026-11-11): a long name runs on behind the edge, the column never widens */}
+                        <td className={`px-1 py-1.5 space-y-px overflow-hidden ${BILL_CUSTOMER_COLUMN_CELL}`}>
+                          <div className={`${BILL_CUSTOMER_COLUMN_WIDTH} font-bold text-slate-900 dark:text-slate-100 text-[10px]`} title={b.customerName}>
                             {b.customerName}
                           </div>
-                          <div className="w-full min-w-0 text-slate-600 dark:text-slate-400 text-[10px] flex items-center gap-0.5 font-mono truncate">
+                          <div className={`${BILL_CUSTOMER_COLUMN_WIDTH} text-slate-600 dark:text-slate-400 text-[10px] flex items-center gap-0.5 font-mono`}>
                             <Phone className="w-2.5 h-2.5 text-slate-600 dark:text-slate-400 shrink-0" />
-                            <span className="truncate">{b.customerPhone}</span>
+                            <span className="whitespace-nowrap">{b.customerPhone}</span>
                           </div>
                         </td>
                         <td className="px-1 py-1.5 font-semibold text-slate-700 dark:text-slate-300 truncate text-[10px] font-mono">

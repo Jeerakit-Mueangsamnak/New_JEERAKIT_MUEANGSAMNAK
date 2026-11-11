@@ -148,21 +148,6 @@ export default function StatementPage() {
 
   const netBalance = totalIncome - totalExpense
 
-  // Totals per category for the selected dates (largest first), shown in "สรุปตามหมวด"
-  const [showCategorySummary, setShowCategorySummary] = useState(false)
-  const categorySummary = useMemo(() => {
-    const sum = (type: 'INCOME' | 'EXPENSE') => {
-      const map = new Map<string, number>()
-      for (const t of dateFilteredTransactions) {
-        if (t.type !== type) continue
-        const key = t.category || 'ไม่ระบุหมวด'
-        map.set(key, (map.get(key) || 0) + (type === 'INCOME' ? t.incomeAmount : t.expenseAmount))
-      }
-      return [...map.entries()].map(([label, amount]) => ({ label, amount })).sort((a, b) => b.amount - a.amount)
-    }
-    return { income: sum('INCOME'), expense: sum('EXPENSE') }
-  }, [dateFilteredTransactions])
-
   // Combined Filtered Transactions (Date + Search + Type)
   const filtered = useMemo(() => {
     return dateFilteredTransactions.filter((t) => {
@@ -308,98 +293,52 @@ export default function StatementPage() {
   return (
     <div className="h-full min-h-0 flex flex-col overflow-hidden p-2 bg-slate-100 dark:bg-slate-900 gap-2 text-xs">
 
-      {/* Summary Banner Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 shrink-0">
-        <div className="bg-emerald-50 dark:bg-emerald-950/30 p-2.5 sm:p-3 rounded-2xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-sm flex items-center justify-between">
-          <div>
-            <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold block">รายรับรวม</span>
-            <h3 className="text-lg sm:text-xl font-black text-emerald-700 dark:text-emerald-400 mt-0.5">
-              {totalIncome.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-            </h3>
-          </div>
-          <div className="p-2 sm:p-2.5 bg-emerald-100 dark:bg-emerald-900/50 rounded-xl text-emerald-700 dark:text-emerald-300">
-            <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6" />
-          </div>
-        </div>
-
-        <div className="bg-red-50 dark:bg-red-950/30 p-2.5 sm:p-3 rounded-2xl border border-red-200/60 dark:border-red-900/40 shadow-sm flex items-center justify-between">
-          <div>
-            <span className="text-[11px] text-red-700 dark:text-red-300 font-semibold block">เงินออกรวม (รายจ่าย + คืนเงิน)</span>
-            <h3 className="text-lg sm:text-xl font-black text-red-700 dark:text-red-400 mt-0.5">
-              {totalExpense.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-            </h3>
-          </div>
-          <div className="p-2 sm:p-2.5 bg-red-100 dark:bg-red-900/50 rounded-xl text-red-700 dark:text-red-300">
-            <TrendingDown className="w-5 h-5 sm:w-6 sm:h-6" />
-          </div>
-        </div>
-
-        <div className={`p-2.5 sm:p-3 rounded-2xl border shadow-sm flex items-center justify-between ${
-          netBalance >= 0
-            ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-200/60 dark:border-blue-900/40'
-            : 'bg-red-50 dark:bg-red-950/30 border-red-200/60 dark:border-red-900/40'
-        }`}>
-          <div>
-            <span className={`text-[11px] font-semibold block ${netBalance >= 0 ? 'text-blue-700 dark:text-blue-300' : 'text-red-700 dark:text-red-300'}`}>
-              คงเหลือสุทธิ
-            </span>
-            <h3 className={`text-lg sm:text-xl font-black mt-0.5 ${netBalance >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-red-700 dark:text-red-400'}`}>
-              {netBalance.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-            </h3>
-          </div>
-          <div className={`p-2 sm:p-2.5 rounded-xl ${netBalance >= 0 ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300' : 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300'}`}>
-            <Wallet className="w-5 h-5 sm:w-6 sm:h-6" />
-          </div>
-        </div>
-      </div>
-
-      {/* Category summary (collapsed by default so the table keeps its room) */}
-      <div className="shrink-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-        <button
-          type="button"
-          onClick={() => setShowCategorySummary((v) => !v)}
-          aria-expanded={showCategorySummary}
-          className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
-        >
-          <span>สรุปตามหมวด (ตามช่วงวันที่เลือก)</span>
-          <span className="text-blue-600 dark:text-blue-400">{showCategorySummary ? 'ซ่อน' : 'แสดง'}</span>
-        </button>
-        {showCategorySummary && (
-          <div className="px-3 pb-3 grid grid-cols-1 md:grid-cols-2 gap-3 max-h-56 overflow-y-auto">
-            {([
-              { key: 'income', title: 'รายรับตามหมวด', rows: categorySummary.income, total: totalIncome, bar: 'bg-emerald-500', text: 'text-emerald-700 dark:text-emerald-400' },
-              { key: 'expense', title: 'เงินออกตามหมวด', rows: categorySummary.expense, total: totalExpense, bar: 'bg-red-500', text: 'text-red-700 dark:text-red-400' },
-            ] as const).map((col) => (
-              <div key={col.key} className="space-y-1.5 min-w-0">
-                <p className="text-[11px] font-bold text-slate-600 dark:text-slate-400">{col.title}</p>
-                {col.rows.length === 0 ? (
-                  <p className="text-[11px] text-slate-600 dark:text-slate-400">ไม่มีรายการในช่วงนี้</p>
-                ) : (
-                  col.rows.map((r) => {
-                    const pct = col.total > 0 ? (r.amount / col.total) * 100 : 0
-                    return (
-                      <div key={r.label} className="space-y-0.5">
-                        <div className="flex justify-between gap-2 text-[11px]">
-                          <span className="truncate text-slate-700 dark:text-slate-200">{r.label}</span>
-                          <span className={`font-bold tabular-nums whitespace-nowrap ${col.text}`}>
-                            {r.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                        <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                          <div className={`h-full rounded-full ${col.bar}`} style={{ width: `${pct}%` }} />
-                        </div>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Main Table Card */}
+      {/* One white work area: summary cards, toolbar, table */}
       <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
+        {/* Summary cards inside the white work area (owner 2026-11-11) */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-2 pb-0 shrink-0">
+          <div className="bg-emerald-50 dark:bg-emerald-950/30 p-2.5 sm:p-3 rounded-2xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-sm flex items-center justify-between">
+            <div>
+              <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold block">รายรับรวม</span>
+              <h3 className="text-lg sm:text-xl font-black text-emerald-700 dark:text-emerald-400 mt-0.5">
+                {totalIncome.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+              </h3>
+            </div>
+            <div className="p-2 sm:p-2.5 bg-emerald-100 dark:bg-emerald-900/50 rounded-xl text-emerald-700 dark:text-emerald-300">
+              <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6" />
+            </div>
+          </div>
+
+          <div className="bg-red-50 dark:bg-red-950/30 p-2.5 sm:p-3 rounded-2xl border border-red-200/60 dark:border-red-900/40 shadow-sm flex items-center justify-between">
+            <div>
+              <span className="text-[11px] text-red-700 dark:text-red-300 font-semibold block">เงินออกรวม (รายจ่าย + คืนเงิน)</span>
+              <h3 className="text-lg sm:text-xl font-black text-red-700 dark:text-red-400 mt-0.5">
+                {totalExpense.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+              </h3>
+            </div>
+            <div className="p-2 sm:p-2.5 bg-red-100 dark:bg-red-900/50 rounded-xl text-red-700 dark:text-red-300">
+              <TrendingDown className="w-5 h-5 sm:w-6 sm:h-6" />
+            </div>
+          </div>
+
+          <div className={`p-2.5 sm:p-3 rounded-2xl border shadow-sm flex items-center justify-between ${
+            netBalance >= 0
+              ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-200/60 dark:border-blue-900/40'
+              : 'bg-red-50 dark:bg-red-950/30 border-red-200/60 dark:border-red-900/40'
+          }`}>
+            <div>
+              <span className={`text-[11px] font-semibold block ${netBalance >= 0 ? 'text-blue-700 dark:text-blue-300' : 'text-red-700 dark:text-red-300'}`}>
+                คงเหลือสุทธิ
+              </span>
+              <h3 className={`text-lg sm:text-xl font-black mt-0.5 ${netBalance >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-red-700 dark:text-red-400'}`}>
+                {netBalance.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+              </h3>
+            </div>
+            <div className={`p-2 sm:p-2.5 rounded-xl ${netBalance >= 0 ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300' : 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300'}`}>
+              <Wallet className="w-5 h-5 sm:w-6 sm:h-6" />
+            </div>
+          </div>
+        </div>
         
         {/* Table Toolbar */}
         <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-col lg:flex-row items-stretch lg:items-center justify-between`}>

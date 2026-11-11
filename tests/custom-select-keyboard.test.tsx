@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React, { useState } from 'react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { CustomSelect } from '@/components/common/CustomSelect'
 
@@ -74,5 +74,24 @@ describe('CustomSelect with the keyboard (audit UX-23)', () => {
     fireEvent.click(trigger())
     fireEvent.click(screen.getByRole('option', { name: 'ขาย' }))
     expect(screen.getByTestId('value').textContent).toBe('c')
+  })
+})
+
+describe('CustomSelect allowCustom (ธนาคาร: เลือกจากรายการหรือพิมพ์เอง)', () => {
+  it('offers the typed text first and picks it; a value outside the list shows as it is', () => {
+    const onChange = vi.fn()
+    render(<CustomSelect ariaLabel="ธนาคาร" searchable allowCustom value="ธนาคารของร้านเอง" onChange={onChange} options={[{ value: 'ออมสิน (GSB)', label: 'ออมสิน (GSB)' }]} />)
+    expect(screen.getByRole('button', { name: 'ธนาคาร' }).textContent).toContain('ธนาคารของร้านเอง')
+    fireEvent.click(screen.getByRole('button', { name: 'ธนาคาร' }))
+    fireEvent.change(screen.getByPlaceholderText('พิมพ์ค้นหา...'), { target: { value: 'แลนด์' } })
+    fireEvent.click(screen.getByRole('option', { name: 'ใช้ "แลนด์"' }))
+    expect(onChange).toHaveBeenCalledWith('แลนด์')
+  })
+
+  it('without allowCustom nothing changes: no typed choice', () => {
+    render(<CustomSelect ariaLabel="x" searchable value="" onChange={() => {}} options={[{ value: 'a', label: 'aaa' }]} />)
+    fireEvent.click(screen.getByRole('button', { name: 'x' }))
+    fireEvent.change(screen.getByPlaceholderText('พิมพ์ค้นหา...'), { target: { value: 'zzz' } })
+    expect(screen.queryByRole('option', { name: /ใช้/ })).toBeNull()
   })
 })

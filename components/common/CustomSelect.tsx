@@ -31,6 +31,11 @@ interface CustomSelectProps {
   ariaLabel?: string
   /** When given, each option gets a bin icon at its end that removes that option. */
   onRemoveOption?: (value: string | number) => void
+  /**
+   * With `searchable`: the typed text can be used as the value when no option has it (shown first as
+   * ใช้ "…"), and a value outside the options is shown as it is. Off by default.
+   */
+  allowCustom?: boolean
 }
 
 export function CustomSelect({
@@ -48,6 +53,7 @@ export function CustomSelect({
   placeholderClassName = 'font-normal',
   ariaLabel,
   onRemoveOption,
+  allowCustom = false,
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -64,8 +70,9 @@ export function CustomSelect({
     offset: 4,
   })
 
-  // Find selected option
+  // Find selected option (a typed value outside the list is shown as it is when allowCustom)
   const selectedOption = options.find((opt) => String(opt.value) === String(value))
+    ?? (allowCustom && String(value ?? '').trim() ? { value, label: String(value) } : undefined)
 
   // Close on click outside (Mouse & Touch/iPad)
   useClickOutside([triggerRef, popoverRef], () => setIsOpen(false), isOpen)
@@ -88,12 +95,19 @@ export function CustomSelect({
     setIsOpen(false)
   }
 
-  const filteredOptions = searchable && searchTerm.trim()
+  const typed = searchTerm.trim()
+  const matchingOptions = searchable && typed
     ? options.filter((option) => {
-        const query = searchTerm.trim().toLocaleLowerCase()
+        const query = typed.toLocaleLowerCase()
         return `${option.label} ${option.sublabel || ''}`.toLocaleLowerCase().includes(query)
       })
     : options
+  // allowCustom: the typed text itself comes first unless an option already has exactly that text
+  const customOption: SelectOption | null =
+    allowCustom && searchable && typed && !options.some((o) => String(o.value) === typed || o.label === typed)
+      ? { value: typed, label: `ใช้ "${typed}"` }
+      : null
+  const filteredOptions = customOption ? [customOption, ...matchingOptions] : matchingOptions
 
   // Opening starts on the chosen option (or the first); typing a search starts on the first match.
   const selectedIndex = filteredOptions.findIndex((opt) => String(opt.value) === String(value))

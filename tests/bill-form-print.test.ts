@@ -119,7 +119,7 @@ describe('บิลพิมพ์ด้วยแบบฟอร์มของ�
     expect(html).not.toContain('(หนึ่งพันสองร้อยห้าสิบบาทถ้วน)')
   })
 
-  it('คอลัมน์ จำนวน หน่วย การเช่า: กว้างเท่าหัวตาราง ข้อความอยู่กลาง ส่วนที่เหลือไปที่รายการ', () => {
+  it('คอลัมน์ จำนวน หน่วย การเช่า: กว้างเท่าหัวตาราง ข้อความอยู่กลาง; จำนวนเงิน แคบลงแต่ชิดขวา; ส่วนที่เหลือไปที่รายการ', () => {
     const th = (w: number, text: number, label: string) =>
       `<th style="text-align:center; width:${w}px; padding-left:4px; padding-right:4px"><span style="display:inline-block; width:${text}px">${label}</span></th>`
     const td = (w: number, field: string) =>
@@ -127,15 +127,17 @@ describe('บิลพิมพ์ด้วยแบบฟอร์มของ�
     const head = `<tr>${th(40, 20, 'ลำดับ')}${th(280, 30, 'รายการ')}${th(64, 30, 'จำนวน')}${th(60, 25, 'หน่วย')}${th(80, 25, 'ราคา')}${th(94, 40, 'การเช่า')}${th(128, 50, 'จำนวนเงิน')}</tr>`
     const body = `<tr>${td(40, 'no')}${td(280, 'name')}${td(64, 'quantity')}${td(60, 'unit')}${td(80, 'price')}${td(94, 'rental')}${td(128, 'amount')}</tr>`
     const [page] = renderBillFormPagesHtml(bill(1), {}, form({ templateSchema: `<div>{{document.number}}<table><thead>${head}</thead><tbody>${body}</tbody></table></div>` }))
-    // จำนวน 30+8+8 = 46, หน่วย 25+16 = 41, การเช่า 40+16 = 56 → รายการ ได้เพิ่ม 18+19+38 = 75
+    // จำนวน 30+8+8 = 46, หน่วย 25+16 = 41, การเช่า 40+16 = 56, จำนวนเงิน 72+16 = 88 (owner 2026-11-11)
+    // → รายการ ได้เพิ่ม 18+19+38+40 = 115
     expect(page).toContain('<td style="text-align:center; width:46px; padding-left:4px; padding-right:4px"><span style="display:block; width:38px; max-width:100%">2</span></td>')
     expect(page).toContain('<td style="text-align:center; width:41px;')
     expect(page).toContain('<td style="text-align:center; width:56px;')
-    expect(page).toContain('<th style="text-align:center; width:355px;')
-    expect(page).toContain('<td style="text-align:right; width:355px; padding-left:4px; padding-right:4px"><span style="display:block; width:347px;')
-    // ราคา และ จำนวนเงิน คงเดิม
+    expect(page).toContain('<th style="text-align:center; width:395px;')
+    expect(page).toContain('<td style="text-align:right; width:395px; padding-left:4px; padding-right:4px"><span style="display:block; width:387px;')
+    // จำนวนเงิน: narrower from its left edge, still right-aligned; ราคา stays
+    expect(page).toContain('<td style="text-align:right; width:88px; padding-left:4px; padding-right:4px"><span style="display:block; width:80px;')
     expect(page).toContain('<td style="text-align:right; width:80px;')
-    expect(page).toContain('<td style="text-align:right; width:128px;')
+    expect(page).not.toContain('width:128px')
   })
 
   it('เกิน 20 รายการ: หน้าใหม่บนฟอร์มเดิม ลำดับต่อกัน ยอดเงินอยู่หน้าสุดท้ายเท่านั้น', () => {
@@ -328,5 +330,57 @@ describe('ที่อยู่ลูกค้ายาว + วันที่�
     )
     expect(html).toContain('<span style="width:134px; white-space:nowrap">11 พฤศจิกายน 2569</span>')
     expect(html).toMatch(/position:\s*absolute[^"]*;\s*display:\s*flex;\s*justify-content:\s*center;\s*text-align:\s*center">วันที่ 11 พฤศจิกายน 2569<\/div>/)
+  })
+})
+describe('แบบฟอร์มทุกใบตอนพิมพ์ (owner 2026-11-11)', () => {
+  const render = (html: string) => renderDocumentTemplate(html, {}, 'BL-1', '', '', {}, { items: [] }, undefined, 20)
+
+  it('light fills print white; dark lines stay as drawn', () => {
+    const out = render('<div style="background-color:rgb(238, 243, 248)">a</div><div style="background:#fffbeb">b</div><div style="background-color:rgb(23, 43, 75); height:1px"></div>')
+    expect(out).not.toMatch(/rgb\(238, 243, 248\)|#fffbeb/)
+    expect(out.match(/#ffffff/g)).toHaveLength(2)
+    expect(out).toContain('rgb(23, 43, 75)')
+  })
+
+  it('ลำดับ on a later page shows the whole number (21, not "2") in a box drawn for one digit', () => {
+    const out = render('<table><tr><td><span style="width:6.5625px; max-width:100%; overflow:hidden; white-space:nowrap; text-overflow:ellipsis">{{items.1.no}}</span></td></tr></table>')
+    expect(out).toMatch(/>21<\/span>/)
+    expect(out).not.toMatch(/width:\s*6\.5625px|text-overflow/)
+    expect(out).toMatch(/width:\s*auto/)
+  })
+
+  it('text the form drew on one line does not wrap (bank lines, หมายเหตุ lines); fields are untouched', () => {
+    const out = render(
+      '<div style="white-space:pre-wrap; width:249px; height:100px; overflow-x:hidden">ธนาคาร: ออมสิน\nเลขบัญชี: 0 2 0 4</div>' +
+      '<span style="white-space:pre-wrap; width:100px; height:16px">{{customer.name}}</span>'
+    )
+    expect(out).toMatch(/white-space:\s*pre;[^"]*overflow:\s*visible[^"]*">ธนาคาร/)
+    expect(out).toMatch(/white-space:\s*pre-wrap; width:\s*100px; height:\s*16px"><\/span>/)
+  })
+
+  it('the customer\'s empty "(        )" under the signature is a centred pair, not spread or wrapped', () => {
+    const out = render(`<span style="white-space:pre-wrap; display:inline-block; width:170.453px; height:16px">(${' '.repeat(40)})</span>`)
+    expect(out).toMatch(/white-space:\s*nowrap;\s*text-align:\s*center[^"]*">\(<span style="display:\s*inline-block;\s*width:\s*100px"><\/span>\)<\/span>/)
+  })
+
+  it('a picture from Settings that is not set (QR) prints nothing instead of a broken image', () => {
+    const out = renderDocumentTemplate('<img src="{{business.qr_url}}" alt="qr"><img src="data:image/png;base64,AAAA" alt="logo">', {}, 'BL-1', '', '', { bankQrDataUrl: '' }, { items: [] })
+    expect(out).not.toContain('alt="qr"')
+    expect(out).toContain('alt="logo"')
+  })
+})
+
+describe('ธนาคารและ QR ในฟอร์มมาจากหน้าตั้งค่า (owner 2026-11-11: ห้ามตายตัว)', () => {
+  it('the bank lines print what Settings holds, on one line each, in the line\'s own font', () => {
+    const out = renderDocumentTemplate(
+      '<div style="white-space:pre-wrap; width:249px; height:100px; overflow-x:hidden">ธนาคาร: {{business.bank_name}}\nเลขบัญชี: {{business.bank_account_number}}\nชื่อบัญชี: {{business.bank_account_name}}</div><img src="{{business.qr_url}}" alt="">',
+      {}, 'BL-1', '', '', { bankName: 'กสิกรไทย', bankAccountNumber: '123-4-56789-0', bankAccountName: 'ร้านทดสอบ', bankQrDataUrl: 'data:image/png;base64,QUJD' }, { items: [] }
+    )
+    expect(out).toMatch(/white-space:\s*pre;[^"]*overflow:\s*visible/)
+    expect(out).toContain('<span style="white-space:nowrap">123-4-56789-0</span>')
+    expect(out).toContain('กสิกรไทย')
+    expect(out).toContain('ร้านทดสอบ')
+    expect(out).toContain('src="data:image/png;base64,QUJD"')
+    expect(out).not.toContain('font-size:0.9em')
   })
 })

@@ -6,7 +6,7 @@ import QRCode from 'qrcode'
 import { CheckCircle2, QrCode } from 'lucide-react'
 import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
 import { NumericInput } from '@/components/common/NumericInput'
-import { promptPayPayload } from '@/lib/promptpay'
+import { formatPromptPayNumber, promptPayPayload } from '@/lib/promptpay'
 
 const baht = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2 })
 
@@ -81,7 +81,7 @@ export function QrPaymentDialog({ isOpen, onClose, amount, editable = false, pro
           )}
         </div>
         <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-          {qrDataUrl ? `PromptPay: ${promptPayId}` : bankQrUrl ? 'QR Code รับเงินของร้าน (ลูกค้ากรอกยอดเอง)' : ''}
+          {qrDataUrl ? `PromptPay: ${formatPromptPayNumber(promptPayId)}` : bankQrUrl ? 'QR Code รับเงินของร้าน (ลูกค้ากรอกยอดเอง)' : ''}
         </p>
 
         {editable && (

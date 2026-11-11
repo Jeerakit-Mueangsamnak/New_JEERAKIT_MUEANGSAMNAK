@@ -104,7 +104,7 @@ describe('ข้อมูลลูกค้า › ฟอร์มเพิ่�
     return { onSave, onClose }
   }
 
-  it('ไม่กรอกที่อยู่: ไม่บันทึก และขอให้กรอก (ไม่เติมที่อยู่สมมติ)', async () => {
+  it('กรอกแค่ชื่อ: บันทึกได้ เบอร์และที่อยู่ว่าง ไม่เติมค่าสมมติ (owner 2026-11-11)', async () => {
     const onSave = vi.fn(async () => true)
     await act(async () => {
       render(<NewCustomerModal isOpen onClose={vi.fn()} onSave={onSave} />)
@@ -113,8 +113,21 @@ describe('ข้อมูลลูกค้า › ฟอร์มเพิ่�
     await act(async () => {
       fireEvent.submit(document.querySelector('form')!)
     })
-    expect(onSave).not.toHaveBeenCalled()
-    expect(screen.getByRole('alert').textContent).toContain('กรุณากรอกที่อยู่')
+    expect(onSave).toHaveBeenCalledTimes(1)
+    const saved = (onSave.mock.calls[0] as unknown as [{ customerName: string; phone: string; address: string }])[0]
+    expect(saved.customerName).toBe('ลูกค้า ค')
+    expect(saved.phone).toBe('')
+    expect(saved.address).toBe('')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('เบอร์และ ต. อ. จ. ไม่มีเครื่องหมายบังคับ มีแค่ชื่อ; ทุกช่องยังอยู่ครบ', async () => {
+    await act(async () => {
+      render(<NewCustomerModal isOpen onClose={vi.fn()} onSave={vi.fn()} />)
+    })
+    expect((screen.getByLabelText('ชื่อลูกค้า / ชื่อบริษัท') as HTMLInputElement).required).toBe(true)
+    expect((screen.getByLabelText('เบอร์โทรศัพท์หลัก') as HTMLInputElement).required).toBe(false)
+    for (const label of ['ตำบล / แขวง', 'อำเภอ / เขต', 'จังหวัด', 'เบอร์โทรศัพท์หลัก']) expect(screen.getAllByLabelText(label).length).toBeGreaterThan(0)
   })
 
   it('กรอกแค่บ้านเลขที่: ที่อยู่ที่บันทึกมีแค่ที่กรอก', async () => {
@@ -135,7 +148,7 @@ describe('ข้อมูลลูกค้า › ฟอร์มเพิ่�
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('แก้ไขโดยไม่ใส่เหตุผล: ไม่บันทึก', async () => {
+  it('แก้ไขลูกค้าที่ไม่มีที่อยู่: บันทึกได้ ไม่ต้องใส่เหตุผล', async () => {
     const onSave = vi.fn(async () => true)
     await act(async () => {
       render(<NewCustomerModal isOpen onClose={vi.fn()} onSave={onSave} editingCustomer={customer()} />)
@@ -143,6 +156,6 @@ describe('ข้อมูลลูกค้า › ฟอร์มเพิ่�
     await act(async () => {
       fireEvent.submit(document.querySelector('form')!)
     })
-    expect(onSave).not.toHaveBeenCalled()
+    expect(onSave).toHaveBeenCalledTimes(1)
   })
 })

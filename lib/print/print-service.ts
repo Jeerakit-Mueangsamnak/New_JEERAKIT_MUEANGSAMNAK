@@ -9,9 +9,13 @@ const TARGET_ID = 'central-print-target'
 
 export type PrintOrientation = 'portrait' | 'landscape'
 
-let cleanupTimer: ReturnType<typeof setTimeout> | null = null
+/** Cleanup returned by the last `fill` (e.g. unmounting a React root), run when that document is removed. */
+let pendingCleanup: (() => void) | null = null
+let pageHideHooked = false
 
 function removeTarget(): void {
+  pendingCleanup?.()
+  pendingCleanup = null
   document.getElementById(TARGET_ID)?.remove()
   document.getElementById(`${TARGET_ID}-page`)?.remove()
 }
@@ -19,14 +23,22 @@ function removeTarget(): void {
 /**
  * Fills the print target (via `fill`, which may return a cleanup), then opens the browser
  * print dialog once the content and its images are laid out.
+ *
+ * The printed document stays (off-screen) until the next print or until the page is left
+ * (owner 2026-11-11: the print preview did not load). On iPad / phones, and in some desktop
+ * browsers, window.print() returns and "afterprint" fires while the print window is still
+ * building its preview; removing the document then left the preview empty.
  */
 export function openPrint(
   fill: (target: HTMLDivElement) => (() => void) | void,
   opts: { orientation?: PrintOrientation; margin?: string; title?: string } = {}
 ): void {
   if (typeof window === 'undefined') return
-  if (cleanupTimer) clearTimeout(cleanupTimer)
   removeTarget()
+  if (!pageHideHooked) {
+    window.addEventListener('pagehide', removeTarget)
+    pageHideHooked = true
+  }
 
   const pageStyle = document.createElement('style')
   pageStyle.id = `${TARGET_ID}-page`
@@ -41,18 +53,15 @@ export function openPrint(
   target.style.top = '0'
   target.style.width = '210mm'
   document.body.appendChild(target)
-  const cleanup = fill(target)
+  pendingCleanup = fill(target) || null
 
   const previousTitle = document.title
   if (opts.title) document.title = opts.title
 
+  // Only the tab title (the PDF's file name) goes back; the document itself stays, see above.
   const done = () => {
     document.title = previousTitle
     window.removeEventListener('afterprint', done)
-    cleanupTimer = setTimeout(() => {
-      cleanup?.()
-      removeTarget()
-    }, 300)
   }
   window.addEventListener('afterprint', done)
 

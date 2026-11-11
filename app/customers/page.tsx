@@ -45,6 +45,7 @@ import {
   SEARCH_INPUT_CLASSES,
   SEARCH_ICON_CLASSES,
   TABLE_TOOLBAR_CLASSES,
+  TABLE_LINE_COLOUR_CLASSES,
   TAB_BAR_SURFACE_CLASSES,
 } from '@/components/common/ActionButton'
 import {
@@ -453,36 +454,35 @@ export default function CustomersPage() {
   return (
     <div className="h-full min-h-0 flex flex-col overflow-hidden p-2 bg-slate-100 dark:bg-slate-900 gap-2">
 
-      {/* Customer Selector & Add Action Toolbar (การ์ดค้นหาลูกค้า แยกอิสระ) */}
-      <div className="bg-white dark:bg-slate-800 p-2 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0">
-        <div className="flex-1 min-w-0">
-          <CustomSelect
-            value={selectedCustomerId}
-            onChange={(val) => setSelectedCustomerId(String(val))}
-            placeholder="กรุณาเลือกลูกค้าเพื่อแสดงข้อมูลลูกค้า (พิมพ์ชื่อ รหัส หรือเบอร์โทร)..."
-            searchable={true}
-            options={customers.map((c) => ({
-              value: c.id,
-              label: c.customerName || '',
-              sublabel: `${c.customerCode || ''} | ${c.phone || ''}`,
-            }))}
-          />
-        </div>
-
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <ActionButton
-            onClick={handleOpenAdd}
-            variant="primary"
-            icon={<Plus className="w-4 h-4" />}
-          >
-            เพิ่มลูกค้าใหม่
-          </ActionButton>
-        </div>
-      </div>
-
-      {/* Main Workspace Card (การ์ดเนื้อหา โดยมีปุ่มแถบติดอยู่บนหัวการ์ดเนื้อหา) */}
+      {/* One white work area (owner 2026-11-11): customer search, then the tab bar, then the tab content */}
       <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col">
-        {/* Sub-tabs Navigation Bar (ปุ่มแถบติดอยู่บนหัวการ์ดเนื้อหา) */}
+        <div className="p-2 pb-0 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0">
+          <div className="flex-1 min-w-0">
+            <CustomSelect
+              value={selectedCustomerId}
+              onChange={(val) => setSelectedCustomerId(String(val))}
+              placeholder="กรุณาเลือกลูกค้าเพื่อแสดงข้อมูลลูกค้า (พิมพ์ชื่อ รหัส หรือเบอร์โทร)..."
+              searchable={true}
+              options={customers.map((c) => ({
+                value: c.id,
+                label: c.customerName || '',
+                sublabel: `${c.customerCode || ''} | ${c.phone || ''}`,
+              }))}
+            />
+          </div>
+  
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <ActionButton
+              onClick={handleOpenAdd}
+              variant="primary"
+              icon={<Plus className="w-4 h-4" />}
+            >
+              เพิ่มลูกค้าใหม่
+            </ActionButton>
+          </div>
+        </div>
+
+        {/* Sub-tabs Navigation Bar */}
         <div className={`${TABLE_TOOLBAR_CLASSES}`}>
           <div className={`${TAB_BAR_SURFACE_CLASSES} grid grid-cols-8 items-center w-full min-w-0`}>
             <button
@@ -495,7 +495,7 @@ export default function CustomersPage() {
               }`}
             >
               <Users className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate min-w-0">ข้อมูลทั่วไป & หน้าบัตร</span>
+              <span className="truncate min-w-0">ข้อมูลทั่วไป</span>
             </button>
 
             <button
@@ -599,11 +599,11 @@ export default function CustomersPage() {
           </div>
         ) : (
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-            {/* TAB 1: ข้อมูลทั่วไป & หน้าบัตร */}
+            {/* TAB 1: ข้อมูลทั่วไป*/}
             {active360Tab === 'GENERAL' && (
               <div className="flex-1 min-h-0 text-xs p-2 flex flex-col justify-between gap-2 overflow-hidden">
             {/* ข้อมูลพื้นฐานผู้เช่า - ส่วนหัวและปุ่มจัดการ */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1.5 border-b border-slate-200 dark:border-slate-700 shrink-0">
+                <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1.5 border-b ${TABLE_LINE_COLOUR_CLASSES} shrink-0`}>
                   <div className="flex items-center gap-2">
                     <Users className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
                     <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100">
@@ -680,7 +680,7 @@ export default function CustomersPage() {
                 <div className="flex-1 min-h-0 flex flex-col gap-2 landscape:sm:grid landscape:sm:grid-cols-2 landscape:sm:items-stretch">
                   {/* ข้อมูลติดต่อและที่อยู่ */}
                   <div className="space-y-1 min-w-0 min-h-0 overflow-y-auto portrait:shrink-0">
-                    <div className="border-b border-slate-200 dark:border-slate-700 pb-0.5">
+                    <div className={`border-b ${TABLE_LINE_COLOUR_CLASSES} pb-0.5`}>
                       <span className="font-extrabold text-slate-800 dark:text-slate-200 text-[11px]">
                         ข้อมูลติดต่อ
                       </span>
@@ -819,7 +819,7 @@ export default function CustomersPage() {
 
                   {/* สำเนาบัตรประชาชน (แนวนอน: ขวา, แนวตั้ง: ล่าง) ยืดเต็มพื้นที่; ดับเบิ้ลคลิกดูรูปเต็ม */}
                   <div className="flex-1 min-h-0 min-w-0 flex flex-col">
-                    <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-700 pb-0.5 shrink-0">
+                    <div className={`flex justify-between items-center border-b ${TABLE_LINE_COLOUR_CLASSES} pb-0.5 shrink-0`}>
                       <span className="font-extrabold text-slate-800 dark:text-slate-200 text-[11px] flex items-center gap-1.5">
                         <CreditCard className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" />
                         <span>สำเนาบัตรประชาชน</span>
@@ -927,7 +927,7 @@ export default function CustomersPage() {
                 </div>
 
                 {/* Filter & Search Bar inside Workspace */}
-                <div className="px-3 sm:px-3.5 py-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0 border-b border-slate-200 dark:border-slate-700">
+                <div className={`px-3 sm:px-3.5 py-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0 border-b ${TABLE_LINE_COLOUR_CLASSES}`}>
                   <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100">
                     ประวัติบิลการเช่าย้อนหลังทั้งหมด ({customerBills.length} รายการ)
                   </h4>
@@ -1066,7 +1066,7 @@ export default function CustomersPage() {
                 </div>
 
                 {/* Header */}
-                <div className="px-3 sm:px-3.5 py-2 flex items-center justify-between shrink-0 border-b border-slate-200 dark:border-slate-700">
+                <div className={`px-3 sm:px-3.5 py-2 flex items-center justify-between shrink-0 border-b ${TABLE_LINE_COLOUR_CLASSES}`}>
                   <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100">
                     ประวัติการชำระเงินจากฐานข้อมูลจริง ({customerPayments.length} รายการ)
                   </h4>
@@ -1167,7 +1167,7 @@ export default function CustomersPage() {
             {/* TAB: ใบเสนอราคาของลูกค้า (Master §193) */}
             {active360Tab === 'QUOTATIONS' && (
               <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-                <div className="px-3 sm:px-3.5 py-2 flex items-center justify-between shrink-0 border-b border-slate-200 dark:border-slate-700">
+                <div className={`px-3 sm:px-3.5 py-2 flex items-center justify-between shrink-0 border-b ${TABLE_LINE_COLOUR_CLASSES}`}>
                   <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100">
                     ใบเสนอราคาของลูกค้า ({customerQuotations.length} รายการ)
                   </h4>
@@ -1254,7 +1254,7 @@ export default function CustomersPage() {
                 </div>
 
                 {/* Header */}
-                <div className="px-3 sm:px-3.5 py-2 flex items-center justify-between shrink-0 border-b border-slate-200 dark:border-slate-700">
+                <div className={`px-3 sm:px-3.5 py-2 flex items-center justify-between shrink-0 border-b ${TABLE_LINE_COLOUR_CLASSES}`}>
                   <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100">
                     รายการสินค้าที่ถืออยู่นอกคลัง (คัดกรองจากบิลที่ยังมียอดคงค้าง)
                   </h4>
@@ -1346,7 +1346,7 @@ export default function CustomersPage() {
             {/* TAB 5: เอกสารส่วนตัวลูกค้า */}
             {active360Tab === 'DOCUMENTS' && (
               <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-0.5 p-2">
-                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
+                <div className={`flex items-center justify-between border-b ${TABLE_LINE_COLOUR_CLASSES} pb-2`}>
                   <div>
                     <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100">เอกสารส่วนตัวลูกค้า</h4>
                   </div>
@@ -1530,7 +1530,7 @@ export default function CustomersPage() {
             {/* TAB 7: หมายเหตุ */}
             {active360Tab === 'NOTES_TAGS' && (
               <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-0.5 p-2">
-                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
+                <div className={`flex items-center justify-between border-b ${TABLE_LINE_COLOUR_CLASSES} pb-2`}>
                   <div>
                     <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100">หมายเหตุภายในเกี่ยวกับลูกค้า</h4>                  </div>
                   <button
