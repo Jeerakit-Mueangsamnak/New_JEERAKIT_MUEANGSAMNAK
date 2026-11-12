@@ -21,7 +21,7 @@ afterEach(cleanup)
 const acc = (over: Partial<Product>): Product =>
   ({
     status: 'ACTIVE', isAccessory: true, isChargeable: false, availableQuantity: 1000, unit: 'ตัว', rentPrice: 0,
-    category: 'อื่นๆ', productType: 'RENT', rentalType: 'NORMAL', calculationType: 'PER_ROUND', ...over,
+    category: over.listItem === 'น็อต' ? 'แบบเสา' : 'อื่นๆ', productType: 'RENT', rentalType: 'NORMAL', calculationType: 'PER_ROUND', ...over,
   }) as Product
 const products = [
   acc({ id: 'n12', code: 'ACC-NUT-0401', name: 'น็อต 12นิ้ว', listItem: 'น็อต' }),
@@ -37,6 +37,7 @@ describe('accessory formulas and set-up (owner 2026-11-09)', () => {
   it('nuts: columns × nuts per column; the size is read from the name inside รายการ "น็อต"', () => {
     expect(nutTotal(14, 50)).toBe(700)
     expect(nutInches('น็อต 16นิ้ว')).toBe(16)
+    expect(nutInches('น็อต 14"')).toBe(14)
     expect(findNutProduct(products, 12)?.id).toBe('n12')
     expect(findNutProduct(products, 16)).toBeNull()
   })
@@ -45,11 +46,14 @@ describe('accessory formulas and set-up (owner 2026-11-09)', () => {
     expect(findScaffoldPart(products, 'CROSS')?.id).toBe('cross')
     expect(findScaffoldPart(products.filter((p) => p.id !== 'cross'), 'CROSS')).toBeNull()
   })
-  it('only the two รายการ of หมวด อื่นๆ open the windows', () => {
+  it('only รายการ น็อต of หมวด แบบเสา and อุปกรณ์นั่งร้าน of หมวด อื่นๆ open the windows', () => {
     expect(accessoryWindowFor(products[0])).toBe('NUT')
     expect(accessoryWindowFor(products[2])).toBe('SCAFFOLD')
     expect(accessoryWindowFor(products[5])).toBeNull()
     expect(accessoryWindowFor(products[6])).toBeNull()
+    // Nuts belong to หมวด แบบเสา › รายการ น็อต (owner 2026-11-12); the same รายการ under อื่นๆ is an ordinary product
+    expect(accessoryWindowFor({ category: 'อื่นๆ', listItem: 'น็อต' })).toBeNull()
+    expect(accessoryWindowFor({ category: 'แบบเสา', listItem: 'น็อต' })).toBe('NUT')
   })
 })
 
@@ -94,7 +98,7 @@ describe('น็อตเสา window', () => {
     fireEvent.click(screen.getByRole('button', { name: 'เสา 15×15' }))
     fireEvent.click(screen.getByRole('button', { name: '3.50 ม.' }))
     fireEvent.click(screen.getByRole('button', { name: '50' }))
-    expect(screen.getByTestId('nut-size').textContent).toBe('12 นิ้ว')
+    expect(screen.getByTestId('nut-size').textContent).toBe('12"')
     expect(screen.getByTestId('nut-result').textContent).toBe('700 ตัว')
     fireEvent.click(screen.getByRole('button', { name: 'เพิ่มลงตะกร้า' }))
     expect(onAdd).toHaveBeenCalledWith([{ product: products[0], quantity: 700 }])
@@ -115,25 +119,29 @@ describe('น็อตเสา window', () => {
     render(<NutAccessoryModal products={products} onAdd={vi.fn()} onClose={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'เสา 25×25' }))
     fireEvent.click(screen.getByRole('button', { name: '2.00 ม.' }))
-    expect(screen.getByRole('alert').textContent).toContain('16 นิ้ว')
+    expect(screen.getByRole('alert').textContent).toContain('16"')
     expect((screen.getByRole('button', { name: 'เพิ่มลงตะกร้า' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('more than the free stock is refused on a bill, only warned on a quotation', () => {
+  it('shows no stock box and leaves the stock check to the cart (owner 2026-11-12)', () => {
     const low = [acc({ id: 'n12', name: 'น็อต 12นิ้ว', listItem: 'น็อต', availableQuantity: 30 })]
-    const pick = () => {
-      fireEvent.click(screen.getByRole('button', { name: 'เสา 15×15' }))
-      fireEvent.click(screen.getByRole('button', { name: '3.00 ม.' }))
-      fireEvent.click(screen.getByRole('button', { name: '10' }))
-    }
     render(<NutAccessoryModal products={low} onAdd={vi.fn()} onClose={vi.fn()} />)
-    pick()
-    expect(screen.getByRole('alert').textContent).toContain('สต็อกพร้อมใช้มี 30')
-    expect((screen.getByRole('button', { name: 'เพิ่มลงตะกร้า' }) as HTMLButtonElement).disabled).toBe(true)
-    cleanup()
-    render(<NutAccessoryModal products={low} onAdd={vi.fn()} onClose={vi.fn()} allowOverStock />)
-    pick()
+    fireEvent.click(screen.getByRole('button', { name: 'เสา 15×15' }))
+    fireEvent.click(screen.getByRole('button', { name: '3.00 ม.' }))
+    fireEvent.click(screen.getByRole('button', { name: '10' }))
+    expect(screen.queryByRole('alert')).toBeNull()
     expect((screen.getByRole('button', { name: 'เพิ่มลงตะกร้า' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('a nut named with an inch mark (น็อต 14") is found', () => {
+    const quoted = [acc({ id: 'q14', name: 'น็อต 14"', listItem: 'น็อต', availableQuantity: 500 })]
+    const onAdd = vi.fn(() => true)
+    render(<NutAccessoryModal products={quoted} onAdd={onAdd} onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'เสา 20×20' }))
+    fireEvent.click(screen.getByRole('button', { name: '1.00 ม.' }))
+    expect(screen.queryByRole('alert')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มลงตะกร้า' }))
+    expect(onAdd).toHaveBeenCalledWith([{ product: quoted[0], quantity: 4 }])
   })
 })
 

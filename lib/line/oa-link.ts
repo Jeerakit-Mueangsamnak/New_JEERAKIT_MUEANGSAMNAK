@@ -6,9 +6,10 @@ export function lineOaMessageUrl(lineId: string | null | undefined, text: string
   return `https://line.me/R/oaMessage/${encodeURIComponent(id)}/?${encodeURIComponent(text)}`
 }
 
-/** "Add friend" link of the shop's official account (QR at the counter). Adding the friend links nobody. */
+/** "Add friend" link of the shop's official account (QR at the counter). Adding the friend links nobody.
+ *  The ID is kept as LINE writes it (https://line.me/R/ti/p/@381tojau): the check above allows only URL-safe characters. */
 export function lineOaAddFriendUrl(lineId: string | null | undefined): string | null {
   const id = (lineId || '').trim()
   if (!/^@?[A-Za-z0-9._-]{2,40}$/.test(id)) return null
-  return `https://line.me/R/ti/p/${encodeURIComponent(id)}`
+  return `https://line.me/R/ti/p/${id}`
 }

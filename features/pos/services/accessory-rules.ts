@@ -4,15 +4,17 @@
  * returned through the normal bill flow, and loss / damage is charged at return from each product's own
  * fees.
  *
- * Shop set-up (สินค้า › หมวด อื่นๆ): one "รายการ" per window — every nut size sits in รายการ "น็อต" (the size is in
- * the product name, e.g. "น็อต 16นิ้ว"); every scaffold part sits in รายการ "อุปกรณ์นั่งร้าน" (the part is the
- * start of the name: กากบาท / ครอบนั่งร้าน / ข้อต่อ). The POS shows each of these รายการ as ONE card.
+ * Shop set-up: one "รายการ" per window — every nut size sits in หมวด แบบเสา › รายการ "น็อต" (owner 2026-11-12;
+ * the size is in the product name, e.g. 'น็อต 16"'); every scaffold part sits in หมวด อื่นๆ › รายการ
+ * "อุปกรณ์นั่งร้าน" (the part is the start of the name: กากบาท / ครอบนั่งร้าน / ข้อต่อ). The POS shows each of
+ * these รายการ as ONE card.
  */
 import type { Product } from '@/lib/types/rental-pos'
 
-export const ACCESSORY_CATEGORY = 'อื่นๆ'
 export const NUT_LIST_ITEM = 'น็อต'
 export const SCAFFOLD_LIST_ITEM = 'อุปกรณ์นั่งร้าน'
+/** The หมวด whose รายการ holds each window's products (owner 2026-11-12: nuts in แบบเสา). */
+export const ACCESSORY_CATEGORY_OF = { NUT: 'แบบเสา', SCAFFOLD: 'อื่นๆ' } as const
 
 /** Column section → nut length (inches). */
 export const NUT_SECTIONS = [
@@ -59,21 +61,21 @@ export function accessoryHostCategory(window: AccessoryWindow, categoryNames: re
   return categoryNames.find((name) => squash(name) === squash(ACCESSORY_HOST_CATEGORY[window])) ?? null
 }
 
-/** Which accessory window a product belongs to (by its หมวด อื่นๆ › รายการ); null = an ordinary product. */
+/** Which accessory window a product belongs to (by its หมวด › รายการ); null = an ordinary product. */
 export function accessoryWindowFor(product: Pick<Product, 'category' | 'listItem'>): AccessoryWindow | null {
-  if (squash(product.category) !== squash(ACCESSORY_CATEGORY)) return null
+  const category = squash(product.category)
   const item = squash(product.listItem)
-  if (item === squash(NUT_LIST_ITEM)) return 'NUT'
-  if (item === squash(SCAFFOLD_LIST_ITEM)) return 'SCAFFOLD'
+  if (category === squash(ACCESSORY_CATEGORY_OF.NUT) && item === squash(NUT_LIST_ITEM)) return 'NUT'
+  if (category === squash(ACCESSORY_CATEGORY_OF.SCAFFOLD) && item === squash(SCAFFOLD_LIST_ITEM)) return 'SCAFFOLD'
   return null
 }
 
 const inGroup = (products: Product[], window: AccessoryWindow) =>
   products.filter((p) => p.status === 'ACTIVE' && accessoryWindowFor(p) === window)
 
-/** Inches written in a nut's name ("น็อต 16นิ้ว" → 16). */
+/** Inches written in a nut's name: "น็อต 16นิ้ว" or 'น็อต 14"' (also ” ″) → the number. */
 export function nutInches(name: string | null | undefined): number | null {
-  const m = /(\d+)\s*นิ้ว/.exec(name || '')
+  const m = /(\d+)\s*(?:นิ้ว|"|”|″)/.exec(name || '')
   return m ? Number(m[1]) : null
 }
 

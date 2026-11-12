@@ -46,7 +46,7 @@ export async function recordWorkOrderStep(
   }
   const work_order = mergeWorkOrder(row.work_order, { events: [event], ...(driver ? { driver } : {}) })
   await saveExistingAppointment(appointmentId, { work_order }, row.updated_at)
-  return fetchAppointmentsFromSupabase()
+  return fetchAppointmentsFromSupabase(true)
 }
 
 export interface DispatchOutcome {
@@ -83,7 +83,7 @@ export interface JobChangeOutcome {
 async function outcome(r: WithdrawOutcome, failText: string): Promise<JobChangeOutcome> {
   if (!r.success || !r.data) throw new Error(r.error || failText)
   const { ok, note } = withdrawNoteOf(r, 'พนักงาน')
-  return { appointments: await fetchAppointmentsFromSupabase(), note, lineOk: ok }
+  return { appointments: await fetchAppointmentsFromSupabase(true), note, lineOk: ok }
 }
 
 /** ยกเลิกงาน on the job details: the job is deleted (the driver, if any, is told on LINE first). */

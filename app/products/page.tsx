@@ -30,7 +30,7 @@ import {
   Phone,
 } from 'lucide-react'
 import { DataTableFrame, DATA_TABLE_CLASSES } from '@/components/common/DataTableFrame'
-import { loadBills, fetchBillsFromSupabase, type FullBill } from '@/features/bills/services/bill-storage'
+import { loadBills, fetchBillsForProduct, type FullBill } from '@/features/bills/services/bill-storage'
 import { formatThaiDate } from '@/features/reports/services/report-data-common'
 import { ReportDonutChart } from '@/features/reports/components/ReportCharts'
 import { CustomSelect } from '@/components/common/CustomSelect'
@@ -417,7 +417,7 @@ function ProductsContent() {
     setHistoryFrom('')
     setHistoryTo('')
     setProductBills(loadBills())
-    void fetchBillsFromSupabase().then(setProductBills).catch(() => undefined)
+    void fetchBillsForProduct(selectedProductId).then(setProductBills).catch(() => undefined)
   }, [selectedProductId])
 
   const todayStr = getLocalDateString(new Date())

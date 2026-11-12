@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import QRCode from 'qrcode'
+import { qrDataUrl } from '@/lib/qr-code'
 import { Copy, MessageCircle, RefreshCw } from 'lucide-react'
 import { ActionButton, COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 import { AppModal, AppModalBody, AppModalHeader } from '@/components/common/AppModal'
@@ -60,7 +60,7 @@ export function CustomerLineLinkDialog({
         onCloseRef.current()
         return
       }
-      const qr = r.data.oaUrl ? await QRCode.toDataURL(r.data.oaUrl, { margin: 1, width: 200 }).catch(() => null) : null
+      const qr = r.data.oaUrl ? await qrDataUrl(r.data.oaUrl, { margin: 1, width: 200 }).catch(() => null) : null
       setNow(Date.now())
       setIssued({ code: r.data.code, expiresAt: new Date(r.data.expires_at).getTime(), oaUrl: r.data.oaUrl, qr })
     } finally {

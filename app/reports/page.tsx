@@ -1,8 +1,11 @@
 'use client'
 
-import React, { useState, useMemo, Suspense, useCallback } from 'react'
+import React, { useState, useMemo, useEffect, Suspense, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { loadAllBusinessData } from '@/components/common/MasterDataProvider'
+import { fetchClosedBills } from '@/features/bills/services/bill-storage'
+import { ensureTransactionsSince } from '@/features/finance/services/finance-storage'
+import { getPreviousPeriod, toLocalDateString } from '@/features/reports/services/report-data-common'
 import { useToast } from '@/components/common/Toast'
 import { ReportFilter } from '@/features/reports/components/ReportFilter'
 import { FinanceReportView } from '@/features/reports/components/FinanceReportView'
@@ -43,6 +46,25 @@ function ReportsWorkspace() {
   const [granularity, setGranularity] = useState<'daily' | 'monthly'>('daily')
   const [refreshKey, setRefreshKey] = useState<number>(0)
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false)
+  // The app keeps only bills still in work loaded: finished bills of the report period, and of the
+  // period before it (comparison), are read from the server whenever the period changes.
+  const [rangeLoadKey, setRangeLoadKey] = useState<number>(0)
+  useEffect(() => {
+    let alive = true
+    const { prevStart } = getPreviousPeriod(startDate, endDate)
+    // Finished bills and the money rows (statement keeps 90 days) of this period and the one before
+    Promise.all([
+      fetchClosedBills({ from: toLocalDateString(prevStart), to: toLocalDateString(endDate) }),
+      ensureTransactionsSince(prevStart),
+    ])
+      .then(() => {
+        if (alive) setRangeLoadKey((k) => k + 1)
+      })
+      .catch((err: unknown) => console.error('Report bills load failed:', err))
+    return () => {
+      alive = false
+    }
+  }, [startDate, endDate, refreshKey])
 
   // Handle Preset Changes
   const handlePresetChange = useCallback((newPreset: string) => {
@@ -126,9 +148,10 @@ function ReportsWorkspace() {
       endDate,
       granularity,
     }),
-    // refreshKey is intentional: the refresh button needs a new filter object so the reports below recompute
+    // refreshKey / rangeLoadKey are intentional: the refresh button and the period's bills arriving
+    // need a new filter object so the reports below recompute
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [startDate, endDate, granularity, refreshKey]
+    [startDate, endDate, granularity, refreshKey, rangeLoadKey]
   )
 
   // Report Data

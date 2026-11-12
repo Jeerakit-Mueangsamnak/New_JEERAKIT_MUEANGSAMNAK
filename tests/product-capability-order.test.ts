@@ -10,6 +10,7 @@ vi.mock('@/lib/db/rpc', () => ({
     return {}
   }),
   selectRows: vi.fn(async () => [{ id: 'unit-1', name: 'ชุด', active: true, sort_order: 1 }]),
+  selectAllRows: vi.fn(async () => [{ id: 'unit-1', name: 'ชุด', active: true, sort_order: 1 }]),
   newIdempotencyKey: () => 'k',
 }))
 vi.mock('@/lib/db/pin-confirm', () => ({

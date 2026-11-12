@@ -1,6 +1,7 @@
 import { CustomerSnapshot, CustomerDocumentItem } from '@/lib/types/document'
 import { BusinessSettings } from '@/lib/types/rental-pos'
 import { escapeDocumentHtml, sanitizeDocumentHtml } from '@/features/documents/utils/document-html'
+import { applyDocumentInk } from '@/features/documents/utils/document-ink'
 
 export interface BillRenderSnapshot {
   billNo?: string
@@ -317,29 +318,6 @@ function centreFloatingDocumentDate(html: string): string {
   )
 }
 
-/** Relative luminance 0..1 of a CSS colour written as rgb()/rgba()/#hex; null when it is something else. */
-function colourLuminance(value: string): number | null {
-  const v = value.trim().toLowerCase()
-  let rgb: number[] | null = null
-  const fn = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)(?:[\s,/]+([\d.]+))?\s*\)$/.exec(v)
-  if (fn) {
-    if (fn[4] !== undefined && Number(fn[4]) === 0) return null // transparent
-    rgb = [Number(fn[1]), Number(fn[2]), Number(fn[3])]
-  } else {
-    const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(v)?.[1]
-    if (hex) {
-      const full = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex
-      rgb = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16))
-    }
-  }
-  if (!rgb) return null
-  const [r, g, b] = rgb.map((c) => {
-    const s = c / 255
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
-  })
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b
-}
-
 /**
  * One standard font for every form (owner 2026-11-11: "ดูดี ดูสวย ดูมาตรฐาน"). The forms mixed Tahoma, Arial
  * (amounts) and Tahoma alone (signature dates); iPad / phones have no Tahoma, so they drew the forms in their
@@ -380,17 +358,6 @@ function setFormSideMargins(html: string): string {
   const vertical = Math.max(0, (sheetHeight - innerHeight * zoom) / 2).toFixed(4)
   const sheetStyle = `${style}; padding-left:${side}px; padding-right:${side}px; padding-top:${vertical}px; padding-bottom:${vertical}px`
   return `${html.slice(0, m.index)}<div style="${sheetStyle}">${m[2]}zoom:${zoom}; ${html.slice(m.index + m[0].length)}`
-}
-
-/**
- * Every form prints on white (owner 2026-11-11): light tinted fills (header cells, total rows, boxes)
- * become white. Dark fills are lines and bars of the form and stay as drawn.
- */
-function whitenLightBackgrounds(html: string): string {
-  return html.replace(/(background(?:-color)?\s*:\s*)(rgba?\([^)]*\)|#[0-9a-fA-F]{3,6})(?=\s*(?:;|"|'|!|$))/g, (match, prop: string, colour: string) => {
-    const lum = colourLuminance(colour)
-    return lum !== null && lum >= 0.7 ? `${prop}#ffffff` : match
-  })
 }
 
 /**
@@ -472,7 +439,7 @@ export function renderDocumentTemplate(
   let html = freeItemNumberWidth(
     keepFormTextOnItsLine(
       centreEmptySignatureBrackets(
-        whitenLightBackgrounds(enlargeBusinessLogo(setFormSideMargins(standardizeFormFont(removeThaiAmountTextParentheses(templateSchema)))))
+        enlargeBusinessLogo(setFormSideMargins(standardizeFormFont(removeThaiAmountTextParentheses(templateSchema))))
       )
     )
   )
@@ -588,5 +555,6 @@ export function renderDocumentTemplate(
       return isNoChargeLine(item) ? '-' : formatBahtCurrency(item.lineTotal)
     }
   )
-  return sanitizeDocumentHtml(html)
+  // Every form prints with no background colour, black ink and the VAT label clear of its line (owner 2026-11-12)
+  return sanitizeDocumentHtml(applyDocumentInk(html))
 }

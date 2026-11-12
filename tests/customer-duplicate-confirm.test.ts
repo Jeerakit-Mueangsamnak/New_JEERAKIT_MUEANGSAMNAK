@@ -8,6 +8,7 @@ vi.mock('@/lib/supabase/client', () => ({
 vi.mock('@/lib/db/rpc', () => ({
   rpc: mocks.rpc,
   selectRows: mocks.rows,
+  selectAllRows: mocks.rows,
   isDbError: (err: unknown, tag?: string) => (err as { tag?: string } | null)?.tag === tag,
 }))
 

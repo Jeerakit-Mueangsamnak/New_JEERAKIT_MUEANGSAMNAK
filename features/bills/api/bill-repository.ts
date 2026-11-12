@@ -1,5 +1,7 @@
 import { createClient } from '@/lib/supabase/client'
-import { selectRows } from '@/lib/db/rpc'
+import { DbError, selectRows } from '@/lib/db/rpc'
+import { loadProducts } from '@/features/products/services/product-storage'
+import { loadUnits } from '@/lib/unit-storage'
 import { loadSystemSettings } from '@/features/settings/services/settings-storage'
 import type { FullBill, FullBillItem, BillChargeRecord, BillPaymentAllocation, BillPaymentRecord, BillRefundRecord } from '@/lib/types/rental-return'
 import type { RentalStatus } from '@/lib/types/rental-pos'
@@ -106,6 +108,14 @@ interface ProductLite {
   is_rent_chargeable: boolean
 }
 interface CustomerLite { id: string; name: string; phone: string; address: string }
+
+/** Bill header columns the screens use (= BillRow), not the whole row. */
+const BILL_COLUMNS =
+  'id, bill_no, status, payment_status, customer_id, quotation_id, parent_bill_id, original_bill_id, note, ' +
+  'sale_subtotal, rental_subtotal, bill_discount_amount, taxable_amount, delivery_fee, installation_fee, service_fee, ' +
+  'vat_amount, grand_total, charge_total, adjustment_net, paid_amount, refunded_amount, write_off_total, balance_due, ' +
+  'deposit_amount, deposit_unpaid, deposit_note, due_date, is_credit_bill, confirmed_at, pricing_snapshot, customer_snapshot, ' +
+  'closed_at, cancelled_at, cancel_reason, voided_at, void_reason, created_at'
 
 export const toDate = (ts: string | null | undefined): string => {
   if (!ts) return ''
@@ -347,31 +357,144 @@ function groupBy<T>(rows: T[], key: (r: T) => string): Map<string, T[]> {
   return m
 }
 
-async function loadBills(billIds?: string[]): Promise<FullBill[]> {
+/** Which bills to read. Every child table is read by bill id in chunks, so no answer is ever cut at the 1,000-row limit. */
+export interface BillQuery {
+  /** Only these bills, whatever their status. */
+  ids?: string[]
+  /** OPEN = still in work (not closed / cancelled / void); HISTORY = closed, cancelled or void. */
+  scope?: 'OPEN' | 'HISTORY'
+  /** Bill date (created_at) range as local calendar days YYYY-MM-DD, both inclusive. */
+  from?: string
+  to?: string
+  /** Bill number, customer name or phone as written on the bill. */
+  search?: string
+  customerId?: string
+}
+
+/** Server statuses of bills that are finished: read on demand, never all at once. */
+export const FINISHED_BILL_STATUSES = ['CLOSED', 'CANCELLED', 'VOID'] as const
+
+/** PostgREST keeps the URL short: at most this many ids per `in (...)` filter. */
+const IDS_PER_QUERY = 100
+
+async function inChunks<T>(ids: string[], run: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
+  const unique = [...new Set(ids)]
+  if (unique.length === 0) return []
+  const chunks: string[][] = []
+  for (let i = 0; i < unique.length; i += IDS_PER_QUERY) chunks.push(unique.slice(i, i + IDS_PER_QUERY))
+  return (await Promise.all(chunks.map(run))).flat()
+}
+
+const LOCAL_DAY = /^\d{4}-\d{2}-\d{2}$/
+
+/** Start of a local calendar day as the server timestamp (the browser runs in the shop's time zone). */
+function localDayStart(day: string, plusDays = 0): string {
+  const d = new Date(`${day}T00:00:00`)
+  d.setDate(d.getDate() + plusDays)
+  return d.toISOString()
+}
+
+/** Text typed into a search box, safe inside a PostgREST `or(...)` filter (no separators or wildcards). */
+function searchPattern(search: string): string | null {
+  const clean = search.replace(/[%*,()."'\\]/g, ' ').replace(/\s+/g, ' ').trim()
+  return clean ? `*${clean}*` : null
+}
+
+function billsQuery(supabase: ReturnType<typeof createClient>, query: BillQuery, ids?: string[]): any {
+  let q = supabase.from('bills').select(BILL_COLUMNS)
+  if (ids) q = q.in('id', ids)
+  if (query.scope === 'OPEN') q = q.not('status', 'in', `(${FINISHED_BILL_STATUSES.join(',')})`)
+  if (query.scope === 'HISTORY') q = q.in('status', [...FINISHED_BILL_STATUSES])
+  if (query.customerId) q = q.eq('customer_id', query.customerId)
+  if (query.from && LOCAL_DAY.test(query.from)) q = q.gte('created_at', localDayStart(query.from))
+  if (query.to && LOCAL_DAY.test(query.to)) q = q.lt('created_at', localDayStart(query.to, 1))
+  const pattern = query.search ? searchPattern(query.search) : null
+  if (pattern) {
+    q = q.or(`bill_no.ilike.${pattern},customer_snapshot->>name.ilike.${pattern},customer_snapshot->>phone.ilike.${pattern}`)
+  }
+  return q.order('created_at', { ascending: false })
+}
+
+/**
+ * The products and units named on these lines: taken from the catalogue MasterDataProvider already
+ * loaded (loadProducts / loadUnits); only ids not there yet (catalogue still loading, a product added on
+ * another device) are read from the server.
+ */
+async function productContext(
+  supabase: ReturnType<typeof createClient>,
+  lines: LineRow[]
+): Promise<{ products: Map<string, ProductLite>; units: Map<string, string> }> {
+  const products = new Map<string, ProductLite>()
+  const cachedProducts = new Map(loadProducts().map((p) => [p.id, p]))
+  const missingProducts: string[] = []
+  for (const id of new Set(lines.map((l) => l.product_id).filter((id): id is string => Boolean(id)))) {
+    const p = cachedProducts.get(id)
+    if (!p) {
+      missingProducts.push(id)
+      continue
+    }
+    products.set(id, {
+      id: p.id,
+      sku: p.code,
+      name: p.name,
+      default_damage_fee: Number(p.defaultDamageFee ?? 0),
+      default_loss_fee: Number(p.defaultLossFee ?? 0),
+      unit_id: p.unitId ?? '',
+      is_rent_chargeable: p.isChargeable !== false,
+    })
+  }
+  const fetched = await inChunks(missingProducts, (chunk) =>
+    selectRows<ProductLite>(
+      supabase.from('products').select('id, sku, name, default_damage_fee, default_loss_fee, unit_id, is_rent_chargeable').in('id', chunk)
+    )
+  )
+  for (const p of fetched) products.set(p.id, p)
+
+  const units = new Map(loadUnits().map((u) => [u.id, u.name]))
+  const missingUnits = [...new Set([...products.values()].map((p) => p.unit_id))].filter((id) => id && !units.has(id))
+  const fetchedUnits = await inChunks(missingUnits, (chunk) =>
+    selectRows<{ id: string; name: string }>(supabase.from('units').select('id, name').in('id', chunk))
+  )
+  for (const u of fetchedUnits) units.set(u.id, u.name)
+  return { products, units }
+}
+
+async function loadBills(query: BillQuery = {}): Promise<FullBill[]> {
   const supabase = createClient()
-  // Optional "only these bills" filter on any PostgREST query builder.
-  const byId = (q: any, col: string): any => (billIds ? q.in(col, billIds) : q)
-  const [bills, lines, payments, refunds, charges, allocations, products, units, customers] = await Promise.all([
-    selectRows<BillRow>(byId(supabase.from('bills').select('*'), 'id').order('created_at', { ascending: false })),
-    selectRows<LineRow>(byId(supabase.from('bill_lines').select('*'), 'bill_id')),
-    selectRows<{ id: string; bill_id: string; receipt_id: string | null; method: string; amount: number; reference: string | null; status: string; received_at: string }>(
-      byId(supabase.from('payments').select('id, bill_id, receipt_id, method, amount, reference, status, received_at'), 'bill_id')
+  const bills: BillRow[] = query.ids
+    ? await inChunks(query.ids, (chunk) => selectRows<BillRow>(billsQuery(supabase, query, chunk)))
+    : await selectRows<BillRow>(billsQuery(supabase, query))
+  const billIds = bills.map((b) => b.id)
+  const customerIds = bills.map((b) => b.customer_id).filter((id): id is string => Boolean(id))
+  const linesRead = inChunks(billIds, (chunk) => selectRows<LineRow>(supabase.from('bill_lines').select('*').in('bill_id', chunk)))
+  const [lines, payments, refunds, charges, allocations, catalogue, customers] = await Promise.all([
+    linesRead,
+    inChunks(billIds, (chunk) =>
+      selectRows<{ id: string; bill_id: string; receipt_id: string | null; method: string; amount: number; reference: string | null; status: string; received_at: string }>(
+        supabase.from('payments').select('id, bill_id, receipt_id, method, amount, reference, status, received_at').in('bill_id', chunk)
+      )
     ),
-    selectRows<{ id: string; bill_id: string; refund_no: string; payment_id: string; amount: number; method: string; reason: string; paid_at: string; status: string }>(
-      byId(supabase.from('refunds').select('id, bill_id, refund_no, payment_id, amount, method, reason, paid_at, status'), 'bill_id')
+    inChunks(billIds, (chunk) =>
+      selectRows<{ id: string; bill_id: string; refund_no: string; payment_id: string; amount: number; method: string; reason: string; paid_at: string; status: string }>(
+        supabase.from('refunds').select('id, bill_id, refund_no, payment_id, amount, method, reason, paid_at, status').in('bill_id', chunk)
+      )
     ),
-    selectRows<{ id: string; bill_id: string; charge_type: string; amount: number; suggested_amount: number | null; status: string; reason: string; bill_line_id: string | null; incident_case_id: string | null; created_at: string; basis: Record<string, unknown> | null }>(
-      byId(supabase.from('charges').select('id, bill_id, charge_type, amount, suggested_amount, status, reason, bill_line_id, incident_case_id, created_at, basis'), 'bill_id')
+    inChunks(billIds, (chunk) =>
+      selectRows<{ id: string; bill_id: string; charge_type: string; amount: number; suggested_amount: number | null; status: string; reason: string; bill_line_id: string | null; incident_case_id: string | null; created_at: string; basis: Record<string, unknown> | null }>(
+        supabase.from('charges').select('id, bill_id, charge_type, amount, suggested_amount, status, reason, bill_line_id, incident_case_id, created_at, basis').in('bill_id', chunk)
+      )
     ),
     // A database without migration 20261110192958 has no such table yet: no history rows, the rest still loads.
-    selectRows<AllocationRow>(byId(supabase.from('bill_payment_allocations').select('*').order('created_at'), 'bill_id'))
-      .catch((e: { sqlState?: string }) => {
-        if (e?.sqlState === 'PGRST205' || e?.sqlState === '42P01') return [] as AllocationRow[]
-        throw e
-      }),
-    selectRows<ProductLite>(supabase.from('products').select('id, sku, name, default_damage_fee, default_loss_fee, unit_id, is_rent_chargeable')),
-    selectRows<{ id: string; name: string }>(supabase.from('units').select('id, name')),
-    selectRows<CustomerLite>(supabase.from('customers').select('id, name, phone, address')),
+    inChunks(billIds, (chunk) =>
+      selectRows<AllocationRow>(supabase.from('bill_payment_allocations').select('*').in('bill_id', chunk).order('created_at')).catch(
+        (e: { sqlState?: string }) => {
+          if (e?.sqlState === 'PGRST205' || e?.sqlState === '42P01') return [] as AllocationRow[]
+          throw e
+        }
+      )
+    ),
+    linesRead.then((read) => productContext(supabase, read)),
+    inChunks(customerIds, (chunk) => selectRows<CustomerLite>(supabase.from('customers').select('id, name, phone, address').in('id', chunk))),
   ])
 
   const linesByBill = groupBy(lines, (l) => l.bill_id)
@@ -381,8 +504,8 @@ async function loadBills(billIds?: string[]): Promise<FullBill[]> {
   const chargesByBill = groupBy(charges, (c) => c.bill_id)
   const allocationsByBill = groupBy(allocations, (a) => a.bill_id)
   const ctxBase = {
-    products: new Map(products.map((p) => [p.id, p])),
-    units: new Map(units.map((u) => [u.id, u.name])),
+    products: catalogue.products,
+    units: catalogue.units,
     customers: new Map(customers.map((c) => [c.id, c])),
   }
 
@@ -413,13 +536,32 @@ async function loadBills(billIds?: string[]): Promise<FullBill[]> {
   )
 }
 
+/** Bills still in work (draft, confirmed, active): the set every screen keeps loaded. */
 export async function fetchBillsFromSupabase(): Promise<FullBill[]> {
-  return loadBills()
+  return loadBills({ scope: 'OPEN' })
+}
+
+/** Any other selection (finished bills of a period, one customer's bills, a few ids). */
+export async function fetchBillsByQuery(query: BillQuery): Promise<FullBill[]> {
+  return loadBills(query)
 }
 
 export async function fetchBillByIdFromSupabase(id: string): Promise<FullBill | null> {
-  const [bill] = await loadBills([id])
+  const [bill] = await loadBills({ ids: [id] })
   return bill ?? null
+}
+
+/** Ids of every bill that has a line of this product (open or finished). */
+export async function fetchBillIdsForProduct(productId: string): Promise<string[]> {
+  const rows = await selectRows<{ bill_id: string }>(createClient().from('bill_lines').select('bill_id').eq('product_id', productId))
+  return [...new Set(rows.map((r) => r.bill_id))]
+}
+
+/** How many bills have one of these server statuses (a count only, no rows). */
+export async function countBillsWithStatus(statuses: string[]): Promise<number> {
+  const { count, error } = await createClient().from('bills').select('id', { count: 'exact', head: true }).in('status', statuses)
+  if (error) throw new DbError(error.message, error.code)
+  return count ?? 0
 }
 
 /** One saved return of a bill (returns + return_lines) and, per return line, the damage case it opened. */

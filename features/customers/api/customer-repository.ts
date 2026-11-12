@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
-import { rpc, selectRows, isDbError } from '@/lib/db/rpc'
+import { rpc, selectRows, selectAllRows, isDbError } from '@/lib/db/rpc'
 import type { Customer } from '@/lib/types/rental-pos'
 import { uploadCustomerImage, fetchCustomerDocuments, getDocumentFileUrl } from '@/features/documents/api/customer-document-repository'
 
@@ -102,7 +102,7 @@ function customerPayload(c: Customer): Record<string, unknown> {
 
 export async function fetchCustomersFromSupabase(): Promise<Customer[]> {
   const supabase = createClient()
-  const rows = await selectRows<CustomerRow>(supabase.from('customers').select('*').order('created_at', { ascending: false }))
+  const rows = await selectAllRows<CustomerRow>(() => supabase.from('customers').select('*').order('created_at', { ascending: false }))
   return rows.map(mapCustomerRow)
 }
 
@@ -153,10 +153,16 @@ export async function saveCustomerToSupabase(
 }
 
 /** Signed link to the customer's latest ID card image, or null. */
-export async function getLatestIdCardUrl(customerId: string): Promise<string | null> {
+/** Where the customer's latest ID card photo is kept (null = none): enough for the ยืนยันตัวตนแล้ว badge. */
+export async function getLatestIdCardPath(customerId: string): Promise<string | null> {
   const docs = await fetchCustomerDocuments(customerId)
   const latest = docs.find((d) => d.doc_type === 'ID_CARD' && d.status === 'ACTIVE' && d.storage_path)
-  return latest?.storage_path ? getDocumentFileUrl(latest.storage_path) : null
+  return latest?.storage_path ?? null
+}
+
+/** A short-lived link to that photo, made only when it is opened (owner standard 2026-11-12). */
+export function getIdCardUrl(storagePath: string): Promise<string> {
+  return getDocumentFileUrl(storagePath)
 }
 
 /** ระงับ / เปิดใช้งาน: history stays. */

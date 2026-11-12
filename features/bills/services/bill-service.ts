@@ -9,7 +9,7 @@
 import { createClient } from '@/lib/supabase/client'
 import { rpc, newIdempotencyKey, selectRows, isDbError } from '@/lib/db/rpc'
 import { withPin, withPinIfRequired, isPinCancelled } from '@/lib/db/pin-confirm'
-import { refreshBillsCache } from '@/features/bills/services/bill-storage'
+import { fetchBillByIdFromSupabase, refreshBillsCache } from '@/features/bills/services/bill-storage'
 import { syncProductsFromSupabase } from '@/features/products/services/product-storage'
 import type { FullBill } from '@/lib/types/rental-return'
 
@@ -579,10 +579,11 @@ export async function createContinuation(opts: {
 }
 
 async function refreshAfterChange(billId: string): Promise<FullBill | null> {
-  // Money moves with bill commands (payment, refund, void ...): the finance statement,
-  // reports and dashboard read the finance cache, so it is reloaded together with the bills.
-  const [bills] = await Promise.all([refreshBillsCache(), refreshFinanceCache()])
-  return bills.find((b) => b.id === billId) ?? null
+  // A command on one bill re-reads only that bill into the cache (owner standard 2026-11-12), not
+  // the whole list. Money moves with bill commands (payment, refund, void ...): the finance
+  // statement, reports and dashboard read the finance cache, so it is reloaded together.
+  const [bill] = await Promise.all([fetchBillByIdFromSupabase(billId), refreshFinanceCache()])
+  return bill
 }
 
 async function refreshFinanceCache(): Promise<void> {

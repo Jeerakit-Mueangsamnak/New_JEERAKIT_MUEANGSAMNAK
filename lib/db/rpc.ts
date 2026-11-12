@@ -125,8 +125,8 @@ export async function rpc<T = unknown>(fn: string, args: Record<string, unknown>
   return data as T
 }
 
-/** PIN checks and the failure logger itself are not logged as failed actions. */
-const NO_FAILURE_AUDIT = new Set(['audit_log_failure', 'verify_pin', 'set_pin', 'owner_recover_pin'])
+/** PIN checks, the failure logger itself and read-only totals are not logged as failed actions. */
+const NO_FAILURE_AUDIT = new Set(['audit_log_failure', 'verify_pin', 'set_pin', 'owner_recover_pin', 'finance_statement_opening_balance'])
 
 function currentScreen(): string | null {
   if (typeof window === 'undefined') return null
@@ -150,4 +150,26 @@ export async function selectRows<T>(
   const { data, error } = await query
   if (error) throw new DbError(error.message, error.code)
   return data ?? []
+}
+
+/** The most rows the database returns for one request (Supabase default max rows). */
+export const READ_PAGE_SIZE = 1000
+
+/**
+ * Reads every row of a list, page by page, so nothing is silently cut at the 1,000-row limit.
+ * `makeQuery` builds the query afresh for each page; `tiebreak` columns (the primary key) are added
+ * to the ordering so the pages never overlap or skip a row.
+ */
+export async function selectAllRows<T>(
+  makeQuery: () => any,
+  tiebreak: string[] = ['id']
+): Promise<T[]> {
+  const rows: T[] = []
+  for (let from = 0; ; from += READ_PAGE_SIZE) {
+    let query = makeQuery()
+    for (const column of tiebreak) query = query.order(column, { ascending: true })
+    const page = await selectRows<T>(query.range(from, from + READ_PAGE_SIZE - 1))
+    rows.push(...page)
+    if (page.length < READ_PAGE_SIZE) return rows
+  }
 }

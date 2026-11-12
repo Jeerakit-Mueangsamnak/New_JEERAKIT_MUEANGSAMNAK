@@ -135,7 +135,7 @@ export default function QuotationSummaryPage() {
     setIsSubmitting(true)
     try {
       // A revision needs the quotation list loaded (it decides "revise in place" vs "new").
-      if (editing && !getQuotationById(editing.id)) await fetchQuotationsFromSupabase()
+      if (editing && !getQuotationById(editing.id)) await fetchQuotationsFromSupabase(true)
       const savedId = await addQuotation(quotation)
       const no = getQuotationById(savedId)?.quotationNo
       clearActiveCart('QUOTATION')

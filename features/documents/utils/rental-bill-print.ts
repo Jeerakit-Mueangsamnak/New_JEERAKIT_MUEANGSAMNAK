@@ -1,4 +1,4 @@
-import { refreshSharedTemplates } from '@/features/documents/services/template-library-storage'
+import { getSharedTemplates } from '@/features/documents/services/template-library-storage'
 import { MAIN_BILL_FORM_NAME, pickBillFormTemplate, printBillForm } from '@/features/documents/utils/transaction-print'
 import type { DocumentTemplate } from '@/lib/types/document'
 import type { FullBill } from '@/lib/types/rental-return'
@@ -104,7 +104,7 @@ export function fullBillToTemplateData(bill: FullBill): BillTemplateData {
 
 /** Reads the shop's forms and returns the main bill form (undefined = the shop has none usable). */
 export async function loadMainBillForm(): Promise<DocumentTemplate | undefined> {
-  return pickBillFormTemplate(await refreshSharedTemplates(), MAIN_BILL_FORM_NAME)
+  return pickBillFormTemplate(await getSharedTemplates(), MAIN_BILL_FORM_NAME)
 }
 
 /** Shown when a bill cannot be printed because the shop's main bill form is missing. */

@@ -2,21 +2,18 @@
 
 import { useActionPermission, NO_ACTION_PERMISSION_TITLE } from '@/features/auth/hooks/useActionPermission'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
-import { MAIN_BILL_FORM_MISSING, printSavedBill } from '@/features/documents/utils/rental-bill-print'
-import { BillPreviewOverlay } from '@/features/bills/components/BillPreviewOverlay'
+import { fullBillToTemplateData } from '@/features/documents/utils/rental-bill-print'
+import { getSharedTemplates } from '@/features/documents/services/template-library-storage'
+import { FINE_FORM_NAME, MAIN_BILL_FORM_NAME, RETURN_FORM_NAME, billPrintForms, renderBillFormPagesHtml } from '@/features/documents/utils/transaction-print'
+import type { PrintFormChoice } from '@/components/common/PostSavePrintModal'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import React, { useState } from 'react'
 import { BillActionView } from '@/features/bills/components/BillActionView'
 import { BillRevisionView } from '@/features/bills/components/BillRevisionView'
-import { BillRecordsModal } from '@/features/bills/components/BillRecordsModal'
-import { LineNotifyModal } from '@/features/bills/components/LineNotifyModal'
-import { DepositModal } from '@/features/bills/components/DepositRefundModal'
-import { DeliveryModal } from '@/features/bills/components/DeliveryModal'
-import { PaymentRefundModal } from '@/features/bills/components/PaymentRefundModal'
-import { AppointmentDispatchModal } from '@/features/appointments/components/AppointmentDispatchModal'
+import dynamic from 'next/dynamic'
 import { useToast } from '@/components/common/Toast'
 import { useRouter } from 'next/navigation'
-import { FullBill, loadBills as fetchBills, fetchBillsFromSupabase, canHardDeleteBill } from '@/features/bills/services/bill-storage'
+import { FullBill, loadBills as fetchBills, fetchBillsFromSupabase, fetchClosedBills, countClosedBills, canHardDeleteBill } from '@/features/bills/services/bill-storage'
 import { cancelOrVoidBill, confirmBill, deleteDraftBill } from '@/features/bills/services/bill-service'
 import { useDataActions } from '@/components/common/useDataActions'
 import {
@@ -51,6 +48,7 @@ import {
   Send,
 } from 'lucide-react'
 import { CustomSelect } from '@/components/common/CustomSelect'
+import { CustomDatePicker, getLocalDateString } from '@/components/common/CustomDatePicker'
 import {
   ActionButton,
   COMMAND_BUTTON_SIZE_CLASSES,
@@ -59,6 +57,19 @@ import {
   TABLE_TOOLBAR_CLASSES, TABLE_LINE_COLOUR_CLASSES, ROW_ICON_BUTTON_CLASSES } from '@/components/common/ActionButton'
 import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_THEAD_CLASSES, DATA_TABLE_TH_CLASSES } from '@/components/common/DataTableFrame'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
+
+// The bill windows load the first time one is opened, not with the page
+const BillPreviewOverlay = dynamic(() => import('@/features/bills/components/BillPreviewOverlay').then((m) => m.BillPreviewOverlay), { ssr: false })
+const BillRecordsModal = dynamic(() => import('@/features/bills/components/BillRecordsModal').then((m) => m.BillRecordsModal), { ssr: false })
+const LineNotifyModal = dynamic(() => import('@/features/bills/components/LineNotifyModal').then((m) => m.LineNotifyModal), { ssr: false })
+const DepositModal = dynamic(() => import('@/features/bills/components/DepositRefundModal').then((m) => m.DepositModal), { ssr: false })
+const DeliveryModal = dynamic(() => import('@/features/bills/components/DeliveryModal').then((m) => m.DeliveryModal), { ssr: false })
+const PaymentRefundModal = dynamic(() => import('@/features/bills/components/PaymentRefundModal').then((m) => m.PaymentRefundModal), { ssr: false })
+const PostSavePrintModal = dynamic(() => import('@/components/common/PostSavePrintModal').then((m) => m.PostSavePrintModal), { ssr: false })
+const AppointmentDispatchModal = dynamic(
+  () => import('@/features/appointments/components/AppointmentDispatchModal').then((m) => m.AppointmentDispatchModal),
+  { ssr: false }
+)
 
 // Only the Bills toolbar uses these compact dimensions; other ActionButton usages stay unchanged.
 const BILL_TOOLBAR_BUTTON_CLASSES = 'shrink-0'
@@ -82,6 +93,17 @@ export default function BillsPage() {
   // (named "บิลที่ปิดแล้ว" since 2026-11-05; it used to read "บิลทั้งหมด").
   const [statusFilter, setStatusFilter] = useState<string>('ALL')
   const [showClosedBills, setShowClosedBills] = useState(false)
+  // บิลที่ปิดแล้ว come from the server for a period (owner 2026-11-11: the last 3 months first, any period
+  // through the two date boxes); the app itself keeps only bills still in work loaded.
+  const [closedFrom, setClosedFrom] = useState<Date | null>(() => {
+    const d = new Date()
+    d.setMonth(d.getMonth() - 3)
+    return d
+  })
+  const [closedTo, setClosedTo] = useState<Date | null>(() => new Date())
+  const [closedBills, setClosedBills] = useState<FullBill[]>([])
+  const [closedLoading, setClosedLoading] = useState(false)
+  const [closedCount, setClosedCount] = useState<number | null>(null)
 
   // Modals State
   const [selectedBillForLog, setSelectedBillForLog] = useState<FullBill | null>(null)
@@ -170,12 +192,13 @@ export default function BillsPage() {
     setLinkedBill(null)
   }, [bills, linkedBill])
 
-  const loadBills = React.useCallback(async () => {
+  const loadBills = React.useCallback(async (force = true) => {
     setIsLoading(true)
     try {
-      const data = await fetchBillsFromSupabase()
+      const data = await fetchBillsFromSupabase(force)
       setBills(data)
       setBillLoadError(null)
+      void countClosedBills().then(setClosedCount).catch(() => undefined)
     } catch (error) {
       setBills(fetchBills())
       setBillLoadError(dbErrorMessage(error instanceof Error ? error.message : String(error)))
@@ -185,8 +208,39 @@ export default function BillsPage() {
   }, [])
 
   React.useEffect(() => {
-    loadBills()
+    loadBills(false)
   }, [loadBills])
+
+  // Closed bills of the chosen period, searched on the server (bill no / customer name / phone)
+  // a moment after typing stops.
+  React.useEffect(() => {
+    if (!showClosedBills) return
+    let alive = true
+    const timer = setTimeout(() => {
+      setClosedLoading(true)
+      fetchClosedBills({
+        from: closedFrom ? getLocalDateString(closedFrom) : undefined,
+        to: closedTo ? getLocalDateString(closedTo) : undefined,
+        search: searchTerm.trim() || undefined,
+      })
+        .then((list) => {
+          if (!alive) return
+          setClosedBills(list)
+          setBillLoadError(null)
+        })
+        .catch((error) => {
+          if (alive) setBillLoadError(dbErrorMessage(error instanceof Error ? error.message : String(error)))
+        })
+        .finally(() => {
+          if (alive) setClosedLoading(false)
+        })
+    }, 300)
+    return () => {
+      alive = false
+      clearTimeout(timer)
+      setClosedLoading(false)
+    }
+  }, [showClosedBills, closedFrom, closedTo, searchTerm])
 
   // Keep the selected bill in step with every reload, so the toolbar and the modals
   // (delivery, deposit, refund) see the bill's current status and quantities.
@@ -198,7 +252,7 @@ export default function BillsPage() {
   const isOverdueBill = (bill: FullBill) => getOverdueDays(bill) > 0
 
   // Filtered List
-  const filteredBills = bills.filter((b) => {
+  const filteredBills = (showClosedBills ? closedBills : bills).filter((b) => {
     const term = searchTerm.toLowerCase()
     const matchesSearch =
       b.billNo.toLowerCase().includes(term) ||
@@ -233,7 +287,7 @@ export default function BillsPage() {
   // Reset page when search or filters change
   React.useEffect(() => {
     setBillsCurrentPage(1)
-  }, [searchTerm, statusFilter, showClosedBills, setBillsCurrentPage])
+  }, [searchTerm, statusFilter, showClosedBills, closedBills, setBillsCurrentPage])
 
   const paginatedBills = filteredBills.slice(0, billsEndIndex)
 
@@ -241,16 +295,30 @@ export default function BillsPage() {
   const rentingCount = bills.filter((b) => ['RENTING', 'PARTIAL_RETURNED'].includes(b.rentalStatus)).length
   const overdueCount = bills.filter((b) => isOverdueBill(b)).length
   const unpaidCount = bills.filter((b) => isOwingBill(b) && b.paymentStatus !== 'PAID').length
-  const closedCount = bills.filter((b) => b.rentalStatus === 'CLOSED').length
+  // All closed bills ever (a server count); until it arrives, the closed bills read so far
+  const closedCountShown = closedCount ?? closedBills.filter((b) => b.rentalStatus === 'CLOSED').length
 
   // Double-click a bill row: real-size A4 preview of the bill (same template as print).
   const [previewBill, setPreviewBill] = useState<FullBill | null>(null)
   const closeBillPreview = React.useCallback(() => setPreviewBill(null), [])
-  // A saved bill is printed again on the shop's main bill form.
+  // Printer icon of a row: the print window lists the shop's bill forms, the main bill form ticked (owner 2026-11-12).
+  const [printing, setPrinting] = useState<{ bill: FullBill; forms: PrintFormChoice[] | null } | null>(null)
   const printBill = (bill: FullBill) => {
-    printSavedBill(bill, systemSettings.business)
-      .then((ok) => ok || showToast('พิมพ์บิลไม่ได้', MAIN_BILL_FORM_MISSING, 'ERROR'))
-      .catch((err: unknown) => showToast('พิมพ์บิลไม่ได้', err instanceof Error ? err.message : 'โหลดแบบฟอร์มไม่สำเร็จ', 'ERROR'))
+    setPrinting({ bill, forms: null })
+    getSharedTemplates()
+      .then((templates) => {
+        const data = fullBillToTemplateData(bill)
+        // ใบรับคืน / ใบชำระค่าปรับ belong to a return (printed from จัดการบิล or the bill's documents)
+        const forms = billPrintForms(templates, [RETURN_FORM_NAME, FINE_FORM_NAME]).map((t) => ({
+          name: t.name.trim(),
+          pages: renderBillFormPagesHtml(data, systemSettings.business || {}, t),
+        }))
+        setPrinting((prev) => (prev?.bill.id === bill.id ? { bill, forms } : prev))
+      })
+      .catch((err: unknown) => {
+        showToast('พิมพ์บิลไม่ได้', err instanceof Error ? err.message : 'โหลดแบบฟอร์มไม่สำเร็จ', 'ERROR')
+        setPrinting(null)
+      })
   }
   const openBillPreview = (e: React.MouseEvent | React.KeyboardEvent, b: FullBill) => {
     if ((e.target as HTMLElement).closest('button, a, input, select, textarea')) return
@@ -340,7 +408,7 @@ export default function BillsPage() {
               <div className="min-w-0 bg-emerald-50/60 dark:bg-emerald-950/40 p-2 sm:p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] sm:text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold">ปิดบิลแล้ว</span>
-                  <h3 className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 mt-0.5">{closedCount} บิล</h3>
+                  <h3 className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 mt-0.5">{closedCountShown} บิล</h3>
                 </div>
                 <div className="p-1.5 bg-emerald-100 dark:bg-emerald-900/50 rounded-lg text-emerald-700 dark:text-emerald-300">
                   <CheckCircle2 className="w-3.5 h-3.5" />
@@ -390,6 +458,17 @@ export default function BillsPage() {
                 >
                   บิลที่ปิดแล้ว
                 </ActionButton>
+                {showClosedBills && (
+                  <>
+                    <div className="w-28 sm:w-32 shrink-0">
+                      <CustomDatePicker value={closedFrom} onChange={setClosedFrom} placeholder="ตั้งแต่วันที่" />
+                    </div>
+                    <span className="text-slate-600 dark:text-slate-400 text-xs font-bold shrink-0">-</span>
+                    <div className="w-28 sm:w-32 shrink-0">
+                      <CustomDatePicker value={closedTo} onChange={setClosedTo} placeholder="ถึงวันที่" />
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -534,7 +613,7 @@ export default function BillsPage() {
           )}
 
           {/* Loading State */}
-          {isLoading && (
+          {(isLoading || closedLoading) && (
             <div className="flex-1 min-h-0 flex flex-col items-center justify-center py-16 text-slate-600 dark:text-slate-400">
               <RefreshCw className="w-8 h-8 animate-spin mb-3" />
               <span className="text-sm font-semibold">กำลังโหลดข้อมูลบิล...</span>
@@ -542,7 +621,7 @@ export default function BillsPage() {
           )}
 
           {/* Responsive Bills View */}
-          {!isLoading && (
+          {!(isLoading || closedLoading) && (
             <>
           {/* 1. Mobile Card View (< md screens) */}
           <div className="md:hidden flex-1 min-h-0 overflow-hidden flex flex-col justify-between">
@@ -915,21 +994,15 @@ export default function BillsPage() {
   </>
 )}
 
-      <DeliveryModal
-        isOpen={showDelivery && !!selectedRowBill}
-        bill={selectedRowBill}
-        onClose={() => setShowDelivery(false)}
-        onSaved={loadBills}
-      />
+      {showDelivery && selectedRowBill && (
+        <DeliveryModal isOpen bill={selectedRowBill} onClose={() => setShowDelivery(false)} onSaved={() => loadBills()} />
+      )}
 
-      <DepositModal
-        isOpen={showDepositRefund && !!selectedRowBill}
-        bill={selectedRowBill}
-        onClose={() => setShowDepositRefund(false)}
-        onSaved={loadBills}
-      />
+      {showDepositRefund && selectedRowBill && (
+        <DepositModal isOpen bill={selectedRowBill} onClose={() => setShowDepositRefund(false)} onSaved={() => loadBills()} />
+      )}
 
-      {selectedRowBill && (
+      {showPaymentRefund && selectedRowBill && (
         <PaymentRefundModal
           isOpen={showPaymentRefund}
           rentalBillId={selectedRowBill.id}
@@ -944,11 +1017,12 @@ export default function BillsPage() {
       )}
 
       {/* ประวัติการทำรายการ/เอกสาร: the window of the ดูประวัติ icon (owner 2026-11-11) */}
-      <BillRecordsModal bill={selectedBillForLog} onClose={() => setSelectedBillForLog(null)} />
+      {selectedBillForLog && <BillRecordsModal bill={selectedBillForLog} onClose={() => setSelectedBillForLog(null)} />}
 
       {/* Line Notify Modal */}
+      {selectedBillForLine && (
       <LineNotifyModal
-        isOpen={!!selectedBillForLine}
+        isOpen
         onClose={() => setSelectedBillForLine(null)}
         billData={
           selectedBillForLine
@@ -965,8 +1039,23 @@ export default function BillsPage() {
             : null
         }
       />
+      )}
 
-      <BillPreviewOverlay bill={previewBill} business={systemSettings.business} onClose={closeBillPreview} />
+      {printing && (
+        <PostSavePrintModal
+          isOpen
+          variant="print"
+          title={`พิมพ์เอกสาร บิล ${printing.bill.billNo}`}
+          forms={printing.forms ?? []}
+          loading={printing.forms === null}
+          defaultSelected={[MAIN_BILL_FORM_NAME]}
+          printTitle={printing.bill.billNo}
+          onPrinted={() => setPrinting(null)}
+          onClose={() => setPrinting(null)}
+        />
+      )}
+
+      {previewBill && <BillPreviewOverlay bill={previewBill} business={systemSettings.business} onClose={closeBillPreview} />}
       {selectedBillForDispatch && (
         <AppointmentDispatchModal
           sourceBill={selectedBillForDispatch}

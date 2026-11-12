@@ -96,7 +96,7 @@ function POSContent() {
     let alive = true
     void (async () => {
       try {
-        const quote = getQuotationById(sourceId) || (await fetchQuotationsFromSupabase()).find((q) => q.id === sourceId)
+        const quote = getQuotationById(sourceId) || (await fetchQuotationsFromSupabase(true)).find((q) => q.id === sourceId)
         if (!alive) return
         if (!quote) {
           showToast('ไม่พบใบเสนอราคา', `ไม่พบใบเสนอราคารหัส ${sourceId}`, 'ERROR')
@@ -168,7 +168,7 @@ function POSContent() {
     if (appointmentId) {
       void (async () => {
         try {
-          const appointment = (await fetchAppointmentsFromSupabase()).find((item) => item.id === appointmentId)
+          const appointment = (await fetchAppointmentsFromSupabase(true)).find((item) => item.id === appointmentId)
           if (!appointment) {
             showToast('ไม่พบนัดหมาย', `ไม่พบนัดหมายรหัส ${appointmentId}`, 'ERROR')
             return
@@ -254,7 +254,7 @@ function POSContent() {
         try {
           // Deep links must work after refresh, when the in-memory quotation list is empty.
           const quote = getQuotationById(quotationId)
-            || (await fetchQuotationsFromSupabase()).find((candidate) => candidate.id === quotationId)
+            || (await fetchQuotationsFromSupabase(true)).find((candidate) => candidate.id === quotationId)
           if (!active) return
           if (!quote) {
             showToast('ไม่พบใบเสนอราคา', `ไม่พบใบเสนอราคาที่มีรหัส ${quotationId}`, 'ERROR')
@@ -742,10 +742,10 @@ function POSContent() {
 
       {/* Accessory windows: column nuts / scaffold parts worked out by formula */}
       {accessoryWindow === 'NUT' && (
-        <NutAccessoryModal products={productsList} allowOverStock={isQuotationMode} onAdd={handleAddAccessories} onClose={() => setAccessoryWindow(null)} />
+        <NutAccessoryModal products={productsList} onAdd={handleAddAccessories} onClose={() => setAccessoryWindow(null)} />
       )}
       {accessoryWindow === 'SCAFFOLD' && (
-        <ScaffoldAccessoryModal products={productsList} allowOverStock={isQuotationMode} onAdd={handleAddAccessories} onClose={() => setAccessoryWindow(null)} />
+        <ScaffoldAccessoryModal products={productsList} onAdd={handleAddAccessories} onClose={() => setAccessoryWindow(null)} />
       )}
 
       {/* รายการนอกร้าน — new line, or editing a typed-in line */}

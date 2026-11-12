@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import Image from 'next/image'
-import QRCode from 'qrcode'
+import { qrDataUrl as makeQrDataUrl } from '@/lib/qr-code'
 import { CheckCircle2, QrCode } from 'lucide-react'
 import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
 import { NumericInput } from '@/components/common/NumericInput'
@@ -42,7 +42,7 @@ export function QrPaymentDialog({ isOpen, onClose, amount, editable = false, pro
       setQrDataUrl('')
       return
     }
-    QRCode.toDataURL(payload, { margin: 1, width: 320, errorCorrectionLevel: 'M' })
+    makeQrDataUrl(payload, { margin: 1, width: 320, errorCorrectionLevel: 'M' })
       .then((url) => {
         if (!cancelled) setQrDataUrl(url)
       })

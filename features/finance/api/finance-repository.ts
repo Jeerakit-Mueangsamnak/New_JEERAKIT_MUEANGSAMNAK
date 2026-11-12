@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
-import { rpc, selectRows } from '@/lib/db/rpc'
+import { DbError, rpc, selectAllRows, selectRows } from '@/lib/db/rpc'
 import { withPin } from '@/lib/db/pin-confirm'
 import { toServerMethod } from '@/features/bills/services/bill-service'
 import type { RevenueLedgerEntry, StatementTransaction } from '@/features/finance/services/finance-storage'
@@ -47,25 +47,70 @@ export function channelCode(channel: string): 'CASH' | 'TRANSFER' | 'CARD' | 'QR
   return toServerMethod(channel)
 }
 
-export async function fetchTransactionsFromSupabase(): Promise<StatementTransaction[]> {
+/** The statement shows the last 90 days unless an older start date is chosen (owner 2026-11-12). */
+export const STATEMENT_DEFAULT_DAYS_BACK = 90
+const IDS_PER_QUERY = 100
+
+/** Start of the local day `daysBack` days before today, as an ISO time for `.gte()`. */
+export function statementSince(daysBack: number, now = new Date()): string {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - Math.max(0, Math.floor(daysBack))).toISOString()
+}
+
+/**
+ * Money total before `since` (finance_statement_opening_balance, migration 20261112120000). Before that
+ * migration is run the window starts from 0, as the statement did when it loaded only this window.
+ */
+async function openingBalance(since: string): Promise<number> {
+  try {
+    const total = Number(await rpc<number | string | null>('finance_statement_opening_balance', { p_before: since }))
+    return Number.isFinite(total) ? total : 0
+  } catch (err) {
+    if (err instanceof DbError && (err.sqlState === 'PGRST202' || err.sqlState === '42883')) return 0
+    throw err
+  }
+}
+
+async function byIds<T>(ids: Array<string | null | undefined>, read: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
+  const unique = [...new Set(ids.filter((id): id is string => Boolean(id)))]
+  const chunks: string[][] = []
+  for (let i = 0; i < unique.length; i += IDS_PER_QUERY) chunks.push(unique.slice(i, i + IDS_PER_QUERY))
+  return (await Promise.all(chunks.map(read))).flat()
+}
+
+/**
+ * Money in / out of the last `daysBack` days (payments, refunds, expenses, other income), newest first.
+ * Bill numbers, customer names and receipt numbers are read only for the rows found.
+ * คงเหลือ (runningBalance) starts from the money total before that window (server opening balance).
+ */
+export async function fetchTransactionsFromSupabase(daysBack = STATEMENT_DEFAULT_DAYS_BACK): Promise<StatementTransaction[]> {
   const supabase = createClient()
-  const [payments, refunds, expenses, incomes, bills, customers, receipts] = await Promise.all([
-    selectRows<{ id: string; bill_id: string; method: string; amount: number; reference: string | null; status: string; received_at: string; receipt_id: string }>(
-      supabase.from('payments').select('id, bill_id, method, amount, reference, status, received_at, receipt_id')
+  const since = statementSince(daysBack)
+  const [opening, payments, refunds, expenses, incomes] = await Promise.all([
+    openingBalance(since),
+    selectAllRows<{ id: string; bill_id: string; method: string; amount: number; reference: string | null; status: string; received_at: string; receipt_id: string }>(
+      () => supabase.from('payments').select('id, bill_id, method, amount, reference, status, received_at, receipt_id').gte('received_at', since)
     ),
-    selectRows<{ id: string; bill_id: string; payment_id: string; refund_no: string; amount: number; method: string; reason: string; paid_at: string; status: string }>(
-      supabase.from('refunds').select('id, bill_id, payment_id, refund_no, amount, method, reason, paid_at, status')
+    selectAllRows<{ id: string; bill_id: string; payment_id: string; refund_no: string; amount: number; method: string; reason: string; paid_at: string; status: string }>(
+      () => supabase.from('refunds').select('id, bill_id, payment_id, refund_no, amount, method, reason, paid_at, status').gte('paid_at', since)
     ),
-    selectRows<{ id: string; expense_no: string; category: string; amount: number; paid_method: string; note: string | null; status: string; created_at: string }>(
-      supabase.from('expense_entries').select('id, expense_no, category, amount, paid_method, note, status, created_at')
+    selectAllRows<{ id: string; expense_no: string; category: string; amount: number; paid_method: string; note: string | null; status: string; created_at: string }>(
+      () => supabase.from('expense_entries').select('id, expense_no, category, amount, paid_method, note, status, created_at').gte('created_at', since)
     ),
-    selectRows<{ id: string; income_no: string; category: string; amount: number; channel: string; note: string | null; status: string; created_at: string }>(
-      supabase.from('other_income_entries').select('id, income_no, category, amount, channel, note, status, created_at')
+    selectAllRows<{ id: string; income_no: string; category: string; amount: number; channel: string; note: string | null; status: string; created_at: string }>(
+      () => supabase.from('other_income_entries').select('id, income_no, category, amount, channel, note, status, created_at').gte('created_at', since)
     ),
-    selectRows<{ id: string; bill_no: string | null; customer_id: string | null }>(supabase.from('bills').select('id, bill_no, customer_id')),
-    selectRows<{ id: string; name: string }>(supabase.from('customers').select('id, name')),
-    selectRows<{ id: string; receipt_no: string }>(supabase.from('payment_receipts').select('id, receipt_no')),
   ])
+  const [bills, receipts] = await Promise.all([
+    byIds([...payments.map((p) => p.bill_id), ...refunds.map((r) => r.bill_id)], (chunk) =>
+      selectRows<{ id: string; bill_no: string | null; customer_id: string | null }>(supabase.from('bills').select('id, bill_no, customer_id').in('id', chunk))
+    ),
+    byIds(payments.map((p) => p.receipt_id), (chunk) =>
+      selectRows<{ id: string; receipt_no: string }>(supabase.from('payment_receipts').select('id, receipt_no').in('id', chunk))
+    ),
+  ])
+  const customers = await byIds(bills.map((b) => b.customer_id), (chunk) =>
+    selectRows<{ id: string; name: string }>(supabase.from('customers').select('id, name').in('id', chunk))
+  )
   const receiptNoOf = new Map(receipts.map((r) => [r.id, r.receipt_no]))
   const billMap = new Map(bills.map((b) => [b.id, b]))
   const customerMap = new Map(customers.map((c) => [c.id, c.name]))
@@ -149,7 +194,7 @@ export async function fetchTransactionsFromSupabase(): Promise<StatementTransact
   ]
 
   rows.sort((a, b) => a.dateTime.localeCompare(b.dateTime))
-  let balance = 0
+  let balance = opening
   for (const r of rows) {
     balance += r.incomeAmount - r.expenseAmount
     r.runningBalance = Math.round(balance * 100) / 100
@@ -164,8 +209,8 @@ export async function fetchTransactionsFromSupabase(): Promise<StatementTransact
  */
 export async function fetchRevenueLedgerFromSupabase(): Promise<RevenueLedgerEntry[]> {
   const supabase = createClient()
-  const rows = await selectRows<{ revenue_class: string; amount: number; direction: number; occurred_at: string }>(
-    supabase
+  const rows = await selectAllRows<{ revenue_class: string; amount: number; direction: number; occurred_at: string }>(
+    () => supabase
       .from('finance_ledger_entries')
       .select('revenue_class, amount, direction, occurred_at')
       .in('entry_type', ['REVENUE', 'REVERSAL'])

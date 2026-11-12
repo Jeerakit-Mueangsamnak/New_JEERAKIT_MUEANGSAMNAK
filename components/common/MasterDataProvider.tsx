@@ -73,34 +73,66 @@ function mapCategories(categories: CategoryRow[]): ProductCategoryItem[] {
 
 const mapUnits = (units: UnitRow[]) => units.map((u) => ({ id: u.id, name: u.name, isActive: u.active }))
 
-/** Reloads every business cache from Supabase (v4.3 schema, RLS SELECT only). */
-export async function loadAllBusinessData(opts: { scanNotices?: boolean } = {}): Promise<void> {
-  // Until the scheduled job is set up on the server, an OWNER session refreshes the notices
-  // (idempotent: one notice per event).
-  if (opts.scanNotices) await runNotificationScan()
+let _loading: Promise<void> | null = null
+let _lastLoadedAt = 0
 
-  // Shop settings first (the only place store_settings is loaded): category defaults and
-  // notification settings live in store_settings.policies.
-  const shared = await fetchSharedSystemConfig()
-  if (shared) setCachedSystemSettings(shared)
+/** A tab coming back into view reloads the shop data at most this often. */
+export const BACKGROUND_REFRESH_MIN_MS = 60_000
 
-  const [products, categories, units] = await Promise.all([
+/** Reloads every business cache from Supabase (v4.3 schema, RLS SELECT only). One load at a time:
+ *  a call while a load runs waits for that load instead of starting a second one. */
+export function loadAllBusinessData(opts: { scanNotices?: boolean } = {}): Promise<void> {
+  if (_loading) return _loading
+  _loading = loadAllBusinessDataOnce(opts)
+    .then(() => {
+      _lastLoadedAt = Date.now()
+    })
+    .finally(() => {
+      _loading = null
+    })
+  return _loading
+}
+
+/** Time of the last complete load (0 = none yet). */
+export function lastBusinessDataLoadAt(): number {
+  return _lastLoadedAt
+}
+
+async function loadAllBusinessDataOnce(opts: { scanNotices?: boolean }): Promise<void> {
+  // An OWNER session also refreshes the notices (idempotent: one notice per event); the server's
+  // hourly job does the same. It runs beside the load, and the bell gets the new notices when done.
+  if (opts.scanNotices) {
+    void runNotificationScan()
+      .then(() => loadOrEmpty('notifications', fetchNotificationsFromSupabase, setCachedNotifications))
+      .catch(() => undefined)
+  }
+
+  // Shop settings (the only place store_settings is loaded) and the product catalogue load together;
+  // category defaults are applied once the settings are in.
+  const catalogue = Promise.all([
     loadOrEmpty('products', fetchProductsFromSupabase),
     loadOrEmpty('product_categories', fetchCategoriesFromSupabase),
     loadOrEmpty('units', fetchUnitsFromSupabase),
   ])
+  const shared = await fetchSharedSystemConfig()
+  if (shared) setCachedSystemSettings(shared)
+
+  // Dates on bills and appointments use the shop's time zone from the settings, so these start after them.
+  const rest = Promise.all([
+    loadOrEmpty('customers', fetchCustomersFromSupabase, setCachedCustomers),
+    loadOrEmpty('bills', () => fetchBillsFromSupabase(true)),
+    loadOrEmpty('quotations', () => fetchQuotationsFromSupabase(true), setCachedQuotations),
+    loadOrEmpty('appointments', () => fetchAppointmentsFromSupabase(true), setCachedAppointments),
+    loadOrEmpty('finance', fetchTransactionsFromSupabase, setCachedTransactions),
+    loadOrEmpty('notifications', fetchNotificationsFromSupabase, setCachedNotifications),
+  ])
+
+  const [products, categories, units] = await catalogue
   setCachedCategories(mapCategories(categories))
   setCachedUnits(mapUnits(units))
   setCachedProducts(products)
 
-  await Promise.all([
-    loadOrEmpty('customers', fetchCustomersFromSupabase, setCachedCustomers),
-    loadOrEmpty('bills', fetchBillsFromSupabase, setCachedBills),
-    loadOrEmpty('quotations', fetchQuotationsFromSupabase, setCachedQuotations),
-    loadOrEmpty('appointments', fetchAppointmentsFromSupabase, setCachedAppointments),
-    loadOrEmpty('finance', fetchTransactionsFromSupabase, setCachedTransactions),
-    loadOrEmpty('notifications', fetchNotificationsFromSupabase, setCachedNotifications),
-  ])
+  await rest
 }
 
 function clearAllBusinessData(): void {
@@ -164,11 +196,12 @@ export function MasterDataProvider({ children }: { children: React.ReactNode }) 
     }
   }, [sessionUserId, authLoading, canLoadShopData, retryAttempt])
 
-  // Other devices change data too: refresh when the tab comes back into view.
+  // Other devices change data too: refresh when the tab comes back into view (at most once a minute,
+  // so switching apps back and forth on the iPad does not reload everything each time).
   useEffect(() => {
     if (authLoading || !canLoadShopData) return
     const onVisible = () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && Date.now() - lastBusinessDataLoadAt() >= BACKGROUND_REFRESH_MIN_MS) {
         void loadAllBusinessData()
           .then(() => window.dispatchEvent(new Event('business_data_refreshed')))
           .catch((err: unknown) => console.error('Background refresh failed:', err))

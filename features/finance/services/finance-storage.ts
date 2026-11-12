@@ -10,6 +10,7 @@ import {
   createOtherIncome,
   voidExpense,
   voidOtherIncome,
+  STATEMENT_DEFAULT_DAYS_BACK,
 } from '@/features/finance/api/finance-repository'
 import { getLocalDateString } from '@/components/common/CustomDatePicker'
 
@@ -54,6 +55,7 @@ let _latestFetch: Promise<StatementTransaction[]> | null = null
 export function clearFinanceCache(): void {
   _fetchGeneration++
   _latestFetch = null
+  _daysBack = STATEMENT_DEFAULT_DAYS_BACK
   _cachedRevenueLedger = []
   _cachedTransactions = null
 }
@@ -76,13 +78,34 @@ export function loadTransactions(): StatementTransaction[] {
   return _cachedTransactions || []
 }
 
+/** How many days back the cached statement reaches: 90 by default, widened by ensureTransactionsSince. */
+let _daysBack = STATEMENT_DEFAULT_DAYS_BACK
+
+/** Whole days from the local start of `date` back from today (0 = today). */
+function daysBackTo(date: Date, now = new Date()): number {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+  return Math.ceil((today - day) / 86_400_000)
+}
+
+/**
+ * An older start date was chosen (statement / reports): reads back to that day once; every later
+ * reload keeps that reach. Gives the cached list when it already reaches that far.
+ */
+export function ensureTransactionsSince(date: Date | null | undefined): Promise<StatementTransaction[]> {
+  if (!date || Number.isNaN(date.getTime())) return Promise.resolve(loadTransactions())
+  const needed = daysBackTo(date)
+  if (needed <= _daysBack) return Promise.resolve(loadTransactions())
+  _daysBack = needed
+  return fetchTransactionsFromSupabase()
+}
+
 export function fetchTransactionsFromSupabase(): Promise<StatementTransaction[]> {
-  // Never keep showing the previous (possibly another user's) rows when this fetch fails.
-  _cachedTransactions = null
-  _cachedRevenueLedger = []
+  // Stale-while-revalidate: the last list stays on screen until this read succeeds, and stays if it
+  // fails. Another user's rows never show: sign-out / account switch runs clearFinanceCache first.
   const generation = ++_fetchGeneration
   const run = (async () => {
-    const [txs, ledger] = await Promise.all([fetchTransactionsFromRepository(), fetchRevenueLedgerFromSupabase()])
+    const [txs, ledger] = await Promise.all([fetchTransactionsFromRepository(_daysBack), fetchRevenueLedgerFromSupabase()])
     if (generation !== _fetchGeneration) {
       // Cleared (sign-out / account switch) or replaced by a newer fetch while waiting:
       // drop this answer, hand back whatever the newer fetch produces (empty after a clear).

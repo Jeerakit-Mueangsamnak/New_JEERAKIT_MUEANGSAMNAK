@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import QRCode from 'qrcode'
+import { qrDataUrl } from '@/lib/qr-code'
 import { CheckCircle2, Copy, Send, ShieldAlert } from 'lucide-react'
 import { ActionButton } from '@/components/common/ActionButton'
 import { AppModal, AppModalBody, AppModalHeader } from '@/components/common/AppModal'
@@ -32,7 +32,7 @@ export function LineInviteButton({ kind, target, name, disabled }: { kind: LineI
         return
       }
       const link = r.data.url ?? r.data.oaUrl
-      const qr = link ? await QRCode.toDataURL(link, { margin: 1, width: 200 }).catch(() => null) : null
+      const qr = link ? await qrDataUrl(link, { margin: 1, width: 200 }).catch(() => null) : null
       setInvite({ ...r.data, qr })
     } finally {
       setBusy(false)

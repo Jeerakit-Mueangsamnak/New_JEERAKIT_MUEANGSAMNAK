@@ -33,7 +33,7 @@ vi.mock('@/features/pos/components/payment/PaymentDynamicContent', () => ({ Paym
 // The bill is shown and printed on the shop's main bill form (จัดการเอกสาร › แบบฟอร์มบิล).
 vi.mock('@/features/documents/services/template-library-storage', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/documents/services/template-library-storage')>()),
-  refreshSharedTemplates: vi.fn(async () => [{
+  getSharedTemplates: vi.fn(async () => [{
     id: 'tpl-main', name: 'ใบส่งของ/ใบเสร็จรับเงิน', category: 'ใบส่งของ/ใบเสร็จรับเงิน', targetGroup: 'BILL',
     paperSize: 'A4', orientation: 'PORTRAIT', templateSchema: '<div>{{document.number}}</div>',
   }]),
@@ -48,8 +48,10 @@ vi.mock('@/features/documents/utils/transaction-print', async (importOriginal) =
   ],
   printBillForm: mocks.print,
 }))
+// The print window (owner 2026-11-12): the shop's bill forms filled with the saved bill, the cart's form ticked
 vi.mock('@/components/common/PostSavePrintModal', () => ({
-  PostSavePrintModal: ({ isOpen, onPrint }: any) => (isOpen ? <button onClick={onPrint}>พิมพ์เอกสาร</button> : null),
+  PostSavePrintModal: ({ isOpen, forms, defaultSelected }: any) =>
+    isOpen ? <button onClick={() => mocks.print(forms, defaultSelected)}>พิมพ์เอกสาร</button> : null,
 }))
 
 const customer = { id: 'c1', customerName: 'Customer', phone: '0812345678', address: 'Bangkok' } as Customer
@@ -91,10 +93,11 @@ describe('P1-B1 the document printed after saving is the saved bill', () => {
     expect(await doc()).toMatchObject({ billNo: 'BL-2026-000009', items: 1, total: 1000, shop: 'ร้านทดสอบ' })
     fireEvent.click(printButton)
     await waitFor(() => expect(mocks.print).toHaveBeenCalledOnce())
-    // Printed on the shop form with the saved bill, not window.print() of the page
-    const [[data, business, form]] = mocks.print.mock.calls as unknown as [[{ billNo: string }, { businessName: string }, { id: string }]]
-    expect(data.billNo).toBe('BL-2026-000009')
-    expect(business.businessName).toBe('ร้านทดสอบ')
-    expect(form.id).toBe('tpl-main')
+    // Offered on the shop form with the saved bill, not window.print() of the page
+    const [[forms, ticked]] = mocks.print.mock.calls as unknown as [[Array<{ name: string; pages: string[] }>, string[]]]
+    expect(forms.map((f) => f.name)).toEqual(['ใบส่งของ/ใบเสร็จรับเงิน'])
+    expect(forms[0].pages[0]).toContain('BL-2026-000009')
+    expect(forms[0].pages[0]).toContain('ร้านทดสอบ')
+    expect(ticked).toEqual(['ใบส่งของ/ใบเสร็จรับเงิน'])
   })
 })

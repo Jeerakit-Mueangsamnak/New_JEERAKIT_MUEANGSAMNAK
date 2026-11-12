@@ -6,7 +6,7 @@ import {
   TABLE_TOOLBAR_CLASSES, ROW_ICON_BUTTON_CLASSES } from '@/components/common/ActionButton'
 import { isQuotationFormTemplate, pickQuotationPrintTemplate, printQuotationA4, renderQuotationA4PagesHtml } from '@/features/documents/utils/transaction-print'
 import { QuotationPreviewOverlay } from '@/features/quotations/components/QuotationPreviewOverlay'
-import { loadTemplateLibrary, refreshSharedTemplates } from '@/features/documents/services/template-library-storage'
+import { loadTemplateLibrary, getSharedTemplates } from '@/features/documents/services/template-library-storage'
 import type { DocumentTemplate } from '@/lib/types/document'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
@@ -149,7 +149,7 @@ export default function QuotationsPage() {
   // The same shop library as Documents; only data-bound quotation templates can print live bills.
   useEffect(() => {
     let active = true
-    refreshSharedTemplates()
+    getSharedTemplates()
       .then((templates) => {
         if (!active) return
         const valid = templates.filter(isQuotationFormTemplate)

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { BillTemplateData } from '@/features/documents/utils/rental-bill-print'
 import { A4FitPreview } from '@/features/pos/components/A4FitPreview'
@@ -34,8 +34,15 @@ import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { calculateBillTotals } from '@/lib/calculation-service'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import type { DocumentTemplate } from '@/lib/types/document'
-import { loadDocumentNames, refreshSharedTemplates } from '@/features/documents/services/template-library-storage'
-import { MAIN_BILL_FORM_NAME, pickBillFormTemplate, printBillForm, renderBillFormPagesHtml } from '@/features/documents/utils/transaction-print'
+import { loadDocumentNames, getSharedTemplates } from '@/features/documents/services/template-library-storage'
+import {
+  FINE_FORM_NAME,
+  MAIN_BILL_FORM_NAME,
+  RETURN_FORM_NAME,
+  billPrintForms,
+  pickBillFormTemplate,
+  renderBillFormPagesHtml,
+} from '@/features/documents/utils/transaction-print'
 import { isNoChargeRental } from '@/features/pos/services/accessory-rules'
 
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : '')
@@ -129,7 +136,7 @@ export default function CheckoutPage() {
   const [library, setLibrary] = useState<{ templates: DocumentTemplate[]; formNames: string[] } | null>(null)
   useEffect(() => {
     let alive = true
-    refreshSharedTemplates()
+    getSharedTemplates()
       .then((templates) => {
         if (!alive) return
         const formNames = loadDocumentNames().filter((n) => n.targetGroup === 'BILL').map((n) => n.name)
@@ -207,16 +214,8 @@ export default function CheckoutPage() {
   // What was saved, frozen before the cart is cleared, so "พิมพ์" prints the real bill
   const [savedPrintData, setSavedPrintData] = useState<BillTemplateData | null>(null)
 
-  // Post-Save Print Confirmation Modal State
-  const [postSavePrintModal, setPostSavePrintModal] = useState<{
-    isOpen: boolean
-    title: string
-    description: string
-  }>({
-    isOpen: false,
-    title: '',
-    description: '',
-  })
+  // Print window after ออกบิล: the title stays; the shop's bill forms are listed to tick (owner 2026-11-12)
+  const [postSavePrintModal, setPostSavePrintModal] = useState<{ isOpen: boolean; title: string }>({ isOpen: false, title: '' })
 
   const notice = useNotice()
   // เงินสด / QR Code / both (the first one pressed is taken first, the other takes the rest)
@@ -267,6 +266,23 @@ export default function CheckoutPage() {
     paidAmount: !paymentMethod ? 0 : paymentMethod === 'UNPAID' ? Math.min(grandTotal, pay.totals.collected) : grandTotal,
     outstandingAmount: !paymentMethod ? amountToCollect : paymentMethod === 'UNPAID' ? pay.totals.remaining : 0,
     remark: remark || undefined,
+  }
+
+  // The saved bill on each of the shop's bill forms, for the print window (a return / fine form needs a return)
+  const printChoices = useMemo(
+    () =>
+      postSavePrintModal.isOpen && savedPrintData && library
+        ? billPrintForms(library.templates, [RETURN_FORM_NAME, FINE_FORM_NAME]).map((t) => ({
+            name: t.name.trim(),
+            pages: renderBillFormPagesHtml(savedPrintData, settings.business, t),
+          }))
+        : [],
+    [postSavePrintModal.isOpen, savedPrintData, library, settings.business]
+  )
+  const leaveAfterSave = () => {
+    clearCart()
+    setPostSavePrintModal({ isOpen: false, title: '' })
+    router.push('/pos')
   }
 
   /** Cart → server draft (Master v4.3.1 §12): the server prices it, checks price overrides
@@ -455,16 +471,9 @@ export default function CheckoutPage() {
       clearCart()
 
       const billTitle = allItemsAreSale ? 'บันทึกการขายสำเร็จ' : 'บันทึกบิลเช่าสำเร็จ'
-      const billDesc = allItemsAreSale
-        ? `บันทึกข้อมูลบิลขาย ${billNo} เรียบร้อยแล้ว\nต้องการพิมพ์ใบเสร็จรับเงิน / ใบส่งของหรือไม่?`
-        : `บันทึกข้อมูลบิลเช่า ${billNo} เรียบร้อยแล้ว\nต้องการพิมพ์สัญญาเช่า / ใบส่งของหรือไม่?`
 
       showToast(billTitle, `เลขที่บิล: ${billNo}`, 'SUCCESS')
-      setPostSavePrintModal({
-        isOpen: true,
-        title: billTitle,
-        description: billDesc,
-      })
+      setPostSavePrintModal({ isOpen: true, title: billTitle })
     } catch (err: unknown) {
       if (isPinCancelled(err)) return
       showToast('เกิดข้อผิดพลาดในการบันทึกบิล', errorMessage(err) || 'โปรดตรวจสอบข้อมูลอีกครั้ง', 'ERROR')
@@ -489,7 +498,7 @@ export default function CheckoutPage() {
     try {
       setIsSubmitting(true)
       await saveBillDraft(buildDraftInput())
-      await fetchBillsFromSupabase()
+      await fetchBillsFromSupabase(true)
       clearCart()
       showToast('บันทึกแบบร่างสำเร็จ', 'บันทึกแบบร่างบิลเรียบร้อยแล้ว (ยังไม่ตัดสต็อก ยังไม่มีเลขบิล)', 'SUCCESS')
       router.push('/bills?status=DRAFT')
@@ -638,27 +647,12 @@ export default function CheckoutPage() {
       <PostSavePrintModal
         isOpen={postSavePrintModal.isOpen}
         title={postSavePrintModal.title}
-        description={postSavePrintModal.description}
-        onPrint={() => {
-          const printData = savedPrintData ?? billData
-          if (billFormPending) {
-            showToast('กำลังโหลดแบบฟอร์ม', 'กรุณากดพิมพ์อีกครั้ง', 'INFO')
-            return
-          }
-          if (!billForm) {
-            showToast('พิมพ์ไม่ได้', `ไม่พบแบบฟอร์มของ "${formName}" — บิลบันทึกแล้ว`, 'ERROR')
-            return
-          }
-          printBillForm(printData, settings.business, billForm)
-          clearCart()
-          setPostSavePrintModal({ isOpen: false, title: '', description: '' })
-          router.push('/pos')
-        }}
-        onClose={() => {
-          clearCart()
-          setPostSavePrintModal({ isOpen: false, title: '', description: '' })
-          router.push('/pos')
-        }}
+        forms={printChoices}
+        defaultSelected={[formName]}
+        loading={billFormPending}
+        printTitle={savedPrintData?.billNo}
+        onPrinted={leaveAfterSave}
+        onClose={leaveAfterSave}
       />
 
       <style jsx global>{`

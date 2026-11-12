@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect, Suspense, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { loadTransactions } from '@/features/finance/services/finance-storage'
-import { loadBills } from '@/features/bills/services/bill-storage'
+import { loadBills, countCancelledBills } from '@/features/bills/services/bill-storage'
 import { loadProducts } from '@/features/products/services/product-storage'
 import { loadReservations } from '@/features/reservations/services/reservation-storage'
 import { loadNotifications } from '@/features/notifications/services/notification-storage'
@@ -17,8 +18,19 @@ import {
 } from '@/features/dashboard/services/dashboard-assignee-service'
 import { computeDashboardMetrics } from '@/features/dashboard/services/dashboard-data'
 import { AssetsTransactionView } from '@/features/dashboard/components/AssetsTransactionView'
-import { StockManagementView } from '@/features/dashboard/components/StockManagementView'
-import { BusinessAnalyticsView } from '@/features/dashboard/components/BusinessAnalyticsView'
+
+// The stock and business tabs (charts) load only when opened
+const StockManagementView = dynamic(
+  () => import('@/features/dashboard/components/StockManagementView').then((m) => m.StockManagementView),
+  { ssr: false }
+)
+const BusinessAnalyticsView = dynamic(
+  () => import('@/features/dashboard/components/BusinessAnalyticsView').then((m) => m.BusinessAnalyticsView),
+  { ssr: false }
+)
+
+/** Several data events arrive together after a save: recompute once, 300 ms after the last. */
+const STORAGE_UPDATE_DEBOUNCE_MS = 300
 
 function DashboardContent() {
   const searchParams = useSearchParams()
@@ -27,6 +39,19 @@ function DashboardContent() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [assigneeNames, setAssigneeNames] = useState<Map<string, string>>(() => new Map())
   const [refreshError, setRefreshError] = useState('')
+  // Cancelled / void bills are not kept loaded: their number comes from a server count.
+  const [cancelledCount, setCancelledCount] = useState<number | null>(null)
+  useEffect(() => {
+    let alive = true
+    countCancelledBills()
+      .then((n) => {
+        if (alive) setCancelledCount(n)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [refreshKey])
 
   const refreshAssigneeNames = useCallback(async () => {
     if (!dashboardAssigneeLookupEnabled()) {
@@ -38,7 +63,11 @@ function DashboardContent() {
 
   // Listen to storage update events
   useEffect(() => {
-    const handleStorageUpdate = () => setRefreshKey((prev) => prev + 1)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const handleStorageUpdate = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => setRefreshKey((prev) => prev + 1), STORAGE_UPDATE_DEBOUNCE_MS)
+    }
     const handleBusinessRefresh = () => {
       handleStorageUpdate()
       void refreshAssigneeNames().catch((error: unknown) => {
@@ -57,6 +86,7 @@ function DashboardContent() {
       setRefreshError(error instanceof Error ? error.message : String(error))
     })
     return () => {
+      if (timer) clearTimeout(timer)
       window.removeEventListener('storage', handleStorageUpdate)
       window.removeEventListener('app-storage-update', handleStorageUpdate)
       window.removeEventListener('app_settings_changed', handleStorageUpdate)
@@ -75,7 +105,7 @@ function DashboardContent() {
     const notifications = loadNotifications()
     const appointments = loadAppointments()
 
-    return computeDashboardMetrics(
+    const computed = computeDashboardMetrics(
       txs,
       bills,
       products,
@@ -85,8 +115,10 @@ function DashboardContent() {
       assigneeNames,
       loadSystemSettings().timezone
     )
+    if (cancelledCount !== null) computed.billStatusCounts.cancelled = cancelledCount
+    return computed
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey, assigneeNames])
+  }, [refreshKey, assigneeNames, cancelledCount])
 
   const handleManualRefresh = useCallback(() => {
     setRefreshError('')

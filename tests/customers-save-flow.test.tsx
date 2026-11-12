@@ -10,6 +10,7 @@ vi.mock('@/lib/supabase/client', () => ({
 vi.mock('@/lib/db/rpc', () => ({
   rpc: mocks.rpc,
   selectRows: mocks.rows,
+  selectAllRows: mocks.rows,
   isDbError: () => false,
 }))
 vi.mock('@/features/documents/api/customer-document-repository', () => ({

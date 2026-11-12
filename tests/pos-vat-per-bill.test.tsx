@@ -36,7 +36,7 @@ vi.mock('@/features/pos/components/A4FitPreview', () => ({ A4FitPreview: ({ chil
 // The bill is shown and printed on the shop's main bill form (จัดการเอกสาร › แบบฟอร์มบิล).
 vi.mock('@/features/documents/services/template-library-storage', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/documents/services/template-library-storage')>()),
-  refreshSharedTemplates: vi.fn(async () => [{
+  getSharedTemplates: vi.fn(async () => [{
     id: 'tpl-main', name: 'ใบส่งของ/ใบเสร็จรับเงิน', category: 'ใบส่งของ/ใบเสร็จรับเงิน', targetGroup: 'BILL',
     paperSize: 'A4', orientation: 'PORTRAIT', templateSchema: '<div>{{document.number}}</div>',
   }]),

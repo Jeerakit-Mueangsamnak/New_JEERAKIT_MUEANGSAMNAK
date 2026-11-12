@@ -20,7 +20,7 @@ import {
 } from '@/features/documents/utils/transaction-print'
 import { fetchBillReturns, type SavedReturn } from '@/features/bills/api/bill-repository'
 import { savedReturnFormData } from '@/features/bills/services/return-reprint'
-import { refreshSharedTemplates } from '@/features/documents/services/template-library-storage'
+import { getSharedTemplates } from '@/features/documents/services/template-library-storage'
 import { BillPreviewOverlay } from '@/features/bills/components/BillPreviewOverlay'
 import { QuotationPreviewOverlay } from '@/features/quotations/components/QuotationPreviewOverlay'
 
@@ -77,7 +77,7 @@ export function BillDocumentsTab({ bill }: { bill: FullBill }) {
   const [saved, setSaved] = useState<{ returns: SavedReturn[]; caseReturnLine: Record<string, string> }>({ returns: [], caseReturnLine: {} })
   useEffect(() => {
     let alive = true
-    refreshSharedTemplates()
+    getSharedTemplates()
       .then((templates) => {
         if (!alive) return
         setCheckForm(pickBillFormTemplate(templates, CHECK_FORM_NAME))

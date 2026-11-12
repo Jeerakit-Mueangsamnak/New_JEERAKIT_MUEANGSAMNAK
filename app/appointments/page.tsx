@@ -140,12 +140,12 @@ export default function AppointmentsPage() {
   }
 
   // Load Data
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (force = false) => {
     setIsLoading(true)
     try {
       if (process.env.NODE_ENV !== 'test') {
         try {
-          const remoteApts = await fetchAppointmentsFromSupabase()
+          const remoteApts = await fetchAppointmentsFromSupabase(force)
           setAppointments(remoteApts)
         } catch (err) {
           setAppointments(loadAppointments())
@@ -400,7 +400,7 @@ export default function AppointmentsPage() {
               actions={
                 <>
                   <ActionButton
-                    onClick={loadData}
+                    onClick={() => loadData(true)}
                     variant="neutral"
                     className="w-8 px-0"
                     title="รีเฟรชข้อมูล"

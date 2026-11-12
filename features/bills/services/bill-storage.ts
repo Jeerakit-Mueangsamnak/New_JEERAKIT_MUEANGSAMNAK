@@ -12,12 +12,44 @@ import { RentalBill, RentalBillItem, RentalType, RentalStatus, PaymentStatus } f
 import {
   fetchBillsFromSupabase as fetchBillsFromRepository,
   fetchBillByIdFromSupabase as fetchBillByIdFromRepository,
+  fetchBillsByQuery,
+  fetchBillIdsForProduct,
+  countBillsWithStatus,
+  FINISHED_BILL_STATUSES,
+  type BillQuery,
 } from '@/features/bills/api/bill-repository'
 
-let _cachedBills: FullBill[] | null = null
+/**
+ * Only bills still in work are kept loaded (bounded: drafts, confirmed, active). Finished bills
+ * (closed / cancelled / void) grow forever, so they are read on demand — for a period, a customer,
+ * a product or an id — and kept here until the next sign-in. Owner 2026-11-11.
+ */
+let _openBills: FullBill[] = []
+const _historyBills = new Map<string, FullBill>()
 
+const isFinished = (bill: FullBill): boolean => (FINISHED_BILL_STATUSES as readonly string[]).includes(bill.serverStatus ?? bill.rentalStatus)
+
+/** Replaces the open bills (tests and sign-out); finished bills in the list go to the history set. */
 export function setCachedBills(bills: FullBill[]): void {
-  _cachedBills = bills
+  _historyBills.clear()
+  _lastAt = 0 // set from outside (sign-out clear, tests): the next page open reads the server
+  _openBills = bills.filter((b) => !isFinished(b))
+  for (const b of bills) if (isFinished(b)) _historyBills.set(b.id, b)
+}
+
+/** Puts freshly read bills into the right set, replacing older copies. */
+function mergeBills(bills: FullBill[]): void {
+  for (const bill of bills) {
+    if (isFinished(bill)) {
+      _openBills = _openBills.filter((b) => b.id !== bill.id)
+      _historyBills.set(bill.id, bill)
+    } else {
+      _historyBills.delete(bill.id)
+      const at = _openBills.findIndex((b) => b.id === bill.id)
+      if (at >= 0) _openBills = _openBills.map((b, i) => (i === at ? bill : b))
+      else _openBills = [bill, ..._openBills]
+    }
+  }
 }
 
 function notifyBillsChanged(): void {
@@ -92,8 +124,9 @@ export function fullBillToRentalBill(full: FullBill): RentalBill {
 
 // ─── Cache reads ─────────────────────────────────────────────────────────────
 
+/** Open bills first (newest first), then the finished bills read so far. */
 export function loadBills(): FullBill[] {
-  return _cachedBills || []
+  return [..._openBills, ..._historyBills.values()]
 }
 export function loadBillById(id: string): FullBill | undefined {
   return loadBills().find((b) => b.id === id)
@@ -105,23 +138,66 @@ export function loadRentalBills(): RentalBill[] {
 
 // ─── Reload from the database ───────────────────────────────────────────────
 
-export async function fetchBillsFromSupabase(): Promise<FullBill[]> {
+/** Reloads the bills still in work; finished bills read earlier stay. */
+/** A page opening within this long of the last read reuses the cache (pass force after a change). */
+export const BILLS_TTL_MS = 60_000
+let _lastAt = 0
+
+export async function fetchBillsFromSupabase(force = false): Promise<FullBill[]> {
+  if (!force && _lastAt > 0 && Date.now() - _lastAt < BILLS_TTL_MS) return _openBills
   const bills = await fetchBillsFromRepository()
-  _cachedBills = bills
+  _openBills = bills
+  _lastAt = Date.now()
+  for (const b of bills) _historyBills.delete(b.id)
   notifyBillsChanged()
   return bills
 }
 
-/** Reload after a command (bill-service.ts). */
-export const refreshBillsCache = fetchBillsFromSupabase
+/** Reload after a command (bill-service.ts): always reads the server. */
+export const refreshBillsCache = (): Promise<FullBill[]> => fetchBillsFromSupabase(true)
 
 export async function fetchBillByIdFromSupabase(id: string): Promise<FullBill | null> {
   const bill = await fetchBillByIdFromRepository(id)
   if (!bill) return null
-  const current = loadBills()
-  _cachedBills = current.some((b) => b.id === bill.id) ? current.map((b) => (b.id === bill.id ? bill : b)) : [bill, ...current]
+  mergeBills([bill])
   notifyBillsChanged()
   return bill
+}
+
+/** Finished bills (closed / cancelled / void) of a period, newest first; search = bill no / customer name / phone. */
+export async function fetchClosedBills(query: Pick<BillQuery, 'from' | 'to' | 'search'>): Promise<FullBill[]> {
+  const bills = await fetchBillsByQuery({ ...query, scope: 'HISTORY' })
+  mergeBills(bills)
+  notifyBillsChanged()
+  return bills
+}
+
+/** Every bill of one customer, open or finished, newest first. */
+export async function fetchBillsForCustomer(customerId: string): Promise<FullBill[]> {
+  const bills = await fetchBillsByQuery({ customerId })
+  mergeBills(bills)
+  notifyBillsChanged()
+  return bills
+}
+
+/** Every bill with a line of this product, open or finished, newest first. */
+export async function fetchBillsForProduct(productId: string): Promise<FullBill[]> {
+  const ids = await fetchBillIdsForProduct(productId)
+  if (ids.length === 0) return []
+  const bills = await fetchBillsByQuery({ ids })
+  mergeBills(bills)
+  notifyBillsChanged()
+  return bills
+}
+
+/** Number of closed bills (all time), for the summary card. */
+export function countClosedBills(): Promise<number> {
+  return countBillsWithStatus(['CLOSED'])
+}
+
+/** Number of cancelled + void bills (all time), for the dashboard status bar. */
+export function countCancelledBills(): Promise<number> {
+  return countBillsWithStatus(['CANCELLED', 'VOID'])
 }
 
 /** A DRAFT (no number, no stock, no money) can be deleted for real (bill_draft_delete). */

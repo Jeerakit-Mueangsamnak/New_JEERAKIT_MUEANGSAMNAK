@@ -335,11 +335,11 @@ describe('ที่อยู่ลูกค้ายาว + วันที่�
 describe('แบบฟอร์มทุกใบตอนพิมพ์ (owner 2026-11-11)', () => {
   const render = (html: string) => renderDocumentTemplate(html, {}, 'BL-1', '', '', {}, { items: [] }, undefined, 20)
 
-  it('light fills print white; dark lines stay as drawn', () => {
+  it('no background colour; a thin filled line prints black (owner 2026-11-12)', () => {
     const out = render('<div style="background-color:rgb(238, 243, 248)">a</div><div style="background:#fffbeb">b</div><div style="background-color:rgb(23, 43, 75); height:1px"></div>')
-    expect(out).not.toMatch(/rgb\(238, 243, 248\)|#fffbeb/)
-    expect(out.match(/#ffffff/g)).toHaveLength(2)
-    expect(out).toContain('rgb(23, 43, 75)')
+    expect(out).not.toMatch(/rgb\(238, 243, 248\)|#fffbeb|rgb\(23, 43, 75\)/)
+    expect(out.match(/transparent/g)).toHaveLength(2)
+    expect(out).toMatch(/background-color:\s*#000; height:\s*1px/)
   })
 
   it('ลำดับ on a later page shows the whole number (21, not "2") in a box drawn for one digit', () => {

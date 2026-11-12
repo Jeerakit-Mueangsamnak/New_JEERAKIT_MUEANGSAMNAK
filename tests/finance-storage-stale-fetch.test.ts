@@ -8,6 +8,7 @@ const repo = vi.hoisted(() => ({ pending: [] as Array<(rows: unknown[]) => void>
 vi.mock('@/features/finance/api/finance-repository', () => ({
   fetchTransactionsFromSupabase: () => new Promise((resolve) => repo.pending.push(resolve)),
   fetchRevenueLedgerFromSupabase: async () => [],
+  STATEMENT_DEFAULT_DAYS_BACK: 90,
   createExpense: vi.fn(),
   createOtherIncome: vi.fn(),
   voidExpense: vi.fn(),

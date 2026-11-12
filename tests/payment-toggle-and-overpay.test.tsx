@@ -11,7 +11,7 @@ vi.mock('@/lib/db/rpc', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/db/rpc')>()),
   rpc: (...args: unknown[]) => rpcMock(...args),
 }))
-vi.mock('@/features/bills/services/bill-storage', () => ({ refreshBillsCache: async () => [] }))
+vi.mock('@/features/bills/services/bill-storage', () => ({ refreshBillsCache: async () => [], fetchBillByIdFromSupabase: async () => null }))
 vi.mock('@/features/products/services/product-storage', () => ({ syncProductsFromSupabase: async () => {} }))
 
 afterEach(cleanup)

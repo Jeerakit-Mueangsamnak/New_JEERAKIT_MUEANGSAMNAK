@@ -6,7 +6,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100
 const dayOf = (iso: string) => (iso || '').slice(0, 10)
 
 /**
- * A saved return, printed again on the shop's ใบรับคืนบางส่วน form (bill documents tab).
+ * A saved return, printed again on the shop's ใบรับคืน form (bill documents tab).
  * Rows = what came back in that return (ปกติ / ชำรุด) with the damage fee of the cases it opened.
  * Money = the bill as it stands today (real figures, nothing guessed): rent, damage + lost fees,
  * paid so far (deposit taken counts as paid), nothing collected now.

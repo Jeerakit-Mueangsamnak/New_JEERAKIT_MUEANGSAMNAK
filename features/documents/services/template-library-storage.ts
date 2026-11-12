@@ -86,7 +86,30 @@ export async function refreshSharedTemplates(): Promise<DocumentTemplate[]> {
     shared = await fetchDocumentTemplates()
   }
   sharedTemplates = shared
+  sharedLoadedAt = Date.now()
   return loadTemplateLibrary()
+}
+
+/** The forms are a few MB (page images); a print or a bill window reuses the last read for this long. */
+export const SHARED_TEMPLATES_MAX_AGE_MS = 5 * 60_000
+let sharedLoadedAt = 0
+let sharedLoading: Promise<DocumentTemplate[]> | null = null
+
+/**
+ * The shop's forms for printing and form pickers: the list read in the last 5 minutes, otherwise one
+ * read from the server (calls made together share it). Changes on this device refresh at once
+ * (save / delete); a form added on another device shows within 5 minutes or on opening แบบฟอร์ม.
+ */
+export function getSharedTemplates(): Promise<DocumentTemplate[]> {
+  if (sharedLoadedAt > 0 && Date.now() - sharedLoadedAt < SHARED_TEMPLATES_MAX_AGE_MS) {
+    return Promise.resolve(loadTemplateLibrary())
+  }
+  if (!sharedLoading) {
+    sharedLoading = refreshSharedTemplates().finally(() => {
+      sharedLoading = null
+    })
+  }
+  return sharedLoading
 }
 
 /** Saves a new form for the whole shop; the list is read back from the server. */

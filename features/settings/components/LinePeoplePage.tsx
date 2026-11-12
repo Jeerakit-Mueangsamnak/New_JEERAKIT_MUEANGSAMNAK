@@ -15,7 +15,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import QRCode from 'qrcode'
+import { qrDataUrl } from '@/lib/qr-code'
 import { CheckCircle2, Copy, Link2Off, MessageCircle, QrCode, RefreshCw, Search, Settings2, UserPlus, Users, UserX } from 'lucide-react'
 import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
 import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_TH_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
@@ -185,7 +185,7 @@ export function LinePeoplePage() {
     getLineOaInfo()
       .then(async (r) => {
         const url = r.success ? r.data?.addFriendUrl ?? null : null
-        const qr = url ? await QRCode.toDataURL(url, { margin: 1, width: 200 }).catch(() => null) : null
+        const qr = url ? await qrDataUrl(url, { margin: 1, width: 200 }).catch(() => null) : null
         setOa({ lineId: r.data?.lineId ?? null, addFriendUrl: url, qr })
       })
       .catch(() => setOa({ lineId: null, addFriendUrl: null, qr: null }))

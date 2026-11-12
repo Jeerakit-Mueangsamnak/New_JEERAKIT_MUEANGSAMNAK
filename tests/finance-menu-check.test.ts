@@ -11,12 +11,15 @@ vi.mock('@/features/finance/services/finance-storage', async (orig) => ({
 vi.mock('@/features/bills/services/bill-storage', async (orig) => ({
   ...(await orig<object>()),
   refreshBillsCache: vi.fn(async () => [{ id: 'bill-1' }]),
+  // a command on one bill re-reads only that bill
+  fetchBillByIdFromSupabase: vi.fn(async (id: string) => ({ id })),
 }))
 vi.mock('@/lib/db/rpc', async (orig) => ({
   ...(await orig<object>()),
   rpc: vi.fn(async () => ({ receipt_no: 'RC-1', total_amount: 95 })),
   // the statement reload after a void reads nothing in unit tests
   selectRows: vi.fn(async () => []),
+  selectAllRows: vi.fn(async () => []),
 }))
 
 import { receivePayment } from '@/features/bills/services/bill-service'

@@ -10,7 +10,7 @@ import { COMMAND_BUTTON_SIZE_CLASSES, TABLE_TOOLBAR_CLASSES } from '@/components
  * links that LINE (one driver code = one LINE). Shown on คนใน LINE (/line).
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import QRCode from 'qrcode'
+import { qrDataUrl } from '@/lib/qr-code'
 import Image from 'next/image'
 import { Copy, Link2Off, Pencil, Plus, RefreshCw, Truck } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
@@ -103,7 +103,7 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
         showToast('สร้างลิงก์ไม่สำเร็จ', r.error || 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
         return
       }
-      const qr = r.data.oaUrl ? await QRCode.toDataURL(r.data.oaUrl, { margin: 1, width: 160 }).catch(() => null) : null
+      const qr = r.data.oaUrl ? await qrDataUrl(r.data.oaUrl, { margin: 1, width: 160 }).catch(() => null) : null
       setNow(Date.now())
       setCodes((prev) => ({ ...prev, [driverId]: { code: r.data!.code, expiresAt: r.data!.expires_at, oaUrl: r.data!.oaUrl, qr } }))
     } finally {

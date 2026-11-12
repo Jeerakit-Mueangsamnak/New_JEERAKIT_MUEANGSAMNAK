@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
-import { rpc, selectRows, newIdempotencyKey } from '@/lib/db/rpc'
+import { rpc, selectRows, selectAllRows, newIdempotencyKey } from '@/lib/db/rpc'
 import { withPin } from '@/lib/db/pin-confirm'
 import type { Product, RentalType } from '@/lib/types/rental-pos'
 
@@ -134,24 +134,25 @@ export function mapProductRow(
 export async function fetchCategoriesFromSupabase(): Promise<CategoryRow[]> {
   if (isPlaceholderConfig()) return []
   const supabase = createClient()
-  return selectRows<CategoryRow>(supabase.from('product_categories').select('id, name, active').order('name'))
+  return selectAllRows<CategoryRow>(() => supabase.from('product_categories').select('id, name, active').order('name'))
 }
 
 export async function fetchUnitsFromSupabase(): Promise<UnitRow[]> {
   if (isPlaceholderConfig()) return []
   const supabase = createClient()
-  return selectRows<UnitRow>(supabase.from('units').select('id, name, active, sort_order').order('sort_order').order('name'))
+  return selectAllRows<UnitRow>(() => supabase.from('units').select('id, name, active, sort_order').order('sort_order').order('name'))
 }
 
 export async function fetchProductsFromSupabase(): Promise<Product[]> {
   if (isPlaceholderConfig()) return []
   const supabase = createClient()
   const [rows, categories, units, balances, costs] = await Promise.all([
-    selectRows<ProductRow>(supabase.from('products').select('*').order('sku')),
+    selectAllRows<ProductRow>(() => supabase.from('products').select('*').order('sku')),
     fetchCategoriesFromSupabase(),
     fetchUnitsFromSupabase(),
-    selectRows<{ product_id: string; stock_state: string; quantity: number }>(
-      supabase.from('stock_balances').select('product_id, stock_state, quantity')
+    selectAllRows<{ product_id: string; stock_state: string; quantity: number }>(
+      () => supabase.from('stock_balances').select('product_id, stock_state, quantity'),
+      ['product_id', 'stock_state']
     ),
     // product_costs is readable by OWNER only (RLS); others simply see no cost.
     supabase.from('product_costs').select('product_id, cost_price').then(({ data }) => data ?? []),

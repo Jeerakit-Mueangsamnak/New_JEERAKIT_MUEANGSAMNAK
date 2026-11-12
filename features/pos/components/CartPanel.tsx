@@ -34,7 +34,7 @@ import { calculateBillTotals } from '@/lib/calculation-service'
 import { isVatRateConfigured } from '@/features/settings/services/settings-storage'
 import { type VatMode } from '@/features/pos/components/VatModeButtons'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
-import { loadDocumentNames, refreshSharedTemplates } from '@/features/documents/services/template-library-storage'
+import { loadDocumentNames, getSharedTemplates } from '@/features/documents/services/template-library-storage'
 import { billFormDocumentNames } from '@/features/documents/utils/transaction-print'
 import { isNoChargeRental } from '@/features/pos/services/accessory-rules'
 
@@ -162,7 +162,7 @@ export function CartPanel({
   const [billFormNames, setBillFormNames] = useState<string[]>([])
   useEffect(() => {
     let alive = true
-    refreshSharedTemplates()
+    getSharedTemplates()
       .then((templates) => alive && setBillFormNames(billFormDocumentNames(loadDocumentNames(), templates)))
       .catch((err: unknown) => console.error('Reading the bill forms failed:', err))
     return () => {

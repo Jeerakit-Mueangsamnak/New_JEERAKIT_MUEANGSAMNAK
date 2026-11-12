@@ -1,8 +1,11 @@
 import { createClient } from '@/lib/supabase/client'
-import { rpc, selectRows } from '@/lib/db/rpc'
+import { rpc, selectRows, selectAllRows } from '@/lib/db/rpc'
 import { withPinIfRequired } from '@/lib/db/pin-confirm'
 import type { Quotation, QuotationItem, QuotationStatus } from '@/lib/types/rental-pos'
 import type { CustomerSnapshot } from '@/features/bills/api/bill-repository'
+import { loadCustomers } from '@/features/customers/services/customer-storage'
+import { loadProducts } from '@/features/products/services/product-storage'
+import { loadUnits } from '@/lib/unit-storage'
 
 /**
  * Quotations (Master v4.3.1 §10) on the v4.3 schema. A quotation is an offer — it does not
@@ -58,22 +61,76 @@ const day = (ts: string | null | undefined) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export async function fetchQuotationsFromSupabase(): Promise<Quotation[]> {
-  const supabase = createClient()
-  const [quotes, items, customers, products, units] = await Promise.all([
-    selectRows<QuotationRow>(supabase.from('quotations').select('*').order('created_at', { ascending: false })),
-    selectRows<QuotationItemRow>(supabase.from('quotation_items').select('*')),
-    selectRows<{ id: string; name: string; phone: string; address: string; tax_id: string | null }>(
-      supabase.from('customers').select('id, name, phone, address, tax_id')
+type CustomerLite = { id: string; name: string; phone: string; address: string; tax_id: string | null }
+type ProductLite = { id: string; name: string; unit_id: string; is_accessory: boolean; is_rent_chargeable: boolean; requires_return: boolean }
+const IDS_PER_QUERY = 100
+
+async function byIds<T>(ids: Array<string | null | undefined>, read: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
+  const unique = [...new Set(ids.filter((id): id is string => Boolean(id)))]
+  const chunks: string[][] = []
+  for (let i = 0; i < unique.length; i += IDS_PER_QUERY) chunks.push(unique.slice(i, i + IDS_PER_QUERY))
+  return (await Promise.all(chunks.map(read))).flat()
+}
+
+/**
+ * Customers, products and units named on these quotations: from the caches MasterDataProvider already
+ * loaded; only ids not there (still loading, added on another device) are read from the server.
+ */
+async function quotationLookups(supabase: ReturnType<typeof createClient>, quotes: QuotationRow[], items: QuotationItemRow[]) {
+  const customerMap = new Map<string, CustomerLite>()
+  for (const c of loadCustomers()) {
+    customerMap.set(c.id, { id: c.id, name: c.customerName, phone: c.phone, address: c.address || '', tax_id: c.taxId || null })
+  }
+  const productMap = new Map<string, ProductLite>()
+  for (const p of loadProducts()) {
+    productMap.set(p.id, {
+      id: p.id,
+      name: p.name,
+      unit_id: p.unitId ?? '',
+      is_accessory: Boolean(p.isAccessory),
+      is_rent_chargeable: p.isChargeable !== false,
+      requires_return: p.requiresReturn !== false,
+    })
+  }
+  const unitMap = new Map(loadUnits().map((u) => [u.id, u.name]))
+
+  const [customers, products] = await Promise.all([
+    byIds(quotes.map((q) => q.customer_id).filter((id) => id && !customerMap.has(id)), (chunk) =>
+      selectRows<CustomerLite>(supabase.from('customers').select('id, name, phone, address, tax_id').in('id', chunk))
     ),
-    selectRows<{ id: string; name: string; unit_id: string; is_accessory: boolean; is_rent_chargeable: boolean; requires_return: boolean }>(
-      supabase.from('products').select('id, name, unit_id, is_accessory, is_rent_chargeable, requires_return')
+    byIds(items.map((it) => it.product_id).filter((id) => id && !productMap.has(id)), (chunk) =>
+      selectRows<ProductLite>(supabase.from('products').select('id, name, unit_id, is_accessory, is_rent_chargeable, requires_return').in('id', chunk))
     ),
-    selectRows<{ id: string; name: string }>(supabase.from('units').select('id, name')),
   ])
-  const customerMap = new Map(customers.map((c) => [c.id, c]))
-  const productMap = new Map(products.map((p) => [p.id, p]))
-  const unitMap = new Map(units.map((u) => [u.id, u.name]))
+  for (const c of customers) customerMap.set(c.id, c)
+  for (const p of products) productMap.set(p.id, p)
+  const units = await byIds([...productMap.values()].map((p) => p.unit_id).filter((id) => id && !unitMap.has(id)), (chunk) =>
+    selectRows<{ id: string; name: string }>(supabase.from('units').select('id, name').in('id', chunk))
+  )
+  for (const u of units) unitMap.set(u.id, u.name)
+  return { customerMap, productMap, unitMap }
+}
+
+/** Every quotation, newest first; with `customerId` only that customer's (filtered on the server). */
+export async function fetchQuotationsFromSupabase(options: { customerId?: string } = {}): Promise<Quotation[]> {
+  const supabase = createClient()
+  let quotes: QuotationRow[]
+  let items: QuotationItemRow[]
+  if (options.customerId) {
+    const customerId = options.customerId
+    quotes = await selectAllRows<QuotationRow>(() =>
+      supabase.from('quotations').select('*').eq('customer_id', customerId).order('created_at', { ascending: false })
+    )
+    items = await byIds(quotes.map((q) => q.id), (chunk) =>
+      selectRows<QuotationItemRow>(supabase.from('quotation_items').select('*').in('quotation_id', chunk))
+    )
+  } else {
+    ;[quotes, items] = await Promise.all([
+      selectAllRows<QuotationRow>(() => supabase.from('quotations').select('*').order('created_at', { ascending: false })),
+      selectAllRows<QuotationItemRow>(() => supabase.from('quotation_items').select('*')),
+    ])
+  }
+  const { customerMap, productMap, unitMap } = await quotationLookups(supabase, quotes, items)
   const itemsByQuote = new Map<string, QuotationItemRow[]>()
   for (const it of items) {
     const list = itemsByQuote.get(it.quotation_id) || []

@@ -1,5 +1,5 @@
 import { dailyRentalPeriodText, fitFormItemColumns, formatBahtCurrency, renderDocumentTemplate, removeThaiAmountTextParentheses, thaiBahtText } from '@/features/documents/utils/documentRenderer'
-import { getTemplateTarget, refreshSharedTemplates } from '@/features/documents/services/template-library-storage'
+import { getTemplateTarget, getSharedTemplates } from '@/features/documents/services/template-library-storage'
 import type { DocumentName } from '@/features/documents/api/template-library-repository'
 import { printDocuments } from '@/lib/print/print-service'
 import { THAI_MONTHS } from '@/components/common/CustomDatePicker'
@@ -61,10 +61,11 @@ function quotationFormData(q: Quotation): BillTemplateData {
 
 /** Reads the shop's forms and returns the quotation form to print with (undefined = none usable). */
 export async function loadQuotationPrintTemplate(): Promise<DocumentTemplate | undefined> {
-  return pickQuotationPrintTemplate(await refreshSharedTemplates())
+  return pickQuotationPrintTemplate(await getSharedTemplates())
 }
 
-const page = (html: string) => `<div class="p-8 text-slate-900 font-sans text-xs bg-white">${html}</div>`
+// print-form-page: in print each form page is kept a little under A4 (globals.css) — see there.
+const page = (html: string) => `<div class="print-form-page p-8 text-slate-900 font-sans text-xs bg-white">${html}</div>`
 
 export function thaiDocDate(isoDay?: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDay || '')
@@ -204,6 +205,20 @@ function renderFormPages(
 export function printBillForm(data: BillTemplateData, business: Partial<BusinessSettings>, template: DocumentTemplate): boolean {
   const pages = renderBillFormPagesHtml(data, business, template)
   return pages.length > 0 ? printDocuments(pages.map(page), data.billNo) : false
+}
+
+/** Already rendered form pages (several forms may be joined) sent to the printer as one job. */
+export function printFormPages(pages: string[], title?: string): boolean {
+  return pages.length > 0 ? printDocuments(pages.map(page), title) : false
+}
+
+/**
+ * The shop's bill forms a bill can be printed on, one per name in the library's order (the quotation form
+ * is not a bill form). `exclude` drops forms that need data the caller does not have (e.g. a return).
+ */
+export function billPrintForms(templates: DocumentTemplate[], exclude: string[] = []): DocumentTemplate[] {
+  const names = [...new Set(templates.filter(isBillFormTemplate).map((t) => t.name.trim()))].filter((n) => !exclude.includes(n))
+  return names.map((n) => pickBillFormTemplate(templates, n)).filter((t): t is DocumentTemplate => Boolean(t))
 }
 
 // ── ใบรับคืนบางส่วน (owner 2026-11-07): ONE document for the return, even when rent is paid at the same time ──

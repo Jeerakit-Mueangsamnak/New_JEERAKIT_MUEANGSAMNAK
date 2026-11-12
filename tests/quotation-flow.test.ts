@@ -7,11 +7,21 @@ const rpcMock = vi.hoisted(() => vi.fn())
 const tables = vi.hoisted(() => ({} as Record<string, unknown[]>))
 vi.mock('@/lib/db/rpc', async (orig) => {
   const real = await orig<typeof import('@/lib/db/rpc')>()
-  return { ...real, rpc: rpcMock, selectRows: async (q: { table: string }) => tables[q.table] || [] }
+  return {
+    ...real,
+    rpc: rpcMock,
+    selectRows: async (q: { table: string }) => tables[q.table] || [],
+    selectAllRows: async (make: () => { table: string }) => tables[make().table] || [],
+  }
 })
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
-    from: (table: string) => ({ select: () => ({ table, order: () => ({ table }) }) }),
+    from: (table: string) => {
+      // every filter keeps the table name the selectRows / selectAllRows stand-ins read
+      const chain: Record<string, unknown> = { table }
+      for (const m of ['select', 'order', 'in', 'eq']) chain[m] = () => chain
+      return chain
+    },
   }),
 }))
 

@@ -258,6 +258,28 @@ body.non-pos-route input[type="date"]::-webkit-inner-spin-button {
     page-break-after: auto !important;
   }
 
+  /* A shop form page (bill, receipt, return, fine, quotation) is drawn exactly 297mm tall. iPad (every
+     browser there prints like Safari) rounds the paper a fraction smaller, so the last fraction of a
+     millimetre went onto a second, blank page (owner 2026-11-12). Each page is kept 1mm under A4; the
+     form's own bottom margin is 5mm of blank paper, so nothing printed is cut. */
+  .print-form-page {
+    height: 296mm !important;
+    overflow: hidden !important;
+  }
+
+  /* iPad / iPhone only (-webkit-touch-callout exists only there): the print keeps the printer's own
+     margins instead of printing to the paper's edge, and does not shrink the page, so a full A4 form
+     ran off the right and bottom (owner 2026-11-12). The form is printed at 92%, centred — that fits
+     printer margins up to about 8mm at the sides and 12mm at the top/bottom. PCs print as before. */
+  @supports (-webkit-touch-callout: none) {
+    .print-form-page {
+      zoom: 0.92;
+      width: 210mm !important;
+      margin-left: auto !important;
+      margin-right: auto !important;
+    }
+  }
+
   .pos-a4-fit-stage {
     width: 210mm !important;
     height: 297mm !important;

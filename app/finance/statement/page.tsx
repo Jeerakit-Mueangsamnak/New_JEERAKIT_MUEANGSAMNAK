@@ -24,6 +24,7 @@ import { logger } from '@/lib/utils/logger'
 import {
   loadTransactions,
   fetchTransactionsFromSupabase,
+  ensureTransactionsSince,
   addManualTransaction,
   voidManualTransaction,
   filterTransactionsByLocalDate,
@@ -89,6 +90,18 @@ export default function StatementPage() {
       window.removeEventListener('business_data_refreshed', fromCache)
     }
   }, [])
+
+  // The list holds the last 90 days; a start date older than that reads back to it (owner 2026-11-12)
+  useEffect(() => {
+    if (!startDate) return
+    let alive = true
+    ensureTransactionsSince(startDate)
+      .then((list) => alive && setTransactions(list))
+      .catch((err: unknown) => logger.error('Finance statement older range failed', err))
+    return () => {
+      alive = false
+    }
+  }, [startDate])
 
   // Form State for manual entry (Quick Item + Manual Description)
   const [modalView, setModalView] = useState<'FORM' | 'MANAGE_CATEGORIES'>('FORM')

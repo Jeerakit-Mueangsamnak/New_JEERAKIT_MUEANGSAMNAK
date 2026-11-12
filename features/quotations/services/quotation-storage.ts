@@ -17,15 +17,28 @@ let _cachedQuotations: Quotation[] | null = null
 
 export function setCachedQuotations(quotations: Quotation[]): void {
   _cachedQuotations = quotations
+  // Emptied on sign-out: the next page open reads the server instead of the 60 s cache
+  if (quotations.length === 0) _lastAt = 0
 }
 
 export function loadQuotations(): Quotation[] {
   return _cachedQuotations || []
 }
 
-export async function fetchQuotationsFromSupabase(): Promise<Quotation[]> {
+/** A page opening within this long of the last read reuses the cache (pass force after a change). */
+export const QUOTATIONS_TTL_MS = 60_000
+let _lastAt = 0
+
+export async function fetchQuotationsFromSupabase(force = false): Promise<Quotation[]> {
+  if (!force && _cachedQuotations && Date.now() - _lastAt < QUOTATIONS_TTL_MS) return _cachedQuotations
   _cachedQuotations = await fetchQuotationsFromRepository()
+  _lastAt = Date.now()
   return _cachedQuotations
+}
+
+/** One customer's quotations, filtered on the server; the shared cache is left as it is. */
+export function fetchQuotationsForCustomer(customerId: string): Promise<Quotation[]> {
+  return fetchQuotationsFromRepository({ customerId })
 }
 
 export function getQuotationById(id: string): Quotation | null {
@@ -154,7 +167,7 @@ export async function addQuotation(incoming: Quotation): Promise<string> {
   const existing = loadQuotations().find((q) => q.id === incoming.id)
   const id = await saveQuotationDraft(incoming, Boolean(existing && quotationStatusView(existing.status).editable))
   await sendQuotation(id)
-  await fetchQuotationsFromSupabase()
+  await fetchQuotationsFromSupabase(true)
   return id
 }
 
@@ -168,7 +181,7 @@ export async function updateQuotationStatus(id: string, status: QuotationStatus,
   } else if (status === 'REJECTED' || status === 'CANCELLED') {
     await setQuotationStatus(q.id, 'REJECTED', remark)
   }
-  return fetchQuotationsFromSupabase()
+  return fetchQuotationsFromSupabase(true)
 }
 
 export interface QuotationToPosValues {

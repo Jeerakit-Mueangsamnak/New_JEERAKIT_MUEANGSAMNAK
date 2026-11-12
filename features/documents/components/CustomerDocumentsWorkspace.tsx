@@ -30,7 +30,7 @@ import {
   type CustomerDocumentRow,
 } from '@/features/documents/api/customer-document-repository'
 import { printDocuments } from '@/lib/print/print-service'
-import { getTemplateTarget, loadTemplateLibrary, refreshSharedTemplates } from '@/features/documents/services/template-library-storage'
+import { getTemplateTarget, loadTemplateLibrary, getSharedTemplates } from '@/features/documents/services/template-library-storage'
 
 interface ContractFields {
   rentalStartDate: string
@@ -175,11 +175,11 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
       sublabel: c.phone ? `📞 ${c.phone}` : undefined,
     }))
 
-  // The shop's own forms live on the server (same on every device): read them once on open.
+  // The shop's own forms live on the server (same on every device): read once, reused for 5 minutes.
   const [sharedFormsVersion, setSharedFormsVersion] = useState(0)
   useEffect(() => {
     let active = true
-    refreshSharedTemplates()
+    getSharedTemplates()
       .then(() => {
         if (active) setSharedFormsVersion((v) => v + 1)
       })

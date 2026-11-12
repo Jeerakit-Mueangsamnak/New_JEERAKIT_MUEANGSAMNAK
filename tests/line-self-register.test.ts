@@ -33,7 +33,7 @@ describe('parseRegisterText', () => {
 
 describe('lineOaAddFriendUrl', () => {
   it('builds the add-friend link from the shop LINE ID only', () => {
-    expect(lineOaAddFriendUrl('@myshop')).toBe('https://line.me/R/ti/p/%40myshop')
+    expect(lineOaAddFriendUrl('@myshop')).toBe('https://line.me/R/ti/p/@myshop')
     expect(lineOaAddFriendUrl('')).toBeNull()
     expect(lineOaAddFriendUrl('bad id/../')).toBeNull()
   })

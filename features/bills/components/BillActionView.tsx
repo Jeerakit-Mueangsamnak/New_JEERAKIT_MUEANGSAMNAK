@@ -2,7 +2,6 @@
 import { COMMAND_BUTTON_SIZE_CLASSES, StepNavButton } from '@/components/common/ActionButton'
 
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
-import { printReactDocuments } from '@/lib/print/print-react'
 import React, { useState, useMemo, useEffect } from 'react'
 import {
   FullBill,
@@ -21,7 +20,7 @@ import { A4FitPreview } from '@/features/pos/components/A4FitPreview'
 import { PaymentMethodSelector, PaymentMethodType } from '@/features/pos/components/payment/PaymentMethodSelector'
 import { PaymentDynamicContent } from '@/features/pos/components/payment/PaymentDynamicContent'
 import { useToast } from '@/components/common/Toast'
-import { PostSavePrintModal } from '@/components/common/PostSavePrintModal'
+import { PostSavePrintModal, type PrintFormChoice } from '@/components/common/PostSavePrintModal'
 import { BusinessSettings } from '@/lib/types/rental-pos'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { applyDepositToBill, chargeExtraRounds, correctBill, createContinuation, processReturn, receivePayment, refundDeposit, refundOverpayment } from '@/features/bills/services/bill-service'
@@ -44,8 +43,9 @@ import {
   extraRoundsOf,
   extraRoundsFeeOf,
 } from '@/features/bills/services/return-calculation'
-import { refreshSharedTemplates } from '@/features/documents/services/template-library-storage'
+import { getSharedTemplates } from '@/features/documents/services/template-library-storage'
 import {
+  billPrintForms,
   FINE_FORM_NAME,
   MAIN_BILL_FORM_NAME,
   pickBillFormTemplate,
@@ -111,12 +111,6 @@ export function BillActionView({
   const { settings: systemSettings } = useSystemSettings()
   const business: Partial<BusinessSettings> = systemSettings.business
 
-  const printDocuments = async (docs: React.ReactNode[], options?: { title?: string }) => {
-    if (!printReactDocuments(docs, options?.title)) {
-      showToast('ไม่มีข้อมูลสำหรับพิมพ์', '', 'INFO')
-    }
-  }
-
   // Return steps: 1 = table, 2 = preview + payment. History / documents open in BillRecordsModal from the
   // bills list (owner 2026-11-11), so this workspace has no tabs.
   const [currentStep, setCurrentStep] = useState<number>(1)
@@ -129,8 +123,9 @@ export function BillActionView({
 
 
   // Saved return & payment document numbers for accurate post-save printing
-  // Documents as they looked at the moment of saving (the form resets once the bill is refreshed)
-  const [printDocs, setPrintDocs] = useState<React.ReactNode[] | null>(null)
+  // The shop's bill forms filled as they looked at the moment of saving (the form resets once the bill is
+  // refreshed), offered in the print window with the papers of this step ticked (owner 2026-11-12)
+  const [printChoices, setPrintChoices] = useState<{ forms: PrintFormChoice[]; ticked: string[] }>({ forms: [], ticked: [] })
   // Deposit row of the payment summary: nothing / return part of it / add to it
   const [depositAction, setDepositAction] = useState<'NONE' | 'REFUND' | 'ADD'>('NONE')
   const [depositAmount, setDepositAmount] = useState<number>(0)
@@ -143,16 +138,8 @@ export function BillActionView({
     depositApplied?: number
     depositLeft?: number
   } | null>(null)
-  // Post-Save Print Confirmation Modal State
-  const [postSavePrintModal, setPostSavePrintModal] = useState<{
-    isOpen: boolean
-    title: string
-    description: string
-  }>({
-    isOpen: false,
-    title: '',
-    description: '',
-  })
+  // Print window after ออกบิล (title = what was saved)
+  const [postSavePrintModal, setPostSavePrintModal] = useState<{ isOpen: boolean; title: string }>({ isOpen: false, title: '' })
 
   // Full-screen / Full-area Preview Overlay State
 
@@ -192,12 +179,14 @@ export function BillActionView({
   // a return = ONE ใบรับคืนบางส่วน (payment included), money only = ใบเสร็จรับเงิน.
   const [shopForms, setShopForms] = useState<{
     loaded: boolean
+    templates: DocumentTemplate[]
     returnForm: DocumentTemplate | null
     receiptForm: DocumentTemplate | null
     fineForm: DocumentTemplate | null
     mainBillForm: DocumentTemplate | null
   }>({
     loaded: false,
+    templates: [],
     returnForm: null,
     receiptForm: null,
     fineForm: null,
@@ -206,11 +195,12 @@ export function BillActionView({
   const { returnForm, receiptForm, fineForm, mainBillForm } = shopForms
   useEffect(() => {
     let active = true
-    refreshSharedTemplates()
+    getSharedTemplates()
       .then((templates) => {
         if (!active) return
         setShopForms({
           loaded: true,
+          templates,
           returnForm: pickBillFormTemplate(templates, RETURN_FORM_NAME) ?? null,
           receiptForm: pickBillFormTemplate(templates, RECEIPT_FORM_NAME) ?? null,
           fineForm: pickBillFormTemplate(templates, FINE_FORM_NAME) ?? null,
@@ -614,15 +604,32 @@ export function BillActionView({
     return mainBillForm ? renderBillFormPagesHtml(continuationBillData(continuationNo), business, mainBillForm) : []
   }
 
-  /** What one preview entry prints as. */
-  const printNodesFor = (
-    docType: ReturnDocType,
-    key: string,
+  /**
+   * Every bill form of the shop filled for the print window, frozen at saving: ใบรับคืน / ใบชำระค่าปรับ /
+   * ใบเสร็จ carry this step's numbers, the main form the new เช่าต่อ bill when one was made, any other form
+   * the bill as it now stands. `ticked` = the papers this step used to print.
+   */
+  const freezePrintChoices = (
+    bill: FullBill | null | undefined,
+    ticked: ReturnDocType[],
     receiptNo?: string,
     returnNo?: string,
     continuationNo?: string
-  ): React.ReactNode[] =>
-    docPages(docType, receiptNo, returnNo, continuationNo).map((html, page) => <ReturnFormPage key={`${key}-${page}`} html={html} />)
+  ) => {
+    const billData = bill ? fullBillToTemplateData(bill) : null
+    const forms = billPrintForms(shopForms.templates).map((t): PrintFormChoice => {
+      const name = t.name.trim()
+      const pages =
+        name === RETURN_FORM_NAME ? (returnNo ? docPages('RETURN_SLIP', receiptNo, returnNo) : [])
+        : name === FINE_FORM_NAME ? (returnNo ? docPages('FINE_SLIP', receiptNo, returnNo) : [])
+        : name === RECEIPT_FORM_NAME ? (receiptNo ? docPages('RECEIPT', receiptNo) : [])
+        : name === MAIN_BILL_FORM_NAME && continuationNo ? docPages('CONTINUATION_BILL', receiptNo, returnNo, continuationNo)
+        : billData ? renderBillFormPagesHtml(billData, business, t)
+        : []
+      return { name, pages }
+    })
+    setPrintChoices({ forms, ticked: ticked.map((d) => RETURN_DOC_FORM_NAME[d]) })
+  }
 
   // The paper shown in the preview (first page of a form; a missing form says which one to add).
   const renderReturnDoc = (docType: ReturnDocType, customReceiptNo?: string, customReturnNo?: string, customContinuationNo?: string) => {
@@ -635,19 +642,6 @@ export function BillActionView({
         {shopForms.loaded ? `ไม่พบแบบฟอร์มของ "${formName}" กรุณาเพิ่มที่เมนูจัดการเอกสาร` : 'กำลังโหลดแบบฟอร์ม...'}
       </div>
     )
-  }
-
-  // Global Multi-Document Print Handler for Return Flow (Prints all available documents in preview order)
-  const handlePrintReturnDocs = async (savedNos?: { returnNo?: string; receiptNo?: string }) => {
-    if (!activeBill) return
-    const docs =
-      printDocs ??
-      availableReturnDocs.flatMap((docType, idx) =>
-        printNodesFor(docType, `${docType}-${idx}`, savedNos?.receiptNo, savedNos?.returnNo)
-      )
-    await printDocuments(docs, {
-      title: `เอกสารรับคืน_${activeBill.billNo}`,
-    })
   }
 
   // Actions
@@ -848,9 +842,7 @@ export function BillActionView({
         const overpayment = await refundOverpayment(activeBill.id)
         fresh = overpayment.bill ?? fresh
         fresh = (await giveBackDeposit()) ?? fresh
-        if (canPay) {
-          setPrintDocs(printNodesFor('RECEIPT', 'RECEIPT', receiptNo))
-        }
+        if (canPay) freezePrintChoices(fresh, ['RECEIPT'], receiptNo)
         const fresh2 = fresh
         if (fresh2) setBills((prev) => prev.map((b) => (b.id === fresh2.id ? fresh2 : b)))
         else setBills(await refreshBillsCache())
@@ -876,11 +868,7 @@ export function BillActionView({
         setDepositAction('NONE')
         if (canPay) {
           setSavedReturnInfo({ receiptNo, paidAmount: paid, depositApplied: fromDeposit, depositLeft: depositAfter })
-          setPostSavePrintModal({
-            isOpen: true,
-            title: 'บันทึกรับชำระเงินสำเร็จ',
-            description: 'รับชำระเงินเรียบร้อยแล้ว\nต้องการพิมพ์ใบเสร็จรับเงินหรือไม่?',
-          })
+          setPostSavePrintModal({ isOpen: true, title: 'บันทึกรับชำระเงินสำเร็จ' })
         }
       } catch (err: any) {
         if (!isPinCancelled(err)) {
@@ -1055,11 +1043,7 @@ export function BillActionView({
       )
 
       // Keep the documents exactly as previewed (the form resets when the bill is refreshed).
-      setPrintDocs(
-        availableReturnDocs.flatMap((docType, idx) =>
-          printNodesFor(docType, `${docType}-${idx}`, receiptNo || undefined, returnNo || undefined, childBillNo || undefined)
-        )
-      )
+      freezePrintChoices(updatedBill ?? activeBill, availableReturnDocs, receiptNo || undefined, returnNo || undefined, childBillNo || undefined)
       setSavedReturnInfo({
         returnNo,
         receiptNo: receiptNo || undefined,
@@ -1067,11 +1051,7 @@ export function BillActionView({
         depositApplied: depositPaid,
         depositLeft: depositAfter,
       })
-      setPostSavePrintModal({
-        isOpen: true,
-        title: returnedItems.length > 0 ? 'บันทึกรับคืนสินค้าสำเร็จ' : 'บันทึกเช่าต่อสำเร็จ',
-        description: `${returnedItems.length > 0 ? 'รับคืนสินค้าเรียบร้อยแล้ว' : 'ออกบิลเช่าต่อเรียบร้อยแล้ว'}\nต้องการพิมพ์เอกสารหรือไม่?`,
-      })
+      setPostSavePrintModal({ isOpen: true, title: returnedItems.length > 0 ? 'บันทึกรับคืนสินค้าสำเร็จ' : 'บันทึกเช่าต่อสำเร็จ' })
     } catch (err: any) {
       // The steps run one after another: reload so the screen shows what was already saved and a
       // retry cannot receive the same goods twice.
@@ -1420,14 +1400,13 @@ export function BillActionView({
       <PostSavePrintModal
         isOpen={postSavePrintModal.isOpen}
         title={postSavePrintModal.title}
-        description={postSavePrintModal.description}
-        onPrint={() => {
-          handlePrintReturnDocs(savedReturnInfo || undefined)
-        }}
+        forms={printChoices.forms}
+        defaultSelected={printChoices.ticked}
+        printTitle={activeBill?.billNo}
         onClose={() => {
           // Stay in the workspace: the panel already shows the saved result; go back with the arrow.
-          setPostSavePrintModal({ isOpen: false, title: '', description: '' })
-          setPrintDocs(null)
+          setPostSavePrintModal({ isOpen: false, title: '' })
+          setPrintChoices({ forms: [], ticked: [] })
           setCurrentStep(1)
         }}
       />

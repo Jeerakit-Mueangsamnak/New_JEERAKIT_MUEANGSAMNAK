@@ -3,7 +3,8 @@
 /**
  * Accessory windows of the POS (owner 2026-11-09, pictures "น็อตเสา" and "อุปกรณ์นั่งร้าน").
  * They only work out which accessories and how many; `onAdd` puts them in the cart as rental lines
- * without a rental charge. Stock is checked here and again by the page and the server.
+ * without a rental charge. The window shows no stock box (owner 2026-11-12); stock is checked when the
+ * lines go into the cart (POS page) and again by the server.
  */
 import React, { useMemo, useState } from 'react'
 import { AlertTriangle, Layers } from 'lucide-react'
@@ -12,7 +13,7 @@ import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/compon
 import { NumericInput } from '@/components/common/NumericInput'
 import { QuickQuantityGrid } from '@/features/pos/components/QuickQuantityGrid'
 import {
-  ACCESSORY_CATEGORY,
+  ACCESSORY_CATEGORY_OF,
   NUT_HEIGHTS,
   NUT_LIST_ITEM,
   NUT_SECTIONS,
@@ -35,8 +36,6 @@ interface AccessoryModalProps {
   /** Adds the lines to the cart; false = refused (the window stays open). */
   onAdd: (lines: AccessoryLine[]) => boolean
   onClose: () => void
-  /** Quotation: more than the free stock may be quoted (warning only). */
-  allowOverStock?: boolean
 }
 
 const LABEL = 'block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1'
@@ -50,14 +49,11 @@ const CHOICE_ON = 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:te
 const CHOICE_OFF =
   'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
 
-const available = (p: Product) => {
-  const n = Number(p.availableQuantity ?? p.available_qty ?? 0)
-  return Number.isFinite(n) && n > 0 ? n : 0
-}
 const whole = (v: number | '') => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0)
 
-function Problems({ errors, warnings }: { errors: string[]; warnings: string[] }) {
-  if (errors.length === 0 && warnings.length === 0) return null
+/** Set-up problems only (an accessory not in รายการ yet); stock is not shown here (owner 2026-11-12). */
+function Problems({ errors }: { errors: string[] }) {
+  if (errors.length === 0) return null
   return (
     <div className="space-y-1.5">
       {errors.map((e) => (
@@ -66,24 +62,8 @@ function Problems({ errors, warnings }: { errors: string[]; warnings: string[] }
           <span>{e}</span>
         </div>
       ))}
-      {warnings.map((w) => (
-        <div key={w} className="flex items-center gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900 text-xs">
-          <AlertTriangle className="w-4 h-4 shrink-0 text-amber-700 dark:text-amber-400" />
-          <span>{w}</span>
-        </div>
-      ))}
     </div>
   )
-}
-
-/** Stock problems of the lines: over the free stock blocks a bill, only warns on a quotation. */
-function stockProblems(lines: AccessoryLine[], allowOverStock: boolean) {
-  const over = lines
-    .filter((l) => l.quantity > available(l.product))
-    .map((l) => `${l.product.name}: ต้องการ ${l.quantity} แต่สต็อกพร้อมใช้มี ${available(l.product)} ${l.product.unit || ''}`.trim())
-  return allowOverStock
-    ? { errors: [] as string[], warnings: over.map((o) => `${o} — เสนอราคาได้ แต่ต้องมีของพอตอนเปิดบิล`) }
-    : { errors: over, warnings: [] as string[] }
 }
 
 function Footer({ canAdd, onAdd, onClose }: { canAdd: boolean; onAdd: () => void; onClose: () => void }) {
@@ -135,7 +115,7 @@ function useQuickPick(initial: number) {
   }
 }
 
-export function NutAccessoryModal({ products, onAdd, onClose, allowOverStock = false }: AccessoryModalProps) {
+export function NutAccessoryModal({ products, onAdd, onClose }: AccessoryModalProps) {
   const [sectionIdx, setSectionIdx] = useState<number | null>(null)
   const [heightIdx, setHeightIdx] = useState<number | null>(null)
   const columns = useQuickPick(1)
@@ -149,15 +129,13 @@ export function NutAccessoryModal({ products, onAdd, onClose, allowOverStock = f
 
   const missing =
     section && !product
-      ? [`ยังไม่มีน็อต ${section.inch} นิ้ว ในหมวด ${ACCESSORY_CATEGORY} รายการ "${NUT_LIST_ITEM}" (ชื่อสินค้าต้องมีคำว่า ${section.inch}นิ้ว)`]
+      ? [`ยังไม่มีน็อต ${section.inch}" ในหมวด ${ACCESSORY_CATEGORY_OF.NUT} รายการ "${NUT_LIST_ITEM}" (ชื่อสินค้าต้องมี ${section.inch}")`]
       : []
-  const stock = product && total > 0 ? stockProblems([{ product, quantity: total }], allowOverStock) : { errors: [], warnings: [] }
   const ready = (qty: number) => Boolean(section && height && product && qty > 0) && missing.length === 0 && !columns.added
-  const canAdd = ready(total) && stock.errors.length === 0
+  const canAdd = ready(total)
 
   const add = (qty: number) => {
     if (!product || !ready(qty)) return
-    if (!allowOverStock && qty > available(product)) return
     columns.setAdded(true)
     if (onAdd([{ product, quantity: qty }])) onClose()
     else columns.setAdded(false)
@@ -203,7 +181,7 @@ export function NutAccessoryModal({ products, onAdd, onClose, allowOverStock = f
           <div>
             <span className={LABEL}>ขนาดน็อต</span>
             <div className={RESULT_BOX} data-testid="nut-size">
-              {section ? `${section.inch} นิ้ว` : '–'}
+              {section ? `${section.inch}"` : '–'}
             </div>
           </div>
           <div>
@@ -214,7 +192,7 @@ export function NutAccessoryModal({ products, onAdd, onClose, allowOverStock = f
           </div>
         </div>
 
-        <Problems errors={[...missing, ...stock.errors]} warnings={stock.warnings} />
+        <Problems errors={missing} />
 
         <QuickQuantityGrid selected={columns.picked} pendingConfirm={columns.pending} onPick={columns.pick} onConfirm={(n) => add(qtyFor(n))} />
       </AppModalBody>
@@ -224,7 +202,7 @@ export function NutAccessoryModal({ products, onAdd, onClose, allowOverStock = f
   )
 }
 
-export function ScaffoldAccessoryModal({ products, onAdd, onClose, allowOverStock = false }: AccessoryModalProps) {
+export function ScaffoldAccessoryModal({ products, onAdd, onClose }: AccessoryModalProps) {
   const sets = useQuickPick(1)
   const [parts, setParts] = useState<Record<ScaffoldPartKey, number | ''>>(() => scaffoldPartQuantities(1))
   const partProducts = useMemo(
@@ -250,18 +228,16 @@ export function ScaffoldAccessoryModal({ products, onAdd, onClose, allowOverStoc
     })
   const missingFor = (q: Record<ScaffoldPartKey, number | ''>) =>
     SCAFFOLD_PARTS.filter((p) => whole(q[p.key]) > 0 && !partProducts[p.key]).map(
-      (p) => `ยังไม่มี "${p.label}" ในหมวด ${ACCESSORY_CATEGORY} รายการ "${SCAFFOLD_LIST_ITEM}"`
+      (p) => `ยังไม่มี "${p.label}" ในหมวด ${ACCESSORY_CATEGORY_OF.SCAFFOLD} รายการ "${SCAFFOLD_LIST_ITEM}"`
     )
 
   const lines = linesFor(parts)
   const missing = missingFor(parts)
-  const stock = stockProblems(lines, allowOverStock)
-  const canAdd = lines.length > 0 && missing.length === 0 && stock.errors.length === 0 && !sets.added
+  const canAdd = lines.length > 0 && missing.length === 0 && !sets.added
 
   const add = (q: Record<ScaffoldPartKey, number | ''>) => {
     const l = linesFor(q)
     if (l.length === 0 || missingFor(q).length > 0 || sets.added) return
-    if (stockProblems(l, allowOverStock).errors.length > 0) return
     sets.setAdded(true)
     if (onAdd(l)) onClose()
     else sets.setAdded(false)
@@ -308,7 +284,7 @@ export function ScaffoldAccessoryModal({ products, onAdd, onClose, allowOverStoc
           {partField('JOINT')}
         </div>
 
-        <Problems errors={[...missing, ...stock.errors]} warnings={stock.warnings} />
+        <Problems errors={missing} />
 
         <QuickQuantityGrid selected={sets.picked} pendingConfirm={sets.pending} onPick={pickSets} onConfirm={(n) => add(scaffoldPartQuantities(n))} />
       </AppModalBody>

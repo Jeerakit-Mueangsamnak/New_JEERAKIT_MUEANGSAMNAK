@@ -72,7 +72,7 @@ export const AVAILABLE_PLACEHOLDERS = [
   '{{bill.total_payable}}',
   '{{bill.total_payable_text}}',
   '{{document.page}}',
-  // ใบรับคืนบางส่วน totals (renderReturnFormPagesHtml)
+  // ใบรับคืน totals (renderReturnFormPagesHtml)
   '{{return.rent}}',
   '{{return.damage}}',
   '{{return.paid_before}}',

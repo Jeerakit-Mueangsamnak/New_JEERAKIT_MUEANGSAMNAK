@@ -95,7 +95,7 @@ describe('คนใน LINE', () => {
     m.error = null
     m.role = 'USER'
     m.tables = { 'line_contacts:pending': pendingRows, 'line_contacts:linked': linkedRows, customers: [{ id: CUST, name: 'สมหญิง ใจดี', phone: '0811111111' }] }
-    m.oa.mockResolvedValue({ success: true, data: { lineId: '@myshop', addFriendUrl: 'https://line.me/R/ti/p/%40myshop' } })
+    m.oa.mockResolvedValue({ success: true, data: { lineId: '@myshop', addFriendUrl: 'https://line.me/R/ti/p/@myshop' } })
   })
   afterEach(cleanup)
 

@@ -19,7 +19,6 @@ import {
   loadNotifications,
   markNotificationStatus,
   markAllNotificationsRead,
-  fetchNotificationsFromSupabase,
   subscribeNotifications,
   ActionableNotification,
   NotificationType,
@@ -51,8 +50,9 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
   }, [])
 
   useEffect(() => {
+    // The list itself is read by MasterDataProvider (its read raises app-storage-update) and kept
+    // current by the realtime channel below: no second read here on mount.
     refreshNotifications()
-    void fetchNotificationsFromSupabase().catch(() => undefined)
 
     const handleStorageUpdate = () => {
       refreshNotifications()

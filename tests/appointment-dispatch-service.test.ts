@@ -22,6 +22,7 @@ vi.mock('@/lib/db/rpc', async (orig) => {
     rpc: db.rpc,
     // the appointment row for a by-id read; the list read gets the same single row
     selectRows: vi.fn(async () => (db.row ? [db.row] : [])),
+    selectAllRows: vi.fn(async () => (db.row ? [db.row] : [])),
   }
 })
 vi.mock('@/app/actions/line', () => ({ sendDispatchToDriver: db.line, withdrawDriverTasks: db.withdraw, deleteAppointmentJob: db.del }))
