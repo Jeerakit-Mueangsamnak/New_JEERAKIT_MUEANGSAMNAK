@@ -16,8 +16,8 @@ import {
 } from '@/features/products/api/product-repository'
 import { fetchCustomersFromSupabase } from '@/features/customers/api/customer-repository'
 import { fetchBillsFromSupabase, setCachedBills } from '@/features/bills/services/bill-storage'
-import { fetchQuotationsFromSupabase, setCachedQuotations } from '@/features/quotations/services/quotation-storage'
-import { fetchAppointmentsFromSupabase, setCachedAppointments } from '@/features/appointments/services/appointment-storage'
+import { setCachedQuotations } from '@/features/quotations/services/quotation-storage'
+import { setCachedAppointments } from '@/features/appointments/services/appointment-storage'
 import { fetchTransactionsFromSupabase, setCachedTransactions, clearFinanceCache } from '@/features/finance/services/finance-storage'
 import { fetchNotificationsFromSupabase, setCachedNotifications, runNotificationScan } from '@/features/notifications/services/notification-storage'
 import { fetchSharedSystemConfig } from '@/features/settings/api/settings-repository'
@@ -121,8 +121,8 @@ async function loadAllBusinessDataOnce(opts: { scanNotices?: boolean }): Promise
   const rest = Promise.all([
     loadOrEmpty('customers', fetchCustomersFromSupabase, setCachedCustomers),
     loadOrEmpty('bills', () => fetchBillsFromSupabase(true)),
-    loadOrEmpty('quotations', () => fetchQuotationsFromSupabase(true), setCachedQuotations),
-    loadOrEmpty('appointments', () => fetchAppointmentsFromSupabase(true), setCachedAppointments),
+    // Quotations and appointments are read by the pages that show them (audit 2026-11-12: not at app start):
+    // quotations, customers, POS, reports, appointments, dashboard, drivers.
     loadOrEmpty('finance', fetchTransactionsFromSupabase, setCachedTransactions),
     loadOrEmpty('notifications', fetchNotificationsFromSupabase, setCachedNotifications),
   ])

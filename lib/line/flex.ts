@@ -62,6 +62,62 @@ export function cardMessage(input: { altText: string; title: string; text?: stri
   }
 }
 
+/**
+ * การ์ดบิล the shop designed (Settings › LINE): coloured header with the heading and a status label, the bill's
+ * rows, an optional text and a closing line. No buttons (a bill from a screen carries no actions).
+ */
+export function billDesignMessage(input: { altText: string; title: string; badge?: string; color: string; text?: string; rows: FlexRow[]; footer?: string }): LineFlexMessage {
+  const rows = input.rows.filter((r) => r.value.trim() !== '')
+  const header: unknown[] = [{ type: 'text', text: shorten(input.title, 200), weight: 'bold', size: 'lg', color: '#FFFFFF', wrap: true }]
+  if (input.badge?.trim()) {
+    header.push({
+      type: 'box',
+      layout: 'horizontal',
+      contents: [
+        {
+          type: 'box',
+          layout: 'vertical',
+          flex: 0,
+          backgroundColor: '#FFFFFF33',
+          cornerRadius: 'xl',
+          paddingStart: 'md',
+          paddingEnd: 'md',
+          paddingTop: 'xs',
+          paddingBottom: 'xs',
+          contents: [{ type: 'text', text: shorten(input.badge.trim(), 40), size: 'xs', weight: 'bold', color: '#FFFFFF' }],
+        },
+      ],
+    })
+  }
+  const body: unknown[] = []
+  if (input.text) body.push({ type: 'text', text: shorten(input.text, 2000), size: 'sm', color: '#333333', wrap: true })
+  rows.forEach((r, i) => {
+    if (i > 0 || input.text) body.push({ type: 'separator' })
+    body.push({
+      type: 'box',
+      layout: 'horizontal',
+      spacing: 'sm',
+      contents: [
+        { type: 'text', text: shorten(r.label, 40), size: 'sm', color: '#888888', flex: 2 },
+        { type: 'text', text: shorten(r.value, 500), size: 'sm', color: '#111111', weight: 'bold', align: 'end', flex: 3, wrap: true },
+      ],
+    })
+  })
+  const footer = input.footer?.trim()
+  return {
+    type: 'flex',
+    altText: shorten(input.altText, LINE_LIMITS.altTextLength),
+    contents: {
+      type: 'bubble',
+      header: { type: 'box', layout: 'vertical', spacing: 'md', backgroundColor: input.color, contents: header },
+      body: { type: 'box', layout: 'vertical', spacing: 'md', contents: body.length ? body : [{ type: 'text', text: ' ', size: 'xs' }] },
+      ...(footer
+        ? { footer: { type: 'box', layout: 'vertical', backgroundColor: '#F8FAFC', contents: [{ type: 'text', text: shorten(footer, 300), size: 'xs', color: '#666666', wrap: true }] } }
+        : {}),
+    },
+  }
+}
+
 /** Google Maps search link for a written place (null when there is no place). */
 export function mapUrl(place: string | null | undefined): string | null {
   const p = (place ?? '').trim()

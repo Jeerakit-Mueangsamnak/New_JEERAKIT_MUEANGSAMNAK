@@ -27,6 +27,9 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   'notifications',
   'shopSecurity',
   'line',
+  'documentNotes',
+  'lineBillCards',
+  'lineMessageTemplates',
 ]
 
 /** What a section would send — two configs are the same for a section when this matches. */

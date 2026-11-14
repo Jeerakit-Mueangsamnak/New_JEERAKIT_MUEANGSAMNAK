@@ -81,7 +81,7 @@ export function DataTableFrame({
       >
         <div
           ref={scrollRef}
-          className={`overflow-y-auto overflow-x-auto ${fill ? 'h-full' : DATA_TABLE_FRAME_HEIGHT_CLASSES} [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20 [&_thead]:bg-[#749bfc] dark:[&_thead]:bg-[#749bfc] [&_thead]:text-slate-900 dark:[&_thead]:text-slate-900 [&_thead]:font-bold [&_thead]:shadow-xs [&_th]:py-2 [&_th]:font-bold [&_th]:whitespace-nowrap [&_td]:py-1.5 ${TABLE_INNER_LINE_CLASSES} ${bodyClassName}`.trim()}
+          className={`overflow-y-auto overflow-x-auto ${fill ? 'h-full' : DATA_TABLE_FRAME_HEIGHT_CLASSES} [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20 [&_thead]:bg-[#749bfc] dark:[&_thead]:bg-[#749bfc] [&_thead]:text-slate-900 dark:[&_thead]:text-slate-900 [&_thead_th]:text-slate-900 dark:[&_thead_th]:text-slate-900 [&_thead]:font-bold [&_thead]:shadow-xs [&_th]:py-2 [&_th]:font-bold [&_th]:whitespace-nowrap [&_td]:py-1.5 ${TABLE_INNER_LINE_CLASSES} ${bodyClassName}`.trim()}
         >
           {children}
         </div>

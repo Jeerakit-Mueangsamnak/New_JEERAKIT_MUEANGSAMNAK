@@ -2,7 +2,7 @@
 import { COMMAND_BUTTON_SIZE_CLASSES, StepNavButton } from '@/components/common/ActionButton'
 
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import {
   FullBill,
   ReturnInspectionItem,
@@ -23,7 +23,7 @@ import { useToast } from '@/components/common/Toast'
 import { PostSavePrintModal, type PrintFormChoice } from '@/components/common/PostSavePrintModal'
 import { BusinessSettings } from '@/lib/types/rental-pos'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { applyDepositToBill, chargeExtraRounds, correctBill, createContinuation, processReturn, receivePayment, refundDeposit, refundOverpayment } from '@/features/bills/services/bill-service'
+import { addDepositOnce, applyDepositToBill, chargeExtraRounds, createContinuation, processReturn, receivePayment, refundDeposit, refundOverpayment } from '@/features/bills/services/bill-service'
 import { useConfirm, useNotice } from '@/components/common/ConfirmDialogProvider'
 import { useSplitPayment } from '@/features/pos/hooks/useSplitPayment'
 import { allocateTenders, type Tender } from '@/features/pos/services/split-payment'
@@ -32,7 +32,7 @@ import { fullBillToTemplateData, type BillTemplateData } from '@/features/docume
 import { buildContinuationLine, formatBaht } from '@/features/bills/utils/bill-workspace'
 import { refreshBillsCache } from '@/features/bills/services/bill-storage'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
-import { dbErrorMessage } from '@/lib/db/rpc'
+import { dbErrorMessage, newIdempotencyKey } from '@/lib/db/rpc'
 import { ReturnTableStep } from '@/features/bills/components/ReturnTableStep'
 import type { ReturnQuantityField } from '@/features/bills/components/ReturnTableStep'
 import { isCancelledOrVoidBill } from '@/features/bills/utils/bill-list-presentation'
@@ -229,8 +229,14 @@ export function BillActionView({
     }
   }, [customerBills, selectedBillId, initialBillId, bills])
 
+  // One save of this form = one key (owner 2026-11-12). Every money step gets a fixed key from it and a step that
+  // finished is not run again when save is pressed after a failure; the database refuses a second copy of a key.
+  // A new key starts when the form starts again (another bill, or the bill re-read after a save).
+  const saveOpRef = useRef<{ key: string; done: Map<string, unknown> } | null>(null)
+
   // Reset internal states when activeBill changes
   useEffect(() => {
+    saveOpRef.current = null
     if (activeBill) {
       const todayStr = getLocalDateString(new Date())
       setBillRentalStartDate(activeBill.rentalStartDate)
@@ -372,7 +378,7 @@ export function BillActionView({
   // Rounds used beyond the bill on rows that do not continue: charged even when nothing comes back now.
   const extraRoundItems = inspectionItems.filter((i) => i.selected && extraRoundsFeeOf(i) > 0)
   const extraRoundsTotal = Math.round(extraRoundItems.reduce((sum, i) => sum + extraRoundsFeeOf(i), 0) * 100) / 100
-  const saveExtraRounds = () =>
+  const saveExtraRounds = (opKey: string) =>
     activeBill
       ? chargeExtraRounds(
           activeBill.id,
@@ -382,7 +388,8 @@ export function BillActionView({
             rounds: extraRoundsOf(i),
             quantity: i.outstandingQty,
             fee: extraRoundsFeeOf(i),
-          }))
+          })),
+          opKey
         )
       : Promise.resolve()
 
@@ -639,7 +646,7 @@ export function BillActionView({
     const formName = RETURN_DOC_FORM_NAME[docType]
     return (
       <div className="flex h-full w-full items-center justify-center bg-white p-6 text-center text-xs text-slate-600">
-        {shopForms.loaded ? `ไม่พบแบบฟอร์มของ "${formName}" กรุณาเพิ่มที่เมนูจัดการเอกสาร` : 'กำลังโหลดแบบฟอร์ม...'}
+        {shopForms.loaded ? `ไม่พบแบบฟอร์มของ "${formName}" กรุณาเพิ่มที่ ตั้งค่าระบบ › เทมเพลต` : 'กำลังโหลดแบบฟอร์ม...'}
       </div>
     )
   }
@@ -778,6 +785,15 @@ export function BillActionView({
       return
     }
 
+    const op = (saveOpRef.current ??= { key: newIdempotencyKey(), done: new Map() })
+    /** Runs a step once per save: done before → its first answer; otherwise run with the step's fixed key. */
+    const once = async <T,>(step: string, run: (key: string) => Promise<T>): Promise<T> => {
+      if (op.done.has(step)) return op.done.get(step) as T
+      const result = await run(`${op.key}:${step}`)
+      op.done.set(step, result)
+      return result
+    }
+
     // เพิ่มมัดจำ: recorded first, while the bill is still open.
     const addDeposit = async () => {
       if (depositAction !== 'ADD' || depositAmount <= 0) return
@@ -785,17 +801,15 @@ export function BillActionView({
         .filter(Boolean)
         .join(' | ')
       // Held + the added deposit; the part not received yet stays as it is
-      await correctBill(
-        activeBill.id,
-        { depositAmount: depositHeld + depositAmount + (activeBill.depositOutstanding || 0), depositNote: note },
-        ''
-      )
+      const target = depositHeld + depositAmount + (activeBill.depositOutstanding || 0)
+      await once('dep-add', (key) => addDepositOnce(activeBill.id, target, note, key))
     }
     // คืนมัดจำ: recorded last; the bill closes when nothing else is left on it.
     const giveBackDeposit = async () => {
       if (depositAction !== 'REFUND' || depositAmount <= 0) return null
-      return refundDeposit(activeBill.id, depositAmount, depositRefundMethod)
+      return once('dep-back', (key) => refundDeposit(activeBill.id, depositAmount, depositRefundMethod, key))
     }
+    const extraRounds = () => once('xr', () => saveExtraRounds(op.key))
     const depositText = hasDepositAction
       ? `${depositAction === 'REFUND' ? 'คืนมัดจำ' : 'เพิ่มมัดจำ'} ${formatBaht(depositAmount)} บาท`
       : ''
@@ -818,30 +832,29 @@ export function BillActionView({
       setIsSubmitting(true)
       try {
         await addDeposit()
-        await saveExtraRounds()
+        await extraRounds()
         let fresh: FullBill | null = null
         let receiptNo: string | undefined
         let paid = 0
         let fromDeposit = 0
         if (useDeposit > 0) {
-          const depositResult = await applyDepositToBill(activeBill.id, useDeposit, paymentDate)
+          const depositResult = await once('dep-use', (key) => applyDepositToBill(activeBill.id, useDeposit, paymentDate, key))
           fresh = depositResult.bill
           fromDeposit = depositResult.totalAmount ?? useDeposit
         }
         if (canPay) {
-          const paymentResult = await receivePayment(
-            activeBill.id,
-            withRef(allocateTenders(pay.totals.tenders, collected)[0]),
-            paymentDate
+          const paymentResult = await once('pay', (key) =>
+            receivePayment(activeBill.id, withRef(allocateTenders(pay.totals.tenders, collected)[0]), paymentDate, key)
           )
           fresh = paymentResult.bill
           if (!fresh) throw new Error('บันทึกแล้วแต่โหลดบิลใหม่ไม่สำเร็จ — กรุณารีเฟรช')
           receiptNo = paymentResult.receiptNo || undefined
           paid = paymentResult.totalAmount ?? collected
         }
-        const overpayment = await refundOverpayment(activeBill.id)
+        const overpayment = await once('ovp', () => refundOverpayment(activeBill.id, op.key))
         fresh = overpayment.bill ?? fresh
         fresh = (await giveBackDeposit()) ?? fresh
+        saveOpRef.current = null
         if (canPay) freezePrintChoices(fresh, ['RECEIPT'], receiptNo)
         const fresh2 = fresh
         if (fresh2) setBills((prev) => prev.map((b) => (b.id === fresh2.id ? fresh2 : b)))
@@ -930,11 +943,12 @@ export function BillActionView({
       let returnNo = ''
 
       await addDeposit()
-      await saveExtraRounds()
+      await extraRounds()
 
       // 1) Goods back (+ damage cases/fees + lost + early-return recalculation) — one return per day.
       if (returnedItems.length > 0) {
-        const result = await processReturn({
+        const result = await once('return', () => processReturn({
+          opKey: op.key,
           billId: activeBill.id,
           returnedDay: actualReturnDate,
           items: returnedItems.map((item) => ({
@@ -950,7 +964,7 @@ export function BillActionView({
             returnedDay:
               item.rentalType === 'DAILY' && !(item.continueQty || 0) ? item.actualReturnDate || undefined : undefined,
           })),
-        })
+        }))
         returnSaved = true
         updatedBill = result.bill
         returnNo = result.returnNo || ''
@@ -960,7 +974,8 @@ export function BillActionView({
       let childBillId = ''
       let childBillNo = ''
       if (continuing.length > 0) {
-        childBillId = await createContinuation({
+        childBillId = await once('cont', (key) => createContinuation({
+          key,
           parentBillId: activeBill.id,
           reason: '',
           startMode,
@@ -973,7 +988,7 @@ export function BillActionView({
             startAt: line.startAt,
             endAt: line.endAt,
           })),
-        })
+        }))
         const latest = await refreshBillsCache()
         setBills(latest)
         updatedBill = latest.find((b) => b.id === activeBill.id) ?? updatedBill
@@ -988,7 +1003,7 @@ export function BillActionView({
       )
       const useDeposit = deductFromDeposit ? Math.min(depositHeld, owesNow) : 0
       if (useDeposit > 0) {
-        const depositResult = await applyDepositToBill(activeBill.id, useDeposit, paymentDate)
+        const depositResult = await once('dep-use', (key) => applyDepositToBill(activeBill.id, useDeposit, paymentDate, key))
         updatedBill = depositResult.bill ?? updatedBill
         depositPaid = depositResult.totalAmount ?? useDeposit
       }
@@ -1003,13 +1018,13 @@ export function BillActionView({
         const [toChildTenders] = allocateTenders(leftTenders, continuationTotal)
         const toChild = toChildTenders.reduce((sum, t) => sum + t.amount, 0)
         if (toParentTenders.length > 0) {
-          const paymentResult = await receivePayment(activeBill.id, withRef(toParentTenders), paymentDate)
+          const paymentResult = await once('pay', (key) => receivePayment(activeBill.id, withRef(toParentTenders), paymentDate, key))
           updatedBill = paymentResult.bill
           receiptNo = paymentResult.receiptNo
           paidAmount = paymentResult.totalAmount
         }
         if (childBillId && toChild > 0) {
-          const childPayment = await receivePayment(childBillId, withRef(toChildTenders), paymentDate)
+          const childPayment = await once('pay-child', (key) => receivePayment(childBillId, withRef(toChildTenders), paymentDate, key))
           receiptNo = receiptNo ?? childPayment.receiptNo
           paidAmount = (paidAmount ?? 0) + (childPayment.totalAmount ?? toChild)
           setBills(await refreshBillsCache())
@@ -1017,11 +1032,12 @@ export function BillActionView({
       }
 
       // 5) Paid more than the bill now comes to (e.g. returned early): given back now (owner 2026-11-09).
-      const overpayment = await refundOverpayment(activeBill.id)
+      const overpayment = await once('ovp', () => refundOverpayment(activeBill.id, op.key))
       updatedBill = overpayment.bill ?? updatedBill
 
       // 6) คืนมัดจำ last: the bill closes when nothing else is left on it.
       updatedBill = (await giveBackDeposit()) ?? updatedBill
+      saveOpRef.current = null
 
       if (updatedBill) {
         const fresh = updatedBill

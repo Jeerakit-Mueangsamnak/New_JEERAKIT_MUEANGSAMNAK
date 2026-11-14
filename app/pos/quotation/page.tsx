@@ -163,7 +163,7 @@ export default function QuotationSummaryPage() {
           </A4FitPreview>
         ) : (
           <div className="flex h-full items-center justify-center p-6 text-center text-xs text-slate-600 dark:text-slate-400">
-            {template === undefined ? 'กำลังโหลดตัวอย่างใบเสนอราคา...' : 'ยังไม่มีแบบฟอร์มใบเสนอราคาที่ใช้แสดงได้ กรุณาเพิ่มที่เมนูจัดการเอกสาร'}
+            {template === undefined ? 'กำลังโหลดตัวอย่างใบเสนอราคา...' : 'ยังไม่มีแบบฟอร์มใบเสนอราคาที่ใช้แสดงได้ กรุณาเพิ่มที่ ตั้งค่าระบบ › เทมเพลต'}
           </div>
         )
       }

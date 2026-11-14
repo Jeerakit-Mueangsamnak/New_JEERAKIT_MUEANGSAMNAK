@@ -8,6 +8,7 @@ import { QuickActionLauncher } from '@/components/common/QuickActionLauncher'
 import { AppLockButton } from '@/features/auth/components/AppLockButton'
 import { HeldCartButton } from '@/features/pos/components/HeldCartButton'
 import { getPageMeta } from '@/lib/navigation-meta'
+import { isPublicRoute } from '@/features/auth/services/public-routes'
 import { LiveClockBadge } from '@/components/common/LiveClockBadge'
 import { useSidebarDrawer } from '@/lib/hooks/useSidebarDrawer'
 import {
@@ -26,12 +27,10 @@ function TopHeaderContent() {
   const searchParams = useSearchParams()
   const { isOpen, toggle } = useSidebarDrawer()
 
-  const isAuthRoute = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email', '/auth'].some(
-    (route) => pathname === route || pathname?.startsWith(route + '/')
-  )
   const { name: pageName, icon: PageIcon, colorClass, dotClass } = getPageMeta(pathname || '', searchParams)
 
-  if (isAuthRoute) return null
+  // Pages without a session (login, the forms inside LINE, …) show no app header
+  if (isPublicRoute(pathname)) return null
 
   return (
     <header className={`sticky top-0 z-30 ${APP_HEADER_HEIGHT_CLASS} ${APP_HEADER_PADDING_X_CLASS} ${APP_CHROME_BG_CLASSES} ${APP_CHROME_BORDER_CLASSES} border-b shadow-sm text-slate-900 dark:text-slate-100 shrink-0 relative flex items-center justify-between gap-2`}>

@@ -6,9 +6,10 @@ import { CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
 import { AuthLayout } from '@/features/auth/components/AuthLayout'
 import { SETTINGS_HELPER, SETTINGS_INPUT, SETTINGS_LABEL } from '@/features/settings/components/settings-ui'
 import { type LineInviteKind } from '@/lib/line/config'
+import { postLiff, useLiff, type Liff } from '@/lib/line/use-liff'
 
 /**
- * Invite link page (LIFF), opened in the LINE app from https://liff.line.me/<LIFF id>?t=<code>&k=<kind>.
+ * Invite link page (LIFF), opened in the LINE app from https://liff.line.me/<LIFF id>/bind?t=<code>&k=<kind>.
  * The person types their name (+ phone for a customer) and LINE ID; the LINE userId is never
  * typed: the server reads it from the LIFF ID token after LINE verified it.
  */
@@ -21,8 +22,6 @@ const KIND_TITLE: Record<LineInviteKind, string> = {
   CUSTOMER: 'ยืนยันตัวตนลูกค้า',
 }
 
-type Liff = (typeof import('@line/liff'))['default']
-
 export default function LineBindPage() {
   const [phase, setPhase] = useState<Phase>('loading')
   const [message, setMessage] = useState('')
@@ -34,71 +33,57 @@ export default function LineBindPage() {
   const [phone, setPhone] = useState('')
   const [lineHandle, setLineHandle] = useState('')
 
+  const opened = useLiff()
+
   useEffect(() => {
-    const liffId = process.env.NEXT_PUBLIC_LIFF_ID
-    if (!liffId) {
-      setMessage('ระบบผูก LINE ยังไม่ได้ตั้งค่า กรุณาแจ้งร้าน')
+    if (opened.phase === 'loading') return
+    if (opened.phase === 'error') {
+      setMessage(opened.message)
       setPhase('error')
       return
     }
+    const sdk = opened.liff
     let cancelled = false
     void (async () => {
-      try {
-        const sdk = (await import('@line/liff')).default
-        await sdk.init({ liffId })
-        if (!sdk.isLoggedIn()) {
-          sdk.login({ redirectUri: window.location.href })
-          return
-        }
-        const params = new URLSearchParams(window.location.search)
-        const t = (params.get('t') || '').trim().toUpperCase()
-        const k = (params.get('k') || '').toUpperCase()
-        if (!/^LINK-[A-HJ-NP-Z2-9]{10}$/.test(t)) {
-          setMessage('ลิงก์ไม่ถูกต้อง กรุณาขอลิงก์ใหม่จากร้าน')
-          setPhase('error')
-          return
-        }
-        const [profile, friendship] = await Promise.all([
-          sdk.getProfile().catch(() => null),
-          sdk.getFriendship().catch(() => null),
-        ])
-        if (cancelled) return
-        setLiff(sdk)
-        setCode(t)
-        setKind(k === 'CUSTOMER' || k === 'DRIVER' ? k : 'STAFF')
-        setIsFriend(friendship ? friendship.friendFlag : null)
-        setName(profile?.displayName ?? '')
-        setPhase('form')
-      } catch {
-        if (!cancelled) {
-          setMessage('เปิดหน้ายืนยันไม่สำเร็จ กรุณาเปิดลิงก์ในแอป LINE อีกครั้ง')
-          setPhase('error')
-        }
+      const params = new URLSearchParams(window.location.search)
+      const t = (params.get('t') || '').trim().toUpperCase()
+      const k = (params.get('k') || '').toUpperCase()
+      if (!/^LINK-[A-HJ-NP-Z2-9]{10}$/.test(t)) {
+        setMessage('ลิงก์ไม่ถูกต้อง กรุณาขอลิงก์ใหม่จากร้าน')
+        setPhase('error')
+        return
       }
+      const [profile, friendship] = await Promise.all([
+        sdk.getProfile().catch(() => null),
+        sdk.getFriendship().catch(() => null),
+      ])
+      if (cancelled) return
+      setLiff(sdk)
+      setCode(t)
+      setKind(k === 'CUSTOMER' || k === 'DRIVER' ? k : 'STAFF')
+      setIsFriend(friendship ? friendship.friendFlag : null)
+      setName(profile?.displayName ?? '')
+      setPhase('form')
     })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [opened])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!liff || phase === 'sending') return
     setPhase('sending')
-    try {
-      const res = await fetch('/api/line/liff-bind', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken: liff.getIDToken(), code, typedName: name, typedPhone: phone, lineHandle, isFriend }),
-      })
-      const body = (await res.json()) as { ok: boolean; message?: string; result?: string }
-      setMessage(body.message || (body.ok ? 'ผูก LINE เรียบร้อย' : 'ผูก LINE ไม่สำเร็จ'))
-      // a missing name / phone keeps the form open; anything else is final
-      setPhase(body.ok ? 'done' : body.result === 'NAME_REQUIRED' || body.result === 'PHONE_REQUIRED' ? 'form' : 'error')
-    } catch {
-      setMessage('ส่งข้อมูลไม่สำเร็จ กรุณาลองใหม่')
-      setPhase('form')
-    }
+    const body = await postLiff<{ ok: boolean; message?: string; result?: string }>(liff, '/api/line/liff-bind', {
+      code,
+      typedName: name,
+      typedPhone: phone,
+      lineHandle,
+      isFriend,
+    })
+    setMessage(body.message || (body.ok ? 'ผูก LINE เรียบร้อย' : 'ผูก LINE ไม่สำเร็จ'))
+    // a missing name / phone (or a network failure: no result) keeps the form open; anything else is final
+    setPhase(body.ok ? 'done' : !body.result || body.result === 'NAME_REQUIRED' || body.result === 'PHONE_REQUIRED' ? 'form' : 'error')
   }
 
   return (

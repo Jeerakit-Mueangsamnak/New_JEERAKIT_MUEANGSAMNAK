@@ -57,7 +57,7 @@ export function AuthLayout({
   return (
     <div
       data-auth-layout={isLandscape ? 'landscape' : 'portrait'}
-      className={`fixed top-0 left-0 right-0 w-full overflow-hidden overscroll-none bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex z-50 ${
+      className={`fixed top-0 left-0 right-0 w-full overflow-hidden overscroll-none bg-slate-100 dark:bg-black text-slate-900 dark:text-slate-100 flex z-50 ${
         isLandscape ? 'flex-row' : 'flex-col'
       } ${className}`}
       style={{

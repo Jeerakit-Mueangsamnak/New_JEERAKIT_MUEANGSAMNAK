@@ -108,7 +108,7 @@ export async function loadMainBillForm(): Promise<DocumentTemplate | undefined> 
 }
 
 /** Shown when a bill cannot be printed because the shop's main bill form is missing. */
-export const MAIN_BILL_FORM_MISSING = `ไม่พบแบบฟอร์มของ "${MAIN_BILL_FORM_NAME}" กรุณาเพิ่มที่เมนูจัดการเอกสาร`
+export const MAIN_BILL_FORM_MISSING = `ไม่พบแบบฟอร์มของ "${MAIN_BILL_FORM_NAME}" กรุณาเพิ่มที่ ตั้งค่าระบบ › เทมเพลต`
 
 /** A saved bill printed again on the shop's main bill form; false when there is no form or nothing to print. */
 export async function printSavedBill(bill: FullBill, business: Partial<BusinessSettings> | undefined): Promise<boolean> {

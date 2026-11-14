@@ -238,7 +238,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
                 กำหนดส่ง/คืนตามบิล
               </h3>
             </div>
-            <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 font-bold">
+            <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold">
               7 วันล่าสุด
             </span>
           </div>

@@ -36,11 +36,14 @@ export function formatPromptPayNumber(value: string | null | undefined, type?: s
 
 const field = (id: string, value: string) => `${id}${String(value.length).padStart(2, '0')}${value}`
 
-/** CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF), as the Thai QR standard requires. */
+/** CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF), as the Thai QR standard requires.
+ *  Input is UTF-8 bytes (Thai QR fields may hold non-ASCII text; charCodeAt would give
+the UTF-16 unit instead, and the bank app recomputes the CRC over the bytes and rejects the QR). */
 export function crc16(text: string): string {
+  const bytes = new TextEncoder().encode(text)
   let crc = 0xffff
-  for (let i = 0; i < text.length; i++) {
-    crc ^= text.charCodeAt(i) << 8
+  for (let i = 0; i < bytes.length; i++) {
+    crc ^= bytes[i] << 8
     for (let b = 0; b < 8; b++) {
       crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff
     }

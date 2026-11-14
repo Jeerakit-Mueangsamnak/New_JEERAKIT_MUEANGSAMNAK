@@ -129,6 +129,8 @@ export interface DriverJobDetails {
   phone?: string | null
   place?: string | null
   detail?: string | null
+  /** The driver job form in LINE (LIFF), when the shop has set it up */
+  formUrl?: string | null
 }
 
 /** Job to a driver: only "รับงาน". After that every reply carries the button of the next step. */
@@ -148,6 +150,7 @@ export function driverTaskMessages(
       { label: 'รายละเอียด', value: details.detail ?? '' },
     ]
     const buttons: FlexButton[] = [{ label: 'รับงาน', postback: taskPostbackData(taskId, 'ACCEPT'), displayText: 'รับงาน', primary: true }]
+    if (details.formUrl) buttons.push({ label: 'เปิดฟอร์มงาน', uri: details.formUrl })
     const map = mapUrl(details.place)
     const tel = telUrl(details.phone)
     if (map) buttons.push({ label: 'เปิดแผนที่', uri: map })

@@ -7,6 +7,7 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import { LogOut, ChevronRight, ChevronDown } from 'lucide-react'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { menuForPath } from '@/features/auth/services/permissions'
+import { isPublicRoute } from '@/features/auth/services/public-routes'
 import { getPageMeta } from '@/lib/navigation-meta'
 import { useSidebarDrawer } from '@/lib/hooks/useSidebarDrawer'
 import { APP_CHROME_BG_CLASSES } from '@/components/common/ActionButton'
@@ -18,7 +19,7 @@ const MENU_HREFS = [
   '/appointments',
   '/pos',
   '/bills',
-  '/documents',
+  '/line', // owner 2026-11-14: LINE out of ตั้งค่า, under จัดการบิล
   '/customers',
   '/products',
   '/quotations',
@@ -30,6 +31,7 @@ const MENU_HREFS = [
 const MENU_GROUPS: Record<string, string[]> = {
   '/dashboard': ['assets', 'stock', 'business'],
   '/reports': ['finance', 'sales-rental', 'operations', 'stock', 'business'],
+  '/settings': ['personal', 'system'],
 }
 
 const viewParams = (view: string) => ({ get: (k: string) => (k === 'view' ? view : null) })
@@ -63,10 +65,8 @@ function SidebarContent() {
     setIsMobileOpen(false)
   }, [pathname, setIsMobileOpen])
 
-  const isAuthRoute = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email'].some(
-    (route) => pathname === route || pathname.startsWith(route + '/')
-  )
-  if (isAuthRoute) return null
+  // Pages without a session (login, the forms inside LINE, …) show no app menu
+  if (isPublicRoute(pathname)) return null
 
   const handleMenuClick = () => {
     setIsMobileOpen(false)

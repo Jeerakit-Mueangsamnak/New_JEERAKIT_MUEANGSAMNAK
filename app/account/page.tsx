@@ -4,7 +4,7 @@ import React, { Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { MyAccountPanel, type MyAccountTab } from '@/features/settings/components/MyAccountPanel'
 
-const TABS: MyAccountTab[] = ['PROFILE', 'SECURITY', 'NOTIFICATIONS', 'APPEARANCE']
+const TABS: MyAccountTab[] = ['PROFILE', 'NOTIFICATIONS', 'APPEARANCE']
 
 function AccountPageContent() {
   const tab = useSearchParams().get('tab')?.toUpperCase() as MyAccountTab | undefined

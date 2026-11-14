@@ -1,7 +1,16 @@
 import { createClient } from '@/lib/supabase/client'
+import { FORM_NOTE_LINES } from '@/features/documents/utils/form-notes'
+import { parseLineCardDesigns } from '@/lib/line/bill-card-design'
+import { parseLineMessageTemplates } from '@/lib/line/message-templates'
 import { rpc } from '@/lib/db/rpc'
 import { setCachedPolicies, type Policies } from '@/lib/db/policies'
 import {
+  activePaymentAccount,
+  activeShopProfile,
+  withActivePaymentAccount,
+  withActiveShopProfile,
+  type PaymentAccount,
+  type ShopProfile,
   DEFAULT_SYSTEM_CONFIG,
   DOCUMENT_TYPES,
   DOC_DIGITS_DEFAULT,
@@ -78,7 +87,7 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
   const receiving = obj(pol.payment_receiving)
   const d = DEFAULT_SYSTEM_CONFIG
 
-  const business: BusinessSettings = {
+  const singleAccount: BusinessSettings = {
     businessName: str(row.company_name, oldBiz.businessName),
     taxId: str(row.tax_id, oldBiz.taxId),
     address: str(row.address, oldBiz.address),
@@ -94,6 +103,41 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
     promptPayValue: str(receiving.promptPayValue, oldBiz.promptPayValue),
     bankQrDataUrl: str(receiving.bankQrDataUrl, oldBiz.bankQrDataUrl),
   }
+  // Several accounts (owner 2026-11-13); a shop saved before that has its one account in the single fields.
+  const savedAccounts: PaymentAccount[] = (Array.isArray(receiving.accounts) ? receiving.accounts : [])
+    .map((a) => obj(a))
+    .filter((a) => typeof a.id === 'string' && a.id)
+    .map((a) => ({
+      id: String(a.id),
+      bankName: str(a.bankName),
+      bankAccountName: str(a.bankAccountName),
+      bankAccountNumber: str(a.bankAccountNumber),
+      promptPayType: str(a.promptPayType) || 'TAX_ID',
+      promptPayValue: str(a.promptPayValue),
+      bankQrDataUrl: str(a.bankQrDataUrl),
+    }))
+  // Several sets of shop details (owner 2026-11-14); a shop saved before that has its one set in the single fields.
+  const savedProfiles: ShopProfile[] = (Array.isArray(profile.profiles) ? profile.profiles : [])
+    .map((p) => obj(p))
+    .filter((p) => typeof p.id === 'string' && p.id)
+    .map((p) => ({
+      id: String(p.id),
+      businessName: str(p.businessName),
+      taxId: str(p.taxId),
+      address: str(p.address),
+      phone: str(p.phone),
+      email: str(p.email),
+      lineId: str(p.lineId),
+      authorizedPerson: str(p.authorizedPerson),
+      logoDataUrl: str(p.logoDataUrl),
+    }))
+  const business: BusinessSettings = withActiveShopProfile(withActivePaymentAccount({
+    ...singleAccount,
+    paymentAccounts: savedAccounts.length ? savedAccounts : [{ ...activePaymentAccount(singleAccount), id: 'acc-1' }],
+    activePaymentAccountId: str(receiving.activeAccountId),
+    shopProfiles: savedProfiles.length ? savedProfiles : [{ ...activeShopProfile(singleAccount), id: 'shop-1' }],
+    activeShopProfileId: str(profile.activeProfileId),
+  }))
 
   const formats = obj(row.doc_number_formats)
   const documentNumbering = Object.fromEntries(
@@ -119,6 +163,7 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
     timezone: row.timezone || d.timezone,
     business,
     taxDiscount: {
+      vatEnabled: (num(row.vat_rate) ?? 0) > 0,
       vatRate: num(row.vat_rate),
       vatMode: row.vat_mode === 'INCLUSIVE' || row.vat_mode === 'EXCLUSIVE' ? row.vat_mode : null,
       discountLimitEnabled: pol.discount_limit_enabled === true,
@@ -136,6 +181,13 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
       autoLockOptionsSeconds: options,
       autoLockDefaultSeconds: num(pol.auto_lock_default_seconds) ?? d.shopSecurity.autoLockDefaultSeconds,
     },
+    lineBillCards: parseLineCardDesigns(pol.line_bill_cards),
+    lineMessageTemplates: parseLineMessageTemplates(pol.line_message_templates),
+    documentNotes: Object.fromEntries(
+      Object.entries(obj(pol.document_notes))
+        .filter(([, lines]) => Array.isArray(lines))
+        .map(([id, lines]) => [id, (lines as unknown[]).slice(0, FORM_NOTE_LINES).map((t) => (typeof t === 'string' ? t : ''))])
+    ),
     line: {
       notify: Object.fromEntries(Object.entries(obj(lineNotify)).filter(([, on]) => on === true)) as Record<string, boolean>,
       templates: Object.fromEntries(Object.entries(obj(lineTemplates)).filter(([, t]) => typeof t === 'string')) as Record<string, string>,
@@ -152,21 +204,37 @@ const clampDays = (v: unknown) => Math.max(0, Math.min(365, Math.floor(Number(v)
 export function sectionPatch(section: SettingsSection, cfg: SystemConfig): Record<string, unknown> {
   switch (section) {
     case 'business': {
-      const b = cfg.business
+      // the columns + single fields = the set in use (older readers), plus the whole list
+      const b = withActiveShopProfile(cfg.business)
+      const trimmed = (p: ShopProfile) =>
+        Object.fromEntries(Object.entries(p).map(([k, v]) => [k, k === 'logoDataUrl' ? v || '' : (v || '').trim()]))
       return {
         company_name: b.businessName.trim() || null,
         tax_id: b.taxId.trim() || null,
         address: b.address.trim() || null,
         phone: b.phone.trim() || null,
         logo_url: b.logoDataUrl || null,
-        policies: { business_profile: Object.fromEntries(BUSINESS_PROFILE_KEYS.map((k) => [k, (b[k] || '').trim()])) },
+        policies: {
+          business_profile: {
+            ...Object.fromEntries(BUSINESS_PROFILE_KEYS.map((k) => [k, (b[k] || '').trim()])),
+            profiles: (b.shopProfiles ?? []).map(trimmed),
+            activeProfileId: b.activeShopProfileId || '',
+          },
+        },
       }
     }
     case 'payment': {
-      const b = cfg.business
+      const b = withActivePaymentAccount(cfg.business)
+      const trimmed = (a: PaymentAccount) =>
+        Object.fromEntries(['id', ...PAYMENT_RECEIVING_KEYS].map((k) => [k, (a[k as keyof PaymentAccount] || '').trim()]))
       return {
         policies: {
-          payment_receiving: Object.fromEntries(PAYMENT_RECEIVING_KEYS.map((k) => [k, (b[k] || '').trim()])),
+          // the single fields = the account in use (older readers), plus the whole list
+          payment_receiving: {
+            ...Object.fromEntries(PAYMENT_RECEIVING_KEYS.map((k) => [k, (b[k] || '').trim()])),
+            accounts: (b.paymentAccounts ?? []).map(trimmed),
+            activeAccountId: b.activePaymentAccountId || '',
+          },
           allow_overpayment: cfg.payment.allowOverpayment,
         },
       }
@@ -176,7 +244,8 @@ export function sectionPatch(section: SettingsSection, cfg: SystemConfig): Recor
       const limitOn = t.discountLimitEnabled
       return {
         // Only the rate: รวม / ไม่รวม VAT is chosen on each bill / quotation (owner 2026-11-04).
-        vat_rate: t.vatRate === null ? null : Number(t.vatRate),
+        // Switch off = no rate saved (the POS then cannot add VAT to a bill).
+        vat_rate: t.vatEnabled && t.vatRate !== null ? Number(t.vatRate) : null,
         policies: { discount_limit_enabled: limitOn, discount_limit_percent: limitOn ? Number(t.discountLimitPercent) : null },
       }
     }
@@ -221,6 +290,24 @@ export function sectionPatch(section: SettingsSection, cfg: SystemConfig): Recor
           auto_lock_default_seconds: cfg.shopSecurity.autoLockDefaultSeconds,
         },
       }
+    case 'documentNotes':
+      return {
+        policies: {
+          document_notes: Object.fromEntries(sortedEntries(cfg.documentNotes).map(([id, lines]) => [id, lines.map((t) => t.trim())])),
+        },
+      }
+    case 'lineMessageTemplates':
+      return {
+        policies: {
+          line_message_templates: cfg.lineMessageTemplates.map((t) => ({ ...t, name: t.name.trim(), subject: t.subject.trim() })),
+        },
+      }
+    case 'lineBillCards':
+      return {
+        policies: {
+          line_bill_cards: cfg.lineBillCards.map((d) => ({ ...d, name: d.name.trim(), title: d.title.trim(), badge: d.badge.trim(), footer: d.footer.trim() })),
+        },
+      }
     case 'line': {
       // policies.line is replaced as a whole by settings_update, so the keys this screen does
       // not edit (link limits) go back unchanged. Only "on" types and non-empty texts are kept.
@@ -262,6 +349,9 @@ export const SECTION_REASON: Record<SettingsSection, string> = {
   notifications: 'แก้การแจ้งเตือน',
   shopSecurity: 'แก้ความปลอดภัยร้าน',
   line: 'แก้การตั้งค่า LINE',
+  documentNotes: 'แก้หมายเหตุเอกสาร',
+  lineBillCards: 'แก้การ์ดบิล LINE',
+  lineMessageTemplates: 'แก้แม่แบบข้อความ LINE',
 }
 
 /** Saves ONE section (only its keys) and returns the whole config the server now holds. */

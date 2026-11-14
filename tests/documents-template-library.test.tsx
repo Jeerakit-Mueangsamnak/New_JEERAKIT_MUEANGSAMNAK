@@ -74,8 +74,8 @@ vi.mock('@/features/documents/api/customer-document-repository', () => ({
   uploadCustomerImage: mocks.upload,
 }))
 
-import DocumentsPage from '@/app/documents/page'
 import { TemplateLibraryPanel, renderLibraryTemplate } from '@/features/documents/components/TemplateLibraryPanel'
+import { CustomerDocumentsWorkspace } from '@/features/documents/components/CustomerDocumentsWorkspace'
 
 const business = { businessName: 'ร้านทดสอบ' }
 // A shop quotation form as it is kept in Supabase (document_templates).
@@ -512,7 +512,31 @@ describe('เพิ่มแบบฟอร์ม › ชื่อเอกส�
   })
 })
 
-describe('หน้าเอกสาร', () => {
+type DocTab = 'create' | 'library' | 'add'
+
+/**
+ * ตั้งค่าระบบ › เทมเพลต (app/settings/page.tsx) without the rest of the settings page: tabs สร้างเอกสาร |
+ * คลังแบบฟอร์ม | เพิ่มแบบฟอร์ม, both workspaces stay mounted and the hidden one keeps its unsaved documents.
+ */
+function TemplateTabsHost({ start }: { start: DocTab }) {
+  const [tab, setTab] = React.useState<DocTab>(start)
+  const business = mocks.settings.settings.business as React.ComponentProps<typeof TemplateLibraryPanel>['business']
+  return (
+    <>
+      <button type="button" onClick={() => setTab('create')}>สร้างเอกสาร</button>
+      <button type="button" onClick={() => setTab('library')}>คลังแบบฟอร์ม</button>
+      <button type="button" onClick={() => setTab('add')}>เพิ่มแบบฟอร์ม</button>
+      <div hidden={tab !== 'create'}>
+        <CustomerDocumentsWorkspace business={business} />
+      </div>
+      <div hidden={tab === 'create'}>
+        <TemplateLibraryPanel mode={tab === 'add' ? 'ADD' : 'LIBRARY'} onModeChange={(m) => setTab(m === 'ADD' ? 'add' : 'library')} business={business} />
+      </div>
+    </>
+  )
+}
+
+describe('เทมเพลต › สร้างเอกสาร / คลังแบบฟอร์ม', () => {
   const CUSTOMER = { id: 'c1', customerName: 'ช่างทองสุข', customerCode: 'CUST-1', phone: '080', address: 'กทม', isSuspended: false }
   const ACTIVE_DOC = {
     id: 'd-active', customer_id: 'c1', doc_type: 'OTHER', template_code: 'tpl-form-c', template_version: '1',
@@ -546,12 +570,11 @@ describe('หน้าเอกสาร', () => {
   }
   const counter = () => view().getByText(/^เลือกแล้ว/).textContent
   const renderCreatePage = () => {
-    render(<DocumentsPage />)
-    fireEvent.click(screen.getByRole('button', { name: /สร้างเอกสาร/ }))
+    render(<TemplateTabsHost start="create" />)
   }
 
-  it('opens directly to the template library with the shop forms', async () => {
-    render(<DocumentsPage />)
+  it('คลังแบบฟอร์ม lists the shop forms', async () => {
+    render(<TemplateTabsHost start="library" />)
     expect(await screen.findByText(`รายการแบบฟอร์มเอกสาร (${FORMS.length})`)).toBeTruthy()
     for (const form of FORMS) expect(screen.getByTestId(`tpl-row-${form.id}`)).toBeTruthy()
   })
@@ -651,12 +674,12 @@ describe('หน้าเอกสาร', () => {
     await waitFor(() => expect(screen.queryAllByTestId(/doc-row-draft:/)).toHaveLength(0))
   })
 
-  it('จัดการเอกสาร has only คลังแบบฟอร์ม | เพิ่มแบบฟอร์ม, and unsaved documents survive switching tabs', async () => {
+  it('unsaved documents survive switching to คลังแบบฟอร์ม / เพิ่มแบบฟอร์ม and back', async () => {
     renderCreatePage()
     await pickCustomer()
     await addForm('tpl-form-c')
 
-    fireEvent.click(screen.getByRole('button', { name: /จัดการเอกสาร/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^คลังแบบฟอร์ม$/ }))
     expect(screen.getByText(`รายการแบบฟอร์มเอกสาร (${FORMS.length})`)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /^เอกสารลูกค้า$/ })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /เพิ่มแบบฟอร์ม/ }))

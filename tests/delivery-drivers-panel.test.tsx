@@ -30,7 +30,7 @@ vi.mock('@/components/common/ConfirmDialogProvider', () => ({
   useNotice: () => vi.fn(async () => undefined),
   useAskText: () => vi.fn(async () => null),
 }))
-vi.mock('@/features/appointments/services/appointment-storage', () => ({ loadAppointments: () => [] }))
+vi.mock('@/features/appointments/services/appointment-storage', () => ({ loadAppointments: () => [], fetchAppointmentsFromSupabase: async () => [] }))
 
 describe('Settings › LINE › ทะเบียนคนขับ', () => {
   afterEach(cleanup)

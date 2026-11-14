@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { qrDataUrl } from '@/lib/qr-code'
 import { CheckCircle2, Copy, Send, ShieldAlert } from 'lucide-react'
-import { ActionButton } from '@/components/common/ActionButton'
+import { ActionButton, COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 import { AppModal, AppModalBody, AppModalHeader } from '@/components/common/AppModal'
 import { useToast } from '@/components/common/Toast'
 import { confirmLineContactReview, createLineInviteLink, type LineInviteResult } from '@/app/actions/line'
@@ -75,7 +75,7 @@ export function LineInviteButton({ kind, target, name, disabled }: { kind: LineI
                     href={invite.shareUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-full h-9 rounded-xl bg-[#06C755] hover:brightness-95 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5"
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full bg-[#06C755] hover:brightness-95 text-white inline-flex items-center justify-center`}
                   >
                     <Send className="w-4 h-4" /> แชร์ไปที่ LINE
                   </a>

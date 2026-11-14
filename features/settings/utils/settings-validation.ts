@@ -1,5 +1,7 @@
 import type { SettingsSection, SystemConfig } from '@/features/settings/services/settings-storage'
 import { sectionPatch } from '@/features/settings/api/settings-repository'
+import { LINE_CARD_LIMITS, validateLineCardDesign } from '@/lib/line/bill-card-design'
+import { LINE_MESSAGE_LIMITS, validateLineMessageTemplate } from '@/lib/line/message-templates'
 import { validateLinePolicy } from '@/lib/line/policy'
 
 export function autoLockLabel(seconds: number): string {
@@ -18,9 +20,26 @@ export function validateSection(section: SettingsSection, cfg: SystemConfig): st
   }
   if (section === 'taxDiscount') {
     const t = cfg.taxDiscount
-    if (t.vatRate !== null && !(t.vatRate > 0 && t.vatRate <= 100)) return 'อัตรา VAT ต้องมากกว่า 0 และไม่เกิน 100'
+    if (t.vatEnabled && !(t.vatRate !== null && t.vatRate > 0 && t.vatRate <= 100)) return 'เมื่อเปิดคิดภาษี ต้องระบุอัตรา VAT มากกว่า 0 และไม่เกิน 100'
     if (t.discountLimitEnabled && (t.discountLimitPercent === null || t.discountLimitPercent < 0 || t.discountLimitPercent > 100))
       return 'เมื่อเปิดเพดานส่วนลด ต้องระบุเปอร์เซ็นต์ 0–100'
+  }
+  if (section === 'lineMessageTemplates') {
+    if (cfg.lineMessageTemplates.length > LINE_MESSAGE_LIMITS.templates) return `บันทึกแม่แบบได้ไม่เกิน ${LINE_MESSAGE_LIMITS.templates} แบบ`
+    for (const t of cfg.lineMessageTemplates) {
+      const error = validateLineMessageTemplate(t)
+      if (error) return error
+    }
+  }
+  if (section === 'lineBillCards') {
+    if (cfg.lineBillCards.length > LINE_CARD_LIMITS.cards) return `บันทึกการ์ดได้ไม่เกิน ${LINE_CARD_LIMITS.cards} ใบ`
+    for (const d of cfg.lineBillCards) {
+      const error = validateLineCardDesign(d)
+      if (error) return error
+    }
+  }
+  if (section === 'documentNotes') {
+    if (Object.values(cfg.documentNotes).some((lines) => lines.some((t) => t.trim().length > 300))) return 'หมายเหตุแต่ละข้อยาวได้ไม่เกิน 300 ตัวอักษร'
   }
   if (section === 'documentNumbering') {
     for (const [type, f] of Object.entries(cfg.documentNumbering)) {

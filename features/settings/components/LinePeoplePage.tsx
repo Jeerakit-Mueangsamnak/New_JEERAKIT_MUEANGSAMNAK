@@ -92,7 +92,8 @@ const thaiDate = (iso: string | null) =>
 const initials = (s: string | null) => (s || '?').trim().slice(0, 2)
 const phoneText = (p: string | null) => (p && /^\d{10}$/.test(p) ? `${p.slice(0, 3)}-${p.slice(3, 6)}-${p.slice(6)}` : p || '')
 
-export function LinePeoplePage() {
+/** embedded = inside ตั้งค่าระบบ › LINE: the settings page is the frame (no grey page around) */
+export function LinePeoplePage({ embedded = false }: { embedded?: boolean } = {}) {
   const { showToast } = useToast()
   const confirm = useConfirm()
   const { settings } = useSystemSettings()
@@ -348,7 +349,7 @@ export function LinePeoplePage() {
   )
 
   return (
-    <div className="h-full min-h-0 flex flex-col overflow-hidden p-2 gap-2 bg-slate-100 dark:bg-slate-900 text-xs">
+    <div className={`h-full min-h-0 flex flex-col overflow-hidden gap-2 text-xs ${embedded ? '' : 'p-2 bg-slate-100 dark:bg-black'}`.trim()}>
       {/* Summary: same cards as จัดการบิลเช่า */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 sm:gap-2 shrink-0">
         <StatCard tone="amber" label="รอร้านตรวจ" value={`${pending.length} คน`} icon={<UserPlus className="w-3.5 h-3.5" />} />
@@ -622,7 +623,7 @@ export function LinePeoplePage() {
           ) : (
             <p className="text-[11px] text-amber-700 dark:text-amber-300">
               ยังไม่ได้ใส่ LINE ID ของร้าน ใส่ได้ที่{' '}
-              <Link href="/settings?tab=business" className="underline font-bold">
+              <Link href="/settings?view=system&tab=business" className="underline font-bold">
                 ตั้งค่า › ข้อมูลกิจการ
               </Link>
             </p>

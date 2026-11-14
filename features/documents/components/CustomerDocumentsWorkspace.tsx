@@ -1,5 +1,6 @@
 'use client'
 import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { formSchemaWithNotes } from '@/features/documents/utils/form-notes'
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, FileText, FolderOpen, Printer, Trash2, Upload } from 'lucide-react'
@@ -252,7 +253,7 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
     (f: CustomerFormDefinition | undefined, snap: SavedSnapshot, docNo: string, date: string) => {
       if (!f?.template) return ''
       return renderDocumentTemplate(
-        f.template.templateSchema,
+        formSchemaWithNotes(f.template),
         snap.customerSnapshot,
         docNo,
         date,
@@ -656,8 +657,8 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
             )}
           </div>
 
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-700 space-y-1.5 shrink-0">
-            <div className="grid grid-cols-2 gap-1.5">
+          {/* 3 buttons in one row (owner 2026-11-14) */}
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-700 grid grid-cols-3 gap-1.5 shrink-0">
               <button
                 type="button"
                 onClick={() => void handlePrint()}
@@ -680,12 +681,11 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>ลบ ({deletable.length})</span>
               </button>
-            </div>
             <button
               type="button"
               onClick={() => void handleSave()}
               disabled={saving}
-              className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full bg-emerald-700 hover:bg-emerald-800 text-white shadow-md shadow-emerald-600/20 flex items-center justify-center transition-all disabled:opacity-50`}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 text-white shadow-md shadow-emerald-600/20 flex items-center justify-center transition-all disabled:opacity-50`}
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>{saving ? 'กำลังบันทึก...' : customerDrafts.length > 0 ? `บันทึก (${customerDrafts.length})` : 'บันทึก'}</span>

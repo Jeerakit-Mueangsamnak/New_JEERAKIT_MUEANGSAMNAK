@@ -19,6 +19,7 @@
 
 import { loadSystemSettings, isVatConfigured, type SystemConfig } from '@/features/settings/services/settings-storage'
 import { RentalType } from '@/lib/types/rental-pos'
+import type { DiscountCalculationSatangResult } from '@/lib/money'
 import {
   toSatang,
   toBaht,
@@ -45,7 +46,7 @@ export function discountLimitPercent(cfg: SystemConfig): number | null {
 export interface LineItemInput {
   quantity: number
   unitPrice: number
-  rentalType?: RentalType | string
+  rentalType?: RentalType
   usageCount?: number
   billableDays?: number
   dailyStartDate?: string | Date | null
@@ -85,7 +86,7 @@ export function calculateLineTotal(item: LineItemInput, settings?: SystemConfig)
 }
 
 export interface CalculateTotalsOptions {
-  items: Array<{ lineTotal?: number; quantity?: number; unitPrice?: number; rentalType?: any; usageCount?: number; billableDays?: number }>
+  items: Array<{ lineTotal?: number; quantity?: number; unitPrice?: number; rentalType?: RentalType; usageCount?: number; billableDays?: number }>
   discount?: number
   discountAmount?: number
   discountPercent?: number
@@ -120,47 +121,47 @@ export interface BillCalculationResult {
   roundingMode: RoundingMode
 }
 
-/**
- * Calculates complete bill totals according to centralized business rules.
- */
-export function calculateBillTotals(options: CalculateTotalsOptions): BillCalculationResult {
-  const cfg = options.settings || loadSystemSettings()
-  const precision = 2
-  const roundingMode: RoundingMode = 'ROUND_HALF_UP'
-  const maxDiscountPercent = discountLimitPercent(cfg) ?? 100
-
-  // 1. Subtotal in Satang
+/** Stage 1: the raw subtotal before discount, in Satang. */
+function computeSubtotalSatang(items: CalculateTotalsOptions['items'], cfg: SystemConfig): number {
   let rawSubtotalSatang = 0
-  for (const it of options.items) {
+  for (const it of items) {
     if (typeof it.lineTotal === 'number') {
       rawSubtotalSatang = addSatang(rawSubtotalSatang, toSatang(it.lineTotal))
     } else {
       rawSubtotalSatang = addSatang(rawSubtotalSatang, toSatang(calculateLineTotal(it as LineItemInput, cfg)))
     }
   }
-  const subtotal = toBaht(rawSubtotalSatang)
+  return rawSubtotalSatang
+}
 
-  // 2. Discount & Ceiling Validation in Satang
+/** Stage 2+3: the discount and the net subtotal (after discount), both in Satang. */
+function computeDiscountedSubtotalSatang(
+  rawSubtotalSatang: number,
+  options: CalculateTotalsOptions,
+  maxDiscountPercent: number
+): { discountCalc: DiscountCalculationSatangResult; netSubtotalSatang: number } {
   const discountCalc = calculateDiscountSatang(rawSubtotalSatang, {
     discountPercent: options.discountPercent,
     discountAmountSatang: options.discountAmount !== undefined ? toSatang(options.discountAmount) : (options.discount !== undefined ? toSatang(options.discount) : undefined),
     maxDiscountPercent,
   })
-
-  const discountAmount = toBaht(discountCalc.discountSatang)
-  const maxDiscountAllowed = toBaht(discountCalc.maxAllowedSatang)
-  const isDiscountExceeded = discountCalc.isDiscountExceeded
-  const effectiveDiscountPercent = discountCalc.effectivePercent
-
-  // 3. Net Subtotal (after discount) in Satang
   const netSubtotalSatang = Math.max(0, subtractSatang(rawSubtotalSatang, discountCalc.discountSatang))
-  const netSubtotal = toBaht(netSubtotalSatang)
+  return { discountCalc, netSubtotalSatang }
+}
 
-  // 4. Shipping Fee in Satang
-  const shippingFeeSatang = Math.max(0, toSatang(options.shippingFee))
-  const shippingFee = toBaht(shippingFeeSatang)
+interface VatStage {
+  vatRate: number
+  isVatInclusive: boolean
+  vatAmountSatang: number
+}
 
-  // 5. VAT in Satang
+/** Stage 4+5: the VAT rate the bill earns, and the VAT amount in Satang. */
+function computeVat(
+  netSubtotalSatang: number,
+  shippingFeeSatang: number,
+  options: CalculateTotalsOptions,
+  cfg: SystemConfig
+): VatStage {
   const billVatMode = options.vatMode ?? null
   const vatMode = billVatMode ?? cfg.taxDiscount.vatMode
   let vatRate = 0
@@ -176,21 +177,61 @@ export function calculateBillTotals(options: CalculateTotalsOptions): BillCalcul
 
   const isVatInclusive = vatRate > 0 && vatMode === 'INCLUSIVE'
   const vatAmountSatang = calculateVatSatang(taxBaseSatang, vatRate, isVatInclusive)
-  const vatAmount = toBaht(vatAmountSatang)
+  return { vatRate, isVatInclusive, vatAmountSatang }
+}
 
-  // 6. Revenue Total in Satang
-  let revenueTotalSatang = 0
-  if (isVatInclusive) {
-    revenueTotalSatang = addSatang(netSubtotalSatang, shippingFeeSatang)
-  } else {
-    revenueTotalSatang = addSatang(netSubtotalSatang, shippingFeeSatang, vatAmountSatang)
-  }
-  const revenueTotal = toBaht(revenueTotalSatang)
+/** Stage 6: the revenue total and the VAT-free subtotal, in Satang. */
+function computeRevenue(
+  netSubtotalSatang: number,
+  shippingFeeSatang: number,
+  vat: VatStage
+): { revenueTotalSatang: number; subtotalWithoutTaxSatang: number } {
+  const revenueTotalSatang = vat.isVatInclusive
+    ? addSatang(netSubtotalSatang, shippingFeeSatang)
+    : addSatang(netSubtotalSatang, shippingFeeSatang, vat.vatAmountSatang)
 
   // Inclusive: take out only the VAT that sits inside the merchandise (shipping is not part of this subtotal).
-  const subtotalWithoutTax = isVatInclusive
-    ? toBaht(Math.max(0, subtractSatang(netSubtotalSatang, calculateVatSatang(netSubtotalSatang, vatRate, true))))
-    : netSubtotal
+  const subtotalWithoutTaxSatang = vat.isVatInclusive
+    ? Math.max(0, subtractSatang(netSubtotalSatang, calculateVatSatang(netSubtotalSatang, vat.vatRate, true)))
+    : netSubtotalSatang
+
+  return { revenueTotalSatang, subtotalWithoutTaxSatang }
+}
+
+/**
+ * Calculates complete bill totals according to centralized business rules.
+ */
+export function calculateBillTotals(options: CalculateTotalsOptions): BillCalculationResult {
+  const cfg = options.settings || loadSystemSettings()
+  const precision = 2
+  const roundingMode: RoundingMode = 'ROUND_HALF_UP'
+  const maxDiscountPercent = discountLimitPercent(cfg) ?? 100
+
+  // 1. Subtotal in Satang
+  const rawSubtotalSatang = computeSubtotalSatang(options.items, cfg)
+  const subtotal = toBaht(rawSubtotalSatang)
+
+  // 2+3. Discount, ceiling validation and net subtotal in Satang
+  const { discountCalc, netSubtotalSatang } = computeDiscountedSubtotalSatang(rawSubtotalSatang, options, maxDiscountPercent)
+  const netSubtotal = toBaht(netSubtotalSatang)
+
+  const discountAmount = toBaht(discountCalc.discountSatang)
+  const maxDiscountAllowed = toBaht(discountCalc.maxAllowedSatang)
+  const isDiscountExceeded = discountCalc.isDiscountExceeded
+  const effectiveDiscountPercent = discountCalc.effectivePercent
+
+  // 4. Shipping Fee in Satang
+  const shippingFeeSatang = Math.max(0, toSatang(options.shippingFee))
+  const shippingFee = toBaht(shippingFeeSatang)
+
+  // 5. VAT in Satang
+  const vat = computeVat(netSubtotalSatang, shippingFeeSatang, options, cfg)
+  const vatAmount = toBaht(vat.vatAmountSatang)
+
+  // 6. Revenue Total in Satang
+  const { revenueTotalSatang, subtotalWithoutTaxSatang } = computeRevenue(netSubtotalSatang, shippingFeeSatang, vat)
+  const revenueTotal = toBaht(revenueTotalSatang)
+  const subtotalWithoutTax = toBaht(subtotalWithoutTaxSatang)
 
   // 7. Deposit in Satang (Held strictly separately from Revenue)
   const depositAmountSatang = Math.max(0, toSatang(options.depositAmount))
@@ -209,7 +250,7 @@ export function calculateBillTotals(options: CalculateTotalsOptions): BillCalcul
     isDiscountExceeded,
     maxDiscountAllowed,
     netSubtotal,
-    vatRate,
+    vatRate: vat.vatRate,
     vatAmount,
     shippingFee,
     revenueTotal,

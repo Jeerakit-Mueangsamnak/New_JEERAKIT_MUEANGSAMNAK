@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/client'
 import { DbError, rpc, selectAllRows, selectRows } from '@/lib/db/rpc'
 import { withPin } from '@/lib/db/pin-confirm'
 import { toServerMethod } from '@/features/bills/services/bill-service'
+import { EXPENSE_CATEGORIES } from '@/features/finance/expense-categories'
 import type { RevenueLedgerEntry, StatementTransaction } from '@/features/finance/services/finance-storage'
 
 /**
@@ -11,15 +12,7 @@ import type { RevenueLedgerEntry, StatementTransaction } from '@/features/financ
  * (PIN). A real product sale must be a sale bill, not "other income".
  */
 
-export const EXPENSE_CATEGORIES: Array<{ code: string; label: string }> = [
-  { code: 'PURCHASE', label: 'ซื้อสินค้า' },
-  { code: 'REPAIR', label: 'ค่าซ่อม' },
-  { code: 'SHIPPING', label: 'ค่าขนส่ง' },
-  { code: 'LABOR', label: 'ค่าแรง' },
-  { code: 'FUEL', label: 'ค่าน้ำมัน' },
-  { code: 'EQUIPMENT', label: 'ค่าอุปกรณ์' },
-  { code: 'GENERAL', label: 'ค่าใช้จ่ายทั่วไป' },
-]
+export { EXPENSE_CATEGORIES }
 
 const METHOD_TH: Record<string, string> = { CASH: 'เงินสด', TRANSFER: 'โอนเงิน', QR: 'QR', CARD: 'บัตร', OTHER: 'อื่น ๆ' }
 /** Reference the server writes on a payment made from the deposit (migration 20261105223245). */

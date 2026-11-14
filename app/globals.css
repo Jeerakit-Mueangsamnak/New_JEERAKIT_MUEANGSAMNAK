@@ -1,10 +1,32 @@
 /* Thai web font for the shop's forms on devices without Tahoma (iPad, phones), owner 2026-11-11.
    Downloaded only where a form needs it (Tahoma comes first in FORM_FONT_FAMILY). */
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;700&display=swap');
+/* Headings of the Settings page (owner 2026-11-12, shop's reference screens) */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ==========================================================================
+   Settings page (owner 2026-11-12): laid out like the shop's reference screens, in the system's own colours
+   ("แก้ไขให้สีระบบกลาง"). The --ref-* names are the colours the page's cards use.
+   ========================================================================== */
+.settings-ref {
+  --ref-accent: #2563eb;
+  --ref-accent-strong: #1d4ed8;
+  --ref-accent-soft: #dbeafe;
+  --ref-field: #f8fafc;
+  --ref-line: #e2e8f0;
+}
+.dark .settings-ref {
+  /* white text on the accent keeps WCAG AA in dark too */
+  --ref-accent: #2563eb;
+  --ref-accent-strong: #1d4ed8;
+  --ref-accent-soft: rgba(30, 58, 138, 0.45);
+  --ref-field: #1e293b;
+  --ref-line: #334155;
+}
 
 :root {
   --background: #f8fafc;
@@ -19,7 +41,8 @@
 }
 
 :root.dark {
-  --background: #07111f;
+  /* Page background black (owner 2026-11-12); boxes and tables keep their own colours */
+  --background: #000000;
   --foreground: #e7eef9;
   --surface: #101c31;
   --surface-raised: #16253d;

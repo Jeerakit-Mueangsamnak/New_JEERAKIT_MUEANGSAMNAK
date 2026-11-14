@@ -90,7 +90,7 @@ export function StockReportView({ data }: { data: StockReportData }) {
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-blue-700 dark:text-blue-400">
               {formatNumber(data.rentedStock)}{' '}
-              <span className="text-xs font-normal text-blue-600 dark:text-blue-400/70">ชิ้น</span>
+              <span className="text-xs font-normal text-blue-600 dark:text-blue-400">ชิ้น</span>
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               อยู่กับลูกค้านอกร้าน
@@ -115,7 +115,7 @@ export function StockReportView({ data }: { data: StockReportData }) {
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-rose-700 dark:text-rose-400">
               {formatNumber(data.damagedStock)}{' '}
-              <span className="text-xs font-normal text-rose-700 dark:text-rose-400/70">ชิ้น</span>
+              <span className="text-xs font-normal text-rose-700 dark:text-rose-400">ชิ้น</span>
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               ประเมินค่าซ่อม {formatNumber(data.totalDamagedCost)}

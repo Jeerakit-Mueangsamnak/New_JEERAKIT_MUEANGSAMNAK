@@ -3,7 +3,11 @@
 import { createClient as createServerSupabase } from '@/lib/supabase/server'
 import { createAdminClient, validateSupabaseAdminConfig } from '@/lib/supabase/admin'
 import { getSupabasePublicKey } from '@/lib/supabase/env'
-import { WRONG_CREDENTIALS, normalizeUsername, resolveUsernameToEmail } from '@/lib/supabase/username-auth'
+import { SYSTEM_SETUP_ERROR, WRONG_CREDENTIALS, normalizeUsername, resolveUsernameToEmail } from '@/lib/supabase/username-auth'
+import { loginThrottleKeys, loginWaitMessage, loginWaitSeconds, recordLoginAttempt } from '@/lib/supabase/login-throttle'
+
+/** An unknown user name answers after about the same time as a wrong password, so timing does not tell them apart. */
+const unknownUserDelay = () => new Promise((resolve) => setTimeout(resolve, 250 + Math.floor(Math.random() * 250)))
 
 export interface AuthActionResult<T = unknown> {
   success: boolean
@@ -18,8 +22,9 @@ export interface AuthActionResult<T = unknown> {
  * 3. Authenticates using Supabase Auth signInWithPassword via SSR client
  * 4. Sets session cookies automatically
  * 5. Returns unified error "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" on any credential failure
- * A wrong password is only refused — no attempt count, no lock (owner 2026-10-26, Master §4.1);
- * a forgotten password is reset with the Supabase e-mail link.
+ * A wrong password is refused; many wrong tries make that user name + device address wait a while (owner
+ * 2026-11-12, lib/supabase/login-throttle.ts) — never a permanent lock. A forgotten password is reset with the
+ * Supabase e-mail link.
  */
 export async function loginWithUsername(formData: {
   username: string
@@ -39,15 +44,23 @@ export async function loginWithUsername(formData: {
     // Check Supabase public key configuration for SSR client
     const publishableKey = getSupabasePublicKey()
     if (!publishableKey || publishableKey.includes('placeholder')) {
-      return {
-        success: false,
-        error: 'การตั้งค่า Supabase Publishable Key ไม่ถูกต้อง กรุณาตรวจสอบ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (หรือ NEXT_PUBLIC_SUPABASE_ANON_KEY)',
-      }
+      console.error('Supabase publishable key missing or placeholder (NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY / NEXT_PUBLIC_SUPABASE_ANON_KEY)')
+      return { success: false, error: SYSTEM_SETUP_ERROR }
     }
 
     // 1. Resolve username to email strictly on the server
+    const throttle = await loginThrottleKeys(rawUsername)
+    const wait = await loginWaitSeconds(throttle)
+    if (wait > 0) {
+      return { success: false, error: loginWaitMessage(wait) }
+    }
+
     const resolveResult = await resolveUsernameToEmail(rawUsername)
     if (!resolveResult.success || !resolveResult.email) {
+      if (!resolveResult.error || resolveResult.error === WRONG_CREDENTIALS) {
+        await recordLoginAttempt(throttle, false)
+        await unknownUserDelay()
+      }
       return {
         success: false,
         error: resolveResult.error || WRONG_CREDENTIALS,
@@ -60,10 +73,7 @@ export async function loginWithUsername(formData: {
       serverClient = await createServerSupabase()
     } catch (serverClientErr: unknown) {
       console.error('Failed to create server Supabase client:', serverClientErr)
-      return {
-        success: false,
-        error: 'การตั้งค่าระบบ Server Session ไม่ถูกต้อง กรุณาตรวจสอบการตั้งค่าระบบ',
-      }
+      return { success: false, error: SYSTEM_SETUP_ERROR }
     }
 
     const { data: signInData, error: signInError } = await serverClient.auth.signInWithPassword({
@@ -85,7 +95,7 @@ export async function loginWithUsername(formData: {
         console.error('Supabase Auth unavailable during login:', signInError.message)
         return {
           success: false,
-          error: 'ไม่สามารถเชื่อมต่อ Supabase Auth ได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง',
+          error: 'เชื่อมต่อระบบเข้าสู่ระบบไม่ได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง',
         }
       }
 
@@ -98,13 +108,12 @@ export async function loginWithUsername(formData: {
         errMsg.includes('unauthorized') ||
         errMsg.includes('url')
       ) {
-        return {
-          success: false,
-          error: `การตั้งค่า Supabase Auth ไม่ถูกต้อง: ${signInError.message}`,
-        }
+        console.error('Supabase Auth config error during login:', signInError.message)
+        return { success: false, error: SYSTEM_SETUP_ERROR }
       }
 
       // Credential failure (e.g. invalid password)
+      await recordLoginAttempt(throttle, false)
       return {
         success: false,
         error: WRONG_CREDENTIALS,
@@ -117,6 +126,9 @@ export async function loginWithUsername(formData: {
         error: WRONG_CREDENTIALS,
       }
     }
+
+    // Correct password: the user name + address pair starts counting again
+    await recordLoginAttempt(throttle, true)
 
     // Correct password, but only an OWNER-approved ACTIVE member may hold a session
     if (resolveResult.memberStatus !== 'ACTIVE') {
@@ -144,10 +156,7 @@ export async function loginWithUsername(formData: {
     console.error('Unexpected error in loginWithUsername:', err)
     const msg = err instanceof Error ? err.message : ''
     if (msg.includes('Supabase') || msg.includes('KEY') || msg.includes('URL')) {
-      return {
-        success: false,
-        error: msg,
-      }
+      return { success: false, error: SYSTEM_SETUP_ERROR }
     }
     return {
       success: false,
@@ -224,10 +233,8 @@ export async function registerUser(formData: {
 
     const configCheck = validateSupabaseAdminConfig()
     if (!configCheck.isValid) {
-      return {
-        success: false,
-        error: configCheck.error || 'การตั้งค่า Supabase ไม่ถูกต้อง กรุณาตรวจสอบ Environment Variables',
-      }
+      console.error('Supabase admin config invalid:', configCheck.error)
+      return { success: false, error: SYSTEM_SETUP_ERROR }
     }
 
     // Check if username already exists in profiles (never proceed if the lookup itself failed,
@@ -242,14 +249,11 @@ export async function registerUser(formData: {
     if (profileLookupError) {
       console.error('Register profile lookup error:', profileLookupError)
       if (profileLookupError.code === 'PGRST205' || profileLookupError.code === '42P01') {
-        return {
-          success: false,
-          error: 'ฐานข้อมูล Supabase ยังไม่มีตาราง profiles (ยังไม่ได้ apply migration) กรุณาติดต่อผู้ดูแลระบบ',
-        }
+        return { success: false, error: SYSTEM_SETUP_ERROR }
       }
       return {
         success: false,
-        error: 'เกิดข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล Supabase',
+        error: 'เชื่อมต่อฐานข้อมูลไม่ได้ กรุณาลองใหม่อีกครั้ง',
       }
     }
 
@@ -286,9 +290,10 @@ export async function registerUser(formData: {
         }
       }
       if (signUpError?.code === 'user_already_exists' || signUpError?.code === 'email_exists') {
+        // Not "this e-mail is registered": that would tell anyone which addresses have an account (audit 2026-11-12)
         return {
           success: false,
-          error: 'อีเมลนี้ถูกใช้ลงทะเบียนแล้ว',
+          error: 'ลงทะเบียนด้วยอีเมลนี้ไม่ได้ หากเคยสมัครแล้วให้เข้าสู่ระบบหรือกดลืมรหัสผ่าน',
         }
       }
       if (signUpError?.code === 'weak_password') {

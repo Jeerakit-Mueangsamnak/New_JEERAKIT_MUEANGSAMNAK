@@ -13,6 +13,10 @@ import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/compon
 import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { CustomerLineLinkDialog } from '@/features/customers/components/CustomerLineLinkButton'
+import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
+import { LineCardPreview } from '@/features/settings/components/LineCardPreview'
+import { LINE_CARD_COLORS, lineCardFooter, lineCardRows } from '@/lib/line/bill-card-design'
+import { fillLineMessage } from '@/lib/line/message-templates'
 import {
   confirmLineContactReview,
   getBillLineRecipient,
@@ -110,6 +114,8 @@ export interface LineNotifyBillData {
   outstandingAmount: number
   rentalStatus: string
   items?: string[]
+  /** The bill's own หมายเหตุ (shown when a designed card includes it). */
+  note?: string | null
 }
 
 interface LineNotifyModalProps {
@@ -143,6 +149,25 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
   const [linkOpen, setLinkOpen] = useState(false)
   const [checking, setChecking] = useState(false)
   const confirm = useConfirm()
+  // การ์ดบิล LINE designed in Settings (owner 2026-11-12); '' = the ready-made card
+  const { settings } = useSystemSettings()
+  const designs = settings.lineBillCards
+  const [designId, setDesignId] = useState('')
+  const design = mode === 'FLEX' ? designs.find((d) => d.id === designId) : undefined
+  // แม่แบบข้อความ LINE for customers (Settings › LINE, owner 2026-11-13): picking one writes it with this bill's values
+  const customerTemplates = settings.lineMessageTemplates.filter((t) => t.groups.includes('CUSTOMER'))
+  const pickTemplate = (text: string) => {
+    if (!billData) return
+    setMessage(
+      fillLineMessage(text, {
+        name: billData.customerName,
+        billNo: billData.billNo,
+        outstanding: `${billData.outstandingAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`,
+        returnDate: billData.returnDate,
+        shop: settings.business.businessName || '',
+      })
+    )
+  }
 
   // Who the bill goes to on LINE (no notice box any more, owner 2026-11-11: ส่งทาง LINE is simply
   // off until the customer is linked). Read again after the link window closes: the customer may
@@ -164,8 +189,8 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
 
   useEffect(() => {
     if (!billData) return
-    setMessage(mode === 'FLEX' ? buildBillCard(billData, presetType).note : buildBillTextMessage(billData, presetType))
-  }, [billData, presetType, mode])
+    setMessage(mode === 'FLEX' ? (designId ? '' : buildBillCard(billData, presetType).note) : buildBillTextMessage(billData, presetType))
+  }, [billData, presetType, mode, designId])
 
   if (!isOpen || !billData) return null
 
@@ -231,10 +256,19 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
     if (ok) setLinkOpen(true)
   }
   const outgoingText = message
-  const card = buildBillCard(billData, presetType)
+  const designed = design
+    ? {
+        title: design.title,
+        rows: lineCardRows(design, billData),
+        style: { color: design.color, badge: design.badge, footer: lineCardFooter(design, settings.business.businessName || '') },
+      }
+    : null
+  const card = designed ?? buildBillCard(billData, presetType)
   // Copy-to-send-yourself: a card cannot be pasted, so its content goes out as text
   const copyableText =
-    mode === 'FLEX' ? [card.title, message, ...card.rows.map((r) => `${r.label}: ${r.value}`)].filter(Boolean).join('\n') : outgoingText
+    mode === 'FLEX'
+      ? [card.title, designed?.style.badge, message, ...card.rows.map((r) => `${r.label}: ${r.value}`), designed?.style.footer].filter(Boolean).join('\n')
+      : outgoingText
 
   const handleSendLine = async () => {
     if (mode === 'TEXT' && !outgoingText.trim()) {
@@ -248,7 +282,7 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
         billId: billData.id,
         text: outgoingText,
         idempotencyKey: newKey(),
-        ...(mode === 'FLEX' ? { card: { title: card.title, rows: card.rows } } : {}),
+        ...(mode === 'FLEX' ? { card: designed ?? { title: card.title, rows: card.rows } } : {}),
       })
       if (!r.success || !r.data) {
         showToast('ส่งทาง LINE ไม่สำเร็จ', r.error || 'กรุณาลองใหม่อีกครั้ง', 'ERROR')
@@ -351,6 +385,44 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
         )}
 
         <>
+            {mode === 'FLEX' && designs.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="font-bold text-slate-700 dark:text-slate-300 block text-[11px]">การ์ด</span>
+                <div role="radiogroup" aria-label="เลือกการ์ด" className="flex flex-wrap gap-2">
+                  {[{ id: '', name: 'การ์ดสำเร็จรูป', hex: '' }, ...designs.map((d) => ({ id: d.id, name: d.name, hex: LINE_CARD_COLORS[d.color].hex }))].map((d) => (
+                    <button
+                      key={d.id || 'ready-made'}
+                      type="button"
+                      role="radio"
+                      aria-checked={designId === d.id}
+                      onClick={() => setDesignId(d.id)}
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} border flex items-center ${designId === d.id ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                    >
+                      {d.hex && <span className="w-3 h-3 rounded-full" style={{ backgroundColor: d.hex }} />}
+                      {d.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {mode === 'TEXT' && customerTemplates.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="font-bold text-slate-700 dark:text-slate-300 block text-[11px]">แม่แบบที่บันทึกไว้</span>
+                <div className="flex flex-wrap gap-2">
+                  {customerTemplates.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => pickTemplate(t.text)}
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800`}
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!design && (
             <div className="space-y-1.5">
               <label className="font-bold text-slate-700 dark:text-slate-300 block text-[11px]">ข้อความสำเร็จรูป</label>
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
@@ -362,6 +434,7 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
                 ))}
               </div>
             </div>
+            )}
 
             <div className="space-y-1.5">
               <div className="flex justify-between items-center">
@@ -376,6 +449,9 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
             {mode === 'FLEX' && (
               <div className="space-y-1.5">
                 <span className="font-bold text-slate-700 dark:text-slate-300 block text-[11px]">ตัวอย่างการ์ดที่ลูกค้าจะเห็น</span>
+                {designed && design ? (
+                  <LineCardPreview title={designed.title} badge={designed.style.badge} color={LINE_CARD_COLORS[design.color].hex} rows={designed.rows} text={message} footer={designed.style.footer} />
+                ) : (
                 <div aria-label="ตัวอย่าง Flex Card" className="max-w-xs rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 shadow-sm space-y-1.5">
                   <p className="font-bold text-sm text-slate-900 dark:text-slate-100">{card.title}</p>
                   {message.trim() && <p className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{message}</p>}
@@ -388,6 +464,7 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
                     ))}
                   </div>
                 </div>
+                )}
               </div>
             )}
         </>

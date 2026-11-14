@@ -491,7 +491,7 @@ export function ReportFunnel({ steps }: { steps: FunnelStep[] }) {
 
           {/* Step connector arrow indicator (for desktop) */}
           {idx < steps.length - 1 && (
-            <div className="hidden sm:block absolute -right-2 top-1/2 -translate-y-1/2 z-10 text-slate-300 dark:text-slate-700 text-xs">
+            <div aria-hidden="true" className="hidden sm:block absolute -right-2 top-1/2 -translate-y-1/2 z-10 text-slate-300 dark:text-slate-700 text-xs">
               ›
             </div>
           )}

@@ -339,7 +339,7 @@ export default function BillsPage() {
   }
 
   return (
-    <div onClick={handleOutsideBillClick} className="h-full min-h-0 flex flex-col overflow-hidden p-2 gap-2 bg-slate-100 dark:bg-slate-900 text-xs">
+    <div onClick={handleOutsideBillClick} className="h-full min-h-0 flex flex-col overflow-hidden p-2 gap-2 bg-slate-100 dark:bg-black text-xs">
 
       {activeWorkflow ? (
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
@@ -1035,6 +1035,7 @@ export default function BillsPage() {
               grandTotal: selectedBillForLine.grandTotal,
               outstandingAmount: selectedBillForLine.outstandingAmount,
               rentalStatus: selectedBillForLine.rentalStatus,
+              note: selectedBillForLine.remark,
             }
             : null
         }

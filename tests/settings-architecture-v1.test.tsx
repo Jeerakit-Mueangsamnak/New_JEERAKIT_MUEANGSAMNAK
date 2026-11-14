@@ -25,6 +25,8 @@ vi.mock('@/lib/supabase/client', () => ({
 }))
 vi.mock('@/features/auth/contexts/AuthContext', () => ({ useAuth: () => ({ user: mocks.user }) }))
 vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: vi.fn() }) }))
+// ตั้งค่าระบบ is the sidebar sub menu ตั้งค่า › ตั้งค่าระบบ (?view=system, owner 2026-11-13)
+vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams('view=system') }))
 
 import {
   fetchSharedSystemConfig,
@@ -120,7 +122,7 @@ describe('PERMISSION: shop settings are open to every member', () => {
     const nameInput = screen.getAllByRole('textbox')[0] as HTMLInputElement
     fireEvent.change(nameInput, { target: { value: 'ร้านใหม่' } })
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'บันทึกการตั้งค่า' }))
+      fireEvent.click(screen.getByRole('button', { name: 'บันทึกข้อมูลร้าน' }))
     })
     expect(mocks.rpc).toHaveBeenCalledWith('settings_update', expect.objectContaining({ p_reason: 'แก้ข้อมูลกิจการ' }))
     expect(mocks.rpc.mock.calls[0][1].p_patch.company_name).toBe('ร้านใหม่')
@@ -204,7 +206,7 @@ describe('READ: one row, new source first, old app_config as fallback', () => {
     })
     const cfg = await fetchSharedSystemConfig()
     expect(cfg?.business).toMatchObject({ businessName: 'ร้านเอ', email: 'new@shop.th', bankName: 'ธนาคารเดิม' })
-    expect(cfg?.taxDiscount).toEqual({ vatRate: 7, vatMode: 'INCLUSIVE', discountLimitEnabled: true, discountLimitPercent: 15 })
+    expect(cfg?.taxDiscount).toEqual({ vatEnabled: true, vatRate: 7, vatMode: 'INCLUSIVE', discountLimitEnabled: true, discountLimitPercent: 15 })
     expect(cfg?.documentNumbering.BILL).toEqual({ prefix: 'ABC', digits: 3 })
     expect(cfg?.documentNumbering.QUOTATION).toEqual({ prefix: 'QT', digits: 3 })
     expect(cfg?.salesRental.allowBackorder).toBe(true)

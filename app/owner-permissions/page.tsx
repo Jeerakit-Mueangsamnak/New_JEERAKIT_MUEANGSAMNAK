@@ -16,7 +16,7 @@ import {
 } from '@/components/common/ActionButton'
 import { DataTableFrame, DATA_TABLE_CLASSES } from '@/components/common/DataTableFrame'
 import React, { useState, useEffect, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import {
   ShieldCheck,
   Users,
@@ -89,6 +89,8 @@ const categoryNames: Record<AuditSubTab, string> = {
 import { getCurrentUser } from '@/app/actions/auth'
 
 export default function OwnerPermissionsPage() {
+  // Inside ตั้งค่าระบบ › ผู้ใช้และสิทธิ์ the settings page is the frame: no second box (owner 2026-11-13)
+  const embedded = usePathname() !== '/owner-permissions'
   // Member changes are audited by the database; no reason is asked (owner decision 2026-10-22).
   const confirm = useConfirm()
   const { showToast } = useToast()
@@ -312,7 +314,7 @@ export default function OwnerPermissionsPage() {
 
   if (authLoading || (user && user.role !== 'OWNER')) {
     return (
-      <div className="flex h-full min-h-[400px] items-center justify-center bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-white">
+      <div className="flex h-full min-h-[400px] items-center justify-center bg-slate-100 dark:bg-black text-slate-800 dark:text-white">
         <div className="flex flex-col items-center gap-3">
           <RefreshCw className="w-8 h-8 animate-spin text-emerald-700 dark:text-emerald-400" />
           <p className="text-sm font-bold text-slate-600 dark:text-slate-300">กำลังตรวจสอบสิทธิ์เจ้าของร้าน...</p>
@@ -339,8 +341,8 @@ export default function OwnerPermissionsPage() {
   ]
 
   return (
-    <div className="h-full min-h-0 p-2 bg-slate-100 dark:bg-slate-900 flex flex-col overflow-hidden text-xs">
-      <div className="w-full flex-1 min-h-0 min-w-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col">
+    <div className={embedded ? 'h-full min-h-0 flex flex-col overflow-hidden text-xs' : 'h-full min-h-0 p-2 bg-slate-100 dark:bg-black flex flex-col overflow-hidden text-xs'}>
+      <div className={embedded ? 'w-full flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col' : 'w-full flex-1 min-h-0 min-w-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col'}>
         {/* Toolbar: tabs + the active tab's actions (same pattern as the appointments page) */}
         <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-col sm:flex-row items-stretch sm:items-center justify-between`}>
           <div className={TAB_CONTAINER_CLASSES}>
@@ -389,11 +391,11 @@ export default function OwnerPermissionsPage() {
                           <th className="px-3 w-12 text-center">ลำดับ</th>
                           <th className="px-3 hidden 2xl:table-cell">รหัสผู้ใช้</th>
                           <th className="px-3">ชื่อแสดงผล</th>
-                          <th className="px-3">Username</th>
+                          <th className="px-3">ชื่อผู้ใช้</th>
                           <th className="px-3 text-center">ระดับสิทธิ์</th>
                           <th className="px-3 text-center">สถานะ</th>
                           <th className="px-3 hidden 2xl:table-cell">วันที่สร้าง</th>
-                          <th className="px-3 text-center sticky right-0 bg-[#E3E3E3] dark:bg-slate-800">จัดการ</th>
+                          <th className="px-3 text-center sticky right-0 bg-[#749bfc]">จัดการ</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700 font-medium">
@@ -473,7 +475,7 @@ export default function OwnerPermissionsPage() {
                                   {member.status === 'ACTIVE' ? (
                                     <span className="inline-flex items-center gap-1 px-1.5 py-px rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">
                                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400"></span>
-                                      Active
+                                      ใช้งาน
                                     </span>
                                   ) : (
                                     <span className="inline-flex items-center gap-1 px-1.5 py-px rounded-full bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-amber-700 dark:text-amber-400 text-[10px] font-bold">

@@ -629,7 +629,7 @@ function POSContent() {
   const cartTotalItems = cartItems.reduce((sum, i) => sum + (i.quantity || 0), 0)
 
   return (
-    <div className="h-full p-2 bg-slate-100 dark:bg-[#07111f] flex flex-col gap-2 overflow-hidden min-h-0">
+    <div className="h-full p-2 bg-slate-100 dark:bg-black flex flex-col gap-2 overflow-hidden min-h-0">
       {/* Quotation Mode Top Notification Banner */}
       {isQuotationMode && (
         <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 px-3 py-1.5 rounded-xl flex items-center justify-between gap-2 text-xs shrink-0 shadow-xs">

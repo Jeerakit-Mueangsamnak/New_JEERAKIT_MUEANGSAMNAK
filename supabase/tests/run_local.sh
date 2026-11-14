@@ -116,6 +116,10 @@ race K3   "select t.try('K3', 'a', 'cashier', format(\$q\$select public.payment_
 P -c "select t.set('tok_k5a', t.pin('cashier', 'REFUND')), t.set('tok_k5b', t.pin('cashier', 'REFUND'))" >/dev/null
 race K5   "select t.try('K5', 'a', 'cashier', format(\$q\$select public.refund_pay(%L::uuid, 10, 'CASH', 'race', 'key-race-k5-a', %L::uuid, %L::uuid)\$q\$, t.v('dK5'), t.v('tok_k5a'), t.v('pK5')))"   "select t.try('K5', 'b', 'cashier', format(\$q\$select public.refund_pay(%L::uuid, 10, 'CASH', 'race', 'key-race-k5-b', %L::uuid, %L::uuid)\$q\$, t.v('dK5'), t.v('tok_k5b'), t.v('pK5')))"
 race LAST   "select t.try('LAST', 'a', 'cashier', format(\$q\$select public.bill_confirm(%L::uuid, 'key-race-last-a')\$q\$, t.v('dL1')))"   "select t.try('LAST', 'b', 'cashier', format(\$q\$select public.bill_confirm(%L::uuid, 'key-race-last-b')\$q\$, t.v('dL2')))"
+# K6 (2026-11-12): a fee pressed twice at the same moment with the same key → one charge (charge_add, bill mo of 62_money_once.sql).
+race K6   "select t.try('K6', 'a', 'cashier', format(\$q\$select public.charge_add(%L::uuid, 'OTHER', 7, 'race', 'key-race-k6-same')\$q\$, t.v('mo')))"   "select t.try('K6', 'b', 'cashier', format(\$q\$select public.charge_add(%L::uuid, 'OTHER', 7, 'race', 'key-race-k6-same')\$q\$, t.v('mo')))"
+P -c "select t.check('K6', 'same fee pressed twice at once: one charge of 7',
+        (select count(*) = 1 from public.charges where bill_id = t.v('mo')::uuid and amount = 7 and status = 'CONFIRMED'))" >/dev/null
 for f in "$ROOT"/supabase/tests/sql/9*_*.sql; do
   [ -e "$f" ] || continue
   P < "$f" >/dev/null

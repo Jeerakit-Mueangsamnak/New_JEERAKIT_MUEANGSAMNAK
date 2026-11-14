@@ -18,6 +18,7 @@ import {
 import { useToast } from '@/components/common/Toast'
 import { logger } from '@/lib/utils/logger'
 import { JobSummaryCard } from '@/features/appointments/components/JobSummaryCard'
+import { JobPhotoThumbs } from '@/features/appointments/components/JobPhotoThumbs'
 import { AppointmentForm } from '@/features/appointments/components/AddAppointmentModal'
 import { deleteJob, fetchDriverTaskState, unassignDriver, type DriverTaskState, type DispatchOutcome } from '@/features/appointments/services/dispatch-service'
 import { AppointmentDispatchModal } from '@/features/appointments/components/AppointmentDispatchModal'
@@ -362,7 +363,7 @@ export default function AppointmentsPage() {
   const formApt = panel?.kind === 'form' && panel.aptId ? panelApt : null
 
   return (
-    <div className="h-full min-h-0 min-w-0 p-2 bg-slate-100 dark:bg-slate-900 flex flex-col overflow-hidden">
+    <div className="h-full min-h-0 min-w-0 p-2 bg-slate-100 dark:bg-black flex flex-col overflow-hidden">
       {/* One white work area: summary cards + calendar (left) and the side panel (right) */}
       <div className="relative flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex overflow-hidden">
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
@@ -715,12 +716,13 @@ export default function AppointmentsPage() {
                                     {state}
                                   </span>
                                 </div>
-                                {ev && (ev.by || ev.note || ev.issues || ev.actualQuantity !== undefined || (ev.images && ev.images.length > 0)) && (
+                                {ev && (ev.by || ev.note || ev.issues || ev.actualQuantity !== undefined || (ev.images && ev.images.length > 0) || (ev.photos && ev.photos.length > 0)) && (
                                   <div className="mt-1 text-[11px] text-slate-600 dark:text-slate-300 space-y-0.5">
                                     {ev.by && <p>โดย {ev.by}</p>}
                                     {ev.actualQuantity !== undefined && <p>จำนวนจริง: {ev.actualQuantity}</p>}
                                     {ev.note && <p>หมายเหตุ: {ev.note}</p>}
                                     {ev.issues && <p className="text-red-700 dark:text-red-400">ปัญหา: {ev.issues}</p>}
+                                    {ev.photos && ev.photos.length > 0 && <JobPhotoThumbs paths={ev.photos} />}
                                     {ev.images && ev.images.length > 0 && (
                                       <div className="flex gap-1.5 flex-wrap pt-0.5">
                                         {ev.images.map((imgUrl, imgIdx) => (

@@ -68,14 +68,13 @@ describe('NotificationBell tabs (system / due work / bills / stock)', () => {
     expect(mockToast).toHaveBeenCalledWith('บันทึกสถานะแจ้งเตือนไม่สำเร็จ', expect.any(String), 'ERROR')
   })
 
-  it('"อ่านทั้งหมด" shows it is working, and a failure half way keeps the ones already marked (audit UX-21)', async () => {
+  it('"อ่านทั้งหมด" shows it is working, then marks every notice in one call (audit UX-21, 2026-11-12)', async () => {
     mockRpc.selectRows.mockRejectedValue(new Error('offline'))
+    mockRpc.rpc.mockReset()
     mockToast.mockClear()
     setCachedNotifications([n('p', 'PAYMENT_DUE', 'BILL'), n('q', 'LOW_STOCK', 'PRODUCT'), n('r', 'OTHER')])
     let release: () => void = () => {}
-    mockRpc.rpc
-      .mockImplementationOnce(() => new Promise((resolve) => (release = () => resolve(null))))
-      .mockRejectedValueOnce(new Error('network'))
+    mockRpc.rpc.mockImplementationOnce(() => new Promise((resolve) => (release = () => resolve(null))))
     render(<NotificationBell />)
     fireEvent.click(screen.getByRole('button', { name: 'การแจ้งเตือน' }))
     fireEvent.click(screen.getByTitle('ทำเครื่องหมายว่าอ่านแล้วทั้งหมด'))
@@ -85,9 +84,26 @@ describe('NotificationBell tabs (system / due work / bills / stock)', () => {
     await act(async () => {
       release()
     })
+    expect(mockRpc.rpc).toHaveBeenCalledTimes(1)
+    expect(mockRpc.rpc).toHaveBeenCalledWith('notification_mark_all_read', {})
+    const status = Object.fromEntries(loadNotifications().map((x) => [x.id, x.status]))
+    expect(status).toEqual({ p: 'READ', q: 'READ', r: 'READ' })
+  })
+
+  it('"อ่านทั้งหมด" that fails marks nothing and says so', async () => {
+    mockRpc.selectRows.mockRejectedValue(new Error('offline'))
+    mockRpc.rpc.mockReset()
+    mockToast.mockClear()
+    setCachedNotifications([n('p', 'PAYMENT_DUE', 'BILL'), n('q', 'LOW_STOCK', 'PRODUCT')])
+    mockRpc.rpc.mockRejectedValueOnce(new Error('network'))
+    render(<NotificationBell />)
+    fireEvent.click(screen.getByRole('button', { name: 'การแจ้งเตือน' }))
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('ทำเครื่องหมายว่าอ่านแล้วทั้งหมด'))
+    })
     expect(mockToast).toHaveBeenCalledWith('บันทึกสถานะแจ้งเตือนไม่สำเร็จ', expect.any(String), 'ERROR')
     const status = Object.fromEntries(loadNotifications().map((x) => [x.id, x.status]))
-    expect(status).toEqual({ p: 'READ', q: 'UNREAD', r: 'UNREAD' })
+    expect(status).toEqual({ p: 'UNREAD', q: 'UNREAD' })
   })
 
   it('a notice row opens with Enter (audit UX-20 keyboard)', () => {

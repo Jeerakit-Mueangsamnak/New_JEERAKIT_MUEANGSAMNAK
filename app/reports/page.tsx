@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { loadAllBusinessData } from '@/components/common/MasterDataProvider'
 import { fetchClosedBills } from '@/features/bills/services/bill-storage'
 import { ensureTransactionsSince } from '@/features/finance/services/finance-storage'
+import { fetchQuotationsFromSupabase } from '@/features/quotations/services/quotation-storage'
 import { getPreviousPeriod, toLocalDateString } from '@/features/reports/services/report-data-common'
 import { useToast } from '@/components/common/Toast'
 import { ReportFilter } from '@/features/reports/components/ReportFilter'
@@ -56,6 +57,8 @@ function ReportsWorkspace() {
     Promise.all([
       fetchClosedBills({ from: toLocalDateString(prevStart), to: toLocalDateString(endDate) }),
       ensureTransactionsSince(prevStart),
+      // Quotations are not loaded at app start (audit 2026-11-12); 60 s cache
+      fetchQuotationsFromSupabase(false),
     ])
       .then(() => {
         if (alive) setRangeLoadKey((k) => k + 1)
@@ -181,7 +184,7 @@ function ReportsWorkspace() {
   }, [currentView, filter])
 
   return (
-    <div className="p-2 space-y-2 min-h-full bg-slate-50/50 dark:bg-slate-950/40 text-slate-900 dark:text-slate-100 select-none">
+    <div className="p-2 space-y-2 min-h-full bg-slate-50/50 dark:bg-black text-slate-900 dark:text-slate-100 select-none">
       {/* ─── Global Compact Filter Bar ────────────────────────────────────────── */}
       <ReportFilter
         startDate={startDate}

@@ -3,13 +3,15 @@
 import { createClient as createServerSupabase } from '@/lib/supabase/server'
 import { assertValidMessages, LineMessageError } from '@/lib/line/messages'
 import { driverTaskMessages, taskMessages, textMessage } from '@/lib/line/templates'
+import { liffUrl } from '@/lib/line/liff-links'
 import { type LineMessage } from '@/lib/line/types'
 import { processOutbox } from '@/lib/line/outbox'
 import { lineOaAddFriendUrl, lineOaMessageUrl } from '@/lib/line/oa-link'
 import { createLineProvider, lineDeliveryMode } from '@/lib/line/provider'
 import { formatThaiDate, reminderMessages, type CronShop, type ReminderRow } from '@/lib/line/cron'
 import { type LineInviteKind } from '@/lib/line/config'
-import { cardMessage } from '@/lib/line/flex'
+import { billDesignMessage, cardMessage } from '@/lib/line/flex'
+import { isLineCardColor, LINE_CARD_COLORS, LINE_CARD_LIMITS } from '@/lib/line/bill-card-design'
 
 /**
  * LINE actions for screens. Every call runs with the signed-in user's own session, so the
@@ -190,7 +192,7 @@ export async function sendBillViaLine(input: {
   text: string
   idempotencyKey: string
   /** Flex Card (owner 2026-11-05): a title and label/value rows from the stored bill; the text goes under the title. */
-  card?: { title: string; rows: Array<{ label: string; value: string }> }
+  card?: { title: string; rows: Array<{ label: string; value: string }>; style?: BillCardStyle }
 }): Promise<LineActionResult<{ delivery_id: string; status: string; duplicate: boolean; mode: 'mock' | 'live' }>> {
   if (!input || !UUID.test(input.billId || '')) return bad('ไม่พบบิลนี้')
   if (!KEY.test(input.idempotencyKey || '')) return bad('คำขอไม่สมบูรณ์ กรุณาลองใหม่')
@@ -218,8 +220,11 @@ export async function sendBillViaLine(input: {
   return { success: true, data: { ...queued.data, status: status ?? queued.data.status, mode: lineDeliveryMode() } }
 }
 
+/** Look of a card the shop designed in Settings › LINE (การ์ดบิล LINE, owner 2026-11-12). */
+type BillCardStyle = { color: string; badge?: string; footer?: string }
+
 /** The bill as a Flex Card: no buttons or links (the database refuses them from a screen). */
-function billCard(card: { title: string; rows: Array<{ label: string; value: string }> }, text: string) {
+function billCard(card: { title: string; rows: Array<{ label: string; value: string }>; style?: BillCardStyle }, text: string) {
   const title = typeof card?.title === 'string' ? card.title.trim() : ''
   const rows = Array.isArray(card?.rows) ? card.rows : []
   if (!title || rows.length > 10) throw new LineMessageError('LINE_MESSAGE_SHAPE')
@@ -227,6 +232,22 @@ function billCard(card: { title: string; rows: Array<{ label: string; value: str
     if (!r || typeof r.label !== 'string' || typeof r.value !== 'string') throw new LineMessageError('LINE_MESSAGE_SHAPE')
     return { label: r.label.trim().slice(0, 40), value: r.value.trim().slice(0, 200) }
   })
+  if (card.style) {
+    const { color, badge, footer } = card.style
+    // only the shop's own colours; texts as the card limits allow
+    if (!isLineCardColor(color) || (badge !== undefined && typeof badge !== 'string') || (footer !== undefined && typeof footer !== 'string')) {
+      throw new LineMessageError('LINE_MESSAGE_SHAPE')
+    }
+    return billDesignMessage({
+      altText: title,
+      title: title.slice(0, LINE_CARD_LIMITS.title),
+      badge: (badge ?? '').trim().slice(0, LINE_CARD_LIMITS.badge),
+      color: LINE_CARD_COLORS[color].hex,
+      text: text || undefined,
+      rows: clean,
+      footer: (footer ?? '').trim().slice(0, LINE_CARD_LIMITS.footer),
+    })
+  }
   return cardMessage({ altText: title, title, text: text || undefined, rows: clean })
 }
 
@@ -363,6 +384,7 @@ export async function sendDispatchToDriver(input: {
     | { name?: string; phone?: string; address?: string }
     | null
     | undefined
+  const taskId = crypto.randomUUID()
   // The job card shows what the driver needs from the appointment (empty values are left out).
   const details = apt
     ? {
@@ -371,9 +393,9 @@ export async function sendDispatchToDriver(input: {
         phone: (apt.contact_phone as string | null) || customer?.phone || null,
         place: (apt.location as string | null) || customer?.address || null,
         detail: input.detail?.trim() || (apt.description as string | null) || null,
+        formUrl: liffUrl('job', { task: taskId }),
       }
     : undefined
-  const taskId = crypto.randomUUID()
   let messages: LineMessage[]
   try {
     messages = driverTaskMessages(taskId, { ผู้สั่ง: me?.display_name || me?.username || 'ร้าน', เรื่อง: title }, templates, details)
@@ -527,8 +549,7 @@ export async function createLineInviteLink(kind: LineInviteKind, target: string)
   const supabase = await createServerSupabase()
   const { data: shop } = await supabase.from('store_settings').select('company_name, policies').eq('singleton', true).maybeSingle()
   const lineId = (shop?.policies as { business_profile?: { lineId?: string } } | null)?.business_profile?.lineId
-  const liffId = process.env.NEXT_PUBLIC_LIFF_ID
-  const url = liffId ? `https://liff.line.me/${encodeURIComponent(liffId)}?t=${r.data.code}&k=${kind}` : null
+  const url = liffUrl('bind', { t: r.data.code, k: kind })
   const shopName = (shop?.company_name as string | null)?.trim() || 'ร้าน'
   const shareText = url ? `${shopName}: กดลิงก์นี้เพื่อยืนยันตัวตนและผูก LINE (ใช้ได้ครั้งเดียว)\n${url}` : null
   return {

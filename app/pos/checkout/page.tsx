@@ -532,7 +532,7 @@ export default function CheckoutPage() {
   } else {
     billPreview = (
       <div className="flex h-full items-center justify-center p-6 text-center text-xs text-slate-600 dark:text-slate-400">
-        {billFormPending ? 'กำลังโหลดแบบฟอร์ม...' : `ไม่พบแบบฟอร์มของ "${formName}" กรุณาเพิ่มที่เมนูจัดการเอกสาร`}
+        {billFormPending ? 'กำลังโหลดแบบฟอร์ม...' : `ไม่พบแบบฟอร์มของ "${formName}" กรุณาเพิ่มที่ ตั้งค่าระบบ › เทมเพลต`}
       </div>
     )
   }

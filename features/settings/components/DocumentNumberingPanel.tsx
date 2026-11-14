@@ -1,8 +1,8 @@
 'use client'
 
-import { SETTINGS_HELPER, SETTINGS_INPUT_MONO, SETTINGS_SECTION_TITLE } from '@/features/settings/components/settings-ui'
+import { SETTINGS_INPUT_MONO, SETTINGS_TABLE_BODY, SETTINGS_TABLE_FRAME } from '@/features/settings/components/settings-ui'
+import { DATA_TABLE_CLASSES, DATA_TABLE_TH_CLASSES, DataTableFrame } from '@/components/common/DataTableFrame'
 import React, { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
-import { Hash } from 'lucide-react'
 import {
   DOCUMENT_TYPES,
   DOC_DIGITS_MAX,
@@ -47,51 +47,48 @@ export function DocumentNumberingPanel({ config, setConfig }: DocumentNumberingP
     }))
 
   return (
-    <div className="space-y-2.5">
-      <h4 className={SETTINGS_SECTION_TITLE}>
-        <span>รูปแบบเลขเอกสาร</span>
-      </h4>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead className="text-[11px] text-slate-600 dark:text-slate-400">
-            <tr className="border-b border-slate-200 dark:border-slate-700">
-              <th className="text-left font-semibold py-1.5 pr-2">เอกสาร</th>
-              <th className="text-left font-semibold py-1.5 pr-2 w-32">ตัวย่อชือเอกสาร</th>
-              <th className="text-left font-semibold py-1.5 pr-2 w-24">จำนวนหลักลำดับ</th>
-              <th className="text-left font-semibold py-1.5">เลขถัดไป (จากเซิร์ฟเวอร์)</th>
+      <DataTableFrame fill className={`${SETTINGS_TABLE_FRAME} flex-1`} bodyClassName={SETTINGS_TABLE_BODY}>
+        <table className={`${DATA_TABLE_CLASSES} text-xs`} aria-label="รูปแบบเลขเอกสาร">
+          <thead>
+            <tr>
+              <th className={`${DATA_TABLE_TH_CLASSES} px-2 w-12 text-center`}>ลำดับ</th>
+              <th className={`${DATA_TABLE_TH_CLASSES} px-2`}>เอกสาร</th>
+              <th className={`${DATA_TABLE_TH_CLASSES} px-2 w-32`}>ตัวย่อชือเอกสาร</th>
+              <th className={`${DATA_TABLE_TH_CLASSES} px-2 w-28`}>จำนวนหลักลำดับ</th>
+              <th className={`${DATA_TABLE_TH_CLASSES} px-2`}>เลขถัดไป (จากเซิร์ฟเวอร์)</th>
             </tr>
           </thead>
-          <tbody>
-            {DOCUMENT_TYPES.map(({ type, label }) => {
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            {DOCUMENT_TYPES.map(({ type, label }, index) => {
               const f = config.documentNumbering[type]
               return (
-                <tr key={type} className="border-b border-slate-100 dark:border-slate-800 last:border-b-0">
-                  <td className="py-1.5 pr-2 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">{label}</td>
-                  <td className="py-1.5 pr-2">
+                <tr key={type}>
+                  <td className="px-2 text-center font-semibold text-slate-700 dark:text-slate-300">{index + 1}</td>
+                  <td className="px-2 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">{label}</td>
+                  <td className="px-2">
                     <input
                       aria-label={`Prefix ${label}`}
                       value={f.prefix}
                       maxLength={10}
                       onChange={(e) => update(type, { prefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })}
-                      className={`${SETTINGS_INPUT_MONO} h-8`}
+                      className={SETTINGS_INPUT_MONO}
                     />
                   </td>
-                  <td className="py-1.5 pr-2">
+                  <td className="px-2">
                     <CustomSelect
                       ariaLabel={`จำนวนหลัก ${label}`}
                       value={f.digits}
                       onChange={(value) => update(type, { digits: Number(value) })}
-                      buttonClassName="h-8 px-2.5 py-0 rounded-xl font-mono"
                       options={DIGIT_CHOICES.map((n) => ({ value: n, label: String(n) }))}
+                      buttonClassName="h-[30px] px-2.5 py-0 rounded-lg"
                     />
                   </td>
-                  <td className="py-1.5">{f.prefix ? <ServerPreview type={type} prefix={f.prefix} digits={f.digits} /> : <span className="text-red-700 dark:text-red-400 text-[11px]">ต้องมี Prefix</span>}</td>
+                  <td className="px-2">{f.prefix ? <ServerPreview type={type} prefix={f.prefix} digits={f.digits} /> : <span className="text-red-700 dark:text-red-400 text-[11px]">ต้องมี Prefix</span>}</td>
                 </tr>
               )
             })}
           </tbody>
         </table>
-      </div>
-    </div>
+      </DataTableFrame>
   )
 }

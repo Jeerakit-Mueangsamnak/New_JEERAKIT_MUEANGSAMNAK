@@ -444,14 +444,14 @@ export function computeDashboardMetrics(
             ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20'
             : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
       const statusColors: Record<string, string> = {
-        DRAFT: 'text-slate-500',
-        SCHEDULED: 'text-amber-500',
-        CONFIRMED: 'text-cyan-500',
-        IN_PROGRESS: 'text-blue-500',
-        COMPLETED: 'text-emerald-500',
-        CANCELLED: 'text-slate-500',
-        NO_SHOW: 'text-rose-500',
-        RESCHEDULED: 'text-purple-500',
+        DRAFT: 'text-slate-600 dark:text-slate-400',
+        SCHEDULED: 'text-amber-700 dark:text-amber-400',
+        CONFIRMED: 'text-cyan-700 dark:text-cyan-400',
+        IN_PROGRESS: 'text-blue-700 dark:text-blue-400',
+        COMPLETED: 'text-emerald-700 dark:text-emerald-400',
+        CANCELLED: 'text-slate-600 dark:text-slate-400',
+        NO_SHOW: 'text-rose-700 dark:text-rose-400',
+        RESCHEDULED: 'text-purple-700 dark:text-purple-400',
       }
       return {
         id: appointment.id,
@@ -464,7 +464,7 @@ export function computeDashboardMetrics(
         itemsSummary: appointment.title,
         quantity: 0,
         status: APPOINTMENT_STATUS_META[appointment.status]?.label || appointment.status,
-        statusColor: statusColors[appointment.status] || 'text-slate-500',
+        statusColor: statusColors[appointment.status] || 'text-slate-600 dark:text-slate-400',
         assignee: appointment.assigneeId
           ? appointmentAssigneeNames.get(appointment.id) || 'ไม่สามารถแสดงชื่อได้'
           : 'ยังไม่มอบหมาย',
@@ -564,7 +564,7 @@ export function computeDashboardMetrics(
       quantity: p.damagedQuantity || 0,
       unit: p.unit || 'ชิ้น',
       status: 'ชำรุด',
-      statusColor: 'text-rose-500',
+      statusColor: 'text-rose-700 dark:text-rose-400',
       assignee: '—',
       remark: 'จำนวนชำรุดตามข้อมูลสต็อก',
     })
@@ -582,7 +582,7 @@ export function computeDashboardMetrics(
       quantity: p.availableQuantity || 0,
       unit: p.unit || 'ชิ้น',
       status: 'ถึงจุดสั่งซื้อ',
-      statusColor: 'text-amber-500',
+      statusColor: 'text-amber-700 dark:text-amber-400',
       assignee: '—',
       remark: `คงเหลือ ${p.availableQuantity} จากจุดสั่งซื้อ ${p.minimumStock} ${p.unit || 'ชิ้น'}`,
     })
@@ -603,7 +603,7 @@ export function computeDashboardMetrics(
         quantity: outstandingItems.reduce((sum, item) => sum + (item.outstandingQty || 0), 0),
         unit: firstItem?.unit || 'ชิ้น',
         status: 'เกินกำหนด',
-        statusColor: 'text-amber-500',
+        statusColor: 'text-amber-700 dark:text-amber-400',
         assignee: '—',
         remark: `มีรายการคงค้างในบิล ${b.billNo}`,
       })
@@ -620,7 +620,7 @@ export function computeDashboardMetrics(
       quantity: r.quantity || 1,
       unit: 'ชิ้น',
       status: 'รอส่งมอบ',
-      statusColor: 'text-blue-500',
+      statusColor: 'text-blue-700 dark:text-blue-400',
       assignee: '—',
       remark: `วันที่เริ่มเช่าตามบิล ${r.startDate || '—'}`,
     })
@@ -642,7 +642,7 @@ export function computeDashboardMetrics(
         quantity: openItems.reduce((sum, item) => sum + (item.remainingQty || 0), 0),
         unit: firstItem?.unit || 'ชิ้น',
         status: 'รอส่งมอบ',
-        statusColor: 'text-blue-500',
+        statusColor: 'text-blue-700 dark:text-blue-400',
         assignee: '—',
         remark: `บิล ${b.billNo} รอส่งมอบ`,
       })

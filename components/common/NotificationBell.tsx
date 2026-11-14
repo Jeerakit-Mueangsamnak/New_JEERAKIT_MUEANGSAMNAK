@@ -153,7 +153,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
     void markAllNotificationsRead()
       .then(setNotifications)
       .catch(() => {
-        refreshNotifications() // the ones already marked show as read
+        refreshNotifications() // one call: on failure nothing was marked
         markFailed()
       })
       .finally(() => setMarkingAll(false))

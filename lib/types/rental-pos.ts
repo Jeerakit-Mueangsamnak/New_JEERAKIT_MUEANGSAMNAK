@@ -251,6 +251,8 @@ export interface WorkOrderEvent {
   timestamp?: string
   note?: string
   images?: string[]
+  /** Storage paths (bucket job-photos) of photos the driver sent from the LINE job form */
+  photos?: string[]
   actualQuantity?: number
   issues?: string
 }

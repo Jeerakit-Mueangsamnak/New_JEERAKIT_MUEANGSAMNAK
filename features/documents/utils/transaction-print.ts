@@ -7,6 +7,7 @@ import type { DocumentTemplate } from '@/lib/types/document'
 import type { Quotation } from '@/lib/types/rental-pos'
 import type { BusinessSettings } from '@/features/settings/types/settings-page.types'
 import type { BillTemplateData } from '@/features/documents/utils/rental-bill-print'
+import { formSchemaWithNotes as printedSchema } from '@/features/documents/utils/form-notes'
 
 /** The shop's own quotation form drawn like its bill forms: one field per item cell ({{items.1.name}}). */
 export function isQuotationFormTemplate(template: DocumentTemplate): boolean {
@@ -169,7 +170,8 @@ function renderFormPages(
     lineTotal: i.lineTotal,
   }))
   return Array.from({ length: pageCount }, (_, pageIndex) => {
-    const schema = pageIndex === pageCount - 1 ? template.templateSchema : template.templateSchema.replace(BILL_TOTAL_FIELDS, '')
+    const formSchema = printedSchema(template)
+    const schema = pageIndex === pageCount - 1 ? formSchema : formSchema.replace(BILL_TOTAL_FIELDS, '')
     return renderDocumentTemplate(
       schema,
       { customerName: data.customerName, phone: data.customerPhone || '', address: data.customerAddress || '', taxId: data.customerTaxId || '' },
@@ -293,7 +295,7 @@ export function renderReturnFormPagesHtml(
     const offset = pageIndex * BILL_FORM_ROWS_PER_PAGE
     const pageItems = data.items.slice(offset, offset + BILL_FORM_ROWS_PER_PAGE)
     const isLast = pageIndex === pageCount - 1
-    const schema = removeThaiAmountTextParentheses(template.templateSchema)
+    const schema = removeThaiAmountTextParentheses(printedSchema(template))
       .replace(RETURN_TOTAL_FIELDS, (match) => {
         if (!isLast) return ''
         const field = /return\.([a-z_]+)/.exec(match)?.[1] || ''
@@ -422,7 +424,7 @@ export function renderFineFormPagesHtml(
     const pageRows = rows.slice(offset, offset + BILL_FORM_ROWS_PER_PAGE)
     const isLast = pageIndex === pageCount - 1
     // Columns are fitted while the item fields are still there (จำนวนเงิน is found by its field)
-    const schema = fitFormItemColumns(removeThaiAmountTextParentheses(template.templateSchema))
+    const schema = fitFormItemColumns(removeThaiAmountTextParentheses(printedSchema(template)))
       .replace(FINE_TOTAL_FIELDS, (match) => {
         if (!isLast) return ''
         const field = /fine\.([a-z_]+)/.exec(match)?.[1] || ''

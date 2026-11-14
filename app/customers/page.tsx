@@ -86,7 +86,7 @@ export default function CustomersPage() {
     try {
       const template = await loadQuotationPrintTemplate()
       if (template && printQuotationA4(q, systemSettings.business, template)) return
-      showToast('พิมพ์ใบเสนอราคาไม่ได้', 'ยังไม่มีแบบฟอร์มใบเสนอราคาที่ใช้พิมพ์ได้ กรุณาเพิ่มที่เมนูจัดการเอกสาร', 'ERROR')
+      showToast('พิมพ์ใบเสนอราคาไม่ได้', 'ยังไม่มีแบบฟอร์มใบเสนอราคาที่ใช้พิมพ์ได้ กรุณาเพิ่มที่ ตั้งค่าระบบ › เทมเพลต', 'ERROR')
     } catch (err) {
       showToast('พิมพ์ใบเสนอราคาไม่ได้', err instanceof Error ? err.message : 'โหลดแบบฟอร์มไม่สำเร็จ', 'ERROR')
     }
@@ -489,7 +489,7 @@ export default function CustomersPage() {
   }
 
   return (
-    <div className="h-full min-h-0 flex flex-col overflow-hidden p-2 bg-slate-100 dark:bg-slate-900 gap-2">
+    <div className="h-full min-h-0 flex flex-col overflow-hidden p-2 bg-slate-100 dark:bg-black gap-2">
 
       {/* One white work area (owner 2026-11-11): customer search, then the tab bar, then the tab content */}
       <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col">

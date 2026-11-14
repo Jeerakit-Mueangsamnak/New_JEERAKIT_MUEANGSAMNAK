@@ -43,6 +43,28 @@ async function call<T>(db: SupabaseClient, fn: string, args: Record<string, unkn
   return data as T
 }
 
+/** Driver job form (line_driver_job): the job as the driver's LINE may see it. */
+export interface LiffDriverJob {
+  result: 'OK' | 'NOT_ASSIGNEE' | 'NOT_FOUND'
+  task?: { id: string; title: string; detail: string | null; status: 'SENT' | 'ACCEPTED' | 'DONE' | 'CANCELLED' }
+  holds?: boolean
+  appointment?: { type: string | null; start: string | null; place: string | null; contact: string | null; phone: string | null; description: string | null }
+  items?: Array<{ name: string; qty: number; unit: string | null }>
+  events?: Array<{ stage: string; status: string; timestamp?: string; note?: string; photos?: string[]; by?: string }>
+  next_stage?: string | null
+}
+
+export interface LiffFinanceEntry {
+  kind: 'INCOME' | 'EXPENSE'
+  category: string
+  amount: number
+  channel: string
+  note: string | null
+}
+
+/** Private bucket of the driver's job photos (<task id>/<uuid>.<ext>). */
+export const JOB_PHOTO_BUCKET = 'job-photos'
+
 export interface ShopProfile {
   shopName: string
   templates: Record<string, unknown>
@@ -55,6 +77,11 @@ export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()
   credentials(): Promise<{ channelSecret: string | null; accessToken: string | null }>
   shopProfile(): Promise<ShopProfile>
   liffBind(input: LiffBindInput): Promise<LiffBindResult>
+  driverJob(lineUserId: string, taskId: string): Promise<LiffDriverJob>
+  uploadJobPhoto(path: string, bytes: Uint8Array, contentType: string): Promise<void>
+  removeJobPhotos(paths: string[]): Promise<void>
+  ownerFinanceForm(lineUserId: string): Promise<{ result: 'OK' | 'NOT_OWNER'; name?: string; income_items?: string[] }>
+  financeEntry(lineUserId: string, entry: LiffFinanceEntry): Promise<{ result: 'OK' | 'NOT_OWNER' | 'INVALID_INPUT'; doc_no?: string; amount?: number }>
 } {
   /** Task title and its appointment's type code (step names), read after the RPC answered. */
   const taskInfo = async (taskId: string): Promise<{ title?: string; appointment_type?: string | null }> => {
@@ -140,6 +167,29 @@ export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()
         p_is_friend: input.isFriend,
       }),
 
+    driverJob: (lineUserId, taskId) => call<LiffDriverJob>(db, 'line_driver_job', { p_line_user_id: lineUserId, p_task_id: taskId }),
+
+    async uploadJobPhoto(path, bytes, contentType) {
+      const { error } = await db.storage.from(JOB_PHOTO_BUCKET).upload(path, bytes, { contentType, upsert: false })
+      if (error) throw new LineStoreError('job_photo_upload')
+    },
+
+    async removeJobPhotos(paths) {
+      if (paths.length) await db.storage.from(JOB_PHOTO_BUCKET).remove(paths)
+    },
+
+    ownerFinanceForm: (lineUserId) => call(db, 'line_owner_finance_form', { p_line_user_id: lineUserId }),
+
+    financeEntry: (lineUserId, e) =>
+      call(db, 'line_finance_entry', {
+        p_line_user_id: lineUserId,
+        p_kind: e.kind,
+        p_category: e.category,
+        p_amount: e.amount,
+        p_channel: e.channel,
+        p_note: e.note,
+      }),
+
     async credentials() {
       const rows = await call<Array<{ channel_secret: string | null; access_token: string | null }>>(db, 'line_channel_credentials', {})
       const row = rows?.[0]
@@ -179,8 +229,13 @@ export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()
       return r
     },
 
-    async taskStep(lineUserId, taskId, stage): Promise<TaskStepResult> {
-      const r = await call<TaskStepResult>(db, 'line_task_step', { p_line_user_id: lineUserId, p_task_id: taskId, p_stage: stage })
+    async taskStep(lineUserId, taskId, stage, extra): Promise<TaskStepResult> {
+      const r = await call<TaskStepResult>(db, 'line_task_step', {
+        p_line_user_id: lineUserId,
+        p_task_id: taskId,
+        p_stage: stage,
+        ...(extra ? { p_note: extra.note, p_photos: extra.photos } : {}),
+      })
       if (r.result === 'STEP_DONE' || r.result === 'ALREADY' || r.result === 'OUT_OF_ORDER') return { ...r, ...(await taskInfo(taskId)) }
       return r
     },

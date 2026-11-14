@@ -523,10 +523,10 @@ export function GroupedBarChart({
   return (
     <div className="w-full">
       <div className="flex items-center justify-end gap-3 text-[9.5px] mb-1 font-bold">
-        <span className="flex items-center gap-1" style={{ color: color1 }}>
+        <span className="flex items-center gap-1 text-slate-700 dark:text-slate-300">
           <span className="w-2 h-2 rounded-xs inline-block" style={{ backgroundColor: color1 }} /> {label1}
         </span>
-        <span className="flex items-center gap-1" style={{ color: color2 }}>
+        <span className="flex items-center gap-1 text-slate-700 dark:text-slate-300">
           <span className="w-2 h-2 rounded-xs inline-block" style={{ backgroundColor: color2 }} /> {label2}
         </span>
       </div>

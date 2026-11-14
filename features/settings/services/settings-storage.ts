@@ -7,6 +7,8 @@
  * PROFILE values (name, avatar, PIN, auto-lock choice) live on the user's own profile rows;
  * DEVICE values (theme) live in this browser only (lib/contexts/ThemeContext).
  */
+import type { LineBillCardDesign } from '@/lib/line/bill-card-design'
+import type { LineMessageTemplate } from '@/lib/line/message-templates'
 
 export type VatCalculationMode = 'EXCLUSIVE' | 'INCLUSIVE'
 
@@ -27,13 +29,99 @@ export interface BusinessSettings {
   promptPayType?: string
   promptPayValue: string
   bankQrDataUrl?: string
+  /**
+   * Every account the shop can take money into (owner 2026-11-13). The OWNER picks the one in use in Settings; the
+   * single fields above always hold that account, so payment windows and printed forms read them as before.
+   */
+  paymentAccounts?: PaymentAccount[]
+  activePaymentAccountId?: string
+  /**
+   * Several sets of shop details, managed like the accounts (owner 2026-11-14): the set showing when ข้อมูลร้าน is
+   * saved is the one in use, and the single fields above always hold it (forms, headers and LINE read them as before).
+   */
+  shopProfiles?: ShopProfile[]
+  activeShopProfileId?: string
+}
+
+export interface ShopProfile {
+  id: string
+  businessName: string
+  taxId: string
+  address: string
+  phone: string
+  email: string
+  lineId: string
+  authorizedPerson: string
+  logoDataUrl: string
+}
+
+const PROFILE_FIELDS = ['businessName', 'taxId', 'address', 'phone', 'email', 'lineId', 'authorizedPerson', 'logoDataUrl'] as const
+
+export function newShopProfile(): ShopProfile {
+  return { id: `shop-${Date.now().toString(36)}`, businessName: '', taxId: '', address: '', phone: '', email: '', lineId: '', authorizedPerson: '', logoDataUrl: '' }
+}
+
+/** The shop details in use (falls back to the first; with no list, the single fields). */
+export function activeShopProfile(b: BusinessSettings): ShopProfile {
+  const list = b.shopProfiles ?? []
+  const found = list.find((p) => p.id === b.activeShopProfileId) ?? list[0]
+  if (found) return found
+  return {
+    id: b.activeShopProfileId || 'shop-1',
+    ...(Object.fromEntries(PROFILE_FIELDS.map((k) => [k, b[k] || ''])) as Omit<ShopProfile, 'id'>),
+  }
+}
+
+/** Copies the shop details in use into the single fields. */
+export function withActiveShopProfile(b: BusinessSettings): BusinessSettings {
+  const p = activeShopProfile(b)
+  return { ...b, activeShopProfileId: p.id, ...Object.fromEntries(PROFILE_FIELDS.map((k) => [k, p[k]])) }
+}
+
+export interface PaymentAccount {
+  id: string
+  bankName: string
+  bankAccountName: string
+  bankAccountNumber: string
+  promptPayType: string
+  promptPayValue: string
+  bankQrDataUrl: string
+}
+
+const ACCOUNT_FIELDS = ['bankName', 'bankAccountName', 'bankAccountNumber', 'promptPayType', 'promptPayValue', 'bankQrDataUrl'] as const
+
+export function newPaymentAccount(): PaymentAccount {
+  return { id: `acc-${Date.now().toString(36)}`, bankName: '', bankAccountName: '', bankAccountNumber: '', promptPayType: 'TAX_ID', promptPayValue: '', bankQrDataUrl: '' }
+}
+
+/** The account in use (falls back to the first; with no list, the single fields). */
+export function activePaymentAccount(b: BusinessSettings): PaymentAccount {
+  const list = b.paymentAccounts ?? []
+  const found = list.find((a) => a.id === b.activePaymentAccountId) ?? list[0]
+  if (found) return found
+  return {
+    id: b.activePaymentAccountId || 'acc-1',
+    bankName: b.bankName || '',
+    bankAccountName: b.bankAccountName || '',
+    bankAccountNumber: b.bankAccountNumber || '',
+    promptPayType: b.promptPayType || 'TAX_ID',
+    promptPayValue: b.promptPayValue || '',
+    bankQrDataUrl: b.bankQrDataUrl || '',
+  }
+}
+
+/** Copies the account in use into the single fields. */
+export function withActivePaymentAccount(b: BusinessSettings): BusinessSettings {
+  const acc = activePaymentAccount(b)
+  return { ...b, activePaymentAccountId: acc.id, ...Object.fromEntries(ACCOUNT_FIELDS.map((k) => [k, acc[k]])) }
 }
 
 /**
- * VAT rate + price mode and the discount limit. VAT ON/OFF is NOT a shop setting: it is chosen
- * per bill at the POS and snapshotted on the bill by the server.
+ * VAT rate + price mode and the discount limit. vatEnabled is the Settings switch (owner 2026-11-12): off = no rate
+ * is kept, so the POS cannot put VAT on a bill. รวม / ไม่รวม VAT is still chosen per bill at the POS.
  */
 export interface TaxDiscountSettings {
+  vatEnabled: boolean
   /** null = not set by the OWNER yet (VAT cannot be switched on for a bill). */
   vatRate: number | null
   vatMode: VatCalculationMode | null
@@ -128,6 +216,12 @@ export interface SystemConfig {
   notifications: NotificationSettings
   shopSecurity: ShopSecuritySettings
   line: LineSettings
+  /** หมายเหตุ lines per shop form (key = form id), printed instead of the form's own (owner 2026-11-12). */
+  documentNotes: Record<string, string[]>
+  /** การ์ดบิล LINE the shop designed (Settings › LINE, owner 2026-11-12). */
+  lineBillCards: LineBillCardDesign[]
+  /** แม่แบบข้อความ LINE (Settings › LINE, owner 2026-11-13). */
+  lineMessageTemplates: LineMessageTemplate[]
 }
 
 /** Settings page sections; each one is saved on its own (only its keys are sent). */
@@ -141,6 +235,9 @@ export type SettingsSection =
   | 'notifications'
   | 'shopSecurity'
   | 'line'
+  | 'documentNotes'
+  | 'lineBillCards'
+  | 'lineMessageTemplates'
 
 /** Server default prefixes per document type (_next_document_no) and the Thai label. */
 export const DOCUMENT_TYPES: ReadonlyArray<{ type: DocumentType; label: string; prefix: string }> = [
@@ -186,7 +283,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   timezone: 'Asia/Bangkok',
   business: DEFAULT_BUSINESS_SETTINGS,
   // No VAT rate/mode and no discount limit until the OWNER sets them (never invented).
-  taxDiscount: { vatRate: null, vatMode: null, discountLimitEnabled: false, discountLimitPercent: null },
+  taxDiscount: { vatEnabled: false, vatRate: null, vatMode: null, discountLimitEnabled: false, discountLimitPercent: null },
   payment: { allowOverpayment: false },
   salesRental: { allowBackorder: false, reservationAutoRelease: false },
   // Same starting value new products had before (the old minimum-stock default).
@@ -202,9 +299,13 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     overdueReturnReminder: { enabled: true },
     appointmentReminder: { enabled: true, daysBefore: 3 },
   },
-  shopSecurity: { autoLockOptionsSeconds: [30, 60, 120, 180, 240, 300, 600, 0], autoLockDefaultSeconds: 300 },
+  // auto lock off until the OWNER switches a time on (owner 2026-11-13)
+  shopSecurity: { autoLockOptionsSeconds: [0], autoLockDefaultSeconds: 0 },
   // LINE notices are off until the OWNER switches a type on (spec F4).
   line: { notify: {}, templates: {}, other: {} },
+  documentNotes: {},
+  lineBillCards: [],
+  lineMessageTemplates: [],
 }
 
 /** Every auto-lock time the app offers (Master §4: 30 s … 10 min, 0 = never). */

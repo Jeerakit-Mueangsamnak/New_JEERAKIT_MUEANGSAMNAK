@@ -44,17 +44,17 @@ export function toBaht(satang: number): number {
   return satang / 100
 }
 /**
- * Adds multiple Satang amounts safely.
+ * Adds Satang amounts safely. Inputs are already integer Satang (NaN counts as 0).
  */
 export function addSatang(...amounts: number[]): number {
-  return amounts.reduce((acc, curr) => acc + (toSatang(toBaht(curr)) || 0), 0)
+  return amounts.reduce((acc, curr) => acc + (Number.isFinite(curr) ? curr : 0), 0)
 }
 
 /**
- * Subtracts Satang amounts (a - b).
+ * Subtracts Satang amounts (a - b). Inputs are already integer Satang (NaN counts as 0).
  */
 export function subtractSatang(a: number, b: number): number {
-  return (toSatang(toBaht(a)) || 0) - (toSatang(toBaht(b)) || 0)
+  return (Number.isFinite(a) ? a : 0) - (Number.isFinite(b) ? b : 0)
 }
 
 /**

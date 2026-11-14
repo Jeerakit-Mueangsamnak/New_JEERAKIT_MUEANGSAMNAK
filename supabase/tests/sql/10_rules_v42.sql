@@ -530,9 +530,14 @@ SELECT t.check('GRANTS', 'every SECURITY DEFINER function pins search_path to em
                  AND NOT ('search_path=""' = ANY (COALESCE(p.proconfig, '{}')))));
 SELECT t.check('GRANTS', 'RLS enabled on every public table',
     NOT EXISTS (SELECT 1 FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND NOT c.relrowsecurity));
-SELECT t.check('GRANTS', 'no ON DELETE CASCADE anywhere',
+-- The only cascades are the member's own setup rows, kept on purpose so a PENDING sign-up can be deleted
+-- (20261109220747_owner_delete_pending_member, owner: never change it); a member who is not PENDING cannot be
+-- deleted at all (profile guard), so no history row can go with it. Checked here and in 62_money_once.sql.
+SELECT t.check('GRANTS', 'ON DELETE CASCADE only on the member''s own setup rows (pending sign-up delete)',
     NOT EXISTS (SELECT 1 FROM pg_constraint WHERE contype = 'f' AND confdeltype = 'c'
-                 AND connamespace = 'public'::regnamespace));
+                 AND connamespace = 'public'::regnamespace
+                 AND conname NOT IN ('profiles_id_fkey', 'user_menu_access_user_id_fkey', 'user_pins_user_id_fkey',
+                                     'member_action_grants_user_id_fkey', 'line_link_codes_profile_id_fkey')));
 SELECT t.check('GRANTS', 'no approval / cash-session / contract-deposit objects remain',
     NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename IN
         ('approval_requests', 'cash_sessions', 'cash_movements', 'deposit_holdings', 'deposit_movements',

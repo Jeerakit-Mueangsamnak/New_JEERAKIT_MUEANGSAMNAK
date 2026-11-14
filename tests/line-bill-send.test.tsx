@@ -97,6 +97,25 @@ describe('sendBillViaLine (server action)', () => {
     expect(JSON.stringify(args.p_messages)).not.toContain('"action"')
   })
 
+  it('designed card (การ์ดบิล LINE, owner 2026-11-12): shop colour header + label + closing line; an unknown colour is refused', async () => {
+    m.rpc.mockResolvedValueOnce({ data: { delivery_id: 'd11', status: 'PENDING', duplicate: false }, error: null })
+    const { sendBillViaLine } = await import('@/app/actions/line')
+    const card = { title: 'บิลเสร็จเรียบร้อย', rows: [{ label: 'เลขที่บิล', value: 'B-0001' }], style: { color: 'green', badge: 'ชำระครบแล้ว', footer: 'ขอบคุณที่ใช้บริการ' } }
+    const r = await sendBillViaLine({ billId: BILL, text: '', idempotencyKey: 'bill-00000011', card })
+    expect(r.success).toBe(true)
+    const [fn, args] = m.rpc.mock.calls[0]
+    expect(fn).toBe('line_bill_send_card')
+    expect(args.p_messages[0].contents.header.backgroundColor).toBe('#06C755')
+    expect(JSON.stringify(args.p_messages)).toContain('ชำระครบแล้ว')
+    expect(JSON.stringify(args.p_messages)).toContain('ขอบคุณที่ใช้บริการ')
+    expect(JSON.stringify(args.p_messages)).not.toContain('"action"')
+
+    m.rpc.mockReset()
+    const bad = await sendBillViaLine({ billId: BILL, text: '', idempotencyKey: 'bill-00000012', card: { ...card, style: { color: '#000000' } } })
+    expect(bad.success).toBe(false)
+    expect(m.rpc).not.toHaveBeenCalled()
+  })
+
   it('a card without a title never reaches the database', async () => {
     const { sendBillViaLine } = await import('@/app/actions/line')
     const r = await sendBillViaLine({ billId: BILL, text: '', idempotencyKey: 'bill-00000010', card: { title: ' ', rows: [] } })
@@ -225,6 +244,56 @@ describe('LineNotifyModal (bill screen)', () => {
         { label: 'ยอดค้าง', value: '1,500.00 บาท' },
       ])
     )
+  })
+
+  it('Flex Card with a card designed in Settings: pick it, preview it, send its look with the stored bill rows', async () => {
+    const { DEFAULT_SYSTEM_CONFIG } = await import('@/features/settings/services/settings-storage')
+    const design = { id: 'c1', name: 'การ์ดบิลเสร็จ', type: 'CLOSED', title: 'บิลเสร็จเรียบร้อย', badge: 'ชำระครบแล้ว', color: 'blue', fields: ['billNo', 'total'], footer: 'ขอบคุณร้าน {ร้าน}' }
+    vi.doMock('@/lib/contexts/SystemSettingsContext', () => ({
+      useSystemSettings: () => ({ settings: { ...DEFAULT_SYSTEM_CONFIG, business: { ...DEFAULT_SYSTEM_CONFIG.business, businessName: 'JEERAKIT' }, lineBillCards: [design] } }),
+    }))
+    m.recipient.mockResolvedValue({ success: true, data: { state: 'LINKED', customer_id: CUSTOMER } })
+    m.send.mockResolvedValue({ success: true, data: { delivery_id: 'd2', status: 'SENT', duplicate: false, mode: 'live' } })
+    await open()
+    await sendReady()
+    fireEvent.click(screen.getByRole('tab', { name: /Flex Card/ }))
+    fireEvent.click(screen.getByRole('radio', { name: /การ์ดบิลเสร็จ/ }))
+    expect(screen.getByLabelText('ตัวอย่างการ์ด').textContent).toContain('ขอบคุณร้าน JEERAKIT')
+    await act(async () => {
+      fireEvent.click(sendButton())
+    })
+    const sent = m.send.mock.calls[0][0]
+    expect(sent.card).toEqual({
+      title: 'บิลเสร็จเรียบร้อย',
+      rows: [
+        { label: 'เลขที่บิล', value: 'B-0001' },
+        { label: 'ยอดรวม', value: '2,500.00 บาท' },
+      ],
+      style: { color: 'blue', badge: 'ชำระครบแล้ว', footer: 'ขอบคุณร้าน JEERAKIT' },
+    })
+    vi.doUnmock('@/lib/contexts/SystemSettingsContext')
+  })
+
+  it('ข้อความ with a saved แม่แบบ for customers: the bill values fill it; staff-only templates are not offered', async () => {
+    const { DEFAULT_SYSTEM_CONFIG } = await import('@/features/settings/services/settings-storage')
+    const templates = [
+      { id: 't1', name: 'แจ้งยอดค้าง', topic: 'OUTSTANDING', groups: ['CUSTOMER'], subject: '', text: 'สวัสดี {ชื่อ} บิล {เลขบิล} ค้าง {ยอดค้าง} คืน {วันที่คืน} — {ร้าน}' },
+      { id: 't2', name: 'งานพนักงาน', topic: 'GENERAL', groups: ['STAFF'], subject: '', text: 'x' },
+    ]
+    vi.doMock('@/lib/contexts/SystemSettingsContext', () => ({
+      useSystemSettings: () => ({ settings: { ...DEFAULT_SYSTEM_CONFIG, business: { ...DEFAULT_SYSTEM_CONFIG.business, businessName: 'JEERAKIT' }, lineMessageTemplates: templates } }),
+    }))
+    m.recipient.mockResolvedValue({ success: true, data: { state: 'LINKED', customer_id: CUSTOMER } })
+    m.send.mockResolvedValue({ success: true, data: { delivery_id: 'd3', status: 'SENT', duplicate: false, mode: 'live' } })
+    await open()
+    await sendReady()
+    expect(screen.queryByRole('button', { name: 'งานพนักงาน' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'แจ้งยอดค้าง' }))
+    await act(async () => {
+      fireEvent.click(sendButton())
+    })
+    expect(m.send.mock.calls[0][0].text).toBe('สวัสดี สมชาย บิล B-0001 ค้าง 1,500.00 บาท คืน 10/10/2569 — JEERAKIT')
+    vi.doUnmock('@/lib/contexts/SystemSettingsContext')
   })
 
   it('"สรุปบิล" as text sends the summary text', async () => {

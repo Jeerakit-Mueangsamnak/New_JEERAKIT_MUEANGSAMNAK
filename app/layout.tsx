@@ -32,7 +32,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: 'cover',
-  themeColor: '#07111f',
+  themeColor: '#000000',
 }
 
 export default function RootLayout({
@@ -42,7 +42,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="th" className={`${promptFont.variable} font-sans`} suppressHydrationWarning>
-      <body className="bg-slate-100 dark:bg-[#07111f] text-slate-900 dark:text-slate-100 flex flex-col xl:flex-row h-dvh max-h-dvh min-h-0 w-full overflow-hidden">
+      <body className="bg-slate-100 dark:bg-black text-slate-900 dark:text-slate-100 flex flex-col xl:flex-row h-dvh max-h-dvh min-h-0 w-full overflow-hidden">
         <script
           dangerouslySetInnerHTML={{
             __html: `

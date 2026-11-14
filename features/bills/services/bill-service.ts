@@ -11,6 +11,7 @@ import { rpc, newIdempotencyKey, selectRows, isDbError } from '@/lib/db/rpc'
 import { withPin, withPinIfRequired, isPinCancelled } from '@/lib/db/pin-confirm'
 import { fetchBillByIdFromSupabase, refreshBillsCache } from '@/features/bills/services/bill-storage'
 import { syncProductsFromSupabase } from '@/features/products/services/product-storage'
+import { activePaymentAccount, loadSystemSettings } from '@/features/settings/services/settings-storage'
 import type { FullBill } from '@/lib/types/rental-return'
 
 // ─── inputs ──────────────────────────────────────────────────────────────────
@@ -76,10 +77,22 @@ export function toServerMethod(method: string): 'CASH' | 'TRANSFER' | 'CARD' | '
   return 'OTHER'
 }
 
+/**
+ * Transfer / QR money goes into the account in use in Settings (owner 2026-11-13); each such tender carries that
+ * account, and the server keeps the tenders as sent on the payment's record (bill_payment_allocations.tenders).
+ */
 function tendersPayload(tenders: TenderInput[]) {
+  const acc = activePaymentAccount(loadSystemSettings().business)
+  const account = acc.bankAccountNumber || acc.promptPayValue
+    ? { id: acc.id, bank: acc.bankName, name: acc.bankAccountName, number: acc.bankAccountNumber, promptpay: acc.promptPayValue }
+    : null
   return tenders
     .filter((t) => Number(t.amount) > 0)
-    .map((t) => ({ method: toServerMethod(t.method), amount: Math.round(Number(t.amount) * 100) / 100, reference: t.reference || null }))
+    .map((t) => {
+      const method = toServerMethod(t.method)
+      const base = { method, amount: Math.round(Number(t.amount) * 100) / 100, reference: t.reference || null }
+      return account && (method === 'TRANSFER' || method === 'QR') ? { ...base, account } : base
+    })
 }
 
 /** A calendar day picked in the UI → a timestamp (today = now; another day = noon local time). */
@@ -156,12 +169,13 @@ export async function confirmBill(billId: string, tenders: TenderInput[] = []): 
 export async function receivePayment(
   billId: string,
   tenders: TenderInput[],
-  receivedDay?: string | null
+  receivedDay?: string | null,
+  key?: string
 ): Promise<PaymentReceiveResult> {
   const payload: Record<string, unknown> = {
     p_bill_id: billId,
     p_tenders: tendersPayload(tenders),
-    p_idempotency_key: newIdempotencyKey(),
+    p_idempotency_key: key ?? newIdempotencyKey(),
   }
   if (receivedDay) payload.p_received_on = receivedDay.slice(0, 10)
   const result = await rpc<{ receipt_no?: string | null; total_amount?: number | string | null }>('payment_receive', {
@@ -178,8 +192,13 @@ export async function receivePayment(
  * The deposit pays what the bill owes (owner 2026-11-06): one receipt "หักจากมัดจำ", the deposit
  * held goes down by the same amount — both in one server step (bill_deposit_apply).
  */
-export async function applyDepositToBill(billId: string, amount: number, receivedDay?: string | null): Promise<PaymentReceiveResult> {
-  const payload: Record<string, unknown> = { p_bill_id: billId, p_amount: amount, p_idempotency_key: newIdempotencyKey() }
+export async function applyDepositToBill(
+  billId: string,
+  amount: number,
+  receivedDay?: string | null,
+  key?: string
+): Promise<PaymentReceiveResult> {
+  const payload: Record<string, unknown> = { p_bill_id: billId, p_amount: amount, p_idempotency_key: key ?? newIdempotencyKey() }
   if (receivedDay) payload.p_received_on = receivedDay.slice(0, 10)
   const result = await rpc<{ receipt_no?: string | null; total_amount?: number | string | null }>('bill_deposit_apply', payload)
   const totalAmount = Number(result.total_amount)
@@ -191,12 +210,17 @@ export async function applyDepositToBill(billId: string, amount: number, receive
 }
 
 /** The deposit (or part of it) is given back to the customer (bill_deposit_refund); the bill may close after it. */
-export async function refundDeposit(billId: string, amount: number, method: 'CASH' | 'QR' | 'TRANSFER'): Promise<FullBill | null> {
+export async function refundDeposit(
+  billId: string,
+  amount: number,
+  method: 'CASH' | 'QR' | 'TRANSFER',
+  key?: string
+): Promise<FullBill | null> {
   await rpc('bill_deposit_refund', {
     p_bill_id: billId,
     p_amount: amount,
     p_method: method,
-    p_idempotency_key: newIdempotencyKey(),
+    p_idempotency_key: key ?? newIdempotencyKey(),
   })
   return refreshAfterChange(billId)
 }
@@ -208,8 +232,10 @@ export async function refundPayment(opts: {
   amount: number
   method?: string
   reason: string
+  /** Fixed key of this refund within one save (a retry reuses it). */
+  key?: string
 }): Promise<FullBill | null> {
-  const key = newIdempotencyKey()
+  const key = opts.key ?? newIdempotencyKey()
   await withPin(
     { action: 'REFUND', title: 'ยืนยันคืนเงิน', detail: `${opts.amount.toLocaleString()} บาท — ${opts.reason}` },
     (token) =>
@@ -251,7 +277,7 @@ export async function getRefundSuggestion(billId: string): Promise<RefundSuggest
  * Paid more than the bill now comes to (owner 2026-11-09): the system works out what goes back and pressing
  * ออกบิล records it as given back — newest payment first, deposit-paid receipts last. The bill can then close.
  */
-export async function refundOverpayment(billId: string): Promise<{ amount: number; bill: FullBill | null }> {
+export async function refundOverpayment(billId: string, opKey?: string): Promise<{ amount: number; bill: FullBill | null }> {
   const s = await getRefundSuggestion(billId)
   let left = Math.round(s.suggestedRefund * 100) / 100
   if (left <= 0) return { amount: 0, bill: null }
@@ -261,7 +287,10 @@ export async function refundOverpayment(billId: string): Promise<{ amount: numbe
   for (const p of order) {
     const amount = Math.round(Math.min(left, p.refundable) * 100) / 100
     if (amount <= 0) continue
-    bill = await refundPayment({ billId, paymentId: p.paymentId, amount, reason: 'คืนเงินที่ชำระเกิน' })
+    // Within one save the key is fixed per payment and amount: pressed again after a failure, a refund already
+    // made is not made twice (the suggestion is read again, so a smaller amount is a new, correct refund).
+    const key = opKey ? `${opKey}:ovp:${p.paymentId}:${Math.round(amount * 100)}` : undefined
+    bill = await refundPayment({ billId, paymentId: p.paymentId, amount, reason: 'คืนเงินที่ชำระเกิน', key })
     refunded += amount
     left = Math.round((left - amount) * 100) / 100
     if (left <= 0) break
@@ -310,21 +339,33 @@ export interface ReturnItemInput {
  */
 export async function chargeExtraRounds(
   billId: string,
-  items: Array<{ lineId: string; productName?: string; rounds: number; quantity: number; fee: number }>
+  items: Array<{ lineId: string; productName?: string; rounds: number; quantity: number; fee: number }>,
+  opKey?: string
 ): Promise<void> {
   for (const i of items) {
     const fee = Math.round(i.fee * 100) / 100
     if (fee <= 0 || i.rounds <= 0) continue
-    const charge = await rpc<{ id: string }>('charge_create', {
+    // One call creates and confirms the fee; the key makes a retry of the same save return the first fee.
+    await rpc('charge_add', {
       p_bill_id: billId,
       p_charge_type: 'OTHER',
       p_amount: fee,
       p_reason: `ค่าเช่ารอบเพิ่ม ${i.rounds} รอบ ${i.productName ?? ''}`.trim(),
+      p_idempotency_key: opKey ? `${opKey}:xr:${i.lineId}` : newIdempotencyKey(),
       p_bill_line_id: i.lineId,
       p_basis: { kind: 'EXTRA_ROUNDS', rounds: i.rounds, quantity: i.quantity },
     })
-    await rpc('charge_confirm', { p_charge_id: charge.id })
   }
+}
+
+/** เพิ่มมัดจำ: the bill's deposit becomes newDepositAmount, once per key (bill_deposit_add). */
+export async function addDepositOnce(billId: string, newDepositAmount: number, depositNote: string | null, key?: string): Promise<void> {
+  await rpc('bill_deposit_add', {
+    p_bill_id: billId,
+    p_new_deposit_amount: newDepositAmount,
+    p_deposit_note: depositNote,
+    p_idempotency_key: key ?? newIdempotencyKey(),
+  })
 }
 
 export interface ReturnResult {
@@ -346,7 +387,10 @@ export async function processReturn(opts: {
   returnedDay?: string | null
   items: ReturnItemInput[]
   note?: string
+  /** Key of this save: every step gets a fixed key from it, so pressing save again never repeats a step. */
+  opKey?: string
 }): Promise<ReturnResult> {
+  const stepKey = (step: string) => (opts.opKey ? `${opts.opKey}:${step}` : newIdempotencyKey())
   const back = opts.items.filter((i) => i.normalQty + i.damagedQty > 0)
   const returnNos: string[] = []
   let credit = 0
@@ -370,7 +414,7 @@ export async function processReturn(opts: {
     const r = await rpc<{ return_id: string; return_no: string; early_return_credit: number | null }>('return_receive', {
       p_bill_id: opts.billId,
       p_lines: lines,
-      p_idempotency_key: newIdempotencyKey(),
+      p_idempotency_key: stepKey(`ret:${day}`),
       p_returned_at: dayToTimestamp(day || null),
       p_note: opts.note || null,
     })
@@ -391,25 +435,22 @@ export async function processReturn(opts: {
       for (const c of cases) {
         const item = damaged.find((i) => i.lineId === c.bill_line_id)
         if (!item) continue
-        await addIncidentCharge(opts.billId, 'DAMAGE', c, item.damageFeePerUnit * Number(c.quantity), item.note || 'ค่าเสียหายตอนรับคืน', item.productName)
+        await addIncidentCharge(opts.billId, 'DAMAGE', c, item.damageFeePerUnit * Number(c.quantity), item.note || 'ค่าเสียหายตอนรับคืน', stepKey(`dmg:${c.id}`))
       }
     }
   }
 
   // Missing goods → lost (PIN) → lost fee.
+  // Lost goods: missing → lost → the loss fee (money the customer pays) in one call, once per key.
   for (const i of opts.items.filter((x) => x.lostQty > 0)) {
-    const missing = await rpc<{ id: string }>('incident_open', {
-      p_bill_line_id: i.lineId, p_type: 'MISSING', p_quantity: i.lostQty, p_reason: i.note || 'ของไม่ครบตอนรับคืน',
+    await rpc('lost_add', {
+      p_bill_id: opts.billId,
+      p_bill_line_id: i.lineId,
+      p_quantity: i.lostQty,
+      p_amount: Math.round(i.lossFeePerUnit * i.lostQty * 100) / 100,
+      p_reason: i.note || 'ลูกค้าแจ้งของหาย',
+      p_idempotency_key: stepKey(`lost:${i.lineId}`),
     })
-    const lost = await withPin(
-      { action: 'LOST_RECORD', title: 'ยืนยันบันทึกของสูญหาย', detail: `${i.productName ?? ''} จำนวน ${i.lostQty}` },
-      (token) =>
-        rpc<{ id: string; bill_line_id: string; quantity: number }>('lost_record', {
-          p_missing_case_id: missing.id, p_quantity: i.lostQty, p_lost_charge_basis: 'REPLACEMENT',
-          p_reason: i.note || 'ลูกค้าแจ้งของหาย', p_pin_token: token,
-        })
-    )
-    await addIncidentCharge(opts.billId, 'LOST', lost, i.lossFeePerUnit * i.lostQty, i.note || 'ค่าของสูญหาย', i.productName)
   }
 
   await syncProductsFromSupabase()
@@ -429,34 +470,25 @@ async function addIncidentCharge(
   incident: { id: string; bill_line_id: string },
   amount: number,
   reason: string,
-  productName?: string
+  key: string
 ): Promise<void> {
   const rounded = Math.round(amount * 100) / 100
-  const resolve = (token?: string) =>
-    rpc('incident_resolve', { p_case_id: incident.id, p_reason: reason, p_reject: false, p_pin_token: token })
   if (rounded <= 0) {
-    // No fee: closing the case is a waiver when the product has a default fee → PIN.
-    await withPinIfRequired(
-      { action: 'CHARGE_AMOUNT_OVERRIDE', title: 'ยืนยันไม่คิดค่าเสียหาย/ค่าสูญหาย', detail: productName ?? '' },
-      resolve
-    )
+    // No fee: the case is closed without one.
+    await rpc('incident_waive', { p_case_id: incident.id, p_reason: reason, p_idempotency_key: key })
     return
   }
-  const charge = await withPinIfRequired(
-    {
-      action: 'CHARGE_AMOUNT_OVERRIDE',
-      title: type === 'DAMAGE' ? 'ยืนยันค่าเสียหายที่ต่างจากค่าตั้งต้น' : 'ยืนยันค่าสูญหายที่ต่างจากค่าตั้งต้น',
-      detail: `${productName ?? ''} ${rounded.toLocaleString()} บาท`,
-    },
-    (token) =>
-      rpc<{ id: string }>('charge_create', {
-        p_bill_id: billId, p_charge_type: type, p_amount: rounded, p_reason: reason,
-        p_bill_line_id: incident.bill_line_id, p_incident_case_id: incident.id, p_pin_token: token,
-      })
-  )
-  await rpc('charge_confirm', { p_charge_id: charge.id })
-  // The confirmed fee settles the case (an open case keeps the bill from closing).
-  await resolve()
+  // ค่าเสียหาย / ค่าสูญหาย = money the customer pays: created, confirmed and the case closed in one call.
+  await rpc('charge_add', {
+    p_bill_id: billId,
+    p_charge_type: type,
+    p_amount: rounded,
+    p_reason: reason,
+    p_idempotency_key: key,
+    p_bill_line_id: incident.bill_line_id,
+    p_incident_case_id: incident.id,
+    p_resolve_incident: true,
+  })
 }
 
 // ─── cancel / void / correct / continue ─────────────────────────────────────
@@ -557,8 +589,10 @@ export async function createContinuation(opts: {
     startAt?: string
     endAt?: string
   }>
+  /** Fixed key of this save (a retry reuses it). */
+  key?: string
 }): Promise<string> {
-  const key = newIdempotencyKey()
+  const key = opts.key ?? newIdempotencyKey()
   const res = await withPinIfRequired(
     { action: 'PRICE_OVERRIDE', title: 'ยืนยันราคาเช่าต่อที่ต่างจากราคาตั้ง', askReason: true },
     (token) =>

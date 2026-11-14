@@ -93,7 +93,7 @@ export function PostSavePrintModal({
         {loading ? (
           <p className="text-xs text-slate-600 dark:text-slate-400 text-center py-4">กำลังโหลดแบบฟอร์ม...</p>
         ) : forms.length === 0 ? (
-          <p className="text-xs text-slate-600 dark:text-slate-400 text-center py-4">ยังไม่มีแบบฟอร์มบิล กรุณาเพิ่มที่เมนูจัดการเอกสาร</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400 text-center py-4">ยังไม่มีแบบฟอร์มบิล กรุณาเพิ่มที่ ตั้งค่าระบบ › เทมเพลต</p>
         ) : (
           <>
             <div className="flex items-center justify-between py-1 px-1 text-xs border-b border-slate-200 dark:border-slate-700">

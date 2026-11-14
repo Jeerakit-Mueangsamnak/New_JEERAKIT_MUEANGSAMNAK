@@ -65,11 +65,6 @@ export async function recoverOwnerPin(newPin: string): Promise<void> {
   await rpc('owner_recover_pin', { p_new_pin: newPin })
 }
 
-export async function setAutoLockSeconds(seconds: number | null): Promise<PinStatus> {
-  await rpc('set_auto_lock', { p_seconds: seconds })
-  return fetchPinStatus()
-}
-
 /** Human text for a refused PIN entry. */
 export function describePinRefusal(r: PinVerifyResult): string {
   if (r.blocked) {

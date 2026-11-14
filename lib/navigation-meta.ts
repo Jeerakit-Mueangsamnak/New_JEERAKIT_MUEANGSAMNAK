@@ -12,6 +12,7 @@ import {
   BarChart3,
   Settings,
   ShieldCheck,
+  UserRound,
   Store,
   MessageCircle,
 } from 'lucide-react'
@@ -59,9 +60,6 @@ export function getPageMeta(
   if (pathname === '/bills' || pathname.startsWith('/bills/')) {
     return { name: 'จัดการบิลเช่า', icon: Receipt, colorClass: 'text-indigo-700 dark:text-indigo-400', dotClass: 'bg-indigo-500' }
   }
-  if (pathname === '/documents' || pathname.startsWith('/documents/')) {
-    return { name: 'จัดการเอกสาร', icon: FileCheck2, colorClass: 'text-sky-700 dark:text-sky-400', dotClass: 'bg-sky-500' }
-  }
   if (pathname === '/appointments' || pathname.startsWith('/appointments/')) {
     return { name: 'ปฏิทินนัดหมาย', icon: Calendar, colorClass: 'text-teal-700 dark:text-teal-400', dotClass: 'bg-teal-500' }
   }
@@ -75,9 +73,12 @@ export function getPageMeta(
     return { name: 'ใบเสนอราคา', icon: FileText, colorClass: 'text-violet-700 dark:text-violet-400', dotClass: 'bg-violet-500' }
   }
   if (pathname === '/line') {
-    return { name: 'คนใน LINE', icon: MessageCircle, colorClass: 'text-emerald-700 dark:text-emerald-400', dotClass: 'bg-emerald-500' }
+    return { name: 'LINE', icon: MessageCircle, colorClass: 'text-emerald-700 dark:text-emerald-400', dotClass: 'bg-emerald-500' }
   }
   if (pathname === '/settings' || pathname.startsWith('/settings/')) {
+    const view = searchParams?.get('view')
+    if (view === 'personal') return { name: 'ตั้งค่าส่วนตัว', icon: UserRound, colorClass: 'text-slate-700 dark:text-slate-300', dotClass: 'bg-slate-500' }
+    if (view === 'system') return { name: 'ตั้งค่าระบบ', icon: ShieldCheck, colorClass: 'text-slate-700 dark:text-slate-300', dotClass: 'bg-slate-500' }
     return { name: 'ตั้งค่า', icon: Settings, colorClass: 'text-slate-700 dark:text-slate-300', dotClass: 'bg-slate-500' }
   }
   if (pathname === '/owner-permissions' || pathname.startsWith('/owner-permissions/')) {

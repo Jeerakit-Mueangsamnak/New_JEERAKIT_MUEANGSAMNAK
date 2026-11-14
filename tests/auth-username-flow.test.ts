@@ -275,13 +275,14 @@ describe('Supabase Username Auth Flow (Mock / Isolated Test Environment)', () =>
       }
     })
 
-    it('loginWithUsername returns config error separately when config is broken', async () => {
+    it('loginWithUsername returns a plain setup error (no setting names) when config is broken', async () => {
       const originalKey = process.env.SUPABASE_SECRET_KEY
       try {
         delete process.env.SUPABASE_SECRET_KEY
         const res = await loginWithUsername({ username: 'jeerakit_jjk', password: 'somepassword' })
         expect(res.success).toBe(false)
-        expect(res.error).toContain('SUPABASE_SECRET_KEY')
+        expect(res.error).toBe('การตั้งค่าระบบไม่ถูกต้อง กรุณาติดต่อผู้ดูแลระบบ')
+        expect(res.error).not.toContain('SUPABASE')
       } finally {
         process.env.SUPABASE_SECRET_KEY = originalKey
       }

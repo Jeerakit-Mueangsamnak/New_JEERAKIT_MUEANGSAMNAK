@@ -8,7 +8,7 @@ import { loadBills, countCancelledBills } from '@/features/bills/services/bill-s
 import { loadProducts } from '@/features/products/services/product-storage'
 import { loadReservations } from '@/features/reservations/services/reservation-storage'
 import { loadNotifications } from '@/features/notifications/services/notification-storage'
-import { loadAppointments } from '@/features/appointments/services/appointment-storage'
+import { fetchAppointmentsFromSupabase, loadAppointments } from '@/features/appointments/services/appointment-storage'
 import { loadSystemSettings } from '@/features/settings/services/settings-storage'
 import { loadAllBusinessData } from '@/components/common/MasterDataProvider'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
@@ -41,6 +41,18 @@ function DashboardContent() {
   const [refreshError, setRefreshError] = useState('')
   // Cancelled / void bills are not kept loaded: their number comes from a server count.
   const [cancelledCount, setCancelledCount] = useState<number | null>(null)
+  // Appointments are not loaded at app start (audit 2026-11-12): read here (60 s cache), then the cards redraw.
+  useEffect(() => {
+    let alive = true
+    fetchAppointmentsFromSupabase(false)
+      .then(() => {
+        if (alive) setRefreshKey((k) => k + 1)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
   useEffect(() => {
     let alive = true
     countCancelledBills()

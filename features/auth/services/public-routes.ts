@@ -9,8 +9,8 @@ export const PUBLIC_ROUTES = [
   '/reset-password',
   '/verify-email',
   '/auth/callback',
-  // LIFF page opened from a LINE invite link; it proves the person with a LINE ID token.
-  '/line/bind',
+  // Forms opened inside LINE (LIFF: /liff, /liff/bind, /liff/job, /liff/finance); each proves the person with a LINE ID token.
+  '/liff',
 ]
 
 /**
@@ -22,6 +22,8 @@ export const PUBLIC_API_ROUTES = [
   '/api/line/cron', // Bearer LINE_OUTBOX_CRON_SECRET
   '/api/line/outbox', // Bearer LINE_OUTBOX_CRON_SECRET
   '/api/line/liff-bind', // LINE ID token verified with LINE
+  '/api/line/liff-job', // LINE ID token verified with LINE
+  '/api/line/liff-finance', // LINE ID token verified with LINE
 ]
 
 export function isPublicRoute(pathname: string | null | undefined): boolean {

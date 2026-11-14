@@ -18,7 +18,7 @@ import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { useDataActions } from '@/components/common/useDataActions'
 import { createClient } from '@/lib/supabase/client'
 import { DbError } from '@/lib/db/rpc'
-import { loadAppointments } from '@/features/appointments/services/appointment-storage'
+import { fetchAppointmentsFromSupabase } from '@/features/appointments/services/appointment-storage'
 import { createDriverLineLinkCode, unlinkLineContact } from '@/app/actions/line'
 import { LineContactInfo, type LineReviewContact } from '@/features/settings/components/LineInviteButton'
 import {
@@ -296,7 +296,8 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
   // Drivers live in the shop settings, so the dependency check is here: appointments sent to the driver,
   // LINE tasks for the driver, and a linked LINE. Any of them = used (ระงับ instead of ลบ).
   const driverUses = async (d: DeliveryDriver): Promise<number> => {
-    const appointments = loadAppointments().filter((a) => a.driverId === d.id).length
+    // Read now (appointments are not loaded at app start): this check decides ระงับ instead of ลบ
+    const appointments = (await fetchAppointmentsFromSupabase(false)).filter((a) => a.driverId === d.id).length
     const { count, error } = await createClient()
       .from('line_tasks')
       .select('id', { count: 'exact', head: true })

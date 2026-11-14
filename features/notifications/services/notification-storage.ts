@@ -110,18 +110,11 @@ export async function markNotificationStatus(id: string, status: 'READ' | 'HANDL
   return _cachedNotifications
 }
 
-/** Marks every unread notice, one by one; if one fails, the ones before it stay marked (and shown so). */
+/** Marks every unread notice I can see as read in one call (notification_mark_all_read); on failure nothing changes. */
 export async function markAllNotificationsRead(): Promise<ActionableNotification[]> {
-  const done = new Set<string>()
-  try {
-    for (const n of loadNotifications().filter((x) => x.status === 'UNREAD')) {
-      await rpc('notification_mark', { p_notification_id: n.id, p_status: 'READ' })
-      done.add(n.id)
-    }
-  } finally {
-    _cachedNotifications = loadNotifications().map((n) => (done.has(n.id) ? { ...n, status: 'READ' } : n))
-    notifyChanged()
-  }
+  await rpc('notification_mark_all_read', {})
+  _cachedNotifications = loadNotifications().map((n) => (n.status === 'UNREAD' ? { ...n, status: 'READ' } : n))
+  notifyChanged()
   return _cachedNotifications
 }
 

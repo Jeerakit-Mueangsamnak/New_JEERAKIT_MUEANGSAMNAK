@@ -13,7 +13,7 @@ export default function GlobalError({ error }: { error: Error & { digest?: strin
 
   return (
     <html lang="th">
-      <body className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col items-center justify-center p-6 text-center">
+      <body className="min-h-screen bg-slate-100 dark:bg-black text-slate-900 dark:text-slate-100 flex flex-col items-center justify-center p-6 text-center">
         <h1 className="text-2xl font-bold mb-2">ระบบขัดข้องชั่วคราว</h1>
         <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
           ระบบบันทึกปัญหานี้ไว้แล้ว กรุณาโหลดหน้าใหม่ ถ้ายังเป็นอยู่ให้แจ้งเจ้าของร้าน

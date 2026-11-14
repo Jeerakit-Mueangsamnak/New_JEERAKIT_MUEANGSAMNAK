@@ -6,6 +6,7 @@ import {
   TAB_BUTTON_ACTIVE_CLASSES,
   TAB_BUTTON_INACTIVE_CLASSES,
 } from '@/components/common/ActionButton'
+import { formSchemaWithNotes } from '@/features/documents/utils/form-notes'
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, FileCode, Plus, Printer, Receipt, RefreshCw, RotateCcw, Trash2, Upload, User } from 'lucide-react'
@@ -44,7 +45,7 @@ const PRINT_ONLY_FIELDS = /\{\{\s*(?:items\.\d+\.(?!no\b)\w+|return\.\w+|fine\.\
 export function renderLibraryTemplate(tpl: DocumentTemplate, business?: Partial<BusinessSettings> | null): string {
   return renderDocumentTemplate(
     // The brackets around the amount in words go with it: a blank form shows no empty "()" (owner 2026-11-11)
-    removeThaiAmountTextParentheses(tpl.templateSchema).replace(PRINT_ONLY_FIELDS, ''),
+    removeThaiAmountTextParentheses(formSchemaWithNotes(tpl)).replace(PRINT_ONLY_FIELDS, ''),
     {},
     '',
     '',

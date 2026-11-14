@@ -283,7 +283,7 @@ export function NotificationSettingsPanel({ value, onChange }: NotificationSetti
               </div>
             </div>
             <span className="px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 font-bold text-[10px]">
-              Stock Alert
+              เตือนสต็อก
             </span>
           </label>
 
@@ -316,7 +316,7 @@ export function NotificationSettingsPanel({ value, onChange }: NotificationSetti
               </div>
             </div>
             <span className="px-2 py-0.5 rounded-md bg-red-100 dark:bg-red-950/60 text-red-800 dark:text-red-300 font-bold text-[10px]">
-              Overdue Alert
+              เตือนค้างคืน
             </span>
           </label>
         </div>

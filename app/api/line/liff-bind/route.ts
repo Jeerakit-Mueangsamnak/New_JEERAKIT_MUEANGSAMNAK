@@ -1,4 +1,4 @@
-import { verifyLiffIdToken } from '@/lib/line/liff'
+import { liffText, readLiffRequest } from '@/lib/line/liff-request'
 import { createSupabaseLineStore } from '@/lib/line/supabase-store'
 
 /**
@@ -23,35 +23,21 @@ const MESSAGES: Record<string, string> = {
   PHONE_REQUIRED: 'กรุณากรอกเบอร์โทร',
 }
 
-const clean = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
-
 export async function POST(request: Request): Promise<Response> {
-  const channelId = process.env.LINE_LOGIN_CHANNEL_ID ?? ''
-  if (!channelId) return Response.json({ ok: false, message: 'ระบบผูก LINE ยังไม่ได้ตั้งค่า (LINE Login)' }, { status: 503 })
-  let body: Record<string, unknown>
-  try {
-    body = (await request.json()) as Record<string, unknown>
-  } catch {
-    return Response.json({ ok: false, message: 'คำขอไม่ถูกต้อง' }, { status: 400 })
-  }
-  const code = clean(body.code, 20).toUpperCase()
+  const req = await readLiffRequest(request)
+  if (!req.ok) return req.response
+  const { body, lineUserId, name } = req
+  const code = liffText(body.code, 20).toUpperCase()
   if (!CODE.test(code)) return Response.json({ ok: false, message: MESSAGES.INVALID }, { status: 400 })
 
-  const verified = await verifyLiffIdToken(clean(body.idToken, 4096), channelId)
-  if (!verified.ok) {
-    return Response.json(
-      { ok: false, message: verified.error === 'NETWORK' ? 'ติดต่อ LINE ไม่ได้ กรุณาลองใหม่' : 'ยืนยันตัวตน LINE ไม่สำเร็จ กรุณาเปิดลิงก์ใหม่ในแอป LINE' },
-      { status: verified.error === 'NETWORK' ? 502 : 401 },
-    )
-  }
   try {
     const r = await createSupabaseLineStore().liffBind({
-      lineUserId: verified.lineUserId,
-      displayName: verified.name,
+      lineUserId,
+      displayName: name,
       code,
-      typedName: clean(body.typedName, 200),
-      typedPhone: clean(body.typedPhone, 30) || null,
-      lineHandle: clean(body.lineHandle, 60) || null,
+      typedName: liffText(body.typedName, 200),
+      typedPhone: liffText(body.typedPhone, 30) || null,
+      lineHandle: liffText(body.lineHandle, 60) || null,
       isFriend: typeof body.isFriend === 'boolean' ? body.isFriend : null,
     })
     const ok = r.result.startsWith('LINKED_')

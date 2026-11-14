@@ -181,7 +181,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="fixed inset-0 bg-slate-100 dark:bg-slate-950 flex items-center justify-center text-slate-700 dark:text-slate-300 text-xs font-semibold">กำลังโหลด...</div>}>
+    <Suspense fallback={<div className="fixed inset-0 bg-slate-100 dark:bg-black flex items-center justify-center text-slate-700 dark:text-slate-300 text-xs font-semibold">กำลังโหลด...</div>}>
       <LoginForm />
     </Suspense>
   )

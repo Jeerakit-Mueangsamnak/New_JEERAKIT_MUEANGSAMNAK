@@ -103,7 +103,7 @@ export function PinConfirmProvider({ children }: { children: React.ReactNode }) 
             </button>
             <button
               type="button"
-              onClick={() => { close(null); router.push('/account?tab=SECURITY') }}
+              onClick={() => { close(null); router.push('/account') }}
               className={`${COMMAND_BUTTON_SIZE_CLASSES} mt-2 text-blue-600 dark:text-blue-400 hover:underline`}
             >
               ไปหน้า ตั้งค่าส่วนตัว &rsaquo; ความปลอดภัย

@@ -34,7 +34,7 @@ export type TaskPostbackResult = {
 
 /** One job step pressed by the driver (line_task_step). */
 export type TaskStepResult = {
-  result: 'STEP_DONE' | 'ALREADY' | 'OUT_OF_ORDER' | 'NOT_ACCEPTED' | 'NOT_ASSIGNEE' | 'INVALID_STATE' | 'NOT_FOUND'
+  result: 'STEP_DONE' | 'ALREADY' | 'OUT_OF_ORDER' | 'NOT_ACCEPTED' | 'NOT_ASSIGNEE' | 'INVALID_STATE' | 'NOT_FOUND' | 'INVALID_INPUT'
   stage?: string
   next_stage?: string | null
   title?: string
@@ -50,7 +50,8 @@ export interface WebhookStore {
   recordEvent(e: { eventId: string; lineUserId: string; kind: EventKind; text: string | null; lineMessageId: string | null; eventAt: Date }): Promise<RecordedEvent>
   consumeLinkCode(lineUserId: string, code: string): Promise<LinkResult>
   taskPostback(lineUserId: string, taskId: string, action: 'ACCEPT' | 'DONE'): Promise<TaskPostbackResult>
-  taskStep(lineUserId: string, taskId: string, stage: string): Promise<TaskStepResult>
+  /** extra = the job form's note and photo paths (the chat buttons send none). */
+  taskStep(lineUserId: string, taskId: string, stage: string, extra?: { note: string | null; photos: string[] }): Promise<TaskStepResult>
   /** After a FOLLOW: keep the display name; an unlinked friend waits for the shop (line_contact_follow). */
   followContact?(lineUserId: string, displayName: string | null): Promise<{ status: 'UNLINKED' | 'LINKED'; register_status: string | null }>
   /** Self-registration in the chat (line_self_register). */
@@ -75,7 +76,7 @@ export interface WebhookResponse {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const MAX_BODY_BYTES = 1_000_000
+export const MAX_BODY_BYTES = 1_000_000
 
 export interface ParsedEvent {
   eventId: string
@@ -258,24 +259,8 @@ export async function handleTaskPostbackEvent(
   }
 }
 
-export async function handleLineWebhook(deps: WebhookDeps): Promise<WebhookResponse> {
-  if (!deps.channelSecret) return { status: 503, body: { ok: false, error: 'LINE_NOT_CONFIGURED' } }
-  if (new TextEncoder().encode(deps.rawBody).length > MAX_BODY_BYTES) {
-    return { status: 413, body: { ok: false, error: 'BODY_TOO_LARGE' } }
-  }
-  if (!(await verifyLineSignature(deps.channelSecret, deps.rawBody, deps.signature))) {
-    return { status: 401, body: { ok: false, error: 'BAD_SIGNATURE' } }
-  }
-
-  let payload: unknown
-  try {
-    payload = JSON.parse(deps.rawBody)
-  } catch {
-    return { status: 400, body: { ok: false, error: 'BAD_JSON' } }
-  }
-  const events = (payload as { events?: unknown })?.events
-  if (!Array.isArray(events)) return { status: 400, body: { ok: false, error: 'NO_EVENTS' } }
-
+/** Reply helpers shared by one webhook request, bound to its deps. */
+function createWebhookRepliers(deps: WebhookDeps): WebhookRepliers {
   const send = async (token: string | null, messages: () => LineMessage[]) => {
     if (!token) return
     try {
@@ -302,6 +287,49 @@ export async function handleLineWebhook(deps: WebhookDeps): Promise<WebhookRespo
       // the next cron round does not retry this; the step itself is safe in the database
     }
   }
+  return { reply, replyStep, render, progress }
+}
+
+/** Acts on one parsed event (already recorded once); the kinds we do not act on stay in the inbox. */
+async function dispatchEvent(ev: ParsedEvent, rec: RecordedEvent, deps: WebhookDeps, repliers: WebhookRepliers): Promise<void> {
+  if (ev.kind === 'TEXT' && ev.text) {
+    const code = normalizeLinkCode(ev.text)
+    if (code && rec.status !== 'LINKED') {
+      const r = await deps.store.consumeLinkCode(ev.lineUserId, code)
+      if (r.result === 'LINKED_STAFF' || r.result === 'LINKED_CUSTOMER' || r.result === 'LINKED_DRIVER') {
+        await repliers.reply(ev.replyToken, 'LINK_SUCCESS', { ชื่อ: ('name' in r && r.name) || '-', ชื่อร้าน: deps.shopName })
+      } else if (LINK_REPLY[r.result]) await repliers.reply(ev.replyToken, LINK_REPLY[r.result], { ชื่อร้าน: deps.shopName })
+    } else if (!code && rec.status !== 'LINKED') {
+      await handleRegisterText(ev, ev.text, deps, { reply: repliers.reply })
+    }
+    // any other text stays in line_messages for the inbox / staff reports
+  } else if (ev.kind === 'FOLLOW') {
+    await handleFollowEvent(ev, deps, { reply: repliers.reply })
+  } else if (ev.kind === 'POSTBACK') {
+    const task = parseTaskPostback(ev.postbackData)
+    if (task) await handleTaskPostbackEvent(ev, task, deps.store, repliers)
+  }
+}
+
+export async function handleLineWebhook(deps: WebhookDeps): Promise<WebhookResponse> {
+  if (!deps.channelSecret) return { status: 503, body: { ok: false, error: 'LINE_NOT_CONFIGURED' } }
+  if (new TextEncoder().encode(deps.rawBody).length > MAX_BODY_BYTES) {
+    return { status: 413, body: { ok: false, error: 'BODY_TOO_LARGE' } }
+  }
+  if (!(await verifyLineSignature(deps.channelSecret, deps.rawBody, deps.signature))) {
+    return { status: 401, body: { ok: false, error: 'BAD_SIGNATURE' } }
+  }
+
+  let payload: unknown
+  try {
+    payload = JSON.parse(deps.rawBody)
+  } catch {
+    return { status: 400, body: { ok: false, error: 'BAD_JSON' } }
+  }
+  const events = (payload as { events?: unknown })?.events
+  if (!Array.isArray(events)) return { status: 400, body: { ok: false, error: 'NO_EVENTS' } }
+
+  const repliers = createWebhookRepliers(deps)
 
   let processed = 0
   let skipped = 0
@@ -319,24 +347,7 @@ export async function handleLineWebhook(deps: WebhookDeps): Promise<WebhookRespo
         continue
       }
       processed++
-
-      if (ev.kind === 'TEXT' && ev.text) {
-        const code = normalizeLinkCode(ev.text)
-        if (code && rec.status !== 'LINKED') {
-          const r = await deps.store.consumeLinkCode(ev.lineUserId, code)
-          if (r.result === 'LINKED_STAFF' || r.result === 'LINKED_CUSTOMER' || r.result === 'LINKED_DRIVER') {
-            await reply(ev.replyToken, 'LINK_SUCCESS', { ชื่อ: ('name' in r && r.name) || '-', ชื่อร้าน: deps.shopName })
-          } else if (LINK_REPLY[r.result]) await reply(ev.replyToken, LINK_REPLY[r.result], { ชื่อร้าน: deps.shopName })
-        } else if (!code && rec.status !== 'LINKED') {
-          await handleRegisterText(ev, ev.text, deps, { reply })
-        }
-        // any other text stays in line_messages for the inbox / staff reports
-      } else if (ev.kind === 'FOLLOW') {
-        await handleFollowEvent(ev, deps, { reply })
-      } else if (ev.kind === 'POSTBACK') {
-        const task = parseTaskPostback(ev.postbackData)
-        if (task) await handleTaskPostbackEvent(ev, task, deps.store, { reply, replyStep, render, progress })
-      }
+      await dispatchEvent(ev, rec, deps, repliers)
     } catch (error) {
       failed++
       logger.error('line webhook: event failed', { error, raw })

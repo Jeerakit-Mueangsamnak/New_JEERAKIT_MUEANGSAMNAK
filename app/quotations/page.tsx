@@ -218,7 +218,7 @@ export default function QuotationsPage() {
 
   const quotationTemplateProblem = () => selectedPrintTemplate
     ? 'เทมเพลตที่เลือกไม่รองรับข้อมูลครบหรือใบเสนอราคาหลายหน้า กรุณาเลือกแบบฟอร์มอื่น'
-    : 'ยังไม่มีแบบฟอร์มใบเสนอราคาที่ใช้พิมพ์ได้ กรุณาเพิ่มที่เมนูจัดการเอกสาร'
+    : 'ยังไม่มีแบบฟอร์มใบเสนอราคาที่ใช้พิมพ์ได้ กรุณาเพิ่มที่ ตั้งค่าระบบ › เทมเพลต'
 
   const handlePrintQuotation = (q: Quotation) => {
     if (!selectedPrintTemplate || !printQuotationA4(q, systemSettings.business, selectedPrintTemplate)) {
@@ -272,7 +272,7 @@ export default function QuotationsPage() {
   }
 
   return (
-    <div className="h-full min-h-0 flex flex-col overflow-hidden p-2 bg-slate-100 dark:bg-slate-900 gap-2 text-xs">
+    <div className="h-full min-h-0 flex flex-col overflow-hidden p-2 bg-slate-100 dark:bg-black gap-2 text-xs">
       {/* One white work area (owner 2026-11-11): summary cards, then the toolbar and table */}
       <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2 pb-0 shrink-0">
