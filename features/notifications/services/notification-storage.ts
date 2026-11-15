@@ -1,7 +1,7 @@
 /**
  * In-app notifications (Master v4.3.1 §27). Created on the server (rental_overdue_scan:
- * delivery due, return due soon, overdue, payment due, low stock — raised per member, switched
- * on/off and timed by each member in ตั้งค่าส่วนตัว › การแจ้งเตือน). The app reads public.notifications (RLS: own or menu-addressed rows)
+ * delivery due, return due soon, overdue, payment due, low stock — raised per member for the menus they hold, switched
+ * on/off and timed for the whole shop in ตั้งค่าระบบ › การแจ้งเตือนของร้าน). The app reads public.notifications (RLS: own or menu-addressed rows)
  * and marks them read / handled through notification_mark. Notices never change business data.
  */
 import { createClient } from '@/lib/supabase/client'

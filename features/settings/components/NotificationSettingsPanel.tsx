@@ -11,8 +11,9 @@ interface NotificationSettingsPanelProps {
 }
 
 /**
- * The member's own in-app notices (ตั้งค่าส่วนตัว): profiles.notification_prefs, read by
- * rental_overdue_scan (per member, menus they hold) and the appointment calendar.
+ * The shop's in-app notices (ตั้งค่าระบบ › การแจ้งเตือนของร้าน, OWNER): store_settings.policies.notifications, the same
+ * for every member. Read by rental_overdue_scan (each member still gets only the menus they hold) and the appointment
+ * calendar ("ใกล้ถึงกำหนด").
  */
 export function NotificationSettingsPanel({ value, onChange }: NotificationSettingsPanelProps) {
   const config = { notifications: value }

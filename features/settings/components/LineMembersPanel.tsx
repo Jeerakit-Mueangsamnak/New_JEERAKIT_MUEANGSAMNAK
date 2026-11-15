@@ -166,6 +166,10 @@ export function LineMembersPanel() {
   return (
     <div className={SETTINGS_SECTION}>
       <div className="flex items-center justify-between gap-2">
+        <h4 className={SETTINGS_SECTION_TITLE}>
+          <UserRound className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+          <span>พนักงานที่ใช้ระบบ</span>
+        </h4>
         <button
           type="button"
           onClick={() => void load()}
@@ -177,11 +181,6 @@ export function LineMembersPanel() {
         </button>
       </div>
       {loadError && <p className="text-[11px] text-amber-700 dark:text-amber-300">{loadError}</p>}
-
-      <h4 className={SETTINGS_SECTION_TITLE}>
-        <UserRound className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-        <span>พนักงานที่ใช้ระบบ</span>
-      </h4>
       <DataTableFrame
         rowCount={staff.length}
       >

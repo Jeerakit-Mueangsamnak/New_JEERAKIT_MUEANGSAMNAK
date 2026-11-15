@@ -66,7 +66,7 @@ export function LineSettingsWorkspace({ initialView = 'CONNECTION' }: { initialV
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="flex-1 min-h-0 flex flex-col">
         <LineSettingsPanel config={state.draft} setConfig={setDraft} view={view} onViewChange={setView} />
       </div>
       {part && (

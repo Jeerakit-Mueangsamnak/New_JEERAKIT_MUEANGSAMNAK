@@ -114,7 +114,8 @@ function SidebarContent() {
         >
           {MENU_HREFS.filter((href) => { const code = menuForPath(href); return !code || hasMenu(code) }).map((href) => {
             const { name, icon: Icon } = getPageMeta(href, null)
-            const views = MENU_GROUPS[href]
+            // ตั้งค่าระบบ is the OWNER's only (owner 2026-11-15)
+            const views = href === '/settings' && user?.role !== 'OWNER' ? ['personal'] : MENU_GROUPS[href]
             const isActive = isUnder(pathname, href)
 
             if (views) {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useAuth } from '@/features/auth/contexts/AuthContext'
+import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import React, { useState, useEffect, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { Plus, Calendar, FileText, CheckSquare, Pencil, RefreshCw, Send } from 'lucide-react'
@@ -90,7 +90,7 @@ type Panel = { kind: 'form'; aptId?: string } | { kind: 'detail'; aptId: string 
 export default function AppointmentsPage() {
   const { showToast } = useToast()
   const router = useRouter()
-  const { user } = useAuth()
+  const { settings } = useSystemSettings()
 
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -265,9 +265,8 @@ export default function AppointmentsPage() {
 
   const todayStr = getLocalDateString()
 
-  // KPI Calculations ("ใกล้ถึงกำหนด" window comes from Settings › นัดหมาย / แจ้งเตือน)
-  // "ใกล้ถึงกำหนด" window = the member's own appointment notice days (ตั้งค่าส่วนตัว › การแจ้งเตือน).
-  const nearDays = Math.max(0, Number(user?.notificationPrefs?.appointmentReminder?.daysBefore ?? 3))
+  // "ใกล้ถึงกำหนด" window = the shop's appointment notice days (ตั้งค่าระบบ › การแจ้งเตือนของร้าน).
+  const nearDays = Math.max(0, Number(settings.notifications?.appointmentReminder?.daysBefore ?? 3))
   const todayTasksCount = appointments.filter(a => a.date === todayStr && !isAppointmentClosed(a.status)).length
   // เลยกำหนด = open jobs past their end time and not dispatched (same rule as the job status)
   const overdueTasksCount = appointments.filter((a) => jobStatusOf(a) === 'OVERDUE').length

@@ -19,6 +19,8 @@ import {
   Trash2,
   Upload,
   User,
+  Volume2,
+  VolumeX,
 } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
@@ -34,10 +36,7 @@ import { useTheme } from '@/lib/contexts/ThemeContext'
 import { createClient } from '@/lib/supabase/client'
 import { changeOwnPassword } from '@/app/actions/auth'
 import { validatePassword } from '@/features/settings/utils/settings-page-utils'
-import { NotificationSettingsPanel } from '@/features/settings/components/NotificationSettingsPanel'
-import { normalizeNotificationPrefs } from '@/features/notifications/services/notification-prefs'
-import type { NotificationSettings } from '@/features/settings/services/settings-storage'
-import { rpc } from '@/lib/db/rpc'
+import { isNoticeSoundOn, onNoticeSoundChange, playNoticeSound, setNoticeSoundOn } from '@/features/notifications/services/notification-sound'
 
 export type MyAccountTab = 'PROFILE' | 'NOTIFICATIONS' | 'APPEARANCE'
 
@@ -86,24 +85,15 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
   const supabase = useMemo(() => createClient(), [])
   const [tab, setTab] = useState<MyAccountTab>(initialTab)
 
-  // ── Notifications (own switches, profiles.notification_prefs) ─────────────────
-  const savedPrefs = useMemo(() => normalizeNotificationPrefs(user?.notificationPrefs), [user?.notificationPrefs])
-  const [prefsDraft, setPrefsDraft] = useState<NotificationSettings>(savedPrefs)
-  const [prefsSaving, setPrefsSaving] = useState(false)
-  useEffect(() => setPrefsDraft(savedPrefs), [savedPrefs])
-  const prefsDirty = JSON.stringify(prefsDraft) !== JSON.stringify(savedPrefs)
-
-  const handleSavePrefs = async () => {
-    setPrefsSaving(true)
-    try {
-      await rpc('my_notification_prefs_set', { p_prefs: prefsDraft })
-      await refreshUser()
-      showToast('บันทึกการแจ้งเตือนแล้ว', 'มีผลกับการแจ้งเตือนรอบถัดไป', 'SUCCESS')
-    } catch (err) {
-      showToast('บันทึกการแจ้งเตือนไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
-    } finally {
-      setPrefsSaving(false)
-    }
+  // ── Notifications: this device's sound on/off only (owner 2026-11-15, like iOS); the notices = ตั้งค่าระบบ ─────
+  const [soundOn, setSoundOn] = useState(true)
+  useEffect(() => {
+    setSoundOn(isNoticeSoundOn())
+    return onNoticeSoundChange(() => setSoundOn(isNoticeSoundOn()))
+  }, [])
+  const toggleSound = (on: boolean) => {
+    setNoticeSoundOn(on)
+    if (on) playNoticeSound()
   }
 
   // ── Profile ────────────────────────────────────────────────────────────────
@@ -479,26 +469,20 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
 
             {tab === 'NOTIFICATIONS' && (
               <div className={sectionClass}>
-                <NotificationSettingsPanel value={prefsDraft} onChange={setPrefsDraft} />
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPrefsDraft(savedPrefs)}
-                    disabled={!prefsDirty || prefsSaving}
-                    className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 disabled:opacity-50`}
-                  >
-                    ยกเลิก
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleSavePrefs()}
-                    disabled={!prefsDirty || prefsSaving}
-                    className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 text-white flex items-center disabled:opacity-50`}
-                  >
-                    <Save className="w-4 h-4" />
-                    <span>{prefsSaving ? 'กำลังบันทึก…' : 'บันทึก'}</span>
-                  </button>
-                </div>
+                <label className="py-2 flex items-center justify-between gap-2.5 cursor-pointer">
+                  <span className="flex items-center gap-2.5">
+                    {soundOn ? <Volume2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400" /> : <VolumeX className="w-4 h-4 text-slate-500 dark:text-slate-400" />}
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">เสียงแจ้งเตือนบนเครื่องนี้</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    aria-label="เสียงแจ้งเตือนบนเครื่องนี้"
+                    checked={soundOn}
+                    onChange={(e) => toggleSound(e.target.checked)}
+                    className="w-4 h-4 text-emerald-700 dark:text-emerald-400 rounded"
+                  />
+                </label>
               </div>
             )}
 

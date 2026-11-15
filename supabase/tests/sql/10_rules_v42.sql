@@ -381,9 +381,9 @@ SELECT t.ok('EARLY', 'deliver 1', 'cashier',
 SELECT public.rental_overdue_scan();
 SELECT t.check('NOTICE', 'default return reminder (1 day) does not fire 4 days ahead',
     NOT EXISTS (SELECT 1 FROM public.notifications WHERE event_type = 'RENTAL_DUE_SOON' AND entity_id = t.v('b3')::uuid));
--- Reminders are each member's own setting (ตั้งค่าส่วนตัว, migration 20261019090000), not a shop policy.
-SELECT t.ok('NOTICE', 'owner changes their own return reminder to 7 days', 'owner',
-    $q$select public.my_notification_prefs_set('{"returnReminder":{"enabled":true,"daysBefore":7},"overdueReturnReminder":{"enabled":true}}'::jsonb)$q$);
+-- Reminders are the shop's setting for every member (ตั้งค่าระบบ › การแจ้งเตือนของร้าน, migration 20261115031120).
+SELECT t.ok('NOTICE', 'owner sets the shop return reminder to 7 days', 'owner',
+    $q$select public.settings_update('{"policies":{"notifications":{"returnReminder":{"enabled":true,"daysBefore":7},"overdueReturnReminder":{"enabled":true}}}}'::jsonb, 'test: shop notices')$q$);
 SELECT public.rental_overdue_scan();
 SELECT t.check('NOTICE', 'in-app due-soon notice for the rental',
     EXISTS (SELECT 1 FROM public.notifications WHERE event_type = 'RENTAL_DUE_SOON' AND entity_id = t.v('b3')::uuid));

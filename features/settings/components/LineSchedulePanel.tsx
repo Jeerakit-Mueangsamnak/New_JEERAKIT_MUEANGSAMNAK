@@ -3,7 +3,8 @@
 import { type Dispatch, type SetStateAction } from 'react'
 import { CalendarClock, Route, Timer } from 'lucide-react'
 import { NumericInput } from '@/components/common/NumericInput'
-import { SETTINGS_HELPER, SETTINGS_INPUT, SETTINGS_LABEL, SETTINGS_SECTION, SETTINGS_SECTION_TITLE } from '@/features/settings/components/settings-ui'
+import { SETTINGS_INPUT, SETTINGS_LABEL } from '@/features/settings/components/settings-ui'
+import { SettingsCard } from '@/features/settings/components/SettingsCards'
 import type { SystemConfig } from '@/features/settings/services/settings-storage'
 import {
   LINE_CUSTOMER_STAGES,
@@ -46,13 +47,9 @@ export function LineSchedulePanel({ config, setConfig }: Props) {
   }
 
   return (
-    <>
-      <div className={SETTINGS_SECTION}>
-        <h4 className={SETTINGS_SECTION_TITLE}>
-          <CalendarClock className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
-          <span>ตารางเตือนลูกค้าทาง LINE</span>
-        </h4>
-        <div className="space-y-2 max-w-3xl">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+      <SettingsCard title="ตารางเตือนลูกค้าทาง LINE" icon={CalendarClock}>
+        <div className="py-2 space-y-2">
           {LINE_REMINDER_RULES.map((rule) => {
             const s = reminders[rule.key] ?? {}
             const on = s.enabled === true
@@ -97,14 +94,11 @@ export function LineSchedulePanel({ config, setConfig }: Props) {
             )
           })}
         </div>
-      </div>
+      </SettingsCard>
 
-      <div className={SETTINGS_SECTION}>
-        <h4 className={SETTINGS_SECTION_TITLE}>
-          <Route className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-          <span>แจ้งลูกค้าเมื่อคนขับกดขั้นตอนงาน</span>
-        </h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+      <div className="space-y-4 min-w-0">
+      <SettingsCard title="แจ้งลูกค้าเมื่อคนขับกดขั้นตอนงาน" icon={Route}>
+        <div className="py-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4">
           {LINE_CUSTOMER_STAGES.map((st) => (
             <label key={st.key} className="flex items-start gap-2.5 py-1.5 cursor-pointer">
               <input
@@ -124,14 +118,10 @@ export function LineSchedulePanel({ config, setConfig }: Props) {
             </label>
           ))}
         </div>
-      </div>
+      </SettingsCard>
 
-      <div className={SETTINGS_SECTION}>
-        <h4 className={SETTINGS_SECTION_TITLE}>
-          <Timer className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
-          <span>เวลา</span>
-        </h4>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl">
+      <SettingsCard title="เวลา" icon={Timer}>
+        <div className="py-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
           {LINE_SCHEDULE_NUMBER_KEYS.map((key) => {
             const o = LINE_NUMBER_OPTIONS[key]
             const value = typeof other[key] === 'number' ? (other[key] as number) : o.default
@@ -154,7 +144,8 @@ export function LineSchedulePanel({ config, setConfig }: Props) {
             )
           })}
         </div>
+      </SettingsCard>
       </div>
-    </>
+    </div>
   )
 }

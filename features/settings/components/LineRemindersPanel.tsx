@@ -1,13 +1,12 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { BellRing, RefreshCw, Send } from 'lucide-react'
+import { RefreshCw, Send } from 'lucide-react'
 import { ActionButton } from '@/components/common/ActionButton'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { useToast } from '@/components/common/Toast'
 import { getReminderCandidates, sendCustomerReminder, type ReminderCandidate } from '@/app/actions/line'
-import { SETTINGS_HELPER, SETTINGS_SECTION, SETTINGS_SECTION_TITLE } from '@/features/settings/components/settings-ui'
 import { LINE_REMINDER_RULES } from '@/lib/line/config'
 import { LINE_DELIVERY_STATUS } from '@/features/settings/components/LineDeliveryLogPanel'
 
@@ -70,12 +69,8 @@ export function LineRemindersPanel() {
   }
 
   return (
-    <div className={SETTINGS_SECTION}>
-      <h4 className={SETTINGS_SECTION_TITLE}>
-        <BellRing className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
-        <span>ส่งเตือนลูกค้าเอง</span>
-      </h4>
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="flex-1 min-h-0 flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2 shrink-0">
         <div className="w-56">
           <CustomSelect
             value={rule}
@@ -89,9 +84,7 @@ export function LineRemindersPanel() {
         </ActionButton>
       </div>
       {error && <p className="text-[11px] text-amber-700 dark:text-amber-300">{error}</p>}
-      <DataTableFrame
-        rowCount={shown.length}
-      >
+      <DataTableFrame fill rowCount={shown.length}>
         <table className="w-full text-left border-collapse table-auto text-xs" aria-label="ตารางส่งเตือนลูกค้า">
           <thead>
             <tr>

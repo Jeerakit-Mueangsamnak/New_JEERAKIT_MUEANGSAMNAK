@@ -41,10 +41,17 @@ import { DeliveryDriversPanel } from '@/features/settings/components/DeliveryDri
 import { LineChatPreview, type LineChatBubble } from '@/features/settings/components/LineChatPreview'
 import { LINE_SETTINGS_VIEWS, type LineSettingsView } from '@/features/settings/components/LineSettingsPanel'
 import { LineSettingsWorkspace } from '@/features/settings/components/LineSettingsWorkspace'
+import { LineBillCardDesigner } from '@/features/settings/components/LineBillCardDesigner'
+import { LineMessageComposer } from '@/features/settings/components/LineMessageComposer'
+import { LineFormsCard } from '@/features/settings/components/LineFormsCard'
 import { SETTINGS_HELPER, SETTINGS_INPUT, SETTINGS_LABEL } from '@/features/settings/components/settings-ui'
 
 type RegisterStatus = 'WAITING' | 'PHONE_TAKEN' | 'DUPLICATE'
-type PeopleView = 'PENDING' | 'LINKED' | 'DRIVERS' | 'SETTINGS'
+type PeopleView = 'PENDING' | 'LINKED' | 'DRIVERS' | 'SETTINGS' | 'CARD' | 'MESSAGE' | 'FORMS'
+/** The OWNER's tabs (staff see คนใน LINE only) */
+const OWNER_VIEWS: PeopleView[] = ['SETTINGS', 'CARD', 'MESSAGE', 'FORMS']
+/** Owner 2026-11-15: การ์ดบิล / เขียนข้อความ / ฟอร์มใน LINE fill the box under the same tab row */
+const OWNER_PANEL = 'settings-ref flex-1 min-h-0 overflow-y-auto p-2'
 
 interface PendingContact {
   id: string
@@ -92,8 +99,7 @@ const thaiDate = (iso: string | null) =>
 const initials = (s: string | null) => (s || '?').trim().slice(0, 2)
 const phoneText = (p: string | null) => (p && /^\d{10}$/.test(p) ? `${p.slice(0, 3)}-${p.slice(3, 6)}-${p.slice(6)}` : p || '')
 
-/** embedded = inside ตั้งค่าระบบ › LINE: the settings page is the frame (no grey page around) */
-export function LinePeoplePage({ embedded = false }: { embedded?: boolean } = {}) {
+export function LinePeoplePage() {
   const { showToast } = useToast()
   const confirm = useConfirm()
   const { settings } = useSystemSettings()
@@ -101,8 +107,8 @@ export function LinePeoplePage({ embedded = false }: { embedded?: boolean } = {}
   // ตั้งค่า LINE is the OWNER's (staff see คนใน LINE only)
   const isOwner = user?.role === 'OWNER'
   const [tab, setTab] = useState<PeopleView>('PENDING')
-  // staff never see ตั้งค่า LINE, even from a ?tab=settings link
-  const view: PeopleView = tab === 'SETTINGS' && !isOwner ? 'PENDING' : tab
+  // staff never see the OWNER's tabs, even from a ?tab=settings link
+  const view: PeopleView = OWNER_VIEWS.includes(tab) && !isOwner ? 'PENDING' : tab
   const [initialSettingsView, setInitialSettingsView] = useState<LineSettingsView>('CONNECTION')
   const [search, setSearch] = useState('')
   const [qrOpen, setQrOpen] = useState(false)
@@ -316,7 +322,14 @@ export function LinePeoplePage({ embedded = false }: { embedded?: boolean } = {}
     { id: 'PENDING', label: 'รอร้านตรวจ', count: pending.length, alert: pending.length > 0 },
     { id: 'LINKED', label: 'ลูกค้าที่ผูก LINE', count: linked.length },
     { id: 'DRIVERS', label: 'พนักงานส่งของ' },
-    ...(isOwner ? [{ id: 'SETTINGS' as const, label: 'ตั้งค่า LINE', icon: <Settings2 className="w-3.5 h-3.5" /> }] : []),
+    ...(isOwner
+      ? [
+          { id: 'SETTINGS' as const, label: 'ตั้งค่า LINE', icon: <Settings2 className="w-3.5 h-3.5" /> },
+          { id: 'CARD' as const, label: 'การ์ดบิล' },
+          { id: 'MESSAGE' as const, label: 'เขียนข้อความ' },
+          { id: 'FORMS' as const, label: 'ฟอร์มใน LINE' },
+        ]
+      : []),
   ]
   const listView = view === 'PENDING' || view === 'LINKED'
   const tabBar = (
@@ -349,7 +362,7 @@ export function LinePeoplePage({ embedded = false }: { embedded?: boolean } = {}
   )
 
   return (
-    <div className={`h-full min-h-0 flex flex-col overflow-hidden gap-2 text-xs ${embedded ? '' : 'p-2 bg-slate-100 dark:bg-black'}`.trim()}>
+    <div className="h-full min-h-0 flex flex-col overflow-hidden gap-2 p-2 bg-slate-100 dark:bg-black text-xs">
       {/* Summary: same cards as จัดการบิลเช่า */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 sm:gap-2 shrink-0">
         <StatCard tone="amber" label="รอร้านตรวจ" value={`${pending.length} คน`} icon={<UserPlus className="w-3.5 h-3.5" />} />
@@ -604,6 +617,15 @@ export function LinePeoplePage({ embedded = false }: { embedded?: boolean } = {}
 
         {/* ตั้งค่า LINE: its own tabs come as the second row under these tabs */}
         {view === 'SETTINGS' && <LineSettingsWorkspace initialView={initialSettingsView} />}
+
+        {/* Kept mounted while hidden, so an unsaved card or message survives a tab switch */}
+        {isOwner && (
+          <>
+            <div hidden={view !== 'CARD'} className={view === 'CARD' ? OWNER_PANEL : undefined}><LineBillCardDesigner /></div>
+            <div hidden={view !== 'MESSAGE'} className={view === 'MESSAGE' ? OWNER_PANEL : undefined}><LineMessageComposer /></div>
+            <div hidden={view !== 'FORMS'} className={view === 'FORMS' ? OWNER_PANEL : undefined}><LineFormsCard /></div>
+          </>
+        )}
       </div>
 
       {/* QR to add the shop LINE as a friend (adding a friend links nobody) */}

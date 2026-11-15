@@ -1,14 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { History, RefreshCw, RotateCcw, Send } from 'lucide-react'
+import { RefreshCw, RotateCcw, Send } from 'lucide-react'
 import { ActionButton } from '@/components/common/ActionButton'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { useToast } from '@/components/common/Toast'
 import { createClient } from '@/lib/supabase/client'
 import { retryLineDelivery, sendLineTestToMe } from '@/app/actions/line'
-import { SETTINGS_HELPER, SETTINGS_SECTION, SETTINGS_SECTION_TITLE } from '@/features/settings/components/settings-ui'
 import { LINE_EDITABLE_TEMPLATES } from '@/lib/line/config'
 
 /**
@@ -109,8 +108,8 @@ export function LineDeliveryLogPanel() {
   }
 
   return (
-    <div className={SETTINGS_SECTION}>
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="flex-1 min-h-0 flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2 shrink-0">
         <div className="w-48">
           <CustomSelect
             value={status}
@@ -124,9 +123,7 @@ export function LineDeliveryLogPanel() {
         </ActionButton>
       </div>
       {error && <p className="text-[11px] text-amber-700 dark:text-amber-300">{error}</p>}
-      <DataTableFrame
-        rowCount={rows.length}
-      >
+      <DataTableFrame fill rowCount={rows.length}>
         <table className="w-full text-left border-collapse table-auto text-xs" aria-label="ประวัติการส่ง LINE">
           <thead>
             <tr>

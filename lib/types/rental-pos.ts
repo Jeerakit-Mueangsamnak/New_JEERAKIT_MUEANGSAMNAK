@@ -1,4 +1,3 @@
-import type { NotificationSettings } from '@/features/settings/services/settings-storage'
 // TypeScript Definitions for Rental POS Database & Domain Models
 
 export type RentalType = 'NORMAL' | 'DAILY' | 'SALE'
@@ -68,8 +67,6 @@ export interface CurrentUser {
   businessId: string | null
   emailVerified: boolean
   avatarUrl?: string | null
-  /** Own notification switches (profiles.notification_prefs, defaults filled in). */
-  notificationPrefs?: NotificationSettings
 }
 
 

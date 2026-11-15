@@ -27,6 +27,7 @@ import {
   notificationGroup,
 } from '@/features/notifications/services/notification-storage'
 import { useToast } from '@/components/common/Toast'
+import { playNoticeSound, unlockNoticeSoundOnGesture } from '@/features/notifications/services/notification-sound'
 
 interface NotificationBellProps {
   className?: string
@@ -73,6 +74,21 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
       window.removeEventListener('app-storage-update', handleStorageUpdate)
     }
   }, [refreshNotifications])
+
+  // Chime for a notice that arrives while the app is open (sound on/off = this device's choice, ตั้งค่าส่วนตัว).
+  // Notices from before the bell was shown never chime, so opening the app or a page stays quiet.
+  const mountedAt = useRef(Date.now())
+  const heard = useRef<Set<string>>(new Set())
+  useEffect(() => unlockNoticeSoundOnGesture(), [])
+  useEffect(() => {
+    let fresh = false
+    for (const n of notifications) {
+      if (heard.current.has(n.id)) continue
+      heard.current.add(n.id)
+      if (n.status === 'UNREAD' && Date.parse(n.createdAt) >= mountedAt.current - 5000) fresh = true
+    }
+    if (fresh) playNoticeSound()
+  }, [notifications])
 
   const unreadCount = useMemo(() => {
     return notifications.filter((n) => n.status === 'UNREAD').length

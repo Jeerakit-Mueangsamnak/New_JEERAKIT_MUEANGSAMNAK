@@ -65,6 +65,9 @@ vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: m.to
 vi.mock('@/components/common/ConfirmDialogProvider', () => ({ useConfirm: () => m.confirm }))
 vi.mock('@/features/auth/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1', role: m.role, status: 'ACTIVE', menus: [] } }) }))
 vi.mock('@/features/settings/components/LineSettingsWorkspace', () => ({ LineSettingsWorkspace: () => <div>ตั้งค่า LINE (stub)</div> }))
+vi.mock('@/features/settings/components/LineBillCardDesigner', () => ({ LineBillCardDesigner: () => <div>การ์ดบิล (stub)</div> }))
+vi.mock('@/features/settings/components/LineMessageComposer', () => ({ LineMessageComposer: () => <div>เขียนข้อความ (stub)</div> }))
+vi.mock('@/features/settings/components/LineFormsCard', () => ({ LineFormsCard: () => <div>ฟอร์มใน LINE (stub)</div> }))
 vi.mock('@/lib/contexts/SystemSettingsContext', () => ({
   useSystemSettings: () => ({ settings: { business: { businessName: 'ร้านเอ' }, line: { templates: {} } } }),
 }))

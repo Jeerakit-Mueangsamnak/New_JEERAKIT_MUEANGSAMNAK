@@ -27,7 +27,7 @@ import {
   Image as ImageIcon,
   AlertTriangle,
   Lock,
-  User, Bell, BellRing, Monitor,
+  User, Bell, Monitor,
   Users, Store, ReceiptText, Boxes, Wallet,
 } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
@@ -67,10 +67,9 @@ import OwnerPermissionsPage from '@/app/owner-permissions/page'
 import {
   REF_BUTTON_QUIET,
   CardSaveButtons,
-  QuietHoursPreview,
   SettingsCard,
-  ShopNoticeTypesPreview,
 } from '@/features/settings/components/SettingsCards'
+import { NotificationSettingsPanel } from '@/features/settings/components/NotificationSettingsPanel'
 import { FormNotesCard } from '@/features/settings/components/FormNotesCard'
 import { BackupPanel } from '@/features/settings/components/BackupPanel'
 import { CustomerDocumentsWorkspace } from '@/features/documents/components/CustomerDocumentsWorkspace'
@@ -86,7 +85,7 @@ const PERSONAL_TABS: Array<{ id: MyAccountTab; label: string; icon: React.Compon
  * ตั้งค่าระบบ = 8 categories in the menu bar on top (owner 2026-11-12; moved from the left bar to the top 2026-11-13). Each holds the
  * settings sections it saves (a card per section, each with its own save button).
  */
-type SystemView = 'shop' | 'taxDocs' | 'members' | 'security' | 'backup' | 'notices' | 'myNotifications'
+type SystemView = 'shop' | 'taxDocs' | 'members' | 'security' | 'backup' | 'notices'
 const SYSTEM_NAV: Array<{ id: SystemView; label: string; icon: React.ComponentType<{ className?: string }>; sections?: SettingsSection[] }> = [
   // สต็อกตอนเปิดบิล และการจอง moved into บัญชีการเงิน (owner 2026-11-14); the การขายและให้เช่า category is gone
   { id: 'shop', label: 'ข้อมูลร้าน', icon: Store, sections: ['business', 'payment', 'taxDiscount', 'salesRental'] },
@@ -96,9 +95,9 @@ const SYSTEM_NAV: Array<{ id: SystemView; label: string; icon: React.ComponentTy
   { id: 'security', label: 'ความปลอดภัย', icon: ShieldCheck, sections: ['shopSecurity'] },
   // สำรองข้อมูล (owner 2026-11-15): pick dates + data, one JSON file; OWNER only
   { id: 'backup', label: 'สำรองข้อมูล', icon: DatabaseBackup },
-  // LINE has its own menu now (owner 2026-11-14, app/line/page.tsx); only the shop's notice card stays here
-  { id: 'notices', label: 'การแจ้งเตือนของร้าน', icon: Bell },
-  { id: 'myNotifications', label: 'การแจ้งเตือนส่วนบุคคล', icon: BellRing },
+  // Notices (owner 2026-11-15): LINE ones live in the LINE menu; this = the whole shop's in-app notices (which ones, how many
+  // days ahead), the same for every member; each person only picks sound on/off in ตั้งค่าส่วนตัว › การแจ้งเตือนส่วนตัว
+  { id: 'notices', label: 'การแจ้งเตือนของร้าน', icon: Bell, sections: ['notifications'] },
 ]
 type DocTab = 'setup' | 'create' | 'library' | 'add'
 const DOC_TABS: Array<[DocTab, string]> = [
@@ -107,9 +106,6 @@ const DOC_TABS: Array<[DocTab, string]> = [
   ['library', 'คลังแบบฟอร์ม'],
   ['add', 'เพิ่มแบบฟอร์ม'],
 ]
-/** A member who is not the OWNER sees only these (shop settings are OWNER only). */
-const NON_OWNER_VIEWS: SystemView[] = ['myNotifications']
-
 /** ?tab= of a link (a category or an old section id) → the category to open. */
 function viewForTab(tab: string): SystemView | null {
   if (SYSTEM_NAV.some((item) => item.id === tab)) return tab as SystemView
@@ -576,7 +572,9 @@ function SettingsPageContent() {
   const searchParams = useSearchParams()
   const viewParam = searchParams?.get('view') ?? null
   const tabParam = searchParams?.get('tab') ?? null
-  const mainTab: 'personal' | 'system' = viewParam === 'system' || (!viewParam && tabParam && viewForTab(tabParam)) ? 'system' : 'personal'
+  // ตั้งค่าระบบ is the OWNER's only: anyone else stays on ตั้งค่าส่วนตัว
+  const mainTab: 'personal' | 'system' =
+    isOwner && (viewParam === 'system' || (!viewParam && tabParam && viewForTab(tabParam))) ? 'system' : 'personal'
   const [personalTab, setPersonalTab] = useState<MyAccountTab>('PROFILE')
   // ข้อมูลร้าน category: one card at a time under a tab bar (owner 2026-11-13)
   const [shopTab, setShopTab] = useState<'business' | 'payment'>('business')
@@ -586,17 +584,11 @@ function SettingsPageContent() {
   const openDocTab = (id: DocTab) => { setDocTab(id); if (id !== 'setup') setDocsOpened(true) }
   const [savingSection, setSavingSection] = useState<SettingsSection | null>(null)
 
-  // A member who is not the OWNER sees only their categories of ตั้งค่าระบบ
-  useEffect(() => {
-    if (mainTab === 'system' && !isOwner && !NON_OWNER_VIEWS.includes(systemView)) setSystemView('myNotifications')
-  }, [mainTab, isOwner, systemView])
-
   // ?tab= from links (old section ids still work): opens the category that holds it.
   useEffect(() => {
     const wanted = new URLSearchParams(window.location.search).get('tab')
     const view = wanted ? viewForTab(wanted) : null
-    if (!view) return
-    if (!isOwner && !NON_OWNER_VIEWS.includes(view)) return
+    if (!view || !isOwner) return
     setSystemView(view)
     if (wanted === 'payment' || wanted === 'taxDiscount' || wanted === 'salesRental') setShopTab('payment')
   }, [isOwner])
@@ -643,8 +635,6 @@ function SettingsPageContent() {
     }
   }
 
-  const navItems = isOwner ? SYSTEM_NAV : SYSTEM_NAV.filter((item) => NON_OWNER_VIEWS.includes(item.id))
-
   const business = card('business', 'บันทึกข้อมูลร้าน')
   const payment = card('payment', 'บันทึกบัญชีรับเงิน')
   const tax = card('taxDiscount', 'บันทึกภาษี')
@@ -652,6 +642,7 @@ function SettingsPageContent() {
   const notes = card('documentNotes', 'บันทึกหมายเหตุ')
   const sales = card('salesRental', 'บันทึกการขายและให้เช่า')
   const security = card('shopSecurity', 'บันทึกการล็อกหน้าจอ')
+  const notices = card('notifications', 'บันทึกการแจ้งเตือน')
 
   const systemContent = () => {
     switch (systemView) {
@@ -738,12 +729,14 @@ function SettingsPageContent() {
       case 'backup':
         return <BackupPanel />
       case 'notices':
-        return <ShopNoticeTypesPreview />
-      case 'myNotifications':
-        return <>
-          <MyAccountPanel initialTab="NOTIFICATIONS" embedded />
-          <QuietHoursPreview />
-        </>
+        return (
+          <SettingsCard footer={notices.footer}>
+            {notices.conflict}
+            <div className="py-2">
+              <NotificationSettingsPanel value={notices.cfg.notifications} onChange={(n) => notices.set((c) => ({ ...c, notifications: n }))} />
+            </div>
+          </SettingsCard>
+        )
       default:
         return null
     }
@@ -761,7 +754,7 @@ function SettingsPageContent() {
                 ? PERSONAL_TABS.map((item) => (
                     <NavButton key={item.id} item={item} selected={personalTab === item.id} dirty={false} onClick={() => setPersonalTab(item.id)} />
                   ))
-                : navItems.map((item) => (
+                : SYSTEM_NAV.map((item) => (
                     <NavButton
                       key={item.id}
                       item={item}

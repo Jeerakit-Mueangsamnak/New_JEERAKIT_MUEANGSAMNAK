@@ -9,8 +9,9 @@ import {
   SETTINGS_SECTION_TITLE,
 } from '@/features/settings/components/settings-ui'
 import { StatusPill } from '@/features/settings/components/StatusPill'
+import { SettingsCard } from '@/features/settings/components/SettingsCards'
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
-import { BellRing, Copy, KeyRound, Link2, MessageSquareText, RotateCcw, Trash2 } from 'lucide-react'
+import { BellRing, Copy, KeyRound, Link2, RotateCcw, Trash2 } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { clearLineSecrets, getLineSecretStatus, saveLineSecrets, type LineSecretStatus } from '@/app/actions/system-secrets'
@@ -119,17 +120,23 @@ function templateBubbles(key: LineTemplateKey, templates: Record<string, string>
   }
 }
 
+/** Form pages scroll under the tab row; list pages give the table the rest of the height. */
+const FORM_AREA = 'flex-1 min-h-0 overflow-y-auto p-2'
+const LIST_AREA = 'flex-1 min-h-0 flex flex-col p-2'
+
 /** Settings on the left, the LINE chat beside them (below on narrow screens). */
 function WithPreview({ children, preview }: { children: React.ReactNode; preview: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px]">
-      <div className="min-w-0">{children}</div>
-      <aside
-        className="border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-3 sm:p-4"
-        aria-label="ตัวอย่างใน LINE"
-      >
-        <div className="lg:sticky lg:top-3">{preview}</div>
-      </aside>
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="min-h-full grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0">{children}</div>
+        <aside
+          className="border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-3 sm:p-4"
+          aria-label="ตัวอย่างใน LINE"
+        >
+          <div className="lg:sticky lg:top-3">{preview}</div>
+        </aside>
+      </div>
     </div>
   )
 }
@@ -202,100 +209,93 @@ function ConnectionSection() {
     }
   }
 
-  return (
-    <div className={SETTINGS_SECTION}>
-      <h4 className={SETTINGS_SECTION_TITLE}>
-        <Link2 className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
-        <span>การเชื่อมต่อ LINE OA</span>
-      </h4>
-
-      {loadError ? (
-        <p className="text-[11px] text-red-700 dark:text-red-400">{loadError}</p>
-      ) : !status ? (
-        <p className={SETTINGS_HELPER}>กำลังโหลดสถานะ…</p>
-      ) : !status.available ? (
-        <p className="text-[11px] text-amber-700 dark:text-amber-300">
-          ฐานข้อมูลนี้ยังไม่พร้อมสำหรับ LINE (ยังไม่ได้ติดตั้งส่วน LINE) จึงยังบันทึกการเชื่อมต่อไม่ได้
-        </p>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2" data-testid="line-status">
-          <span className="text-[11px] text-slate-600 dark:text-slate-300">Channel Secret</span>
-          <StatusPill ok={status.lineSecretConfigured} okText="ตั้งแล้ว" noText="ยังไม่ตั้ง" />
-          <span className="text-[11px] text-slate-600 dark:text-slate-300 ml-2">Access Token</span>
-          <StatusPill ok={status.lineTokenConfigured} okText="ตั้งแล้ว" noText="ยังไม่ตั้ง" />
-          <span className="text-[11px] text-slate-600 dark:text-slate-300 ml-2">โหมดการส่ง</span>
-          <StatusPill ok={status.liveDelivery} okText="ส่งจริง" noText="ทดสอบ (ไม่ส่งถึง LINE จริง)" />
-        </div>
-      )}
-      {status && !status.liveDelivery && (
-        <p className={SETTINGS_HELPER}>
-          โหมดทดสอบ: ระบบบันทึกข้อความทุกอย่างตามปกติ แต่ไม่ส่งออกไปที่ LINE · เปิดส่งจริงได้ที่การตั้งค่าเซิร์ฟเวอร์เท่านั้น
-        </p>
-      )}
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
-        <div>
-          <label className={SETTINGS_LABEL} htmlFor="line-secret">
-            Channel Secret
-          </label>
-          <input
-            id="line-secret"
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            value={secret}
-            maxLength={64}
-            disabled={busy || !status?.available}
-            placeholder={status?.lineSecretConfigured ? 'ตั้งไว้แล้ว · กรอกเฉพาะเมื่อต้องการเปลี่ยน' : 'ตัวอักษร 0-9 a-f 32 ตัว'}
-            onChange={(e) => setSecret(e.target.value.trim())}
-            className={SETTINGS_INPUT_MONO}
-          />
-        </div>
-        <div>
-          <label className={SETTINGS_LABEL} htmlFor="line-token">
-            Channel Access Token
-          </label>
-          <input
-            id="line-token"
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            value={token}
-            maxLength={1024}
-            disabled={busy || !status?.available}
-            placeholder={status?.lineTokenConfigured ? 'ตั้งไว้แล้ว · กรอกเฉพาะเมื่อต้องการเปลี่ยน' : 'จาก LINE Developers › Messaging API'}
-            onChange={(e) => setToken(e.target.value.trim())}
-            className={SETTINGS_INPUT_MONO}
-          />
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-2">
+  const buttons = (
+    <div className="flex flex-wrap justify-end gap-2">
+      {(status?.lineSecretConfigured || status?.lineTokenConfigured) && (
         <button
           type="button"
-          onClick={() => void save()}
-          disabled={busy || !status?.available || (!secret && !token)}
-          className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-blue-600 hover:bg-blue-700 text-white flex items-center disabled:opacity-50`}
+          onClick={() => void clear()}
+          disabled={busy}
+          className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 flex items-center disabled:opacity-50`}
         >
-          <KeyRound className="w-3.5 h-3.5" />
-          <span>บันทึกการเชื่อมต่อ</span>
+          <Trash2 className="w-3.5 h-3.5" />
+          <span>ล้างการเชื่อมต่อ</span>
         </button>
-        {(status?.lineSecretConfigured || status?.lineTokenConfigured) && (
-          <button
-            type="button"
-            onClick={() => void clear()}
-            disabled={busy}
-            className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 flex items-center disabled:opacity-50`}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>ล้างการเชื่อมต่อ</span>
-          </button>
-        )}
-      </div>
+      )}
+      <button
+        type="button"
+        onClick={() => void save()}
+        disabled={busy || !status?.available || (!secret && !token)}
+        className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-blue-600 hover:bg-blue-700 text-white flex items-center disabled:opacity-50`}
+      >
+        <KeyRound className="w-3.5 h-3.5" />
+        <span>บันทึกการเชื่อมต่อ</span>
+      </button>
+    </div>
+  )
 
-      <div className="max-w-2xl">
-        <label className={SETTINGS_LABEL}>Webhook URL (นำไปวางใน LINE Developers)</label>
-        <div className="flex gap-2">
-          <input readOnly value={webhookUrl} className={SETTINGS_INPUT_MONO} />
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+      <SettingsCard title="การเชื่อมต่อ LINE OA" icon={Link2} action={buttons}>
+        <div className="py-2 space-y-3">
+          {loadError ? (
+            <p className="text-[11px] text-red-700 dark:text-red-400">{loadError}</p>
+          ) : !status ? (
+            <p className={SETTINGS_HELPER}>กำลังโหลดสถานะ…</p>
+          ) : !status.available ? (
+            <p className="text-[11px] text-amber-700 dark:text-amber-300">
+              ฐานข้อมูลนี้ยังไม่พร้อมสำหรับ LINE (ยังไม่ได้ติดตั้งส่วน LINE) จึงยังบันทึกการเชื่อมต่อไม่ได้
+            </p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2" data-testid="line-status">
+              <span className="text-[11px] text-slate-600 dark:text-slate-300">Channel Secret</span>
+              <StatusPill ok={status.lineSecretConfigured} okText="ตั้งแล้ว" noText="ยังไม่ตั้ง" />
+              <span className="text-[11px] text-slate-600 dark:text-slate-300 ml-2">Access Token</span>
+              <StatusPill ok={status.lineTokenConfigured} okText="ตั้งแล้ว" noText="ยังไม่ตั้ง" />
+              <span className="text-[11px] text-slate-600 dark:text-slate-300 ml-2">โหมดการส่ง</span>
+              <StatusPill ok={status.liveDelivery} okText="ส่งจริง" noText="ทดสอบ (ไม่ส่งถึง LINE จริง)" />
+            </div>
+          )}
+          <div>
+            <label className={SETTINGS_LABEL} htmlFor="line-secret">
+              Channel Secret
+            </label>
+            <input
+              id="line-secret"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              value={secret}
+              maxLength={64}
+              disabled={busy || !status?.available}
+              placeholder={status?.lineSecretConfigured ? 'ตั้งไว้แล้ว · กรอกเฉพาะเมื่อต้องการเปลี่ยน' : 'ตัวอักษร 0-9 a-f 32 ตัว'}
+              onChange={(e) => setSecret(e.target.value.trim())}
+              className={SETTINGS_INPUT_MONO}
+            />
+          </div>
+          <div>
+            <label className={SETTINGS_LABEL} htmlFor="line-token">
+              Channel Access Token
+            </label>
+            <input
+              id="line-token"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              value={token}
+              maxLength={1024}
+              disabled={busy || !status?.available}
+              placeholder={status?.lineTokenConfigured ? 'ตั้งไว้แล้ว · กรอกเฉพาะเมื่อต้องการเปลี่ยน' : 'จาก LINE Developers › Messaging API'}
+              onChange={(e) => setToken(e.target.value.trim())}
+              className={SETTINGS_INPUT_MONO}
+            />
+          </div>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard title="Webhook URL (นำไปวางใน LINE Developers)" icon={Copy}>
+        <div className="py-2 flex gap-2">
+          <input readOnly aria-label="Webhook URL" value={webhookUrl} className={SETTINGS_INPUT_MONO} />
           <button
             type="button"
             onClick={() => void copyWebhook()}
@@ -305,7 +305,7 @@ function ConnectionSection() {
             <span>คัดลอก</span>
           </button>
         </div>
-      </div>
+      </SettingsCard>
     </div>
   )
 }
@@ -351,8 +351,8 @@ export function LineSettingsPanel({ config, setConfig, view: viewProp, onViewCha
 
   return (
     <>
-      {/* second row under the คนใน LINE tabs: same padding as that toolbar, stays put while the page scrolls */}
-      <div className={`${TABLE_TOOLBAR_CLASSES} sticky top-0 z-10 overflow-x-auto no-scrollbar bg-white dark:bg-slate-800`}>
+      {/* second row under the คนใน LINE tabs: same padding as that toolbar; only the area under it scrolls */}
+      <div className={`${TABLE_TOOLBAR_CLASSES} overflow-x-auto no-scrollbar`}>
         <div className={TAB_CONTAINER_CLASSES} role="tablist" aria-label="LINE">
           {LINE_SETTINGS_VIEWS.map((v) => (
             <button
@@ -369,10 +369,10 @@ export function LineSettingsPanel({ config, setConfig, view: viewProp, onViewCha
         </div>
       </div>
 
-      {view === 'CONNECTION' && <ConnectionSection />}
-      {view === 'SCHEDULE' && <LineSchedulePanel config={config} setConfig={setConfig} />}
-      {view === 'MANUAL' && <LineRemindersPanel />}
-      {view === 'HISTORY' && <LineDeliveryLogPanel />}
+      {view === 'CONNECTION' && <div className={FORM_AREA}><ConnectionSection /></div>}
+      {view === 'SCHEDULE' && <div className={FORM_AREA}><LineSchedulePanel config={config} setConfig={setConfig} /></div>}
+      {view === 'MANUAL' && <div className={LIST_AREA}><LineRemindersPanel /></div>}
+      {view === 'HISTORY' && <div className={LIST_AREA}><LineDeliveryLogPanel /></div>}
 
       {view === 'NOTIFY' && (
         <WithPreview
@@ -453,10 +453,6 @@ export function LineSettingsPanel({ config, setConfig, view: viewProp, onViewCha
           }
         >
           <div className={SETTINGS_SECTION}>
-            <h4 className={SETTINGS_SECTION_TITLE}>
-              <MessageSquareText className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-              <span>ข้อความที่ส่งทาง LINE</span>
-            </h4>
             <div className="grid grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)] rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
               <ul
                 className="p-1.5 bg-slate-50 dark:bg-slate-900/40 border-b md:border-b-0 md:border-r border-slate-200 dark:border-slate-700 flex md:flex-col gap-0.5 overflow-x-auto md:overflow-x-visible md:max-h-[420px] md:overflow-y-auto"
