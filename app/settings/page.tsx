@@ -20,6 +20,7 @@ import { useSearchParams } from 'next/navigation'
 import {
   FileText,
   ShieldCheck,
+  DatabaseBackup,
   Upload,
   Plus,
   Trash2,
@@ -71,6 +72,7 @@ import {
   ShopNoticeTypesPreview,
 } from '@/features/settings/components/SettingsCards'
 import { FormNotesCard } from '@/features/settings/components/FormNotesCard'
+import { BackupPanel } from '@/features/settings/components/BackupPanel'
 import { CustomerDocumentsWorkspace } from '@/features/documents/components/CustomerDocumentsWorkspace'
 import { TemplateLibraryPanel } from '@/features/documents/components/TemplateLibraryPanel'
 
@@ -84,7 +86,7 @@ const PERSONAL_TABS: Array<{ id: MyAccountTab; label: string; icon: React.Compon
  * ตั้งค่าระบบ = 8 categories in the menu bar on top (owner 2026-11-12; moved from the left bar to the top 2026-11-13). Each holds the
  * settings sections it saves (a card per section, each with its own save button).
  */
-type SystemView = 'shop' | 'taxDocs' | 'members' | 'security' | 'notices' | 'myNotifications'
+type SystemView = 'shop' | 'taxDocs' | 'members' | 'security' | 'backup' | 'notices' | 'myNotifications'
 const SYSTEM_NAV: Array<{ id: SystemView; label: string; icon: React.ComponentType<{ className?: string }>; sections?: SettingsSection[] }> = [
   // สต็อกตอนเปิดบิล และการจอง moved into บัญชีการเงิน (owner 2026-11-14); the การขายและให้เช่า category is gone
   { id: 'shop', label: 'ข้อมูลร้าน', icon: Store, sections: ['business', 'payment', 'taxDiscount', 'salesRental'] },
@@ -92,6 +94,8 @@ const SYSTEM_NAV: Array<{ id: SystemView; label: string; icon: React.ComponentTy
   { id: 'taxDocs', label: 'เทมเพลต', icon: FileText, sections: ['documentNumbering', 'documentNotes'] },
   { id: 'members', label: 'ผู้ใช้และสิทธิ์', icon: Users },
   { id: 'security', label: 'ความปลอดภัย', icon: ShieldCheck, sections: ['shopSecurity'] },
+  // สำรองข้อมูล (owner 2026-11-15): pick dates + data, one JSON file; OWNER only
+  { id: 'backup', label: 'สำรองข้อมูล', icon: DatabaseBackup },
   // LINE has its own menu now (owner 2026-11-14, app/line/page.tsx); only the shop's notice card stays here
   { id: 'notices', label: 'การแจ้งเตือนของร้าน', icon: Bell },
   { id: 'myNotifications', label: 'การแจ้งเตือนส่วนบุคคล', icon: BellRing },
@@ -731,6 +735,8 @@ function SettingsPageContent() {
         return <>
           <SettingsCard title="ล็อกหน้าจออัตโนมัติ" footer={security.footer}>{security.conflict}<ShopSecuritySection cfg={security.cfg} set={security.set} /></SettingsCard>
         </>
+      case 'backup':
+        return <BackupPanel />
       case 'notices':
         return <ShopNoticeTypesPreview />
       case 'myNotifications':
