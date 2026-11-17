@@ -1,4 +1,5 @@
 'use client'
+import { CountUp } from '@/components/common/CountUp'
 import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React from 'react'
@@ -45,7 +46,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
     <div className="space-y-2">
       {/* 1. TOP 10 KPI (2 ROWS × 5) */}
       {/* Row 1: KPI 1 - 5 */}
-      <div className="grid grid-cols-2 sm:flex sm:flex-wrap sm:*:grow sm:*:basis-[calc((100%_-_1rem)/3)] lg:grid lg:grid-cols-5 gap-2">
+      <div className="card-lift-row grid grid-cols-2 sm:flex sm:flex-wrap sm:*:grow sm:*:basis-[calc((100%_-_1rem)/3)] lg:grid lg:grid-cols-5 gap-2">
         {showFinance && (<>
         {/* 1. รายรับ */}
         <div className="p-2 bg-emerald-50/60 dark:bg-emerald-950/30 rounded-2xl border border-emerald-500/20 shadow-xs flex flex-col justify-between">
@@ -58,7 +59,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 font-mono">
-                {metrics.netCashReceived.toLocaleString()}
+                <CountUp value={metrics.netCashReceived} />
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ยอดสะสมทั้งหมด รับจริงหักเงินคืน</span>
@@ -76,7 +77,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-rose-700 dark:text-rose-400 font-mono">
-                {metrics.totalExpense.toLocaleString()}
+                <CountUp value={metrics.totalExpense} />
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ยอดสะสมทั้งหมด รายจ่ายและเงินคืนลูกค้า</span>
@@ -94,7 +95,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 font-mono">
-                {metrics.netIncome.toLocaleString()}
+                <CountUp value={metrics.netIncome} />
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ยอดสะสมทั้งหมด หลังหักค่าใช้จ่าย</span>
@@ -113,7 +114,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-amber-700 dark:text-amber-400 font-mono">
-                {metrics.outstandingReceivable.toLocaleString()}
+                <CountUp value={metrics.outstandingReceivable} />
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">จำนวน {metrics.debtorCount} บิล</span>
@@ -144,7 +145,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-purple-600 dark:text-purple-400 font-mono">
-                {metrics.depositBalance.toLocaleString()}
+                <CountUp value={metrics.depositBalance} />
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ข้อมูลประกอบ ไม่ใช่รายรับ · {metrics.depositCount} บิล</span>
@@ -153,7 +154,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
       </div>
 
       {/* Row 2: KPI 6 - 10 */}
-      <div className="grid grid-cols-2 sm:flex sm:flex-wrap sm:*:grow sm:*:basis-[calc((100%_-_1rem)/3)] lg:grid lg:grid-cols-5 gap-2">
+      <div className="card-lift-row grid grid-cols-2 sm:flex sm:flex-wrap sm:*:grow sm:*:basis-[calc((100%_-_1rem)/3)] lg:grid lg:grid-cols-5 gap-2">
         {/* 6. ยอดขายสินค้า */}
         <div className="p-2 bg-emerald-50/60 dark:bg-emerald-950/30 rounded-2xl border border-emerald-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
@@ -165,7 +166,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 font-mono">
-                {metrics.salesRevenue.toLocaleString()}
+                <CountUp value={metrics.salesRevenue} />
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ตามบิล ไม่รวม VAT และส่วนลดถูกจัดสรรแล้ว</span>
@@ -183,7 +184,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-teal-700 dark:text-teal-400 font-mono">
-                {metrics.rentalRevenue.toLocaleString()}
+                <CountUp value={metrics.rentalRevenue} />
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ตามบิล ไม่รวม VAT และส่วนลดถูกจัดสรรแล้ว</span>
@@ -201,7 +202,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
           <div className="mt-1">
             <div className="flex items-baseline gap-1">
               <span className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 font-mono">
-                {metrics.inProgressBillsCount.toLocaleString()}
+                <CountUp value={metrics.inProgressBillsCount} />
               </span>
               <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">บิล</span>
             </div>
@@ -220,7 +221,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
           <div className="mt-1">
             <div className="flex items-baseline gap-1">
               <span className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 font-mono">
-                {metrics.activeRentalsCount.toLocaleString()}
+                <CountUp value={metrics.activeRentalsCount} />
               </span>
               <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">รายการ</span>
             </div>
@@ -239,7 +240,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
           <div className="mt-1">
             <div className="flex items-baseline gap-1">
               <span className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 font-mono">
-                {metrics.todayTasksCount.toLocaleString()}
+                <CountUp value={metrics.todayTasksCount} />
               </span>
               <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">รายการ</span>
             </div>

@@ -5,13 +5,14 @@
  */
 import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 import React, { useState } from 'react'
-import { Check, Eraser, Save, Trash2 } from 'lucide-react'
+import { Check, Eraser, Save } from 'lucide-react'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { SETTINGS_INPUT, SETTINGS_LABEL } from '@/features/settings/components/settings-ui'
-import { REF_BUTTON, REF_BUTTON_QUIET, SettingsCard } from '@/features/settings/components/SettingsCards'
+import { REF_BUTTON, REF_BUTTON_QUIET } from '@/features/settings/components/SettingsCards'
+import { LineBlockTitle, LineEditorLayout, LineListEmpty, LineListItem } from '@/features/settings/components/LineEditorLayout'
 import { LineCardPreview } from '@/features/settings/components/LineCardPreview'
 import { validateSection } from '@/features/settings/utils/settings-validation'
 import {
@@ -88,23 +89,59 @@ export function LineBillCardDesigner() {
   const typeLabel = (type: LineCardType) => LINE_CARD_TYPES.find((t) => t.id === type)?.label ?? ''
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-4 items-start">
-      <SettingsCard
-        title="ออกแบบการ์ดบิล"
-        action={
-          <div className="flex gap-2 shrink-0">
-            <button type="button" onClick={() => setDraft(newLineCardDesign())} disabled={saving} className={REF_BUTTON_QUIET}>
-              <Eraser className="w-4 h-4" />
-              <span>เริ่มใหม่</span>
-            </button>
-            <button type="button" onClick={() => void save()} disabled={saving} className={REF_BUTTON}>
-              <Save className="w-4 h-4" />
-              <span>บันทึกการ์ด</span>
-            </button>
+    <LineEditorLayout
+      listTitle="การ์ดที่บันทึกไว้"
+      listAction={
+        <button type="button" onClick={() => setDraft(newLineCardDesign())} disabled={saving} className={REF_BUTTON_QUIET}>
+          <Eraser className="w-3.5 h-3.5" />
+          <span>เริ่มใหม่</span>
+        </button>
+      }
+      list={
+        cards.length === 0 ? (
+          <LineListEmpty text="ยังไม่มีการ์ด" />
+        ) : (
+          cards.map((c) => (
+            <LineListItem
+              key={c.id}
+              title={c.name}
+              sub={typeLabel(c.type)}
+              dot={LINE_CARD_COLORS[c.color].hex}
+              active={draft.id === c.id}
+              onSelect={() => setDraft(c)}
+              onDelete={() => void remove(c)}
+              deleteLabel={`ลบการ์ด ${c.name}`}
+              disabled={saving}
+            />
+          ))
+        )
+      }
+      preview={
+        <div className="space-y-2">
+          <LineBlockTitle>ตัวอย่างการ์ด</LineBlockTitle>
+          <div className="flex justify-center pt-1">
+            <LineCardPreview
+              title={draft.title}
+              badge={draft.badge}
+              color={LINE_CARD_COLORS[draft.color].hex}
+              rows={lineCardRows(draft, SAMPLE)}
+              footer={lineCardFooter(draft, shopName)}
+            />
           </div>
+        </div>
+      }
+    >
+      <LineBlockTitle
+        action={
+          <button type="button" onClick={() => void save()} disabled={saving} className={`${REF_BUTTON} shrink-0`}>
+            <Save className="w-3.5 h-3.5" />
+            <span>บันทึกการ์ด</span>
+          </button>
         }
       >
-        <div className="py-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {draft.id ? draft.name || 'การ์ด' : 'การ์ดใหม่'}
+      </LineBlockTitle>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label className={SETTINGS_LABEL} htmlFor="line-card-name">ชื่อการ์ด</label>
             <input id="line-card-name" value={draft.name} maxLength={LINE_CARD_LIMITS.name} placeholder="เช่น การ์ดบิลเสร็จ" onChange={(e) => patch({ name: e.target.value })} className={SETTINGS_INPUT} />
@@ -168,46 +205,9 @@ export function LineBillCardDesigner() {
           </div>
           <div className="sm:col-span-2">
             <label className={SETTINGS_LABEL} htmlFor="line-card-footer">ข้อความท้ายการ์ด</label>
-            <textarea id="line-card-footer" rows={2} value={draft.footer} maxLength={LINE_CARD_LIMITS.footer} onChange={(e) => patch({ footer: e.target.value })} className={`${SETTINGS_INPUT} h-auto py-2 resize-y`} />
+            <textarea id="line-card-footer" rows={2} value={draft.footer} maxLength={LINE_CARD_LIMITS.footer} onChange={(e) => patch({ footer: e.target.value })} className={`${SETTINGS_INPUT} h-auto py-2 resize-none`} />
           </div>
         </div>
-      </SettingsCard>
-
-      <div className="space-y-4 min-w-0">
-        <SettingsCard title="ตัวอย่างการ์ด">
-          <div className="p-5 flex justify-center bg-[var(--ref-field)]">
-            <LineCardPreview
-              title={draft.title}
-              badge={draft.badge}
-              color={LINE_CARD_COLORS[draft.color].hex}
-              rows={lineCardRows(draft, SAMPLE)}
-              footer={lineCardFooter(draft, shopName)}
-            />
-          </div>
-        </SettingsCard>
-        <SettingsCard title="การ์ดที่บันทึกไว้">
-          {cards.length === 0 ? (
-            <p className="px-5 py-8 text-center text-xs text-slate-500 dark:text-slate-400">ยังไม่มีการ์ด</p>
-          ) : (
-            <ul className="divide-y divide-[var(--ref-line)]">
-              {cards.map((c) => (
-                <li key={c.id} className={`px-4 py-2.5 flex items-center gap-3 ${draft.id === c.id ? 'bg-[var(--ref-accent-soft)]' : ''}`}>
-                  <button type="button" onClick={() => setDraft(c)} className="flex-1 min-w-0 flex items-center gap-3 text-left">
-                    <span className="w-3.5 h-3.5 rounded-full shrink-0" style={{ backgroundColor: LINE_CARD_COLORS[c.color].hex }} />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-bold text-slate-900 dark:text-white truncate">{c.name}</span>
-                      <span className="block text-[11px] text-slate-500 truncate">{typeLabel(c.type)}</span>
-                    </span>
-                  </button>
-                  <button type="button" onClick={() => void remove(c)} disabled={saving} aria-label={`ลบการ์ด ${c.name}`} className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-40">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </SettingsCard>
-      </div>
-    </div>
+    </LineEditorLayout>
   )
 }

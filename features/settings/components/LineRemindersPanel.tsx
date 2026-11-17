@@ -1,23 +1,24 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { RefreshCw, Send } from 'lucide-react'
-import { ActionButton } from '@/components/common/ActionButton'
+import { useCallback, useState, type ReactNode } from 'react'
+import { Send } from 'lucide-react'
+import { ActionButton, TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
 import { CustomSelect } from '@/components/common/CustomSelect'
-import { DataTableFrame } from '@/components/common/DataTableFrame'
+import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_TH_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
 import { useToast } from '@/components/common/Toast'
 import { getReminderCandidates, sendCustomerReminder, type ReminderCandidate } from '@/app/actions/line'
 import { LINE_REMINDER_RULES } from '@/lib/line/config'
 import { LINE_DELIVERY_STATUS } from '@/features/settings/components/LineDeliveryLogPanel'
+import { useAutoRefresh } from '@/features/settings/hooks/useAutoRefresh'
 
 /**
- * Settings › LINE › ส่งเตือนเอง: today's reminders a linked customer could get (any rule, on or
- * off in the schedule). Each press queues one message for that bill's / appointment's own
- * customer; the same text as the schedule.
+ * LINE › การส่ง › ส่งเตือนเอง: today's reminders a linked customer could get (any rule, on or off in the
+ * schedule). Each press queues one message for that bill's / appointment's own customer; the same text as the
+ * schedule. The list keeps itself up to date (no รีเฟรช button).
  */
 
-const TH = 'px-2'
-const TD = 'px-2'
+const TH = `px-2 ${DATA_TABLE_TH_CLASSES}`
+const TD = 'px-2 py-2'
 const RULE_LABEL = Object.fromEntries(LINE_REMINDER_RULES.map((r) => [r.key, r.label]))
 
 const newKey = () => `rem-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Date.now().toString(36)}`
@@ -29,25 +30,21 @@ function dueText(c: ReminderCandidate): string {
   return `${d} (เลย ${-c.days_left} วัน)`
 }
 
-export function LineRemindersPanel() {
+/** `tabs`: the LINE menu tab bars, first in this page's toolbar row. */
+export function LineRemindersPanel({ tabs }: { tabs?: ReactNode }) {
   const { showToast } = useToast()
   const [rows, setRows] = useState<ReminderCandidate[]>([])
   const [rule, setRule] = useState('ALL')
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true)
     const r = await getReminderCandidates()
     setError(r.success ? null : r.error || 'โหลดรายการไม่สำเร็จ')
     setRows(r.data ?? [])
-    setLoading(false)
   }, [])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useAutoRefresh(load)
 
   const shown = rule === 'ALL' ? rows : rows.filter((r) => r.rule === rule)
 
@@ -69,24 +66,25 @@ export function LineRemindersPanel() {
   }
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2 shrink-0">
-        <div className="w-56">
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-wrap items-center`}>
+        {tabs}
+        <div className="w-48 shrink-0">
           <CustomSelect
             value={rule}
             onChange={(v) => setRule(String(v))}
+            ariaLabel="ประเภทการเตือน"
             options={[{ value: 'ALL', label: 'ทุกประเภท' }, ...LINE_REMINDER_RULES.map((r) => ({ value: r.key, label: r.label }))]}
           />
         </div>
-        <ActionButton variant="outline" icon={<RefreshCw className={loading ? 'animate-spin' : ''} />} onClick={() => void load()} aria-label="รีเฟรช" />
-        <ActionButton variant="primary" icon={<Send />} disabled={!shown.length || Boolean(busy)} onClick={() => void send(shown)}>
+        <ActionButton variant="primary" className="ml-auto" icon={<Send />} disabled={!shown.length || Boolean(busy)} onClick={() => void send(shown)}>
           ส่งทั้งหมดที่แสดง ({shown.length})
         </ActionButton>
       </div>
-      {error && <p className="text-[11px] text-amber-700 dark:text-amber-300">{error}</p>}
-      <DataTableFrame fill rowCount={shown.length}>
-        <table className="w-full text-left border-collapse table-auto text-xs" aria-label="ตารางส่งเตือนลูกค้า">
-          <thead>
+      {error && <p className="mx-3 mt-2 text-[11px] text-amber-700 dark:text-amber-300">{error}</p>}
+      <DataTableFrame fill rowCount={shown.length} className="flex-1 min-h-0 min-w-0 rounded-none bg-transparent">
+        <table className={`${DATA_TABLE_CLASSES} text-[11px] leading-tight`} aria-label="ตารางส่งเตือนลูกค้า">
+          <thead className={`${DATA_TABLE_THEAD_CLASSES} text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 text-xs`}>
             <tr>
               <th className={TH}>ประเภท</th>
               <th className={TH}>ลูกค้า</th>
@@ -97,11 +95,11 @@ export function LineRemindersPanel() {
               <th className={`${TH} text-right`}>จัดการ</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
             {shown.map((c) => {
               const key = `${c.rule}:${c.source_id}`
               return (
-                <tr key={key}>
+                <tr key={key} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors">
                   <td className={TD}>{RULE_LABEL[c.rule] ?? c.rule}</td>
                   <td className={`${TD} font-semibold text-slate-800 dark:text-slate-200`}>{c.customer_name}</td>
                   <td className={`${TD} font-mono`}>{c.ref_no}</td>

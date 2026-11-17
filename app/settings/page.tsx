@@ -19,22 +19,19 @@ import React, { Suspense, useEffect, useRef, useState, type Dispatch, type SetSt
 import { useSearchParams } from 'next/navigation'
 import {
   FileText,
-  ShieldCheck,
   DatabaseBackup,
   Upload,
   Plus,
   Trash2,
   Image as ImageIcon,
   AlertTriangle,
-  Lock,
-  User, Bell, Monitor,
+  User, Bell, SlidersHorizontal,
   Users, Store, ReceiptText, Boxes, Wallet,
 } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { NumericInput } from '@/components/common/NumericInput'
 import { DocumentNumberingPanel } from '@/features/settings/components/DocumentNumberingPanel'
 import {
-  AUTO_LOCK_CHOICES_SECONDS,
   activePaymentAccount,
   activeShopProfile,
   newPaymentAccount,
@@ -56,7 +53,7 @@ import {
   type SectionDrafts,
 } from '@/features/settings/utils/section-drafts'
 import { useLeaveGuard } from '@/features/settings/hooks/useLeaveGuard'
-import { autoLockLabel, validateSection } from '@/features/settings/utils/settings-validation'
+import { validateSection } from '@/features/settings/utils/settings-validation'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { formatPromptPayNumber, promptPayDigits, PROMPTPAY_TYPES } from '@/lib/promptpay'
@@ -77,26 +74,24 @@ import { TemplateLibraryPanel } from '@/features/documents/components/TemplateLi
 
 const PERSONAL_TABS: Array<{ id: MyAccountTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'PROFILE', label: 'โปรไฟล์ของฉัน', icon: User },
-  { id: 'NOTIFICATIONS', label: 'การแจ้งเตือนส่วนตัว', icon: Bell },
-  { id: 'APPEARANCE', label: 'การแสดงผล', icon: Monitor },
+  { id: 'SETTINGS', label: 'การตั้งค่า', icon: SlidersHorizontal },
 ]
 
 /**
  * ตั้งค่าระบบ = 8 categories in the menu bar on top (owner 2026-11-12; moved from the left bar to the top 2026-11-13). Each holds the
  * settings sections it saves (a card per section, each with its own save button).
  */
-type SystemView = 'shop' | 'taxDocs' | 'members' | 'security' | 'backup' | 'notices'
+type SystemView = 'shop' | 'taxDocs' | 'members' | 'backup' | 'notices'
 const SYSTEM_NAV: Array<{ id: SystemView; label: string; icon: React.ComponentType<{ className?: string }>; sections?: SettingsSection[] }> = [
   // สต็อกตอนเปิดบิล และการจอง moved into บัญชีการเงิน (owner 2026-11-14); the การขายและให้เช่า category is gone
   { id: 'shop', label: 'ข้อมูลร้าน', icon: Store, sections: ['business', 'payment', 'taxDiscount', 'salesRental'] },
   // เทมเพลต (owner 2026-11-14): document numbers / bill foot + the old จัดการเอกสาร menu, one row of 4 tabs, OWNER only
   { id: 'taxDocs', label: 'เทมเพลต', icon: FileText, sections: ['documentNumbering', 'documentNotes'] },
   { id: 'members', label: 'ผู้ใช้และสิทธิ์', icon: Users },
-  { id: 'security', label: 'ความปลอดภัย', icon: ShieldCheck, sections: ['shopSecurity'] },
   // สำรองข้อมูล (owner 2026-11-15): pick dates + data, one JSON file; OWNER only
   { id: 'backup', label: 'สำรองข้อมูล', icon: DatabaseBackup },
   // Notices (owner 2026-11-15): LINE ones live in the LINE menu; this = the whole shop's in-app notices (which ones, how many
-  // days ahead), the same for every member; each person only picks sound on/off in ตั้งค่าส่วนตัว › การแจ้งเตือนส่วนตัว
+  // days ahead), the same for every member (personal notice settings removed, owner 2026-11-17)
   { id: 'notices', label: 'การแจ้งเตือนของร้าน', icon: Bell, sections: ['notifications'] },
 ]
 type DocTab = 'setup' | 'create' | 'library' | 'add'
@@ -532,27 +527,7 @@ function SalesRentalSection({ cfg, set }: { cfg: SystemConfig; set: SetDraft }) 
 }
 
 /**
- * ล็อกแอปอัตโนมัติ (owner 2026-11-13): one switch per time; the time switched on is the lock time for
- * everyone in the shop, all off = no auto lock. Nothing is switched on in advance.
- */
-function ShopSecuritySection({ cfg, set }: { cfg: SystemConfig; set: SetDraft }) {
-  const s = cfg.shopSecurity
-  const pick = (sec: number, on: boolean) => {
-    const chosen = on ? sec : 0
-    set((p) => ({ ...p, shopSecurity: { autoLockOptionsSeconds: [chosen], autoLockDefaultSeconds: chosen } }))
-  }
-  return (
-    <div className={SETTINGS_SECTION_FLAT}>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {AUTO_LOCK_CHOICES_SECONDS.filter((sec) => sec > 0).map((sec) => (
-          <Toggle key={sec} checked={s.autoLockDefaultSeconds === sec} onChange={(on) => pick(sec, on)} label={autoLockLabel(sec)} />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-/** ?view= comes from the sidebar (ตั้งค่า › ตั้งค่าส่วนตัว / ตั้งค่าระบบ), read inside Suspense as Next requires. */
+ * view= comes from the sidebar (ตั้งค่า › ตั้งค่าส่วนตัว / ตั้งค่าระบบ), read inside Suspense as Next requires. */
 export default function SettingsPage() {
   return (
     <Suspense fallback={null}>
@@ -641,7 +616,6 @@ function SettingsPageContent() {
   const numbering = card('documentNumbering', 'บันทึกเลขเอกสาร')
   const notes = card('documentNotes', 'บันทึกหมายเหตุ')
   const sales = card('salesRental', 'บันทึกการขายและให้เช่า')
-  const security = card('shopSecurity', 'บันทึกการล็อกหน้าจอ')
   const notices = card('notifications', 'บันทึกการแจ้งเตือน')
 
   const systemContent = () => {
@@ -722,10 +696,6 @@ function SettingsPageContent() {
             )}
           </div>
         )
-      case 'security':
-        return <>
-          <SettingsCard title="ล็อกหน้าจออัตโนมัติ" footer={security.footer}>{security.conflict}<ShopSecuritySection cfg={security.cfg} set={security.set} /></SettingsCard>
-        </>
       case 'backup':
         return <BackupPanel />
       case 'notices':

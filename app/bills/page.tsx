@@ -57,6 +57,7 @@ import {
   TABLE_TOOLBAR_CLASSES, TABLE_LINE_COLOUR_CLASSES, ROW_ICON_BUTTON_CLASSES } from '@/components/common/ActionButton'
 import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_THEAD_CLASSES, DATA_TABLE_TH_CLASSES } from '@/components/common/DataTableFrame'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
+import { CountUp } from '@/components/common/CountUp'
 
 // The bill windows load the first time one is opened, not with the page
 const BillPreviewOverlay = dynamic(() => import('@/features/bills/components/BillPreviewOverlay').then((m) => m.BillPreviewOverlay), { ssr: false })
@@ -374,11 +375,11 @@ export default function BillsPage() {
         <>
           <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
             {/* Summary cards inside the white work area, evenly spread, shared 8px spacing (owner 2026-11-11) */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-2 pb-0 shrink-0">
+            <div className="card-lift-row grid grid-cols-2 md:grid-cols-4 gap-2 p-2 pb-0 shrink-0">
               <div className="min-w-0 bg-blue-50/60 dark:bg-blue-950/40 p-2 sm:p-2.5 rounded-xl border border-blue-200 dark:border-blue-800 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] sm:text-[11px] text-blue-700 dark:text-blue-300 font-semibold">กำลังเช่าอยู่</span>
-                  <h3 className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5">{rentingCount} บิล</h3>
+                  <h3 className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5"><CountUp value={rentingCount} /> บิล</h3>
                 </div>
                 <div className="p-1.5 bg-blue-100 dark:bg-blue-900/50 rounded-lg text-blue-600 dark:text-blue-300">
                   <Clock className="w-3.5 h-3.5" />
@@ -388,7 +389,7 @@ export default function BillsPage() {
               <div className="min-w-0 bg-red-50/60 dark:bg-red-950/40 p-2 sm:p-2.5 rounded-xl border border-red-200 dark:border-red-800 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] sm:text-[11px] text-red-700 dark:text-red-300 font-semibold">เกินกำหนดคืน</span>
-                  <h3 className="text-base sm:text-lg font-black text-red-700 dark:text-red-400 mt-0.5">{overdueCount} บิล</h3>
+                  <h3 className="text-base sm:text-lg font-black text-red-700 dark:text-red-400 mt-0.5"><CountUp value={overdueCount} /> บิล</h3>
                 </div>
                 <div className="p-1.5 bg-red-100 dark:bg-red-900/50 rounded-lg text-red-700 dark:text-red-300">
                   <ShieldAlert className="w-3.5 h-3.5" />
@@ -398,7 +399,7 @@ export default function BillsPage() {
               <div className="min-w-0 bg-amber-50/60 dark:bg-amber-950/40 p-2 sm:p-2.5 rounded-xl border border-amber-200 dark:border-amber-800 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] sm:text-[11px] text-amber-700 dark:text-amber-300 font-semibold">ค้างชำระ</span>
-                  <h3 className="text-base sm:text-lg font-black text-amber-700 dark:text-amber-400 mt-0.5">{unpaidCount} บิล</h3>
+                  <h3 className="text-base sm:text-lg font-black text-amber-700 dark:text-amber-400 mt-0.5"><CountUp value={unpaidCount} /> บิล</h3>
                 </div>
                 <div className="p-1.5 bg-amber-100 dark:bg-amber-900/50 rounded-lg text-amber-700 dark:text-amber-300">
                   <AlertCircle className="w-3.5 h-3.5" />
@@ -408,7 +409,7 @@ export default function BillsPage() {
               <div className="min-w-0 bg-emerald-50/60 dark:bg-emerald-950/40 p-2 sm:p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] sm:text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold">ปิดบิลแล้ว</span>
-                  <h3 className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 mt-0.5">{closedCountShown} บิล</h3>
+                  <h3 className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 mt-0.5"><CountUp value={closedCountShown} /> บิล</h3>
                 </div>
                 <div className="p-1.5 bg-emerald-100 dark:bg-emerald-900/50 rounded-lg text-emerald-700 dark:text-emerald-300">
                   <CheckCircle2 className="w-3.5 h-3.5" />
@@ -547,7 +548,7 @@ export default function BillsPage() {
                       variant={selectedRowBill && ['RENTING', 'PARTIAL_RETURNED'].includes(selectedRowBill.rentalStatus) ? 'outline' : 'neutral'}
                       className={`${BILL_TOOLBAR_BUTTON_CLASSES} ${selectedRowBill && ['RENTING', 'PARTIAL_RETURNED'].includes(selectedRowBill.rentalStatus) ? '!bg-violet-600 hover:!bg-violet-700 !text-white !border-transparent' : ''}`}
                       icon={<Edit3 className="w-3.5 h-3.5" />}
-                      title="แก้ไขรายการในบิล"
+                      title="แก้ราคา ส่วนลด และค่าขนส่งของบิล"
                     >
                       แก้ไขบิล
                     </ActionButton>

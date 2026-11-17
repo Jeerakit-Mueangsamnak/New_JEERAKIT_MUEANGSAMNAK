@@ -27,7 +27,9 @@ import {
   saveDrivers,
   type DeliveryDriver,
 } from '@/features/appointments/services/driver-registry'
-import { SETTINGS_HELPER, SETTINGS_INPUT } from '@/features/settings/components/settings-ui'
+import { SETTINGS_INPUT } from '@/features/settings/components/settings-ui'
+import { REF_BUTTON, REF_BUTTON_QUIET } from '@/features/settings/components/SettingsCards'
+import { useAutoRefresh } from '@/features/settings/hooks/useAutoRefresh'
 import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_TH_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
 
 interface DriverContact extends LineReviewContact {
@@ -80,13 +82,8 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
     setContacts(Object.fromEntries(((data as DriverContact[] | null) ?? []).map((c) => [c.driver_code, c])))
   }, [])
 
-  useEffect(() => {
-    void loadContacts()
-    // a driver who presses the link elsewhere shows up when the shop comes back to this screen
-    const onFocus = () => void loadContacts()
-    window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
-  }, [loadContacts])
+  // a driver who presses the link elsewhere shows up by itself (no รีเฟรช button)
+  useAutoRefresh(loadContacts)
 
   const hasCodes = Object.keys(codes).length > 0
   useEffect(() => {
@@ -349,16 +346,12 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
             onChange={(e) => setPhone(e.target.value)}
             placeholder="เบอร์โทร (ไม่บังคับ)"
           />
-          <button
-            type="submit"
-            disabled={saving}
-            className={`${COMMAND_BUTTON_SIZE_CLASSES} shrink-0 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white flex items-center cursor-pointer`}
-          >
+          <button type="submit" disabled={saving} className={`${REF_BUTTON} shrink-0`}>
             {editingId ? <Pencil className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
             {editingId ? 'บันทึกการแก้ไข' : lineReady ? 'บันทึกและสร้างลิงก์' : 'เพิ่มพนักงานส่งของ'}
           </button>
           {editingId && (
-            <button type="button" onClick={resetForm} className={`${COMMAND_BUTTON_SIZE_CLASSES} shrink-0 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer`}>
+            <button type="button" onClick={resetForm} className={`${REF_BUTTON_QUIET} shrink-0`}>
               ยกเลิก
             </button>
           )}

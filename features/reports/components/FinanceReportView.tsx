@@ -1,5 +1,6 @@
 'use client'
 
+import { CountUp } from '@/components/common/CountUp'
 import React from 'react'
 import {
   TrendingUp,
@@ -28,7 +29,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
   return (
     <div className="space-y-2">
       {/* ─── 1. TOP KPI CARDS (Topic 1, 2, 7 & 8) ──────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+      <div className="card-lift-row grid grid-cols-2 md:grid-cols-5 gap-2">
         {/* Card 1: รายรับ (Income) */}
         <div className="p-2 rounded-xl border border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-950/20 flex flex-col justify-between">
           <div className="flex items-center justify-between">
@@ -42,7 +43,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-emerald-700 dark:text-emerald-400">
-              {formatCurrency(data.totalIncome)}
+              <CountUp value={data.totalIncome} format={formatCurrency} />
             </div>
             <div className="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               <span>{formatNumber(data.incomeCount)} รายการ</span>
@@ -66,7 +67,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-rose-700 dark:text-rose-400">
-              {formatCurrency(data.totalExpense)}
+              <CountUp value={data.totalExpense} format={formatCurrency} />
             </div>
             <div className="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               <span>{formatNumber(data.expenseCount)} รายการ</span>
@@ -110,7 +111,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
                   : 'text-rose-700 dark:text-rose-400'
               }`}
             >
-              {formatCurrency(data.netIncome)}
+              <CountUp value={data.netIncome} format={formatCurrency} />
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               รายรับรวม หักเงินออก
@@ -134,7 +135,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-amber-700 dark:text-amber-400">
-              {formatCurrency(data.totalOutstanding)}
+              <CountUp value={data.totalOutstanding} format={formatCurrency} />
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               ค้างชำระ {formatNumber(data.debtorCount)} บิล
@@ -158,7 +159,7 @@ export function FinanceReportView({ data }: { data: FinanceReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-purple-700 dark:text-purple-400">
-              {formatCurrency(data.billDepositAmount)}
+              <CountUp value={data.billDepositAmount} format={formatCurrency} />
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium truncate">
               ระบุใน {formatNumber(data.billsWithDepositCount)} บิล

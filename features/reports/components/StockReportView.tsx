@@ -1,5 +1,6 @@
 'use client'
 
+import { CountUp } from '@/components/common/CountUp'
 import React from 'react'
 import {
   Package,
@@ -25,7 +26,7 @@ export function StockReportView({ data }: { data: StockReportData }) {
   return (
     <div className="space-y-2">
       {/* ─── 1. INVENTORY STATUS KPIS (Topic 14 & 15) ──────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+      <div className="card-lift-row grid grid-cols-2 md:grid-cols-5 gap-2">
         {/* KPI 1: สต็อกทั้งหมด */}
         <div className="p-2 rounded-xl border border-slate-300/70 bg-slate-100/70 dark:bg-slate-800/70 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
@@ -39,7 +40,7 @@ export function StockReportView({ data }: { data: StockReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-slate-800 dark:text-slate-100">
-              {formatNumber(data.totalStock)}{' '}
+              <CountUp value={data.totalStock} format={formatNumber} />{' '}
               <span className="text-xs font-normal text-slate-600 dark:text-slate-400">ชิ้น</span>
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
@@ -64,7 +65,7 @@ export function StockReportView({ data }: { data: StockReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-emerald-700 dark:text-emerald-400">
-              {formatNumber(data.availableStock)}{' '}
+              <CountUp value={data.availableStock} format={formatNumber} />{' '}
               <span className="text-xs font-normal text-emerald-700 dark:text-emerald-400/70">ชิ้น</span>
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
@@ -89,7 +90,7 @@ export function StockReportView({ data }: { data: StockReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-blue-700 dark:text-blue-400">
-              {formatNumber(data.rentedStock)}{' '}
+              <CountUp value={data.rentedStock} format={formatNumber} />{' '}
               <span className="text-xs font-normal text-blue-600 dark:text-blue-400">ชิ้น</span>
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
@@ -114,7 +115,7 @@ export function StockReportView({ data }: { data: StockReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-rose-700 dark:text-rose-400">
-              {formatNumber(data.damagedStock)}{' '}
+              <CountUp value={data.damagedStock} format={formatNumber} />{' '}
               <span className="text-xs font-normal text-rose-700 dark:text-rose-400">ชิ้น</span>
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
@@ -139,7 +140,7 @@ export function StockReportView({ data }: { data: StockReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-amber-700 dark:text-amber-400">
-              {formatNumber(data.lostStock)}{' '}
+              <CountUp value={data.lostStock} format={formatNumber} />{' '}
               <span className="text-xs font-normal text-amber-700 dark:text-amber-400/70">ชิ้น</span>
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">

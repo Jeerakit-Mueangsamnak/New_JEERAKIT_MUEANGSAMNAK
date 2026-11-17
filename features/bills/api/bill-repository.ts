@@ -83,6 +83,8 @@ interface LineRow {
   /** Taken over from the parent bill by a continuation (เช่าต่อ): already with the customer, never delivered here. */
   carried_in_qty: number
   obligation_held_here: number
+  /** Taken off the bill on แก้ไขบิล (bill_revise): kept as history, never shown. */
+  removed_at?: string | null
   /** The product as on the bill (taken on confirm, locked afterwards). */
   product_sku?: string | null
   product_name?: string | null
@@ -197,7 +199,8 @@ export function mapBill(
 ): FullBill {
   // A confirmed bill shows the customer as on its confirm day; a draft shows today's details.
   const customer = b.customer_snapshot ?? (b.customer_id ? ctx.customers.get(b.customer_id) : undefined)
-  const sorted = [...lines].sort((x, y) => x.line_no - y.line_no)
+  // A line taken off on แก้ไขบิล stays in the database as history only (removed_at): not shown, printed or counted.
+  const sorted = lines.filter((l) => l.removed_at == null).sort((x, y) => x.line_no - y.line_no)
   const rental = sorted.filter((l) => l.line_mode === 'RENTAL')
   const billDate = toDate(b.confirmed_at ?? b.created_at)
   const starts = rental.map((l) => l.rental_start_at).filter(Boolean) as string[]

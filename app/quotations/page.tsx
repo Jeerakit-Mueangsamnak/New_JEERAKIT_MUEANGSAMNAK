@@ -1,4 +1,5 @@
 'use client'
+import { CountUp } from '@/components/common/CountUp'
 import {
   COMMAND_BUTTON_SIZE_CLASSES,
   SEARCH_INPUT_CLASSES,
@@ -275,30 +276,30 @@ export default function QuotationsPage() {
     <div className="h-full min-h-0 flex flex-col overflow-hidden p-2 bg-slate-100 dark:bg-black gap-2 text-xs">
       {/* One white work area (owner 2026-11-11): summary cards, then the toolbar and table */}
       <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2 pb-0 shrink-0">
+        <div className="card-lift-row grid grid-cols-2 sm:grid-cols-4 gap-2 p-2 pb-0 shrink-0">
           <div className="bg-slate-100/70 dark:bg-slate-800/70 p-2.5 sm:p-3 rounded-2xl border border-slate-300/70 dark:border-slate-700 shadow-sm">
             <span className="text-[11px] text-slate-600 dark:text-slate-400 font-semibold block">ใบเสนอราคาทั้งหมด</span>
-            <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-slate-100 mt-0.5">{quotations.length}</h3>
+            <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-slate-100 mt-0.5"><CountUp value={quotations.length} /></h3>
           </div>
 
           <div className="bg-emerald-50 dark:bg-emerald-950/30 p-2.5 sm:p-3 rounded-2xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-sm">
             <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold block">ตอบรับแล้ว</span>
             <h3 className="text-lg sm:text-xl font-black text-emerald-700 dark:text-emerald-400 mt-0.5">
-              {quotations.filter((q) => q.status === 'ACCEPTED').length}
+              <CountUp value={quotations.filter((q) => q.status === 'ACCEPTED').length} />
             </h3>
           </div>
 
           <div className="bg-amber-50 dark:bg-amber-950/30 p-2.5 sm:p-3 rounded-2xl border border-amber-200/60 dark:border-amber-900/40 shadow-sm">
             <span className="text-[11px] text-amber-700 dark:text-amber-300 font-semibold block">รอยืนยัน</span>
             <h3 className="text-lg sm:text-xl font-black text-amber-700 dark:text-amber-400 mt-0.5">
-              {quotations.filter((q) => q.status === 'WAITING' || q.status === 'SENT' || q.status === 'DRAFT').length}
+              <CountUp value={quotations.filter((q) => q.status === 'WAITING' || q.status === 'SENT' || q.status === 'DRAFT').length} />
             </h3>
           </div>
 
           <div className="bg-blue-50 dark:bg-blue-950/30 p-2.5 sm:p-3 rounded-2xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm">
             <span className="text-[11px] text-blue-700 dark:text-blue-300 font-semibold block">ทำรายการสำเร็จ</span>
             <h3 className="text-lg sm:text-xl font-black text-blue-600 dark:text-blue-400 mt-0.5">
-              {quotations.filter((q) => q.status === 'CONVERTED').length}
+              <CountUp value={quotations.filter((q) => q.status === 'CONVERTED').length} />
             </h3>
           </div>
         </div>

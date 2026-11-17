@@ -1,20 +1,20 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
 
-import { useCallback, useEffect, useState } from 'react'
-import { Copy, Link2Off, RefreshCw, UserRound } from 'lucide-react'
+import { useCallback, useState, type ReactNode } from 'react'
+import { Copy, Link2Off } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_TH_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { createMyLineLinkCode } from '@/app/actions/line'
-import { SETTINGS_HELPER, SETTINGS_SECTION, SETTINGS_SECTION_TITLE } from '@/features/settings/components/settings-ui'
 import { StatusPill } from '@/features/settings/components/StatusPill'
 import { LineContactInfo, LineInviteButton, type LineReviewContact } from '@/features/settings/components/LineInviteButton'
 import { useUnlinkLineContact } from '@/features/settings/hooks/useUnlinkLineContact'
+import { useAutoRefresh } from '@/features/settings/hooks/useAutoRefresh'
 
 /**
- * Settings › LINE › เพิ่มข้อมูล: which staff (app users) have linked LINE. The OWNER sends an invite
+ * LINE › คนใน LINE › พนักงานร้าน: which staff (app users) have linked LINE. The OWNER sends an invite
  * link to a member's own LINE; a member may also issue a typed code for oneself. Unlink: oneself
  * or the OWNER. A link whose typed name did not match is flagged until someone checks it.
  */
@@ -35,7 +35,7 @@ interface IssuedCode {
 
 const BTN = `${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center justify-center cursor-pointer disabled:opacity-50 whitespace-nowrap`
 const TH = `px-2 ${DATA_TABLE_TH_CLASSES}`
-const TD = 'px-2'
+const TD = 'px-2 py-2'
 
 function LinkCell({ contact }: { contact?: Contact }) {
   return contact ? (
@@ -61,18 +61,17 @@ function CodeCell({ code, onCopy }: { code: IssuedCode; onCopy: (code: string) =
   )
 }
 
-export function LineMembersPanel() {
+/** `tabs`: the LINE menu tab bars, first in this page's toolbar row. */
+export function LineMembersPanel({ tabs }: { tabs?: ReactNode }) {
   const { showToast } = useToast()
   const { user } = useAuth()
   const [contacts, setContacts] = useState<Contact[]>([])
   const [staff, setStaff] = useState<Staff[]>([])
-  const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [codes, setCodes] = useState<Record<string, IssuedCode>>({})
 
   const load = useCallback(async () => {
-    setLoading(true)
     setLoadError(null)
     try {
       const supabase = createClient()
@@ -102,14 +101,10 @@ export function LineMembersPanel() {
       setLoadError(e instanceof Error ? e.message : 'โหลดรายชื่อพนักงานไม่สำเร็จ')
       setContacts([])
       setStaff([])
-    } finally {
-      setLoading(false)
     }
   }, [])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useAutoRefresh(load)
 
   const byProfile = new Map(contacts.filter((c) => c.profile_id).map((c) => [c.profile_id as string, c]))
 
@@ -164,27 +159,11 @@ export function LineMembersPanel() {
   )
 
   return (
-    <div className={SETTINGS_SECTION}>
-      <div className="flex items-center justify-between gap-2">
-        <h4 className={SETTINGS_SECTION_TITLE}>
-          <UserRound className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-          <span>พนักงานที่ใช้ระบบ</span>
-        </h4>
-        <button
-          type="button"
-          onClick={() => void load()}
-          disabled={loading}
-          aria-label="รีเฟรชสถานะ LINE"
-          className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 cursor-pointer`}
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
-      </div>
-      {loadError && <p className="text-[11px] text-amber-700 dark:text-amber-300">{loadError}</p>}
-      <DataTableFrame
-        rowCount={staff.length}
-      >
-        <table className={`${DATA_TABLE_CLASSES} text-xs`} aria-label="ตารางพนักงาน LINE">
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-wrap items-center`}>{tabs}</div>
+      {loadError && <p className="mx-3 mt-2 text-[11px] text-amber-700 dark:text-amber-300">{loadError}</p>}
+      <DataTableFrame fill rowCount={staff.length} className="flex-1 min-h-0 min-w-0 rounded-none bg-transparent">
+        <table className={`${DATA_TABLE_CLASSES} text-[11px] leading-tight`} aria-label="ตารางพนักงาน LINE">
           <thead className={`${DATA_TABLE_THEAD_CLASSES} text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 text-xs`}>
             <tr>
               <th className={`${TH} w-10 text-center`}>ลำดับ</th>

@@ -185,12 +185,6 @@ export interface NotificationSettings {
   appointmentReminder: NotificationItemSettings
 }
 
-/** Which auto-lock times users may pick, and the default for users who did not pick one. */
-export interface ShopSecuritySettings {
-  autoLockOptionsSeconds: number[]
-  autoLockDefaultSeconds: number
-}
-
 /**
  * LINE (store_settings.policies.line, checked again on the server by trg_store_settings_line_policy).
  * The OA credentials are NOT here: they live in Vault (app/actions/system-secrets.ts).
@@ -214,7 +208,6 @@ export interface SystemConfig {
   product: ProductSettings
   documentNumbering: DocumentNumberingSettings
   notifications: NotificationSettings
-  shopSecurity: ShopSecuritySettings
   line: LineSettings
   /** หมายเหตุ lines per shop form (key = form id), printed instead of the form's own (owner 2026-11-12). */
   documentNotes: Record<string, string[]>
@@ -233,7 +226,6 @@ export type SettingsSection =
   | 'product'
   | 'documentNumbering'
   | 'notifications'
-  | 'shopSecurity'
   | 'line'
   | 'documentNotes'
   | 'lineBillCards'
@@ -299,8 +291,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     overdueReturnReminder: { enabled: true },
     appointmentReminder: { enabled: true, daysBefore: 3 },
   },
-  // auto lock off until the OWNER switches a time on (owner 2026-11-13)
-  shopSecurity: { autoLockOptionsSeconds: [0], autoLockDefaultSeconds: 0 },
   // LINE notices are off until the OWNER switches a type on (spec F4).
   line: { notify: {}, templates: {}, other: {} },
   documentNotes: {},
@@ -308,7 +298,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   lineMessageTemplates: [],
 }
 
-/** Every auto-lock time the app offers (Master §4: 30 s … 10 min, 0 = never). */
+/** Every auto-lock time the app offers (30 s … 10 min, 0 = never); each member picks one in ตั้งค่าส่วนตัว (owner 2026-11-17). */
 export const AUTO_LOCK_CHOICES_SECONDS = [30, 60, 120, 180, 240, 300, 600, 0] as const
 
 let cachedSystemSettings: SystemConfig | null = null

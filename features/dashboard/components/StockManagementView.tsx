@@ -1,4 +1,5 @@
 'use client'
+import { CountUp } from '@/components/common/CountUp'
 import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React from 'react'
@@ -33,7 +34,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
   return (
     <div className="space-y-2">
       {/* 1. TOP ROW: 5 KPI CARDS */}
-      <div className="grid grid-cols-2 sm:flex sm:flex-wrap sm:*:grow sm:*:basis-[calc((100%_-_1rem)/3)] lg:grid lg:grid-cols-5 gap-2">
+      <div className="card-lift-row grid grid-cols-2 sm:flex sm:flex-wrap sm:*:grow sm:*:basis-[calc((100%_-_1rem)/3)] lg:grid lg:grid-cols-5 gap-2">
         {/* 1. สต็อกพร้อมใช้ */}
         <div className="p-2 bg-emerald-50/60 dark:bg-emerald-950/30 rounded-2xl border border-emerald-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
@@ -45,7 +46,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 font-mono">
-                {metrics.availableStock.toLocaleString()}
+                <CountUp value={metrics.availableStock} />
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">จำนวนคงเหลือปัจจุบันจาก Supabase</span>
@@ -63,7 +64,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 font-mono">
-                {metrics.rentedOrReservedStock.toLocaleString()}
+                <CountUp value={metrics.rentedOrReservedStock} />
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">อยู่ระหว่างการใช้งาน</span>
@@ -81,7 +82,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-rose-700 dark:text-rose-400 font-mono">
-                {metrics.damagedOrLostStock.toLocaleString()}
+                <CountUp value={metrics.damagedOrLostStock} />
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ต้องตรวจสอบ / ซ่อมแซม</span>
@@ -99,7 +100,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-purple-600 dark:text-purple-400 font-mono">
-                {metrics.pendingBillDeliveryItemCount.toLocaleString()}
+                <CountUp value={metrics.pendingBillDeliveryItemCount} />
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">สินค้าที่บิลยืนยันแล้วแต่ยังส่งไม่ครบ</span>
@@ -130,7 +131,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-amber-700 dark:text-amber-400 font-mono">
-                {urgentCount.toLocaleString()}
+                <CountUp value={urgentCount} />
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ต้องดำเนินการทันที</span>

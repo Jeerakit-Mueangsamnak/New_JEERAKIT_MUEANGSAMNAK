@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 /** คนใน LINE › ตั้งค่า LINE: connection (Vault, never shown back), staff LINE notices, message texts. */
 
@@ -44,6 +44,7 @@ import { rowToConfig, sectionPatch, type StoreSettingsRow } from '@/features/set
 import { DEFAULT_SYSTEM_CONFIG } from '@/features/settings/services/settings-storage'
 import { validateSection } from '@/features/settings/utils/settings-validation'
 import { LineSettingsWorkspace } from '@/features/settings/components/LineSettingsWorkspace'
+import { LineConnectionPanel, type LineSettingsView } from '@/features/settings/components/LineSettingsPanel'
 import { SystemSettingsProvider } from '@/lib/contexts/SystemSettingsContext'
 
 function row(policies: Record<string, unknown>): StoreSettingsRow {
@@ -61,20 +62,17 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-/** ตั้งค่า LINE → one of its sub-tabs. */
-async function openLineSettings(view: string) {
+/** One LINE settings page (the LINE menu picks the page; owner 2026-11-17). */
+async function openLineSettings(view: LineSettingsView) {
   await act(async () => {
-    render(<SystemSettingsProvider><LineSettingsWorkspace /></SystemSettingsProvider>)
-  })
-  await act(async () => {
-    fireEvent.click(within(screen.getByRole('tablist', { name: 'LINE' })).getByRole('tab', { name: view }))
+    render(<SystemSettingsProvider><LineSettingsWorkspace view={view} /></SystemSettingsProvider>)
   })
 }
 
 describe('ตั้งค่า LINE in คนใน LINE', () => {
   it('a sub-page with settings has its own save; saving sends only that sub-page', async () => {
     mocks.rpc.mockImplementation(async (_fn: string, args: { p_patch: { policies: Record<string, unknown> } }) => row(args.p_patch.policies))
-    await openLineSettings('แจ้งเตือนพนักงานทาง LINE')
+    await openLineSettings('NOTIFY')
     const save = screen.getByRole('button', { name: 'บันทึกการตั้งค่า' }) as HTMLButtonElement
     expect(save.disabled).toBe(true)
     await act(async () => {
@@ -87,11 +85,13 @@ describe('ตั้งค่า LINE in คนใน LINE', () => {
     expect(mocks.rpc).toHaveBeenCalledWith('settings_update', expect.objectContaining({ p_patch: expect.anything() }))
     const sent = mocks.rpc.mock.calls[0][1].p_patch.policies.line
     expect(sent.notify).toEqual({ RENTAL_OVERDUE: true })
-    expect(mocks.toast).toHaveBeenCalledWith('บันทึกแล้ว', expect.stringContaining('แจ้งเตือนพนักงานทาง LINE'), 'SUCCESS')
+    expect(mocks.toast).toHaveBeenCalledWith('บันทึกแล้ว', expect.stringContaining('แจ้งพนักงาน'), 'SUCCESS')
   })
 
-  it('a sub-page without settings (เชื่อมต่อ LINE OA) has no page save bar', async () => {
-    await openLineSettings('เชื่อมต่อ LINE OA')
+  it('the connection page (เชื่อมต่อ LINE) has no page save bar', async () => {
+    await act(async () => {
+      render(<SystemSettingsProvider><LineConnectionPanel /></SystemSettingsProvider>)
+    })
     expect(screen.queryByRole('button', { name: 'บันทึกการตั้งค่า' })).toBeNull()
   })
 })

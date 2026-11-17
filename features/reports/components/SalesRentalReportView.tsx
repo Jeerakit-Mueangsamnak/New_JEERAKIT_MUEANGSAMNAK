@@ -1,5 +1,6 @@
 'use client'
 
+import { CountUp } from '@/components/common/CountUp'
 import React from 'react'
 import {
   ShoppingBag,
@@ -25,7 +26,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
   return (
     <div className="space-y-2">
       {/* ─── 1. KPI SUMMARY CARDS (Topics 5, 6, 9, 10, 11) ─────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+      <div className="card-lift-row grid grid-cols-2 md:grid-cols-5 gap-2">
         {/* Topic 5: ยอดขายสินค้า (Product Sales) */}
         <div className="p-2 rounded-xl border border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-950/20 flex flex-col justify-between">
           <div className="flex items-center justify-between">
@@ -39,7 +40,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-emerald-700 dark:text-emerald-400">
-              {formatCurrency(data.salesRevenue)}
+              <CountUp value={data.salesRevenue} format={formatCurrency} />
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               จากบิลขาย {formatNumber(data.salesCount)} รายการ
@@ -63,7 +64,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-blue-700 dark:text-blue-400">
-              {formatCurrency(data.rentalRevenue)}
+              <CountUp value={data.rentalRevenue} format={formatCurrency} />
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               ค่าเช่าอุปกรณ์ในงวด
@@ -87,7 +88,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-slate-800 dark:text-slate-100">
-              {formatCurrency(data.totalBillsValue)}
+              <CountUp value={data.totalBillsValue} format={formatCurrency} />
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium flex items-center justify-between">
               <span>ชำระแล้ว: {formatNumber(data.totalBillsPaid)}</span>
@@ -111,7 +112,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-purple-700 dark:text-purple-400">
-              {formatCurrency(data.totalQuotationsValue)}
+              <CountUp value={data.totalQuotationsValue} format={formatCurrency} />
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               ออกทั้งหมด {formatNumber(data.totalQuotationsCount)} ใบ
@@ -141,7 +142,7 @@ export function SalesRentalReportView({ data }: { data: SalesRentalReportData })
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-blue-600 dark:text-blue-400">
-              {formatNumber(data.activeRentalsCount)}{' '}
+              <CountUp value={data.activeRentalsCount} format={formatNumber} />{' '}
               <span className="text-xs font-normal text-slate-600 dark:text-slate-400">สัญญา</span>
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">

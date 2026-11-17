@@ -17,7 +17,7 @@ import {
 } from '@/lib/line/config'
 
 /**
- * Settings › LINE › ตารางเตือน: customer reminder schedule, which driver steps the customer
+ * LINE › ตั้งค่า › เตือนลูกค้า: customer reminder schedule, which driver steps the customer
  * hears about, and the timing options. Everything is rendered from lib/line/config.ts and
  * saved in policies.line (the section draft, saved with the page's บันทึก button).
  */
@@ -27,7 +27,7 @@ interface Props {
   setConfig: Dispatch<SetStateAction<SystemConfig>>
 }
 
-const SWITCH = 'mt-0.5 w-4 h-4 text-emerald-700 dark:text-emerald-400 rounded'
+const SWITCH = 'w-4 h-4 shrink-0 text-emerald-700 dark:text-emerald-400 rounded'
 
 export function LineSchedulePanel({ config, setConfig }: Props) {
   const other = config.line.other
@@ -49,13 +49,14 @@ export function LineSchedulePanel({ config, setConfig }: Props) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
       <SettingsCard title="ตารางเตือนลูกค้าทาง LINE" icon={CalendarClock}>
-        <div className="py-2 space-y-2">
+        {/* one compact row per rule (owner 2026-11-17: the page fits the screen) */}
+        <div className="py-1 divide-y divide-slate-200 dark:divide-slate-700">
           {LINE_REMINDER_RULES.map((rule) => {
             const s = reminders[rule.key] ?? {}
             const on = s.enabled === true
             return (
-              <div key={rule.key} className="rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2">
-                <label className="flex items-start gap-2.5 cursor-pointer">
+              <div key={rule.key} className="py-2 grid grid-cols-1 sm:grid-cols-[10rem_minmax(0,1fr)] items-center gap-x-3 gap-y-1.5">
+                <label className="flex items-center gap-2.5 cursor-pointer">
                   <input
                     type="checkbox"
                     role="switch"
@@ -64,12 +65,10 @@ export function LineSchedulePanel({ config, setConfig }: Props) {
                     onChange={(e) => setRule(rule.key, { enabled: e.target.checked })}
                     className={SWITCH}
                   />
-                  <span>
-                    <span className="block text-xs font-bold text-slate-800 dark:text-slate-200">{rule.label}</span>
-                  </span>
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{rule.label}</span>
                 </label>
                 {rule.fields.length > 0 && (
-                  <div className="mt-2 ml-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     {rule.fields.map((f) => (
                       <div key={f.key}>
                         <label className={SETTINGS_LABEL} htmlFor={`line-rule-${rule.key}-${f.key}`}>
@@ -100,7 +99,7 @@ export function LineSchedulePanel({ config, setConfig }: Props) {
       <SettingsCard title="แจ้งลูกค้าเมื่อคนขับกดขั้นตอนงาน" icon={Route}>
         <div className="py-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4">
           {LINE_CUSTOMER_STAGES.map((st) => (
-            <label key={st.key} className="flex items-start gap-2.5 py-1.5 cursor-pointer">
+            <label key={st.key} className="flex items-center gap-2.5 py-1.5 cursor-pointer">
               <input
                 type="checkbox"
                 role="switch"

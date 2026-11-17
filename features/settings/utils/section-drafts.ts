@@ -25,7 +25,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   'product',
   'documentNumbering',
   'notifications',
-  'shopSecurity',
   'line',
   'documentNotes',
   'lineBillCards',

@@ -100,8 +100,9 @@ export function DocumentSummaryLayout({ className = '', preview, formTabLabel, p
 
 interface DocumentSummaryPanelProps {
   title: string
-  backHref: string
-  backLabel: string
+  /** Back link in the header; leave out when the screen puts its back button in the footer. */
+  backHref?: string
+  backLabel?: string
   discount: number
   onDiscountChange: (value: number) => void
   shippingFee: number
@@ -153,14 +154,16 @@ export function DocumentSummaryPanel({
       <div className="flex min-h-0 flex-1 flex-col space-y-2 sm:space-y-2.5 overflow-hidden">
         {/* Header */}
         <div className="flex shrink-0 min-w-0 items-center justify-between gap-2 border-b border-slate-100 pb-2 dark:border-slate-700">
-          <Link
-            href={backHref}
-            className="flex shrink-0 items-center gap-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-semibold"
-          >
-            <ArrowLeft className="w-4 h-4 shrink-0" />
-            <span className="whitespace-nowrap">{backLabel}</span>
-          </Link>
-          <h3 className="shrink-0 whitespace-nowrap text-sm font-bold text-slate-900 dark:text-slate-100 sm:text-base">{title}</h3>
+          {backHref && (
+            <Link
+              href={backHref}
+              className="flex shrink-0 items-center gap-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-semibold"
+            >
+              <ArrowLeft className="w-4 h-4 shrink-0" />
+              <span className="whitespace-nowrap">{backLabel}</span>
+            </Link>
+          )}
+          <h3 className="ml-auto shrink-0 whitespace-nowrap text-sm font-bold text-slate-900 dark:text-slate-100 sm:text-base">{title}</h3>
         </div>
 
         {/* ส่วนลด / ค่าขนส่ง / เงินมัดจำ */}

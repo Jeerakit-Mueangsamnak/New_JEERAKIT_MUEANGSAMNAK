@@ -158,7 +158,7 @@ describe('SAVE: one section at a time', () => {
     expect(Object.keys(sectionPatch('taxDiscount', DEFAULT_SYSTEM_CONFIG)).sort()).toEqual(['policies', 'vat_rate'])
     expect(Object.keys(sectionPatch('documentNumbering', DEFAULT_SYSTEM_CONFIG))).toEqual(['doc_number_formats'])
     expect(Object.keys(sectionPatch('payment', DEFAULT_SYSTEM_CONFIG).policies as object).sort()).toEqual(['allow_overpayment', 'payment_receiving'])
-    for (const s of ['business', 'taxDiscount', 'payment', 'salesRental', 'product', 'documentNumbering', 'notifications', 'shopSecurity'] as const) {
+    for (const s of ['business', 'taxDiscount', 'payment', 'salesRental', 'product', 'documentNumbering', 'notifications'] as const) {
       expect(JSON.stringify(sectionPatch(s, DEFAULT_SYSTEM_CONFIG))).not.toContain('vat_enabled')
       expect(JSON.stringify(sectionPatch(s, DEFAULT_SYSTEM_CONFIG))).not.toContain('app_config')
     }

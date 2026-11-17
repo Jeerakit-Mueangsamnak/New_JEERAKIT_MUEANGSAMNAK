@@ -1,5 +1,6 @@
 'use client'
 
+import { CountUp } from '@/components/common/CountUp'
 import { useActionPermission, NO_ACTION_PERMISSION_TITLE } from '@/features/auth/hooks/useActionPermission'
 import React, { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
@@ -734,7 +735,7 @@ function ProductsContent() {
       {/* One white work area: summary cards, the 4 main tabs, then the work area */}
       <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
         <div className="shrink-0 p-2 pb-0">
-          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
+          <div className="card-lift-row grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
             <div
               role="button"
               tabIndex={0}
@@ -752,19 +753,19 @@ function ProductsContent() {
               }`}
             >
               <span className="text-[11px] text-slate-600 dark:text-slate-400 font-semibold block">สต็อกรวม</span>
-              <span className="text-lg font-black text-slate-800 dark:text-slate-100 mt-0.5 block">{cardTotal.toLocaleString()}</span>
+              <span className="text-lg font-black text-slate-800 dark:text-slate-100 mt-0.5 block"><CountUp value={cardTotal} /></span>
             </div>
             <div className="p-2.5 sm:p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-2xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-xs">
               <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold block">พร้อมให้เช่า</span>
-              <span className="text-lg font-black text-emerald-700 dark:text-emerald-400 mt-0.5 block">{cardAvailable.toLocaleString()}</span>
+              <span className="text-lg font-black text-emerald-700 dark:text-emerald-400 mt-0.5 block"><CountUp value={cardAvailable} /></span>
             </div>
             <div className="p-2.5 sm:p-3 bg-indigo-50 dark:bg-indigo-950/30 rounded-2xl border border-indigo-200/60 dark:border-indigo-900/40 shadow-xs">
               <span className="text-[11px] text-indigo-700 dark:text-indigo-300 font-semibold block">จอง (รอส่ง)</span>
-              <span className="text-lg font-black text-indigo-600 dark:text-indigo-400 mt-0.5 block">{cardReserved.toLocaleString()}</span>
+              <span className="text-lg font-black text-indigo-600 dark:text-indigo-400 mt-0.5 block"><CountUp value={cardReserved} /></span>
             </div>
             <div className="p-2.5 sm:p-3 bg-blue-50 dark:bg-blue-950/30 rounded-2xl border border-blue-200/60 dark:border-blue-900/40 shadow-xs">
               <span className="text-[11px] text-blue-700 dark:text-blue-300 font-semibold block">อยู่ระหว่างเช่า</span>
-              <span className="text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5 block">{cardRented.toLocaleString()}</span>
+              <span className="text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5 block"><CountUp value={cardRented} /></span>
             </div>
             <div
               role="button"
@@ -783,15 +784,15 @@ function ProductsContent() {
               }`}
             >
               <span className="text-[11px] text-amber-700 dark:text-amber-300 font-semibold block">ชำรุด</span>
-              <span className="text-lg font-black text-amber-700 dark:text-amber-400 mt-0.5 block">{cardDamaged.toLocaleString()}</span>
+              <span className="text-lg font-black text-amber-700 dark:text-amber-400 mt-0.5 block"><CountUp value={cardDamaged} /></span>
             </div>
             <div className="p-2.5 sm:p-3 bg-red-50 dark:bg-red-950/30 rounded-2xl border border-red-200/60 dark:border-red-900/40 shadow-xs">
               <span className="text-[11px] text-red-700 dark:text-red-300 font-semibold block">สูญหาย</span>
-              <span className="text-lg font-black text-red-700 dark:text-red-400 mt-0.5 block">{cardLost.toLocaleString()}</span>
+              <span className="text-lg font-black text-red-700 dark:text-red-400 mt-0.5 block"><CountUp value={cardLost} /></span>
             </div>
             <div className="p-2.5 sm:p-3 bg-purple-50 dark:bg-purple-950/30 rounded-2xl border border-purple-200/60 dark:border-purple-900/40 shadow-xs">
               <span className="text-[11px] text-purple-700 dark:text-purple-300 font-semibold block">สินค้าใกล้หมด</span>
-              <span className="text-lg font-black text-purple-600 dark:text-purple-400 mt-0.5 block">{(focusedProduct ? Number(focusedIsLow) : lowStockCount).toLocaleString()}</span>
+              <span className="text-lg font-black text-purple-600 dark:text-purple-400 mt-0.5 block"><CountUp value={focusedProduct ? Number(focusedIsLow) : lowStockCount} /></span>
             </div>
           </div>
         </div>

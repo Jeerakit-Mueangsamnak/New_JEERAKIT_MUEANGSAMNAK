@@ -75,7 +75,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
     }
   }, [refreshNotifications])
 
-  // Chime for a notice that arrives while the app is open (sound on/off = this device's choice, ตั้งค่าส่วนตัว).
+  // Chime for a notice that arrives while the app is open (the shop's notices ring on every device, owner 2026-11-17).
   // Notices from before the bell was shown never chime, so opening the app or a page stays quiet.
   const mountedAt = useRef(Date.now())
   const heard = useRef<Set<string>>(new Set())

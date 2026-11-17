@@ -1,5 +1,6 @@
 'use client'
 
+import { CountUp } from '@/components/common/CountUp'
 import React from 'react'
 import {
   Truck,
@@ -24,7 +25,7 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
   return (
     <div className="space-y-2">
       {/* ─── 1. KPI SUMMARY CARDS (Topics 12, 13, 20) ──────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+      <div className="card-lift-row grid grid-cols-2 md:grid-cols-4 gap-2">
         {/* KPI 1: งานส่งมอบ (Dispatches) */}
         <div className="p-2 rounded-xl border border-blue-500/20 bg-blue-50/50 dark:bg-blue-950/20 flex flex-col justify-between">
           <div className="flex items-center justify-between">
@@ -38,7 +39,7 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-blue-700 dark:text-blue-400">
-              {formatNumber(data.dispatchCount)}{' '}
+              <CountUp value={data.dispatchCount} format={formatNumber} />{' '}
               <span className="text-xs font-normal text-slate-600 dark:text-slate-400">งาน</span>
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
@@ -63,7 +64,7 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-emerald-700 dark:text-emerald-400">
-              {formatNumber(data.returnCount)}{' '}
+              <CountUp value={data.returnCount} format={formatNumber} />{' '}
               <span className="text-xs font-normal text-slate-600 dark:text-slate-400">งาน</span>
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
@@ -88,7 +89,7 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-purple-700 dark:text-purple-400">
-              {formatNumber(data.activeReservationsCount)}{' '}
+              <CountUp value={data.activeReservationsCount} format={formatNumber} />{' '}
               <span className="text-xs font-normal text-slate-600 dark:text-slate-400">รายการ</span>
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
@@ -119,7 +120,7 @@ export function OperationsReportView({ data }: { data: OperationsReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-rose-700 dark:text-rose-400">
-              {formatNumber(data.actionItemsCount)}{' '}
+              <CountUp value={data.actionItemsCount} format={formatNumber} />{' '}
               <span className="text-xs font-normal text-slate-600 dark:text-slate-400">ภารกิจ</span>
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">

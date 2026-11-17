@@ -64,7 +64,7 @@ function notifyChanged(): void {
 
 export async function fetchNotificationsFromSupabase(): Promise<ActionableNotification[]> {
   const supabase = createClient()
-  // Notices are raised per member (own switches in ตั้งค่าส่วนตัว). The OWNER may read every row,
+  // Notices follow the shop's settings (ตั้งค่าระบบ › การแจ้งเตือนของร้าน). The OWNER may read every row,
   // so the bell asks only for this member's own rows and the menu-addressed ones.
   const { data: sessionData } = await supabase.auth.getSession()
   const me = sessionData.session?.user.id

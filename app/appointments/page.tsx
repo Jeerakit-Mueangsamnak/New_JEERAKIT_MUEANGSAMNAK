@@ -1,5 +1,6 @@
 'use client'
 
+import { CountUp } from '@/components/common/CountUp'
 import { useRouter } from 'next/navigation'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import React, { useState, useEffect, useCallback } from 'react'
@@ -367,7 +368,7 @@ export default function AppointmentsPage() {
       <div className="relative flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex overflow-hidden">
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
           {/* Mini Dashboard (same p-2 / gap-2 spacing as the toolbar below it) */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-2 pb-0 shrink-0">
+          <div className="card-lift-row grid grid-cols-2 md:grid-cols-4 gap-2 p-2 pb-0 shrink-0">
             {[
               // Products page card tones (light background, border, label and number in the card's colour)
               { label: 'งานวันนี้', value: todayTasksCount, box: 'bg-blue-50 dark:bg-blue-950/30 border-blue-200/60 dark:border-blue-900/40', title: 'text-blue-700 dark:text-blue-300', num: 'text-blue-600 dark:text-blue-400' },
@@ -381,7 +382,7 @@ export default function AppointmentsPage() {
                 className={`min-w-0 px-2 py-1.5 rounded-xl border shadow-xs flex flex-col items-center justify-center ${c.box}`}
               >
                 <span className={`max-w-full truncate text-[11px] font-semibold ${c.title}`}>{c.label}</span>
-                <span className={`text-lg leading-tight font-black ${c.num}`}>{c.value}</span>
+                <span className={`text-lg leading-tight font-black ${c.num}`}><CountUp value={c.value} /></span>
               </div>
             ))}
           </div>

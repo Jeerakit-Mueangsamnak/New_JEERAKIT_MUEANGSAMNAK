@@ -95,7 +95,7 @@ export async function fetchTransactionsFromSupabase(daysBack = STATEMENT_DEFAULT
   ])
   const [bills, receipts] = await Promise.all([
     byIds([...payments.map((p) => p.bill_id), ...refunds.map((r) => r.bill_id)], (chunk) =>
-      selectRows<{ id: string; bill_no: string | null; customer_id: string | null }>(supabase.from('bills').select('id, bill_no, customer_id').in('id', chunk))
+      selectRows<{ id: string; bill_no: string | null; customer_id: string | null; customer_snapshot: { name?: string } | null }>(supabase.from('bills').select('id, bill_no, customer_id, customer_snapshot').in('id', chunk))
     ),
     byIds(payments.map((p) => p.receipt_id), (chunk) =>
       selectRows<{ id: string; receipt_no: string }>(supabase.from('payment_receipts').select('id, receipt_no').in('id', chunk))
@@ -108,8 +108,9 @@ export async function fetchTransactionsFromSupabase(daysBack = STATEMENT_DEFAULT
   const billMap = new Map(bills.map((b) => [b.id, b]))
   const customerMap = new Map(customers.map((c) => [c.id, c.name]))
   const customerOf = (billId: string) => {
-    const cid = billMap.get(billId)?.customer_id
-    return cid ? customerMap.get(cid) : undefined
+    const bill = billMap.get(billId)
+    // No customer record = the name typed at POS, kept on the bill (owner 2026-11-16)
+    return bill?.customer_id ? customerMap.get(bill.customer_id) : bill?.customer_snapshot?.name || undefined
   }
   const expenseLabel = (code: string) => EXPENSE_CATEGORIES.find((c) => c.code === code)?.label || code
 

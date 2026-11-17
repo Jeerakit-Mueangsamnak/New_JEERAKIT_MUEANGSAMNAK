@@ -1,4 +1,5 @@
 'use client'
+import { CountUp } from '@/components/common/CountUp'
 import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
 import React from 'react'
@@ -35,7 +36,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
   return (
     <div className="space-y-2">
       {/* 1. TOP 5 KPI CARDS */}
-      <div className="grid grid-cols-2 sm:flex sm:flex-wrap sm:*:grow sm:*:basis-[calc((100%_-_1rem)/3)] lg:grid lg:grid-cols-5 gap-2">
+      <div className="card-lift-row grid grid-cols-2 sm:flex sm:flex-wrap sm:*:grow sm:*:basis-[calc((100%_-_1rem)/3)] lg:grid lg:grid-cols-5 gap-2">
         {/* 1. การเติบโตของธุรกิจ */}
         <div className="p-2 bg-emerald-50/60 dark:bg-emerald-950/30 rounded-2xl border border-emerald-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
@@ -65,7 +66,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 font-mono">
-                {metrics.currentMonthRevenue.toLocaleString()}
+                <CountUp value={metrics.currentMonthRevenue} />
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ยอดบิลเดือนนี้ ไม่รวม VAT</span>
@@ -83,7 +84,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-amber-700 dark:text-amber-400 font-mono">
-                {metrics.topProductMetric.revenue.toLocaleString()}
+                <CountUp value={metrics.topProductMetric.revenue} />
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">
@@ -103,7 +104,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
           <div className="mt-1">
             <div className="flex items-baseline gap-1">
               <span className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 font-mono">
-                {metrics.topCustomerMetric.count}
+                <CountUp value={metrics.topCustomerMetric.count} />
               </span>
               <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">ราย</span>
             </div>
@@ -137,7 +138,7 @@ export function BusinessAnalyticsView({ metrics, onRefresh }: ViewProps) {
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-purple-600 dark:text-purple-400 font-mono">
-                {metrics.topChannelMetric.amount.toLocaleString()}
+                <CountUp value={metrics.topChannelMetric.amount} />
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">

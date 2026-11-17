@@ -2,7 +2,6 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import {
   fetchPinStatus,
   setPinOnServer,
@@ -12,7 +11,7 @@ import {
   getLastActivity,
   setLastActivity,
   isIdleExpired,
-  effectiveAutoLockSeconds,
+  setAutoLockOnServer,
   type PinStatus,
   type PinVerifyResult,
 } from '@/features/auth/services/pin-lock'
@@ -34,6 +33,8 @@ export interface AppLockContextType {
   lockApp: () => void
   unlockApp: () => void
   refreshLockState: () => Promise<void>
+  /** The member's own auto-lock time (ตั้งค่าส่วนตัว › การตั้งค่า); 0 = never. Needs a PIN. */
+  setAutoLockSeconds: (seconds: number) => Promise<void>
 }
 
 const AppLockContext = createContext<AppLockContextType | null>(null)
@@ -42,8 +43,7 @@ const ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'touchstart', 'wheel', 'scrol
 
 export function AppLockProvider({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading } = useAuth()
-  const { settings } = useSystemSettings()
-  const [serverStatus, setStatus] = useState<PinStatus | null>(null)
+  const [status, setStatus] = useState<PinStatus | null>(null)
   const [isLocked, setIsLocked] = useState(false)
   const [checkedUserId, setCheckedUserId] = useState<string | null | undefined>(undefined)
   const userId = user?.status === 'ACTIVE' ? user.id : null
@@ -73,7 +73,7 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
     void refreshLockState()
   }, [refreshLockState])
 
-  // The OWNER may change the allowed auto-lock times from another device: read again on return.
+  // The member may change their PIN or auto-lock time on another device: read again on return.
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') void refreshLockState()
@@ -82,13 +82,10 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [refreshLockState])
 
-  // The member's own choice applies only while the OWNER still allows it (shop default otherwise).
-  const shopDefaultSeconds = settings.shopSecurity.autoLockDefaultSeconds
-  const status = useMemo<PinStatus | null>(() => {
-    if (!serverStatus) return null
-    const seconds = effectiveAutoLockSeconds(serverStatus.autoLockSeconds, serverStatus.autoLockOptions, shopDefaultSeconds)
-    return seconds === serverStatus.autoLockSeconds ? serverStatus : { ...serverStatus, autoLockSeconds: seconds }
-  }, [serverStatus, shopDefaultSeconds])
+  // Auto-lock time = the member's own choice (owner 2026-11-17: personal, no shop limit).
+  const setAutoLockSeconds = useCallback(async (seconds: number) => {
+    setStatus(await setAutoLockOnServer(seconds))
+  }, [])
 
   // A locked device implies a PIN was set (the lock flag is only written when it was).
   const pinEnabled = Boolean(status?.pinSet) || isLocked
@@ -199,7 +196,8 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
     lockApp,
     unlockApp,
     refreshLockState,
-  }), [pinEnabled, status, isLocked, loading, setupPin, verifyPin, lockApp, unlockApp, refreshLockState])
+    setAutoLockSeconds,
+  }), [pinEnabled, status, isLocked, loading, setupPin, verifyPin, lockApp, unlockApp, refreshLockState, setAutoLockSeconds])
 
   return <AppLockContext.Provider value={value}>{children}</AppLockContext.Provider>
 }

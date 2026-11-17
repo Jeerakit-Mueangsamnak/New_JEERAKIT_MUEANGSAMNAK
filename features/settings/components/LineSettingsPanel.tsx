@@ -5,11 +5,9 @@ import {
   SETTINGS_INPUT,
   SETTINGS_INPUT_MONO,
   SETTINGS_LABEL,
-  SETTINGS_SECTION,
-  SETTINGS_SECTION_TITLE,
 } from '@/features/settings/components/settings-ui'
 import { StatusPill } from '@/features/settings/components/StatusPill'
-import { SettingsCard } from '@/features/settings/components/SettingsCards'
+import { REF_BUTTON, REF_BUTTON_QUIET, SettingsCard } from '@/features/settings/components/SettingsCards'
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { BellRing, Copy, KeyRound, Link2, RotateCcw, Trash2 } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
@@ -18,39 +16,29 @@ import { clearLineSecrets, getLineSecretStatus, saveLineSecrets, type LineSecret
 import { LINE_TEMPLATES, type LineTemplateKey } from '@/lib/line/templates'
 import { LINE_EDITABLE_TEMPLATES, LINE_NOTIFY_EVENTS, type LineNotifyEventType } from '@/lib/line/config'
 import type { SystemConfig } from '@/features/settings/services/settings-storage'
-import { LineMembersPanel } from '@/features/settings/components/LineMembersPanel'
-import {
-  TAB_BUTTON_ACTIVE_CLASSES,
-  TAB_BUTTON_BASE_CLASSES,
-  TAB_BUTTON_INACTIVE_CLASSES,
-  TAB_CONTAINER_CLASSES, COMMAND_BUTTON_SIZE_CLASSES, TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 import { LineChatPreview, type LineChatBubble } from '@/features/settings/components/LineChatPreview'
 import { LineSchedulePanel } from '@/features/settings/components/LineSchedulePanel'
-import { LineRemindersPanel } from '@/features/settings/components/LineRemindersPanel'
-import { LineDeliveryLogPanel } from '@/features/settings/components/LineDeliveryLogPanel'
+import { LineFormsCard } from '@/features/settings/components/LineFormsCard'
+import { LineBlockTitle, LineEditorLayout, LineListItem } from '@/features/settings/components/LineEditorLayout'
 
 /**
- * Settings › LINE. Two kinds of values:
- * - OA connection (Channel Secret / Access Token): saved straight to Vault by its own buttons,
- *   never shown back, never part of the section draft.
- * - policies.line (which notices go to staff LINE, the customer reminder schedule, the message
- *   texts): the draft of LineSettingsWorkspace, saved one sub-page at a time.
- * - Manual reminders and the send history act at once (own buttons).
- * People (friends waiting for the shop, drivers, linked customers) have their own page: คนใน LINE (/line).
+ * LINE settings pages of the LINE menu (owner 2026-11-17: 4 groups, no page scroll):
+ * - LineConnectionPanel (ตั้งค่า › เชื่อมต่อ LINE): Channel Secret / Access Token saved straight to Vault by its own
+ *   buttons, never shown back; the Webhook URL; the ฟอร์มใน LINE link.
+ * - LineSettingsPanel: the policies.line pages held by LineSettingsWorkspace's draft, saved one page at a time:
+ *   แจ้งพนักงาน (NOTIFY), ข้อความอัตโนมัติ (TEMPLATES, under ข้อความ), เตือนลูกค้า (SCHEDULE).
  * Every list on these screens comes from lib/line/config.ts.
  */
 
 export { LINE_NOTIFY_EVENTS, LINE_EDITABLE_TEMPLATES } from '@/lib/line/config'
 
-/** Sub-sections of the LINE tab (its own sub-tab bar). */
-export type LineSettingsView = 'CONNECTION' | 'NOTIFY' | 'TEMPLATES' | 'SCHEDULE' | 'MANUAL' | 'HISTORY'
+/** The LINE pages that edit the settings draft (each saved on its own). */
+export type LineSettingsView = 'NOTIFY' | 'TEMPLATES' | 'SCHEDULE'
 export const LINE_SETTINGS_VIEWS: ReadonlyArray<{ id: LineSettingsView; label: string }> = [
-  { id: 'CONNECTION', label: 'เชื่อมต่อ LINE OA' },
-  { id: 'NOTIFY', label: 'แจ้งเตือนพนักงานทาง LINE' },
-  { id: 'TEMPLATES', label: 'ข้อความที่ส่งทาง LINE' },
-  { id: 'SCHEDULE', label: 'ตารางเตือนลูกค้า' },
-  { id: 'MANUAL', label: 'ส่งเตือนเอง' },
-  { id: 'HISTORY', label: 'ประวัติการส่ง' },
+  { id: 'TEMPLATES', label: 'ข้อความอัตโนมัติ' },
+  { id: 'NOTIFY', label: 'แจ้งพนักงาน' },
+  { id: 'SCHEDULE', label: 'เตือนลูกค้า' },
 ]
 
 /** Sample values for the chat preview only (never real data). */
@@ -71,7 +59,7 @@ const SAMPLE_VARS: Record<string, string> = {
   ยอดค้าง: '1,500',
 }
 
-/** Sample line per staff notice type, for the preview of แจ้งเตือนพนักงานทาง LINE. */
+/** Sample line per staff notice type, for the preview of แจ้งพนักงาน. */
 const NOTICE_SAMPLE: Record<LineNotifyEventType, string> = {
   APPOINTMENT_DUE: 'พรุ่งนี้ 10:00 คุณกานดา ลองชุด 3 รายการ',
   DELIVERY_DUE: 'ส่งของบิล BR-0139 ภายในวันนี้',
@@ -120,36 +108,11 @@ function templateBubbles(key: LineTemplateKey, templates: Record<string, string>
   }
 }
 
-/** Form pages scroll under the tab row; list pages give the table the rest of the height. */
-const FORM_AREA = 'flex-1 min-h-0 overflow-y-auto p-2'
-const LIST_AREA = 'flex-1 min-h-0 flex flex-col p-2'
+/** Red outline button (clear the connection). */
+const DANGER_QUIET = `${COMMAND_BUTTON_SIZE_CLASSES} px-3 border border-red-200 dark:border-red-800 bg-white dark:bg-slate-800 text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-45 flex items-center`
 
-/** Settings on the left, the LINE chat beside them (below on narrow screens). */
-function WithPreview({ children, preview }: { children: React.ReactNode; preview: React.ReactNode }) {
-  return (
-    <div className="flex-1 min-h-0 overflow-y-auto">
-      <div className="min-h-full grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="min-w-0">{children}</div>
-        <aside
-          className="border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-3 sm:p-4"
-          aria-label="ตัวอย่างใน LINE"
-        >
-          <div className="lg:sticky lg:top-3">{preview}</div>
-        </aside>
-      </div>
-    </div>
-  )
-}
-
-interface LineSettingsPanelProps {
-  config: SystemConfig
-  setConfig: Dispatch<SetStateAction<SystemConfig>>
-  /** The open sub-page, when the Settings page needs it (บันทึก saves only that sub-page). */
-  view?: LineSettingsView
-  onViewChange?: (view: LineSettingsView) => void
-}
-
-function ConnectionSection() {
+/** ตั้งค่า › เชื่อมต่อ LINE: the OA keys (left), the Webhook URL and the ฟอร์มใน LINE link (right). */
+export function LineConnectionPanel() {
   const { showToast } = useToast()
   const confirm = useConfirm()
   const [status, setStatus] = useState<LineSecretStatus | null>(null)
@@ -212,22 +175,12 @@ function ConnectionSection() {
   const buttons = (
     <div className="flex flex-wrap justify-end gap-2">
       {(status?.lineSecretConfigured || status?.lineTokenConfigured) && (
-        <button
-          type="button"
-          onClick={() => void clear()}
-          disabled={busy}
-          className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 flex items-center disabled:opacity-50`}
-        >
+        <button type="button" onClick={() => void clear()} disabled={busy} className={DANGER_QUIET}>
           <Trash2 className="w-3.5 h-3.5" />
           <span>ล้างการเชื่อมต่อ</span>
         </button>
       )}
-      <button
-        type="button"
-        onClick={() => void save()}
-        disabled={busy || !status?.available || (!secret && !token)}
-        className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-blue-600 hover:bg-blue-700 text-white flex items-center disabled:opacity-50`}
-      >
+      <button type="button" onClick={() => void save()} disabled={busy || !status?.available || (!secret && !token)} className={REF_BUTTON}>
         <KeyRound className="w-3.5 h-3.5" />
         <span>บันทึกการเชื่อมต่อ</span>
       </button>
@@ -235,7 +188,7 @@ function ConnectionSection() {
   )
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+    <div className="flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 lg:grid-cols-2 gap-4 content-start">
       <SettingsCard title="การเชื่อมต่อ LINE OA" icon={Link2} action={buttons}>
         <div className="py-2 space-y-3">
           {loadError ? (
@@ -293,30 +246,29 @@ function ConnectionSection() {
         </div>
       </SettingsCard>
 
-      <SettingsCard title="Webhook URL (นำไปวางใน LINE Developers)" icon={Copy}>
-        <div className="py-2 flex gap-2">
-          <input readOnly aria-label="Webhook URL" value={webhookUrl} className={SETTINGS_INPUT_MONO} />
-          <button
-            type="button"
-            onClick={() => void copyWebhook()}
-            className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 flex items-center shrink-0`}
-          >
-            <Copy className="w-3.5 h-3.5" />
-            <span>คัดลอก</span>
-          </button>
-        </div>
-      </SettingsCard>
+      <div className="space-y-4 min-w-0">
+        <SettingsCard title="Webhook URL (นำไปวางใน LINE Developers)" icon={Copy}>
+          <div className="py-2 flex gap-2">
+            <input readOnly aria-label="Webhook URL" value={webhookUrl} className={`${SETTINGS_INPUT_MONO} flex-1 min-w-0`} />
+            <button type="button" onClick={() => void copyWebhook()} className={`${REF_BUTTON_QUIET} shrink-0`}>
+              <Copy className="w-3.5 h-3.5" />
+              <span>คัดลอก</span>
+            </button>
+          </div>
+        </SettingsCard>
+        <LineFormsCard />
+      </div>
     </div>
   )
 }
 
-export function LineSettingsPanel({ config, setConfig, view: viewProp, onViewChange }: LineSettingsPanelProps) {
-  const [ownView, setOwnView] = useState<LineSettingsView>('CONNECTION')
-  const view = viewProp ?? ownView
-  const setView = (v: LineSettingsView) => {
-    setOwnView(v)
-    onViewChange?.(v)
-  }
+interface LineSettingsPanelProps {
+  config: SystemConfig
+  setConfig: Dispatch<SetStateAction<SystemConfig>>
+  view: LineSettingsView
+}
+
+export function LineSettingsPanel({ config, setConfig, view }: LineSettingsPanelProps) {
   const [focusEvent, setFocusEvent] = useState<LineNotifyEventType>(LINE_NOTIFY_EVENTS[0].type)
   const [tplKey, setTplKey] = useState<LineTemplateKey>(LINE_EDITABLE_TEMPLATES[0].key)
   const tplRef = useRef<HTMLTextAreaElement>(null)
@@ -349,191 +301,141 @@ export function LineSettingsPanel({ config, setConfig, view: viewProp, onViewCha
     })
   }
 
-  return (
-    <>
-      {/* second row under the คนใน LINE tabs: same padding as that toolbar; only the area under it scrolls */}
-      <div className={`${TABLE_TOOLBAR_CLASSES} overflow-x-auto no-scrollbar`}>
-        <div className={TAB_CONTAINER_CLASSES} role="tablist" aria-label="LINE">
-          {LINE_SETTINGS_VIEWS.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              role="tab"
-              aria-selected={view === v.id}
-              onClick={() => setView(v.id)}
-              className={`${TAB_BUTTON_BASE_CLASSES} ${view === v.id ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
+  if (view === 'SCHEDULE') {
+    return (
+      <div className="flex-1 min-h-0 overflow-y-auto p-3">
+        <LineSchedulePanel config={config} setConfig={setConfig} />
+      </div>
+    )
+  }
+
+  if (view === 'NOTIFY') {
+    return (
+      <LineEditorLayout
+        preview={
+          <LineChatPreview
+            shopName={shopName}
+            caption={
+              <>
+                <b className="text-slate-800 dark:text-slate-200">พนักงานจะเห็นแบบนี้</b> เมื่อมีแจ้งเตือน &quot;{focusLabel}&quot;
+              </>
+            }
+            bubbles={[
+              line.notify[focusEvent] === true
+                ? {
+                    from: 'shop',
+                    text: fill(effectiveText('STAFF_NOTICE', line.templates.STAFF_NOTICE), { หัวข้อ: focusLabel, รายละเอียด: NOTICE_SAMPLE[focusEvent] }),
+                  }
+                : { from: 'shop', text: 'ปิดอยู่ แจ้งเตือนนี้จะไม่ส่งเข้า LINE', empty: true },
+            ]}
+          />
+        }
+      >
+        <LineBlockTitle>
+          <BellRing className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+          <span>แจ้งพนักงานทาง LINE</span>
+          <span className="font-semibold text-[11px] text-slate-500 dark:text-slate-400">
+            เปิดอยู่ {onCount} จาก {LINE_NOTIFY_EVENTS.length}
+          </span>
+        </LineBlockTitle>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5">
+          {LINE_NOTIFY_EVENTS.map((ev) => (
+            <label
+              key={ev.type}
+              onMouseEnter={() => setFocusEvent(ev.type)}
+              className={`flex items-center gap-2.5 py-1.5 px-1.5 rounded-lg cursor-pointer ${focusEvent === ev.type ? 'bg-slate-100 dark:bg-slate-800' : ''}`}
             >
-              {v.label}
-            </button>
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label={ev.label}
+                checked={line.notify[ev.type] === true}
+                onFocus={() => setFocusEvent(ev.type)}
+                onChange={(e) => {
+                  const notify = { ...line.notify }
+                  if (e.target.checked) notify[ev.type] = true
+                  else delete notify[ev.type]
+                  setFocusEvent(ev.type)
+                  setLine({ notify })
+                }}
+                className="w-4 h-4 text-emerald-700 dark:text-emerald-400 rounded"
+              />
+              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{ev.label}</span>
+            </label>
           ))}
         </div>
+      </LineEditorLayout>
+    )
+  }
+
+  // TEMPLATES: ข้อความ › ข้อความอัตโนมัติ
+  return (
+    <LineEditorLayout
+      list={LINE_EDITABLE_TEMPLATES.map((t) => {
+        const custom = (line.templates[t.key] ?? '').trim() !== ''
+        return (
+          <LineListItem
+            key={t.key}
+            title={t.label}
+            sub={`${custom ? 'แก้แล้ว' : 'มาตรฐาน'} · ถึง${t.to}`}
+            subTone={custom ? 'accent' : 'muted'}
+            active={t.key === tpl.key}
+            onSelect={() => setTplKey(t.key)}
+          />
+        )
+      })}
+      preview={
+        <LineChatPreview
+          shopName={shopName}
+          caption={
+            <>
+              <b className="text-slate-800 dark:text-slate-200">{tpl.to}จะเห็นแบบนี้</b> ({tpl.label})
+            </>
+          }
+          bubbles={templateBubbles(tpl.key, line.templates, vars)}
+        />
+      }
+    >
+      <LineBlockTitle action={<span className="text-[10px] tabular-nums text-slate-500 dark:text-slate-400">{tplDraft.length}/5000</span>}>
+        <label htmlFor={`line-tpl-${tpl.key}`}>{tpl.label}</label>
+      </LineBlockTitle>
+      <textarea
+        id={`line-tpl-${tpl.key}`}
+        ref={tplRef}
+        maxLength={5000}
+        value={tplDraft}
+        placeholder={LINE_TEMPLATES[tpl.key].text}
+        onChange={(e) => setTemplate(tpl.key, e.target.value)}
+        className={`${SETTINGS_INPUT} flex-1 min-h-[140px] h-auto py-2 leading-relaxed resize-none`}
+      />
+      <div className="shrink-0 flex flex-wrap items-center gap-1.5">
+        <span className={SETTINGS_LABEL}>แทรกข้อมูล:</span>
+        {LINE_TEMPLATES[tpl.key].vars.length === 0 ? (
+          <span className={SETTINGS_HELPER}>ไม่มี</span>
+        ) : (
+          LINE_TEMPLATES[tpl.key].vars.map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => insertVar(v)}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-dashed border-emerald-700 dark:border-emerald-400 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer`}
+            >
+              {`{${v}}`}
+            </button>
+          ))
+        )}
+        {tplDraft !== '' && (
+          <button type="button" onClick={() => setTemplate(tpl.key, '')} className={`${REF_BUTTON_QUIET} ml-auto`}>
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>กลับไปใช้ข้อความมาตรฐาน</span>
+          </button>
+        )}
       </div>
-
-      {view === 'CONNECTION' && <div className={FORM_AREA}><ConnectionSection /></div>}
-      {view === 'SCHEDULE' && <div className={FORM_AREA}><LineSchedulePanel config={config} setConfig={setConfig} /></div>}
-      {view === 'MANUAL' && <div className={LIST_AREA}><LineRemindersPanel /></div>}
-      {view === 'HISTORY' && <div className={LIST_AREA}><LineDeliveryLogPanel /></div>}
-
-      {view === 'NOTIFY' && (
-        <WithPreview
-          preview={
-            <LineChatPreview
-              shopName={shopName}
-              caption={
-                <>
-                  <b className="text-slate-800 dark:text-slate-200">พนักงานจะเห็นแบบนี้</b> เมื่อมีแจ้งเตือน &quot;{focusLabel}&quot;
-                </>
-              }
-              bubbles={[
-                line.notify[focusEvent] === true
-                  ? {
-                      from: 'shop',
-                      text: fill(effectiveText('STAFF_NOTICE', line.templates.STAFF_NOTICE), { หัวข้อ: focusLabel, รายละเอียด: NOTICE_SAMPLE[focusEvent] }),
-                    }
-                  : { from: 'shop', text: 'ปิดอยู่ แจ้งเตือนนี้จะไม่ส่งเข้า LINE', empty: true },
-              ]}
-            />
-          }
-        >
-          <div className={SETTINGS_SECTION}>
-            <h4 className={SETTINGS_SECTION_TITLE}>
-              <BellRing className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
-              <span>แจ้งเตือนพนักงานทาง LINE</span>
-              <span className="font-semibold text-[11px] text-slate-500 dark:text-slate-400">
-                เปิดอยู่ {onCount} จาก {LINE_NOTIFY_EVENTS.length}
-              </span>
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-              {LINE_NOTIFY_EVENTS.map((ev) => (
-                <label
-                  key={ev.type}
-                  onMouseEnter={() => setFocusEvent(ev.type)}
-                  className={`flex items-start gap-2.5 py-1.5 px-1.5 rounded-lg cursor-pointer ${
-                    focusEvent === ev.type ? 'bg-slate-100 dark:bg-slate-800' : ''
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    aria-label={ev.label}
-                    checked={line.notify[ev.type] === true}
-                    onFocus={() => setFocusEvent(ev.type)}
-                    onChange={(e) => {
-                      const notify = { ...line.notify }
-                      if (e.target.checked) notify[ev.type] = true
-                      else delete notify[ev.type]
-                      setFocusEvent(ev.type)
-                      setLine({ notify })
-                    }}
-                    className="mt-0.5 w-4 h-4 text-emerald-700 dark:text-emerald-400 rounded"
-                  />
-                  <span>
-                    <span className="block text-xs font-bold text-slate-800 dark:text-slate-200">{ev.label}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
-          <LineMembersPanel />
-        </WithPreview>
+      {unknown.length > 0 && (
+        <p className="shrink-0 text-[11px] rounded-lg px-2.5 py-1.5 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200">
+          ข้อความนี้ใช้ข้อมูลที่ระบบไม่รู้จัก: {unknown.map((v) => `{${v}}`).join(' ')} · แก้ก่อนบันทึก
+        </p>
       )}
-
-      {view === 'TEMPLATES' && (
-        <WithPreview
-          preview={
-            <LineChatPreview
-              shopName={shopName}
-              caption={
-                <>
-                  <b className="text-slate-800 dark:text-slate-200">{tpl.to}จะเห็นแบบนี้</b> ({tpl.label})
-                </>
-              }
-              bubbles={templateBubbles(tpl.key, line.templates, vars)}
-            />
-          }
-        >
-          <div className={SETTINGS_SECTION}>
-            <div className="grid grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)] rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-              <ul
-                className="p-1.5 bg-slate-50 dark:bg-slate-900/40 border-b md:border-b-0 md:border-r border-slate-200 dark:border-slate-700 flex md:flex-col gap-0.5 overflow-x-auto md:overflow-x-visible md:max-h-[420px] md:overflow-y-auto"
-                aria-label="รายการข้อความ"
-              >
-                {LINE_EDITABLE_TEMPLATES.map((t) => {
-                  const custom = (line.templates[t.key] ?? '').trim() !== ''
-                  return (
-                    <li key={t.key} className="shrink-0">
-                      <button
-                        type="button"
-                        aria-current={t.key === tpl.key}
-                        onClick={() => setTplKey(t.key)}
-                        className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs ${
-                          t.key === tpl.key
-                            ? 'bg-white dark:bg-slate-800 ring-1 ring-slate-200 dark:ring-slate-700 font-bold text-slate-900 dark:text-slate-100'
-                            : 'text-slate-700 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800/60'
-                        }`}
-                      >
-                        <span className="block whitespace-nowrap md:whitespace-normal">{t.label}</span>
-                        <span className={`block text-[10px] font-semibold ${custom ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
-                          {custom ? 'แก้แล้ว' : 'มาตรฐาน'} · ถึง{t.to}
-                        </span>
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
-              <div className="p-3 space-y-2 min-w-0">
-                <div className="flex items-center justify-between gap-2">
-                  <label className={`${SETTINGS_LABEL} mb-0`} htmlFor={`line-tpl-${tpl.key}`}>
-                    {tpl.label}
-                  </label>
-                  <span className="text-[10px] tabular-nums text-slate-500 dark:text-slate-400">{tplDraft.length}/5000</span>
-                </div>
-                <textarea
-                  id={`line-tpl-${tpl.key}`}
-                  ref={tplRef}
-                  rows={4}
-                  maxLength={5000}
-                  value={tplDraft}
-                  placeholder={LINE_TEMPLATES[tpl.key].text}
-                  onChange={(e) => setTemplate(tpl.key, e.target.value)}
-                  className={`${SETTINGS_INPUT} h-auto py-2 leading-relaxed`}
-                />
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className={SETTINGS_HELPER}>แทรกข้อมูล:</span>
-                  {LINE_TEMPLATES[tpl.key].vars.length === 0 ? (
-                    <span className={SETTINGS_HELPER}>ไม่มี</span>
-                  ) : (
-                    LINE_TEMPLATES[tpl.key].vars.map((v) => (
-                      <button
-                        key={v}
-                        type="button"
-                        onClick={() => insertVar(v)}
-                        className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-dashed border-emerald-700 dark:border-emerald-400 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40`}
-                      >
-                        {`{${v}}`}
-                      </button>
-                    ))
-                  )}
-                </div>
-                {unknown.length > 0 && (
-                  <p className="text-[11px] rounded-lg px-2.5 py-1.5 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200">
-                    ข้อความนี้ใช้ข้อมูลที่ระบบไม่รู้จัก: {unknown.map((v) => `{${v}}`).join(' ')} · แก้ก่อนบันทึก
-                  </p>
-                )}
-                {tplDraft !== '' && (
-                  <button
-                    type="button"
-                    onClick={() => setTemplate(tpl.key, '')}
-                    className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center text-emerald-700 dark:text-emerald-400 hover:underline`}
-                  >
-                    <RotateCcw className="w-3 h-3" /> กลับไปใช้ข้อความมาตรฐาน
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </WithPreview>
-      )}
-    </>
+    </LineEditorLayout>
   )
 }

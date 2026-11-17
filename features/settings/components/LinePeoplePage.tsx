@@ -1,22 +1,22 @@
 'use client'
 
 /**
- * คนใน LINE (/line): who is on the shop's LINE OA, and (OWNER only) ตั้งค่า LINE, moved here from
- * ตั้งค่าระบบ (owner 2026-11-06). Summary cards on top, then one card: tabs รอร้านตรวจ | ลูกค้าที่ผูก LINE |
- * พนักงานส่งของ | ตั้งค่า LINE (OWNER); ตั้งค่า LINE shows its own tabs on a second row.
+ * เมนู LINE (/line). Summary cards on top, then one box whose toolbar row holds two tab bars: the groups คนใน LINE |
+ * ข้อความ | การส่ง | ตั้งค่า (the last three OWNER only, owner 2026-11-17), then the pages of the open group.
  * - รอร้านตรวจ: friends not linked yet — still not answered in the chat, or typed the phone of a
  *   customer who already has another LINE (or of several customers). The shop may type name +
  *   phone for them (same rule as the chat, decided by the database) or reject them.
  * - พนักงานส่งของ: drivers without a POS account and their one-time links.
  * - ลูกค้าที่ผูก LINE แล้ว, tagged when they registered themselves in the chat.
  * - QR / link to add the shop OA as a friend (adding a friend links nobody).
- * The list refreshes when the screen comes back into view and every 30 s while it is shown
+ * The lists refresh when the screen comes back into view and every 30 s while shown (useAutoRefresh, no button)
  * (no realtime: line_contacts carries the LINE user id, which never reaches a browser).
  */
+import { CountUp } from '@/components/common/CountUp'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { qrDataUrl } from '@/lib/qr-code'
-import { CheckCircle2, Copy, Link2Off, MessageCircle, QrCode, RefreshCw, Search, Settings2, UserPlus, Users, UserX } from 'lucide-react'
+import { CheckCircle2, Copy, Link2Off, MessageCircle, MessageSquare, QrCode, Search, Send, Settings2, UserPlus, Users, UserX } from 'lucide-react'
 import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
 import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_TH_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
 import {
@@ -39,19 +39,87 @@ import { LINE_TEMPLATES, type LineTemplateKey } from '@/lib/line/templates'
 import { getLineOaInfo, registerLineContactByShop, rejectLineContact, unlinkLineContact } from '@/app/actions/line'
 import { DeliveryDriversPanel } from '@/features/settings/components/DeliveryDriversPanel'
 import { LineChatPreview, type LineChatBubble } from '@/features/settings/components/LineChatPreview'
-import { LINE_SETTINGS_VIEWS, type LineSettingsView } from '@/features/settings/components/LineSettingsPanel'
+import { LineConnectionPanel, type LineSettingsView } from '@/features/settings/components/LineSettingsPanel'
 import { LineSettingsWorkspace } from '@/features/settings/components/LineSettingsWorkspace'
 import { LineBillCardDesigner } from '@/features/settings/components/LineBillCardDesigner'
 import { LineMessageComposer } from '@/features/settings/components/LineMessageComposer'
-import { LineFormsCard } from '@/features/settings/components/LineFormsCard'
+import { LineMembersPanel } from '@/features/settings/components/LineMembersPanel'
+import { LineRemindersPanel } from '@/features/settings/components/LineRemindersPanel'
+import { LineDeliveryLogPanel } from '@/features/settings/components/LineDeliveryLogPanel'
+import { useAutoRefresh } from '@/features/settings/hooks/useAutoRefresh'
 import { SETTINGS_HELPER, SETTINGS_INPUT, SETTINGS_LABEL } from '@/features/settings/components/settings-ui'
 
 type RegisterStatus = 'WAITING' | 'PHONE_TAKEN' | 'DUPLICATE'
-type PeopleView = 'PENDING' | 'LINKED' | 'DRIVERS' | 'SETTINGS' | 'CARD' | 'MESSAGE' | 'FORMS'
-/** The OWNER's tabs (staff see คนใน LINE only) */
-const OWNER_VIEWS: PeopleView[] = ['SETTINGS', 'CARD', 'MESSAGE', 'FORMS']
-/** Owner 2026-11-15: การ์ดบิล / เขียนข้อความ / ฟอร์มใน LINE fill the box under the same tab row */
-const OWNER_PANEL = 'settings-ref flex-1 min-h-0 overflow-y-auto p-2'
+/**
+ * Owner 2026-11-17: the LINE menu in 4 groups, one row of pages each (was 7 tabs + 6 sub-tabs with the same people
+ * and messages in several places). Staff see คนใน LINE only (without พนักงานร้าน).
+ */
+type LineGroup = 'PEOPLE' | 'MESSAGES' | 'SENDING' | 'SETTINGS'
+type LineView =
+  | 'PENDING' | 'LINKED' | 'STAFF' | 'DRIVERS'
+  | 'TEMPLATES' | 'OWN' | 'CARD'
+  | 'MANUAL' | 'HISTORY'
+  | 'CONNECTION' | 'NOTIFY' | 'SCHEDULE'
+const LINE_GROUPS: ReadonlyArray<{
+  id: LineGroup
+  label: string
+  icon: ReactNode
+  ownerOnly?: boolean
+  views: ReadonlyArray<{ id: LineView; label: string; ownerOnly?: boolean }>
+}> = [
+  {
+    id: 'PEOPLE',
+    label: 'คนใน LINE',
+    icon: <Users className="w-3.5 h-3.5" />,
+    views: [
+      { id: 'PENDING', label: 'รอร้านตรวจ' },
+      { id: 'LINKED', label: 'ลูกค้า' },
+      { id: 'STAFF', label: 'พนักงานร้าน', ownerOnly: true },
+      { id: 'DRIVERS', label: 'พนักงานส่งของ' },
+    ],
+  },
+  {
+    id: 'MESSAGES',
+    label: 'ข้อความ',
+    icon: <MessageSquare className="w-3.5 h-3.5" />,
+    ownerOnly: true,
+    views: [
+      { id: 'TEMPLATES', label: 'ข้อความอัตโนมัติ' },
+      { id: 'OWN', label: 'แม่แบบของร้าน' },
+      { id: 'CARD', label: 'การ์ดบิล' },
+    ],
+  },
+  {
+    id: 'SENDING',
+    label: 'การส่ง',
+    icon: <Send className="w-3.5 h-3.5" />,
+    ownerOnly: true,
+    views: [
+      { id: 'MANUAL', label: 'ส่งเตือนเอง' },
+      { id: 'HISTORY', label: 'ประวัติการส่ง' },
+    ],
+  },
+  {
+    id: 'SETTINGS',
+    label: 'ตั้งค่า',
+    icon: <Settings2 className="w-3.5 h-3.5" />,
+    ownerOnly: true,
+    views: [
+      { id: 'CONNECTION', label: 'เชื่อมต่อ LINE' },
+      { id: 'NOTIFY', label: 'แจ้งพนักงาน' },
+      { id: 'SCHEDULE', label: 'เตือนลูกค้า' },
+    ],
+  },
+]
+const groupOf = (v: LineView) => LINE_GROUPS.find((g) => g.views.some((x) => x.id === v)) ?? LINE_GROUPS[0]
+const isOwnerView = (v: LineView) => {
+  const g = groupOf(v)
+  return Boolean(g.ownerOnly || g.views.find((x) => x.id === v)?.ownerOnly)
+}
+/** Pages that edit the LINE settings draft (LineSettingsWorkspace). */
+const isDraftView = (v: LineView): v is LineSettingsView => v === 'TEMPLATES' || v === 'NOTIFY' || v === 'SCHEDULE'
+/** Old links /line?tab=settings&view=… */
+const ALL_VIEWS = LINE_GROUPS.flatMap((g) => g.views.map((v) => v.id))
 
 interface PendingContact {
   id: string
@@ -91,7 +159,6 @@ const PILL = 'inline-flex items-center h-5 px-2 rounded-full text-[10px] font-bo
 /** Red text button in a table row (same look as the red actions on จัดการบิลเช่า). */
 const DANGER_TEXT_BUTTON =
   `${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`
-const REFRESH_MS = 30_000
 const PLACEHOLDER = /\{([^{}]+)\}/g
 
 const thaiDate = (iso: string | null) =>
@@ -106,17 +173,24 @@ export function LinePeoplePage() {
   const { user } = useAuth()
   // ตั้งค่า LINE is the OWNER's (staff see คนใน LINE only)
   const isOwner = user?.role === 'OWNER'
-  const [tab, setTab] = useState<PeopleView>('PENDING')
-  // staff never see the OWNER's tabs, even from a ?tab=settings link
-  const view: PeopleView = OWNER_VIEWS.includes(tab) && !isOwner ? 'PENDING' : tab
-  const [initialSettingsView, setInitialSettingsView] = useState<LineSettingsView>('CONNECTION')
+  const [tab, setTab] = useState<LineView>('PENDING')
+  // staff never see the OWNER's pages, even from a ?tab=settings link
+  const view: LineView = isOwnerView(tab) && !isOwner ? 'PENDING' : tab
+  const group = groupOf(view)
+  // each group opens on the page last used in it
+  const [lastView, setLastView] = useState<Record<LineGroup, LineView>>({ PEOPLE: 'PENDING', MESSAGES: 'TEMPLATES', SENDING: 'MANUAL', SETTINGS: 'CONNECTION' })
+  const [draftView, setDraftView] = useState<LineSettingsView>('TEMPLATES')
+  const open = (v: LineView) => {
+    setTab(v)
+    setLastView((prev) => ({ ...prev, [groupOf(v).id]: v }))
+    if (isDraftView(v)) setDraftView(v)
+  }
   const [search, setSearch] = useState('')
   const [qrOpen, setQrOpen] = useState(false)
   const [pending, setPending] = useState<PendingContact[]>([])
   const [linked, setLinked] = useState<LinkedContact[]>([])
   const [customers, setCustomers] = useState<Record<string, CustomerLite>>({})
   const [takenBy, setTakenBy] = useState<Record<string, string | null>>({})
-  const [loading, setLoading] = useState(true)
   const [notReady, setNotReady] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [openForm, setOpenForm] = useState<string | null>(null)
@@ -145,7 +219,6 @@ export function LinePeoplePage() {
     ])
     if (p.error || l.error) {
       setNotReady(true)
-      setLoading(false)
       return
     }
     setNotReady(false)
@@ -161,31 +234,18 @@ export function LinePeoplePage() {
     setTakenBy(Object.fromEntries(takenIds.map((id) => [id, linkedRows.find((x) => x.customer_id === id)?.display_name ?? null])))
     setPending(pendingRows)
     setLinked(linkedRows)
-    setLoading(false)
   }, [])
 
-  useEffect(() => {
-    void load()
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void load()
-    }
-    const t = setInterval(onVisible, REFRESH_MS)
-    window.addEventListener('focus', onVisible)
-    document.addEventListener('visibilitychange', onVisible)
-    return () => {
-      clearInterval(t)
-      window.removeEventListener('focus', onVisible)
-      document.removeEventListener('visibilitychange', onVisible)
-    }
-  }, [load])
+  // no รีเฟรช button: the lists update by themselves (owner 2026-11-17)
+  useAutoRefresh(load)
 
   // Links: /line?tab=settings[&view=TEMPLATES] (old ตั้งค่า › LINE links land here)
   useEffect(() => {
     const q = new URLSearchParams(window.location.search)
     if (q.get('tab') !== 'settings') return
-    const v = q.get('view')
-    if (v && LINE_SETTINGS_VIEWS.some((x) => x.id === v)) setInitialSettingsView(v as LineSettingsView)
-    setTab('SETTINGS')
+    const v = q.get('view') as LineView | null
+    open(v && ALL_VIEWS.includes(v) ? v : 'CONNECTION')
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- read the link once on arrival
   }, [])
 
   useEffect(() => {
@@ -318,97 +378,93 @@ export function LinePeoplePage() {
   })
   const blockedCount = linked.filter((c) => !c.followed).length
 
-  const peopleTabs: Array<{ id: PeopleView; label: string; count?: number; alert?: boolean; icon?: ReactNode }> = [
-    { id: 'PENDING', label: 'รอร้านตรวจ', count: pending.length, alert: pending.length > 0 },
-    { id: 'LINKED', label: 'ลูกค้าที่ผูก LINE', count: linked.length },
-    { id: 'DRIVERS', label: 'พนักงานส่งของ' },
-    ...(isOwner
-      ? [
-          { id: 'SETTINGS' as const, label: 'ตั้งค่า LINE', icon: <Settings2 className="w-3.5 h-3.5" /> },
-          { id: 'CARD' as const, label: 'การ์ดบิล' },
-          { id: 'MESSAGE' as const, label: 'เขียนข้อความ' },
-          { id: 'FORMS' as const, label: 'ฟอร์มใน LINE' },
-        ]
-      : []),
-  ]
+  const countOf: Partial<Record<LineView, number>> = { PENDING: pending.length, LINKED: linked.length }
+  const countBadge = (n: number, alert: boolean) => (
+    <span
+      className={`min-w-5 h-5 px-1.5 rounded-full grid place-items-center text-[10px] font-bold tabular-nums ${
+        alert ? 'bg-amber-500 text-slate-900' : 'bg-slate-300/70 text-slate-700 dark:bg-slate-600 dark:text-slate-200'
+      }`}
+    >
+      {n}
+    </span>
+  )
+  const tabClass = (on: boolean) => `${TAB_BUTTON_BASE_CLASSES} ${on ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`
   const listView = view === 'PENDING' || view === 'LINKED'
+  // The two tab bars: the groups (OWNER only), then the pages of the open group
   const tabBar = (
-    <div className="overflow-x-auto no-scrollbar shrink-0">
-      <div className={TAB_CONTAINER_CLASSES} role="tablist" aria-label="คนใน LINE">
-        {peopleTabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={view === t.id}
-            onClick={() => setTab(t.id)}
-            className={`${TAB_BUTTON_BASE_CLASSES} ${view === t.id ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
-          >
-            {t.icon}
-            {t.label}
-            {t.count !== undefined && (
-              <span
-                className={`min-w-5 h-5 px-1.5 rounded-full grid place-items-center text-[10px] font-bold tabular-nums ${
-                  t.alert ? 'bg-amber-500 text-slate-900' : 'bg-slate-300/70 text-slate-700 dark:bg-slate-600 dark:text-slate-200'
-                }`}
-              >
-                {t.count}
-              </span>
-            )}
-          </button>
-        ))}
+    <div className="flex items-center gap-2 min-w-0 max-w-full overflow-x-auto no-scrollbar shrink-0">
+      {isOwner && (
+        <>
+          <div className={TAB_CONTAINER_CLASSES} role="tablist" aria-label="เมนู LINE">
+            {LINE_GROUPS.map((g) => (
+              <button key={g.id} type="button" role="tab" aria-selected={group.id === g.id} onClick={() => open(lastView[g.id])} className={tabClass(group.id === g.id)}>
+                {g.icon}
+                {g.label}
+                {g.id === 'PEOPLE' && pending.length > 0 && countBadge(pending.length, true)}
+              </button>
+            ))}
+          </div>
+          <span aria-hidden="true" className="w-px h-6 shrink-0 bg-slate-300 dark:bg-slate-600" />
+        </>
+      )}
+      <div className={TAB_CONTAINER_CLASSES} role="tablist" aria-label={group.label}>
+        {group.views
+          .filter((v) => isOwner || !v.ownerOnly)
+          .map((v) => (
+            <button key={v.id} type="button" role="tab" aria-selected={view === v.id} onClick={() => open(v.id)} className={tabClass(view === v.id)}>
+              {v.label}
+              {countOf[v.id] !== undefined && countBadge(countOf[v.id] as number, v.id === 'PENDING' && pending.length > 0)}
+            </button>
+          ))}
       </div>
     </div>
   )
+  /** Pages without their own controls: the toolbar row holds the tab bars only */
+  const plainToolbar = <div className={`${TABLE_TOOLBAR_CLASSES} flex items-center`}>{tabBar}</div>
 
   return (
     <div className="h-full min-h-0 flex flex-col overflow-hidden gap-2 p-2 bg-slate-100 dark:bg-black text-xs">
-      {/* Summary: same cards as จัดการบิลเช่า */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 sm:gap-2 shrink-0">
-        <StatCard tone="amber" label="รอร้านตรวจ" value={`${pending.length} คน`} icon={<UserPlus className="w-3.5 h-3.5" />} />
-        <StatCard tone="emerald" label="ลูกค้าที่ผูก LINE" value={`${linked.length} คน`} icon={<Users className="w-3.5 h-3.5" />} />
-        <StatCard tone="red" label="บล็อก / ลบ LINE ร้าน" value={`${blockedCount} คน`} icon={<UserX className="w-3.5 h-3.5" />} />
-        <div className="bg-blue-50/60 dark:bg-blue-950/40 p-2 sm:p-2.5 rounded-xl border border-blue-200 dark:border-blue-800 flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <span className="text-[10px] sm:text-[11px] text-blue-700 dark:text-blue-300 font-semibold">LINE ID ของร้าน</span>
-            <h3 className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5 truncate">{oa?.lineId || 'ยังไม่ได้ตั้ง'}</h3>
+      <div className="settings-ref flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
+        {/* Summary cards inside the white box (owner 2026-11-17) */}
+        <div className="card-lift-row grid grid-cols-2 lg:grid-cols-4 gap-1.5 sm:gap-2 shrink-0 p-2">
+          <StatCard tone="amber" label="รอร้านตรวจ" value={<><CountUp value={pending.length} /> คน</>} icon={<UserPlus className="w-3.5 h-3.5" />} />
+          <StatCard tone="emerald" label="ลูกค้าที่ผูก LINE" value={<><CountUp value={linked.length} /> คน</>} icon={<Users className="w-3.5 h-3.5" />} />
+          <StatCard tone="red" label="บล็อก / ลบ LINE ร้าน" value={<><CountUp value={blockedCount} /> คน</>} icon={<UserX className="w-3.5 h-3.5" />} />
+          <div className="bg-blue-50/60 dark:bg-blue-950/40 p-2 sm:p-2.5 rounded-xl border border-blue-200 dark:border-blue-800 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <span className="text-[10px] sm:text-[11px] text-blue-700 dark:text-blue-300 font-semibold">LINE ID ของร้าน</span>
+              <h3 className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5 truncate">{oa?.lineId || 'ยังไม่ได้ตั้ง'}</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => setQrOpen(true)}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} shrink-0 bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs flex items-center cursor-pointer`}
+            >
+              <QrCode className="w-3.5 h-3.5" />
+              QR เพิ่มเพื่อน
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setQrOpen(true)}
-            className={`${COMMAND_BUTTON_SIZE_CLASSES} shrink-0 bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs flex items-center cursor-pointer`}
-          >
-            <QrCode className="w-3.5 h-3.5" />
-            QR เพิ่มเพื่อน
-          </button>
         </div>
-      </div>
 
-      <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
-        {/* Toolbar: which list, search, refresh (พนักงานส่งของ draws its own row: tabs + add-driver fields) */}
-        {view !== 'DRIVERS' && (
+        {/* Toolbar row: the tab bars, then the page's own controls. Pages with controls (พนักงานร้าน, พนักงานส่งของ,
+            ส่งเตือนเอง, ประวัติการส่ง) draw this row themselves with the tab bars first. */}
+        {listView && (
           <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-col sm:flex-row items-stretch sm:items-center`}>
             {tabBar}
-            {listView && (
-              <div className="relative flex-1 min-w-0">
-                <Search className={SEARCH_ICON_CLASSES} />
-                <input
-                  type="text"
-                  aria-label="ค้นหาคนใน LINE"
-                  placeholder={view === 'PENDING' ? 'ค้นหาชื่อ LINE หรือชื่อ/เบอร์ที่พิมพ์มา...' : 'ค้นหาชื่อลูกค้า เบอร์โทร หรือชื่อ LINE...'}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className={SEARCH_INPUT_CLASSES}
-                />
-              </div>
-            )}
-            {listView && (
-              <ActionButton variant="outline" className="shrink-0" icon={<RefreshCw className={loading ? 'animate-spin' : ''} />} onClick={() => void load()}>
-                รีเฟรช
-              </ActionButton>
-            )}
+            <div className="relative flex-1 min-w-0">
+              <Search className={SEARCH_ICON_CLASSES} />
+              <input
+                type="text"
+                aria-label="ค้นหาคนใน LINE"
+                placeholder={view === 'PENDING' ? 'ค้นหาชื่อ LINE หรือชื่อ/เบอร์ที่พิมพ์มา...' : 'ค้นหาชื่อลูกค้า เบอร์โทร หรือชื่อ LINE...'}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className={SEARCH_INPUT_CLASSES}
+              />
+            </div>
           </div>
         )}
+        {(view === 'CONNECTION' || view === 'OWN' || view === 'CARD' || isDraftView(view)) && plainToolbar}
 
         {notReady && listView && (
           <p className="m-3 rounded-lg px-3 py-2 bg-amber-50 dark:bg-amber-950/40 text-[11px] text-amber-800 dark:text-amber-200">
@@ -613,17 +669,18 @@ export function LinePeoplePage() {
           </DataTableFrame>
         )}
 
+        {view === 'STAFF' && <LineMembersPanel tabs={tabBar} />}
         {view === 'DRIVERS' && <DeliveryDriversPanel tabs={tabBar} />}
+        {view === 'MANUAL' && <LineRemindersPanel tabs={tabBar} />}
+        {view === 'HISTORY' && <LineDeliveryLogPanel tabs={tabBar} />}
+        {view === 'CONNECTION' && <LineConnectionPanel />}
 
-        {/* ตั้งค่า LINE: its own tabs come as the second row under these tabs */}
-        {view === 'SETTINGS' && <LineSettingsWorkspace initialView={initialSettingsView} />}
-
-        {/* Kept mounted while hidden, so an unsaved card or message survives a tab switch */}
+        {/* Kept mounted while hidden, so an unsaved setting, card or message survives a page switch */}
         {isOwner && (
           <>
-            <div hidden={view !== 'CARD'} className={view === 'CARD' ? OWNER_PANEL : undefined}><LineBillCardDesigner /></div>
-            <div hidden={view !== 'MESSAGE'} className={view === 'MESSAGE' ? OWNER_PANEL : undefined}><LineMessageComposer /></div>
-            <div hidden={view !== 'FORMS'} className={view === 'FORMS' ? OWNER_PANEL : undefined}><LineFormsCard /></div>
+            <LineSettingsWorkspace view={draftView} hidden={!isDraftView(view)} />
+            <div hidden={view !== 'OWN'} className={view === 'OWN' ? 'flex-1 min-h-0 flex flex-col' : undefined}><LineMessageComposer /></div>
+            <div hidden={view !== 'CARD'} className={view === 'CARD' ? 'flex-1 min-h-0 flex flex-col' : undefined}><LineBillCardDesigner /></div>
           </>
         )}
       </div>
@@ -670,7 +727,7 @@ const STAT_TONE = {
 } as const
 
 /** Summary card, the same look as the cards on จัดการบิลเช่า. */
-function StatCard({ tone, label, value, icon }: { tone: keyof typeof STAT_TONE; label: string; value: string; icon: ReactNode }) {
+function StatCard({ tone, label, value, icon }: { tone: keyof typeof STAT_TONE; label: string; value: ReactNode; icon: ReactNode }) {
   const t = STAT_TONE[tone]
   return (
     <div className={`p-2 sm:p-2.5 rounded-xl border flex items-center justify-between ${t.box}`}>

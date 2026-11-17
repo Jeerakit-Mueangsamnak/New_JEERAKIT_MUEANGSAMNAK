@@ -67,7 +67,10 @@ vi.mock('@/features/auth/contexts/AuthContext', () => ({ useAuth: () => ({ user:
 vi.mock('@/features/settings/components/LineSettingsWorkspace', () => ({ LineSettingsWorkspace: () => <div>ตั้งค่า LINE (stub)</div> }))
 vi.mock('@/features/settings/components/LineBillCardDesigner', () => ({ LineBillCardDesigner: () => <div>การ์ดบิล (stub)</div> }))
 vi.mock('@/features/settings/components/LineMessageComposer', () => ({ LineMessageComposer: () => <div>เขียนข้อความ (stub)</div> }))
-vi.mock('@/features/settings/components/LineFormsCard', () => ({ LineFormsCard: () => <div>ฟอร์มใน LINE (stub)</div> }))
+vi.mock('@/features/settings/components/LineSettingsPanel', () => ({ LineConnectionPanel: () => <div>เชื่อมต่อ LINE (stub)</div> }))
+vi.mock('@/features/settings/components/LineMembersPanel', () => ({ LineMembersPanel: () => <div>พนักงานร้าน (stub)</div> }))
+vi.mock('@/features/settings/components/LineRemindersPanel', () => ({ LineRemindersPanel: () => <div>ส่งเตือนเอง (stub)</div> }))
+vi.mock('@/features/settings/components/LineDeliveryLogPanel', () => ({ LineDeliveryLogPanel: () => <div>ประวัติการส่ง (stub)</div> }))
 vi.mock('@/lib/contexts/SystemSettingsContext', () => ({
   useSystemSettings: () => ({ settings: { business: { businessName: 'ร้านเอ' }, line: { templates: {} } } }),
 }))
@@ -117,7 +120,7 @@ describe('คนใน LINE', () => {
     fireEvent.click(within(row).getByRole('button', { name: 'ร้านกรอกให้' }))
     expect(within(row).getByTestId('line-chat-preview').textContent).toContain('ขอบคุณที่เพิ่มเพื่อนร้านเอ')
 
-    await openTab(/ลูกค้าที่ผูก LINE/)
+    await openTab(/^ลูกค้า/)
     const linked = screen.getByTestId('line-linked-customers')
     expect(within(linked).getByText('สมัครเองทาง LINE')).toBeTruthy()
     expect((within(linked).getByRole('link', { name: 'สมหญิง ใจดี' }) as HTMLAnchorElement).getAttribute('href')).toBe(`/customers?customer=${CUST}`)
@@ -137,17 +140,19 @@ describe('คนใน LINE', () => {
     expect(screen.getByAltText('QR เพิ่มเพื่อน LINE ร้าน')).toBeTruthy()
   })
 
-  it('ตั้งค่า LINE (moved here from ตั้งค่าระบบ) is the OWNER\'s only', async () => {
+  it('the groups ข้อความ / การส่ง / ตั้งค่า and พนักงานร้าน are the OWNER\'s only', async () => {
     await showPage()
-    expect(screen.queryByRole('tab', { name: /ตั้งค่า LINE/ })).toBeNull()
+    expect(screen.queryByRole('tablist', { name: 'เมนู LINE' })).toBeNull()
+    expect(screen.queryByRole('tab', { name: 'พนักงานร้าน' })).toBeNull()
     cleanup()
     m.role = 'OWNER'
     await showPage()
     await act(async () => {
-      fireEvent.click(screen.getByRole('tab', { name: /ตั้งค่า LINE/ }))
+      fireEvent.click(within(screen.getByRole('tablist', { name: 'เมนู LINE' })).getByRole('tab', { name: /ตั้งค่า/ }))
     })
-    expect(screen.getByText('ตั้งค่า LINE (stub)')).toBeTruthy()
+    expect(screen.getByText('เชื่อมต่อ LINE (stub)')).toBeTruthy()
     expect(screen.queryByTestId('line-pending')).toBeNull()
+    expect(within(screen.getByRole('tablist', { name: 'ตั้งค่า' })).getByRole('tab', { name: 'แจ้งพนักงาน' })).toBeTruthy()
   })
 
   it('ร้านกรอกให้: name + phone go to the database rule; the result is told in Thai and the list reloads', async () => {
@@ -193,7 +198,7 @@ describe('คนใน LINE', () => {
     })
     expect(m.reject).toHaveBeenCalledWith(C1)
 
-    await openTab(/ลูกค้าที่ผูก LINE/)
+    await openTab(/^ลูกค้า/)
     m.confirm.mockResolvedValueOnce(false)
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /ยกเลิกการผูก/ }))

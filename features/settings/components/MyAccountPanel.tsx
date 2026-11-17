@@ -4,8 +4,6 @@ import { SETTINGS_INPUT, SETTINGS_LABEL, SETTINGS_SECTION_TITLE } from '@/featur
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
-  BellRing,
-  Check,
   CheckCircle2,
   Eye,
   EyeOff,
@@ -15,12 +13,11 @@ import {
   Palette,
   Save,
   Shield,
+  SlidersHorizontal,
   Sun,
   Trash2,
   Upload,
   User,
-  Volume2,
-  VolumeX,
 } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
@@ -36,9 +33,22 @@ import { useTheme } from '@/lib/contexts/ThemeContext'
 import { createClient } from '@/lib/supabase/client'
 import { changeOwnPassword } from '@/app/actions/auth'
 import { validatePassword } from '@/features/settings/utils/settings-page-utils'
-import { isNoticeSoundOn, onNoticeSoundChange, playNoticeSound, setNoticeSoundOn } from '@/features/notifications/services/notification-sound'
+import { useAppLock } from '@/features/auth/contexts/AppLockContext'
+import { AUTO_LOCK_CHOICES_SECONDS } from '@/features/settings/services/settings-storage'
+import { autoLockLabel } from '@/features/settings/utils/settings-validation'
+import { dbErrorMessage } from '@/lib/db/rpc'
 
-export type MyAccountTab = 'PROFILE' | 'NOTIFICATIONS' | 'APPEARANCE'
+/** ตั้งค่าส่วนตัว tabs (owner 2026-11-17): โปรไฟล์ของฉัน | การตั้งค่า (theme + auto-lock); personal notices are gone. */
+export type MyAccountTab = 'PROFILE' | 'SETTINGS'
+
+/** The switch look of the settings pages. */
+function SwitchKnob({ checked }: { checked: boolean }) {
+  return (
+    <span aria-hidden className={`w-10 h-6 rounded-full p-0.5 flex shrink-0 transition ${checked ? 'bg-[var(--ref-accent,#2563eb)] justify-end' : 'bg-slate-300 dark:bg-slate-600 justify-start'}`}>
+      <span className="w-5 h-5 rounded-full bg-white shadow" />
+    </span>
+  )
+}
 
 const INPUT_CLASSES = SETTINGS_INPUT
 const LABEL_CLASSES = SETTINGS_LABEL
@@ -71,7 +81,7 @@ async function toAvatarDataUrl(file: File, size = 256): Promise<string> {
 }
 
 /**
- * ตั้งค่าส่วนตัว: the signed-in user's own profile, password, PIN, notifications and look.
+ * ตั้งค่าส่วนตัว: the signed-in user's own profile, password, PIN, theme and auto-lock time.
  * Open to every active member; nothing here changes shop-wide settings.
  */
 export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { initialTab?: MyAccountTab; embedded?: boolean }) {
@@ -85,15 +95,24 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
   const supabase = useMemo(() => createClient(), [])
   const [tab, setTab] = useState<MyAccountTab>(initialTab)
 
-  // ── Notifications: this device's sound on/off only (owner 2026-11-15, like iOS); the notices = ตั้งค่าระบบ ─────
-  const [soundOn, setSoundOn] = useState(true)
-  useEffect(() => {
-    setSoundOn(isNoticeSoundOn())
-    return onNoticeSoundChange(() => setSoundOn(isNoticeSoundOn()))
-  }, [])
-  const toggleSound = (on: boolean) => {
-    setNoticeSoundOn(on)
-    if (on) playNoticeSound()
+  // ── Auto-lock: this person's own time (owner 2026-11-17); all switches off = never ───────────────────────────
+  const { status: pinStatus, pinEnabled, setAutoLockSeconds } = useAppLock()
+  const lockSeconds = pinStatus?.autoLockSeconds ?? 0
+  const [lockSaving, setLockSaving] = useState(false)
+  const pickAutoLock = async (seconds: number) => {
+    if (!pinEnabled) {
+      showToast('ยังไม่ได้ตั้ง PIN', 'ตั้ง PIN ที่แท็บโปรไฟล์ของฉันก่อน แล้วค่อยเลือกเวลาล็อกหน้าจอ', 'ERROR')
+      return
+    }
+    setLockSaving(true)
+    try {
+      await setAutoLockSeconds(seconds)
+      showToast('บันทึกแล้ว', seconds > 0 ? `ล็อกหน้าจอเมื่อไม่ได้ใช้งาน ${autoLockLabel(seconds)}` : 'ไม่ล็อกหน้าจออัตโนมัติ', 'SUCCESS')
+    } catch (err: unknown) {
+      showToast('บันทึกไม่สำเร็จ', dbErrorMessage(err instanceof Error ? err.message : '') || 'เกิดข้อผิดพลาด', 'ERROR')
+    } finally {
+      setLockSaving(false)
+    }
   }
 
   // ── Profile ────────────────────────────────────────────────────────────────
@@ -230,9 +249,8 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
   }
 
   const tabs: Array<{ id: MyAccountTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-    { id: 'PROFILE', label: 'โปรไฟล์ / ความปลอดภัย / PIN', icon: User },
-    { id: 'NOTIFICATIONS', label: 'การแจ้งเตือน', icon: BellRing },
-    { id: 'APPEARANCE', label: 'เครื่องนี้ / Theme', icon: Palette },
+    { id: 'PROFILE', label: 'โปรไฟล์ของฉัน', icon: User },
+    { id: 'SETTINGS', label: 'การตั้งค่า', icon: SlidersHorizontal },
   ]
 
   // The field's name sits inside it (placeholder + aria-label) so the whole security row lines up on one height
@@ -467,57 +485,71 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
               </>
             )}
 
-            {tab === 'NOTIFICATIONS' && (
-              <div className={sectionClass}>
-                <label className="py-2 flex items-center justify-between gap-2.5 cursor-pointer">
-                  <span className="flex items-center gap-2.5">
-                    {soundOn ? <Volume2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400" /> : <VolumeX className="w-4 h-4 text-slate-500 dark:text-slate-400" />}
-                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">เสียงแจ้งเตือนบนเครื่องนี้</span>
+            {tab === 'SETTINGS' && (
+              <>
+                {/* ธีม (owner 2026-11-17): plain switches, no boxes — มืด / สว่าง, one is always on */}
+                <div className={sectionClass}>
+                  <span className={sectionTitleClass}>
+                    <Palette className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <span>ธีม</span>
                   </span>
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    aria-label="เสียงแจ้งเตือนบนเครื่องนี้"
-                    checked={soundOn}
-                    onChange={(e) => toggleSound(e.target.checked)}
-                    className="w-4 h-4 text-emerald-700 dark:text-emerald-400 rounded"
-                  />
-                </label>
-              </div>
-            )}
-
-            {tab === 'APPEARANCE' && (
-              <div className={sectionClass}>
-                <span className={sectionTitleClass}>
-                  <Palette className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  <span>ธีม</span>
-                </span>
-                <div className="grid grid-cols-2 gap-2 max-w-sm">
-                  {([
-                    { id: 'light', label: 'สว่าง', icon: Sun },
-                    { id: 'dark', label: 'มืด', icon: Moon },
-                  ] as const).map((m) => {
-                    const Icon = m.icon
-                    const active = theme === m.id
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => setTheme(m.id)}
-                        className={`h-16 rounded-xl border flex flex-col items-center justify-center gap-1 font-bold text-xs ${
-                          active
-                            ? 'border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
-                            : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
-                        }`}
-                      >
-                        <Icon className="w-5 h-5" />
-                        <span>{m.label}</span>
-                        {active && <Check className="w-3.5 h-3.5" />}
-                      </button>
-                    )
-                  })}
+                  <div className="flex flex-wrap items-center gap-x-8 gap-y-2">
+                    {([
+                      { id: 'dark', label: 'มืด', icon: Moon },
+                      { id: 'light', label: 'สว่าง', icon: Sun },
+                    ] as const).map((m) => {
+                      const Icon = m.icon
+                      const on = theme === m.id
+                      return (
+                        <label key={m.id} className="flex items-center gap-3 cursor-pointer">
+                          <Icon className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+                          <span className="text-xs font-bold text-slate-900 dark:text-slate-200">{m.label}</span>
+                          <input
+                            type="checkbox"
+                            role="switch"
+                            aria-label={m.label}
+                            checked={on}
+                            onChange={(e) => setTheme(e.target.checked ? m.id : m.id === 'dark' ? 'light' : 'dark')}
+                            className="sr-only"
+                          />
+                          <SwitchKnob checked={on} />
+                        </label>
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
+
+                {/* ล็อกหน้าจออัตโนมัติ (owner 2026-11-17): moved here from ตั้งค่าระบบ — each person's own time, saved at once */}
+                <div className={sectionClass}>
+                  <span className={sectionTitleClass}>
+                    <Lock className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <span>ล็อกหน้าจออัตโนมัติ</span>
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {AUTO_LOCK_CHOICES_SECONDS.filter((sec) => sec > 0).map((sec) => {
+                      const on = lockSeconds === sec
+                      return (
+                        <label
+                          key={sec}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-[var(--ref-line,#e2e8f0)] bg-[var(--ref-field,#f8fafc)] px-4 py-3 cursor-pointer"
+                        >
+                          <span className="text-xs font-bold text-slate-900 dark:text-slate-200">{autoLockLabel(sec)}</span>
+                          <input
+                            type="checkbox"
+                            role="switch"
+                            aria-label={autoLockLabel(sec)}
+                            checked={on}
+                            disabled={lockSaving}
+                            onChange={(e) => void pickAutoLock(e.target.checked ? sec : 0)}
+                            className="sr-only"
+                          />
+                          <SwitchKnob checked={on} />
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </div>

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import type { BillTemplateData } from '@/features/documents/utils/rental-bill-print'
 import { A4FitPreview } from '@/features/pos/components/A4FitPreview'
 import { FileText, Printer } from 'lucide-react'
+import { StepNavButton } from '@/components/common/ActionButton'
 import { PaymentMethodSelector, type PaymentMethodType } from '@/features/pos/components/payment/PaymentMethodSelector'
 import { PaymentDynamicContent } from '@/features/pos/components/payment/PaymentDynamicContent'
 import { type VatMode } from '@/features/pos/components/VatModeButtons'
@@ -346,6 +347,8 @@ export default function CheckoutPage() {
         savedDraftIdRef.current ??
         (draftBillId && loadBillById(draftBillId)?.rentalStatus === 'DRAFT' ? draftBillId : null),
       customerId: customer?.id || null,
+      // A typed name with no customer record stays on the bill only (owner 2026-11-16)
+      guestName: customer && !customer.id ? customer.customerName : null,
       quotationId: quotationId || null,
       vatEnabled: vatOn,
       vatMode: vatOn ? effectiveVatMode : null,
@@ -547,8 +550,6 @@ export default function CheckoutPage() {
     >
       <DocumentSummaryPanel
         title="ชำระเงิน"
-        backHref={backToPosHref}
-        backLabel="ย้อนกลับไป POS"
         discount={discount}
         onDiscountChange={setDiscount}
         shippingFee={shippingFee}
@@ -573,12 +574,20 @@ export default function CheckoutPage() {
               />
               <span>รับของแล้ว</span>
             </label>
-            <div className="flex items-stretch gap-2">
+            {/* 3 equal buttons, each as wide as the longest label; never wider than the panel (owner 2026-11-17) */}
+            <div className="grid w-fit max-w-full grid-flow-col auto-cols-[minmax(0,1fr)] gap-2 self-end">
+              <StepNavButton
+                direction="back"
+                onClick={() => router.push(backToPosHref)}
+                disabled={isSubmitting}
+                className="min-w-0 min-h-[44px] gap-1.5 text-xs sm:text-sm"
+              />
+
               <button
                 type="button"
                 onClick={handleSaveDraft}
                 disabled={isSubmitting}
-                className="shrink-0 whitespace-nowrap rounded-xl border-2 border-slate-200 bg-white px-3 py-2.5 hover:bg-slate-50 active:scale-[0.99] text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700/50 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
+                className="min-w-0 whitespace-nowrap rounded-xl border-2 border-slate-200 bg-white px-3 py-2.5 hover:bg-slate-50 active:scale-[0.99] text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700/50 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
               >
                 <FileText className="w-4 h-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
                 <span className="truncate">บันทึกแบบร่าง</span>
@@ -588,7 +597,7 @@ export default function CheckoutPage() {
                 type="button"
                 onClick={handleConfirmBill}
                 disabled={isSubmitting}
-                className="flex-1 min-w-0 rounded-xl bg-emerald-700 px-2 py-2.5 hover:bg-emerald-800 active:scale-[0.99] text-white font-black text-xs sm:text-sm md:text-base flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
+                className="min-w-0 whitespace-nowrap rounded-xl bg-emerald-700 px-3 py-2.5 hover:bg-emerald-800 active:scale-[0.99] text-white font-black text-xs sm:text-sm md:text-base flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
               >
                 <Printer className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
                 <span className="truncate">

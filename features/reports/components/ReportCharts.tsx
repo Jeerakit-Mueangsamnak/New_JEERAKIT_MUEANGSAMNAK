@@ -1,5 +1,6 @@
 'use client'
 
+import { CountUp } from '@/components/common/CountUp'
 import React from 'react'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -461,7 +462,7 @@ export interface FunnelStep {
 
 export function ReportFunnel({ steps }: { steps: FunnelStep[] }) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full">
+    <div className="card-lift-row grid grid-cols-2 sm:grid-cols-4 gap-2 w-full">
       {steps.map((st, idx) => (
         <div
           key={st.stage}
@@ -481,7 +482,7 @@ export function ReportFunnel({ steps }: { steps: FunnelStep[] }) {
 
           <div className="my-0.5">
             <div className="text-base sm:text-lg font-black font-mono text-slate-900 dark:text-slate-100">
-              {st.count.toLocaleString()}{' '}
+              <CountUp value={st.count} />{' '}
               <span className="text-[10px] font-normal text-slate-600 dark:text-slate-400">ใบ</span>
             </div>
             <div className="text-[10.5px] font-bold font-mono text-slate-600 dark:text-slate-300 truncate">

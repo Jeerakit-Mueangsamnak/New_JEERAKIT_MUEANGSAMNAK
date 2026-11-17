@@ -153,9 +153,6 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
     (Object.keys(d.notifications) as Array<keyof NotificationSettings>).map((k) => [k, { ...d.notifications[k], ...obj(savedNotices[k]) }])
   ) as unknown as NotificationSettings
 
-  const options = Array.isArray(pol.auto_lock_options_seconds)
-    ? (pol.auto_lock_options_seconds as unknown[]).map(Number).filter((n) => Number.isFinite(n))
-    : d.shopSecurity.autoLockOptionsSeconds
   const reorder = num(pol.default_reorder_point) ?? num(legacy.productStock?.defaultMinimumStock)
   const { notify: lineNotify, templates: lineTemplates, ...lineOther } = obj(pol.line)
 
@@ -177,10 +174,6 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
     product: { defaultReorderPoint: reorder ?? d.product.defaultReorderPoint },
     documentNumbering,
     notifications,
-    shopSecurity: {
-      autoLockOptionsSeconds: options,
-      autoLockDefaultSeconds: num(pol.auto_lock_default_seconds) ?? d.shopSecurity.autoLockDefaultSeconds,
-    },
     lineBillCards: parseLineCardDesigns(pol.line_bill_cards),
     lineMessageTemplates: parseLineMessageTemplates(pol.line_message_templates),
     documentNotes: Object.fromEntries(
@@ -283,13 +276,6 @@ export function sectionPatch(section: SettingsSection, cfg: SystemConfig): Recor
         },
       }
     }
-    case 'shopSecurity':
-      return {
-        policies: {
-          auto_lock_options_seconds: [...cfg.shopSecurity.autoLockOptionsSeconds],
-          auto_lock_default_seconds: cfg.shopSecurity.autoLockDefaultSeconds,
-        },
-      }
     case 'documentNotes':
       return {
         policies: {
@@ -347,7 +333,6 @@ export const SECTION_REASON: Record<SettingsSection, string> = {
   product: 'แก้ค่าเริ่มต้นสินค้า',
   documentNumbering: 'แก้รูปแบบเลขเอกสาร',
   notifications: 'แก้การแจ้งเตือน',
-  shopSecurity: 'แก้ความปลอดภัยร้าน',
   line: 'แก้การตั้งค่า LINE',
   documentNotes: 'แก้หมายเหตุเอกสาร',
   lineBillCards: 'แก้การ์ดบิล LINE',

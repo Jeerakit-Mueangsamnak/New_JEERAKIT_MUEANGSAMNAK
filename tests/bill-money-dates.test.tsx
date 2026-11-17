@@ -56,7 +56,7 @@ import { PinCancelledError } from '@/lib/db/pin-confirm'
 import { DbError } from '@/lib/db/rpc'
 import { calculateBillTotals } from '@/lib/calculation-service'
 import { DEFAULT_SYSTEM_CONFIG, setCachedSystemSettings } from '@/features/settings/services/settings-storage'
-import { correctionDelta } from '@/features/bills/components/BillRevisionView'
+import { buildRevision } from '@/features/bills/components/BillRevisionView'
 import { CartPanel } from '@/features/pos/components/CartPanel'
 import { SystemSettingsProvider } from '@/lib/contexts/SystemSettingsContext'
 import { CartItem, loadActiveCart } from '@/features/pos/services/cart-storage'
@@ -134,41 +134,39 @@ describe('P1-B4 checkout shows the discount the server charges', () => {
   })
 })
 
-describe('P1-B7 a correction that changes nothing keeps the total', () => {
-  // 2 boards × 3 days × 20 = 120, 1 sale 100, discount 20, delivery 50 → base 250, VAT 7% → 267.50; deposit 500 held apart
+describe('แก้ไขบิล sends only what changed (bill_revise)', () => {
   const bill = {
-    billAmount: 267.5,
-    grandTotal: 267.5,
-    heldDepositAmount: 500,
+    rentalStartDate: '2026-11-16',
+    scheduledReturnDate: '2026-11-19',
     discountAmount: 20,
+    billDiscountAmount: 20,
     shippingFee: 50,
     items: [
-      { rentalBillItemId: 'L1', rentalType: 'DAILY', dailyRate: 20, quantity: 2, usageCount: 3, lineTotal: 120 },
+      { rentalBillItemId: 'L1', rentalType: 'NORMAL', dailyRate: 20, quantity: 2, usageCount: 1, lineTotal: 40, rentalStartDate: '2026-11-16', scheduledReturnDate: '2026-11-19' },
       { rentalBillItemId: 'L2', rentalType: 'SALE', dailyRate: 100, quantity: 1, lineTotal: 100 },
     ],
   } as unknown as FullBill
-  const lines = (p1 = 20, p2 = 100) => [
-    { rentalBillItemId: 'L1', unitPrice: p1, action: 'UPDATE' as const },
-    { rentalBillItemId: 'L2', unitPrice: p2, action: 'UPDATE' as const },
-  ]
+  const header = { start: '2026-11-16', end: '2026-11-19' }
+  const line = (id: string, over: Record<string, unknown> = {}) => ({
+    rentalBillItemId: id, productId: 'p', rentalType: id === 'L2' ? ('SALE' as const) : ('NORMAL' as const),
+    quantity: id === 'L2' ? 1 : 2, unitPrice: id === 'L2' ? 100 : 20, usageCount: 1,
+    dailyStartDate: '2026-11-16', dailyEndDate: '2026-11-19', action: 'UPDATE' as const, ...over,
+  })
 
-  it('nothing edited → 0 (no adjustment, deposit not involved)', () => {
-    expect(correctionDelta(bill, lines(), 20, 50)).toBe(0)
+  it('nothing edited → every line by id only, discount and fees as on the bill', () => {
+    expect(buildRevision(bill, [line('L1'), line('L2')], header, 20, 50)).toEqual({
+      billDiscountAmount: 20, feesTotal: 50, lines: [{ line_id: 'L1' }, { line_id: 'L2' }],
+    })
   })
-  it('price change uses the billed days and the bill\'s own VAT', () => {
-    // +5 × 2 × 3 days = 30 base → ×1.07 = 32.10
-    expect(correctionDelta(bill, lines(25), 20, 50)).toBe(32.1)
+  it('a removed line is not sent; changed quantity and price are', () => {
+    const r = buildRevision(bill, [line('L1', { quantity: 3, unitPrice: 25 }), line('L2', { action: 'REMOVE' })], header, 20, 50)
+    expect(r.lines).toEqual([{ line_id: 'L1', ordered_qty: 3, unit_price: 25 }])
   })
-  it('more discount lowers the total by discount + its VAT', () => {
-    expect(correctionDelta(bill, lines(), 30, 50)).toBe(-10.7)
-  })
-  it('a bill without VAT (or VAT included in prices) changes by the base amount only', () => {
-    const noVat = { ...bill, billAmount: 250, grandTotal: 250 } as unknown as FullBill
-    expect(correctionDelta(noVat, lines(), 20, 50)).toBe(0)
-    expect(correctionDelta(noVat, lines(), 20, 70)).toBe(20)
+  it('an added rental line carries its own terms', () => {
+    const r = buildRevision(bill, [line('L1'), line('L2'), { ...line('', { usageCount: 2 }), rentalBillItemId: undefined, action: 'ADD' as const }], header, 20, 50)
+    expect(r.lines[2]).toMatchObject({ product_id: 'p', line_mode: 'RENTAL', ordered_qty: 2, unit_price: 20, rental_calculation_type: 'PER_PERIOD', period_count: 2 })
   })
 })
-
 describe('P1-B3 picked dates stay on the local day', () => {
   it('cart dates before 07:00 Bangkok time are not moved back a day', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })

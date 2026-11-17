@@ -1,18 +1,19 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { RefreshCw, RotateCcw, Send } from 'lucide-react'
-import { ActionButton } from '@/components/common/ActionButton'
+import { useCallback, useState, type ReactNode } from 'react'
+import { RotateCcw, Send } from 'lucide-react'
+import { ActionButton, TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
 import { CustomSelect } from '@/components/common/CustomSelect'
-import { DataTableFrame } from '@/components/common/DataTableFrame'
+import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_TH_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
 import { useToast } from '@/components/common/Toast'
 import { createClient } from '@/lib/supabase/client'
 import { retryLineDelivery, sendLineTestToMe } from '@/app/actions/line'
 import { LINE_EDITABLE_TEMPLATES } from '@/lib/line/config'
+import { useAutoRefresh } from '@/features/settings/hooks/useAutoRefresh'
 
 /**
- * Settings › LINE › ประวัติการส่ง: the last outbox rows (line_deliveries) with their result, a
- * resend for failed / cancelled rows, and a test message to one's own LINE.
+ * LINE › การส่ง › ประวัติการส่ง: the last outbox rows (line_deliveries) with their result, a resend for failed /
+ * cancelled rows, and a test message to one's own LINE. The list keeps itself up to date (no รีเฟรช button).
  */
 
 /** line_deliveries.status → Thai label + pill colour (shared with the manual reminder list). */
@@ -56,20 +57,19 @@ interface Delivery {
   contact: { display_name: string | null; typed_name: string | null } | null
 }
 
-const TH = 'px-2'
-const TD = 'px-2'
+const TH = `px-2 ${DATA_TABLE_TH_CLASSES}`
+const TD = 'px-2 py-2'
 const newKey = () => `test-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Date.now().toString(36)}`
 
-export function LineDeliveryLogPanel() {
+/** `tabs`: the LINE menu tab bars, first in this page's toolbar row. */
+export function LineDeliveryLogPanel({ tabs }: { tabs?: ReactNode }) {
   const { showToast } = useToast()
   const [rows, setRows] = useState<Delivery[]>([])
   const [status, setStatus] = useState('ALL')
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true)
     let q = createClient()
       .from('line_deliveries')
       .select('id, template_key, status, attempts, last_error_code, created_at, sent_at, contact:line_contacts(display_name, typed_name)')
@@ -82,12 +82,9 @@ export function LineDeliveryLogPanel() {
       ...d,
       contact: Array.isArray(d.contact) ? (d.contact[0] ?? null) : d.contact,
     })))
-    setLoading(false)
   }, [status])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useAutoRefresh(load)
 
   const retry = async (d: Delivery) => {
     setBusy(d.id)
@@ -108,24 +105,25 @@ export function LineDeliveryLogPanel() {
   }
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2 shrink-0">
-        <div className="w-48">
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-wrap items-center`}>
+        {tabs}
+        <div className="w-48 shrink-0">
           <CustomSelect
             value={status}
             onChange={(v) => setStatus(String(v))}
+            ariaLabel="สถานะการส่ง"
             options={[{ value: 'ALL', label: 'ทุกสถานะ' }, ...Object.entries(LINE_DELIVERY_STATUS).map(([value, s]) => ({ value, label: s.label }))]}
           />
         </div>
-        <ActionButton variant="outline" icon={<RefreshCw className={loading ? 'animate-spin' : ''} />} onClick={() => void load()} aria-label="รีเฟรช" />
-        <ActionButton variant="info" icon={<Send />} disabled={busy === 'test'} onClick={() => void test()}>
+        <ActionButton variant="outline" className="ml-auto" icon={<Send />} disabled={busy === 'test'} onClick={() => void test()}>
           ส่งข้อความทดสอบถึง LINE ของฉัน
         </ActionButton>
       </div>
-      {error && <p className="text-[11px] text-amber-700 dark:text-amber-300">{error}</p>}
-      <DataTableFrame fill rowCount={rows.length}>
-        <table className="w-full text-left border-collapse table-auto text-xs" aria-label="ประวัติการส่ง LINE">
-          <thead>
+      {error && <p className="mx-3 mt-2 text-[11px] text-amber-700 dark:text-amber-300">{error}</p>}
+      <DataTableFrame fill rowCount={rows.length} className="flex-1 min-h-0 min-w-0 rounded-none bg-transparent">
+        <table className={`${DATA_TABLE_CLASSES} text-[11px] leading-tight`} aria-label="ประวัติการส่ง LINE">
+          <thead className={`${DATA_TABLE_THEAD_CLASSES} text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 text-xs`}>
             <tr>
               <th className={TH}>เวลา</th>
               <th className={TH}>ผู้รับ</th>
@@ -135,11 +133,11 @@ export function LineDeliveryLogPanel() {
               <th className={`${TH} text-right`}>จัดการ</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
             {rows.map((d) => {
               const st = LINE_DELIVERY_STATUS[d.status] ?? { label: d.status, tone: '' }
               return (
-                <tr key={d.id}>
+                <tr key={d.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors">
                   <td className={`${TD} whitespace-nowrap`}>
                     {new Date(d.sent_at ?? d.created_at).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                   </td>

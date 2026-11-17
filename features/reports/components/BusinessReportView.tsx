@@ -1,5 +1,6 @@
 'use client'
 
+import { CountUp } from '@/components/common/CountUp'
 import React from 'react'
 import {
   TrendingUp,
@@ -28,7 +29,7 @@ export function BusinessReportView({ data }: { data: BusinessReportData }) {
   return (
     <div className="space-y-2">
       {/* ─── 1. TOPIC 4: GROWTH & PERFORMANCE COMPARISON KPIS ──────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+      <div className="card-lift-row grid grid-cols-2 md:grid-cols-4 gap-2">
         {/* Metric 1: การเติบโตของรายได้ (Revenue Growth) */}
         <div
           className={`p-2 rounded-xl border flex flex-col justify-between ${
@@ -47,7 +48,7 @@ export function BusinessReportView({ data }: { data: BusinessReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-slate-900 dark:text-slate-100">
-              {formatCurrency(data.currentRevenue)}
+              <CountUp value={data.currentRevenue} format={formatCurrency} />
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               ช่วงก่อนหน้า: {formatCurrency(data.previousRevenue)}
@@ -72,7 +73,7 @@ export function BusinessReportView({ data }: { data: BusinessReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-blue-700 dark:text-blue-400">
-              {formatNumber(data.currentOrders)}{' '}
+              <CountUp value={data.currentOrders} format={formatNumber} />{' '}
               <span className="text-xs font-normal text-slate-600 dark:text-slate-400">บิล</span>
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
@@ -94,7 +95,7 @@ export function BusinessReportView({ data }: { data: BusinessReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-purple-700 dark:text-purple-400">
-              {formatNumber(data.currentAvgTicket)}
+              <CountUp value={data.currentAvgTicket} format={formatNumber} />
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
               ช่วงก่อนหน้า: {formatNumber(data.previousAvgTicket)}
@@ -115,7 +116,7 @@ export function BusinessReportView({ data }: { data: BusinessReportData }) {
           </div>
           <div className="my-1">
             <div className="text-base sm:text-lg font-black font-mono text-slate-900 dark:text-slate-100">
-              {formatNumber(data.currentActiveCustomers)}{' '}
+              <CountUp value={data.currentActiveCustomers} format={formatNumber} />{' '}
               <span className="text-xs font-normal text-slate-600 dark:text-slate-400">ราย</span>
             </div>
             <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">

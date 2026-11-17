@@ -4,14 +4,14 @@ import React, { Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { MyAccountPanel, type MyAccountTab } from '@/features/settings/components/MyAccountPanel'
 
-const TABS: MyAccountTab[] = ['PROFILE', 'NOTIFICATIONS', 'APPEARANCE']
+const TABS: MyAccountTab[] = ['PROFILE', 'SETTINGS']
 
 function AccountPageContent() {
   const tab = useSearchParams().get('tab')?.toUpperCase() as MyAccountTab | undefined
   return <MyAccountPanel key={tab} initialTab={tab && TABS.includes(tab) ? tab : 'PROFILE'} />
 }
 
-/** ตั้งค่าส่วนตัว — every active member's own profile / password / PIN / notifications / look (no menu needed). */
+/** ตั้งค่าส่วนตัว — every active member's own profile / password / PIN, theme and auto-lock (no menu needed). */
 export default function AccountPage() {
   return (
     <Suspense

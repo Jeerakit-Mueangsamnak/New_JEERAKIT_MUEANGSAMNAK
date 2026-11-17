@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, StepNavButton } from '@/components/common/ActionButton'
 
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import React, { useEffect, useMemo, useState } from 'react'
@@ -8,7 +8,6 @@ import {
   Edit3,
   Plus,
   Trash2,
-  ChevronLeft,
   Calendar,
   Package,
   Save,
@@ -23,7 +22,7 @@ import { NumericInput } from '@/components/common/NumericInput'
 import { logger } from '@/lib/utils/logger'
 import { loadProducts } from '@/features/products/services/product-storage'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { adjustBill, createContinuation } from '@/features/bills/services/bill-service'
+import { createContinuation, reviseBill, type BillRevision } from '@/features/bills/services/bill-service'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { dbErrorMessage } from '@/lib/db/rpc'
 import { isNoChargeBillLine, isNoChargeRental } from '@/features/pos/services/accessory-rules'
@@ -88,34 +87,90 @@ function daysBetween(a: string, b: string): number {
   return Math.max(1, diffDays)
 }
 
-type CorrectionLine = Pick<EditableItem, 'rentalBillItemId' | 'unitPrice' | 'action'>
+type RevisionBill = Pick<FullBill, 'items' | 'rentalStartDate' | 'scheduledReturnDate' | 'discountAmount' | 'billDiscountAmount' | 'shippingFee'>
+type RevisionLine = Pick<
+  EditableItem,
+  'rentalBillItemId' | 'productId' | 'rentalType' | 'quantity' | 'unitPrice' | 'usageCount' | 'dailyStartDate' | 'dailyEndDate' | 'action'
+>
+type BillItem = FullBill['items'][number]
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+const startOfDay = (d: string) => new Date(`${d}T00:00:00`).toISOString()
+const endOfDay = (d: string) => new Date(`${d}T23:59:59`).toISOString()
+/** Days of a daily-rate line: both ends count, as in POS and เช่าต่อ. */
+const dailyDays = (start: string, end: string) => daysBetween(start, end) + 1
+
+/** A line already on the bill whose quantity, price, rounds or dates were changed on screen. */
+function lineEdited(item: RevisionLine, orig: BillItem): boolean {
+  if (item.quantity !== Number(orig.quantity) || item.unitPrice !== Number(orig.dailyRate || 0)) return true
+  if (item.rentalType === 'NORMAL') return (item.usageCount || 1) !== Number(orig.usageCount || 1)
+  if (item.rentalType === 'DAILY') {
+    return item.dailyStartDate !== localDate(orig.rentalStartDate) || item.dailyEndDate !== localDate(orig.scheduledReturnDate)
+  }
+  return false
+}
+
+/** Money of one line as the screen shows it: an untouched line keeps the bill's own figure. */
+function lineAmount(item: RevisionLine, orig: BillItem | undefined): number {
+  if (orig && !lineEdited(item, orig)) return Number(orig.lineTotal || 0)
+  const periods =
+    item.rentalType === 'SALE' ? 1 : item.rentalType === 'DAILY' ? dailyDays(item.dailyStartDate, item.dailyEndDate) : item.usageCount || 1
+  return item.quantity * item.unitPrice * periods
+}
 
 /**
- * Money change of a correction (Master §20), measured against the server's own figures:
- * only a changed unit price, discount or fee moves the total — an untouched bill gives 0.
- * Price changes use each line's billed quantity and periods; the bill's own VAT treatment
- * (grand total ÷ pre-VAT base) is applied so the result matches how the bill was priced.
+ * What แก้ไขบิล sends to bill_revise (owner 2026-11-17): every line that stays (only what changed), every added
+ * line, and the bill's own discount and fees. A removed line is simply not sent. Line discounts stay as they are,
+ * so the discount box (bill + line discounts) sends only the bill's own part.
  */
-export function correctionDelta(
-  bill: Pick<FullBill, 'items' | 'discountAmount' | 'shippingFee' | 'billAmount'>,
-  lines: CorrectionLine[],
+export function buildRevision(
+  bill: RevisionBill,
+  items: RevisionLine[],
+  header: { start: string; end: string },
   discountAmount: number,
   shippingFee: number
-): number {
-  const origDiscount = Number(bill.discountAmount || 0)
-  const origShipping = Number(bill.shippingFee || 0)
-  let deltaBase = (Number(shippingFee) || 0) - origShipping - ((Number(discountAmount) || 0) - origDiscount)
-  for (const line of lines) {
-    if (line.action === 'REMOVE' || !line.rentalBillItemId) continue
-    const orig = bill.items.find((it) => it.rentalBillItemId === line.rentalBillItemId)
-    if (!orig) continue
-    const periods = orig.rentalType === 'SALE' ? 1 : Number(orig.usageCount || 1)
-    deltaBase += (Number(line.unitPrice) - Number(orig.dailyRate || 0)) * Number(orig.quantity || 0) * periods
+): BillRevision {
+  const lineDiscounts = Math.max(0, Number(bill.discountAmount || 0) - Number(bill.billDiscountAmount || 0))
+  const headerMoved = header.start !== localDate(bill.rentalStartDate) || header.end !== localDate(bill.scheduledReturnDate)
+  const lines: BillRevision['lines'] = []
+  for (const item of items) {
+    if (item.action === 'REMOVE') continue
+    const orig = item.rentalBillItemId ? bill.items.find((it) => it.rentalBillItemId === item.rentalBillItemId) : undefined
+    if (orig) {
+      const line: Record<string, unknown> = { line_id: orig.rentalBillItemId }
+      if (item.quantity !== Number(orig.quantity)) line.ordered_qty = item.quantity
+      if (item.unitPrice !== Number(orig.dailyRate || 0)) line.unit_price = item.unitPrice
+      if (item.rentalType === 'NORMAL') {
+        if ((item.usageCount || 1) !== Number(orig.usageCount || 1)) line.period_count = item.usageCount || 1
+        if (headerMoved) {
+          line.rental_start_at = startOfDay(header.start)
+          line.rental_end_at = endOfDay(header.end)
+        }
+      } else if (item.rentalType === 'DAILY' && lineEdited({ ...item, quantity: Number(orig.quantity), unitPrice: Number(orig.dailyRate || 0) }, orig)) {
+        line.rental_start_at = startOfDay(item.dailyStartDate)
+        line.rental_end_at = endOfDay(item.dailyEndDate)
+        line.period_count = dailyDays(item.dailyStartDate, item.dailyEndDate)
+      }
+      lines.push(line)
+      continue
+    }
+    const daily = item.rentalType === 'DAILY'
+    lines.push({
+      product_id: item.productId,
+      line_mode: item.rentalType === 'SALE' ? 'SALE' : 'RENTAL',
+      ordered_qty: item.quantity,
+      unit_price: item.unitPrice,
+      ...(item.rentalType === 'SALE'
+        ? {}
+        : {
+            rental_calculation_type: daily ? 'PER_DAY' : 'PER_PERIOD',
+            period_count: daily ? dailyDays(item.dailyStartDate, item.dailyEndDate) : item.usageCount || 1,
+            rental_start_at: startOfDay(daily ? item.dailyStartDate : header.start),
+            rental_end_at: endOfDay(daily ? item.dailyEndDate : header.end),
+          }),
+    })
   }
-  const preVatBase = bill.items.reduce((sum, it) => sum + Number(it.lineTotal || 0), 0) - origDiscount + origShipping
-  const billed = Number(bill.billAmount ?? 0)
-  const vatFactor = preVatBase > 0 && Math.abs(billed - preVatBase) > 0.005 ? billed / preVatBase : 1
-  return Math.round(deltaBase * vatFactor * 100) / 100
+  return { billDiscountAmount: round2(Math.max(0, discountAmount - lineDiscounts)), feesTotal: round2(shippingFee), lines }
 }
 
 export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionViewProps) {
@@ -188,35 +243,28 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
 
   const activeItems = useMemo(() => items.filter((item) => item.action !== 'REMOVE'), [items])
 
-  // Live Subtotal Calculation
-  const calculatedSubtotal = useMemo(() => {
-    return activeItems.reduce((sum, item) => {
-      // A line already on the bill starts from the server's own line total (its real days/periods)
-      const orig = item.rentalBillItemId ? bill?.items.find((it) => it.rentalBillItemId === item.rentalBillItemId) : undefined
-      if (orig) {
-        const periods = orig.rentalType === 'SALE' ? 1 : Number(orig.usageCount || 1)
-        return sum + Number(orig.lineTotal || 0) + (item.unitPrice - Number(orig.dailyRate || 0)) * Number(orig.quantity || 0) * periods
-      }
-      if (item.rentalType === 'DAILY') {
-        // Days count both ends, as in POS and เช่าต่อ
-        const days = daysBetween(item.dailyStartDate, item.dailyEndDate) + 1
-        return sum + item.quantity * item.unitPrice * days
-      }
-      if (item.rentalType === 'SALE') {
-        return sum + item.quantity * item.unitPrice
-      }
-      // NORMAL rental
-      return sum + item.quantity * item.unitPrice * (item.usageCount || 1)
-    }, 0)
-  }, [activeItems, bill])
+  // Live Subtotal: an untouched line keeps the bill's own figure, a changed or added one is priced on screen
+  const calculatedSubtotal = useMemo(
+    () =>
+      activeItems.reduce((sum, item) => {
+        const orig = item.rentalBillItemId ? bill?.items.find((it) => it.rentalBillItemId === item.rentalBillItemId) : undefined
+        return sum + lineAmount(item, orig)
+      }, 0),
+    [activeItems, bill]
+  )
 
-  // Deposit is held apart from the bill total (server: due = grand total + charges + adjustments)
+  // แก้ไขบิล (owner 2026-11-17): the bill priced again as the server does — bill discount, fees, then the bill's own
+  // VAT; fees and adjustments already on the bill stay. Deposit is held apart.
   const calculatedGrandTotal = useMemo(() => {
     if (bill && mode !== 'EXTENSION') {
-      return Math.max(0, Number(bill.grandTotal || 0) + correctionDelta(bill, items, discountAmount, shippingFee))
+      const lineDiscounts = Math.max(0, Number(bill.discountAmount || 0) - Number(bill.billDiscountAmount || 0))
+      const net = Math.max(0, calculatedSubtotal - Math.max(0, (discountAmount || 0) - lineDiscounts)) + (shippingFee || 0)
+      const rate = bill.vatMode === 'EXCLUSIVE' ? Number(bill.vatRatePercent || 0) : 0
+      const extra = Number(bill.grandTotal || 0) - Number(bill.billAmount || 0)
+      return Math.max(0, round2(net * (1 + rate / 100)) + extra)
     }
     return Math.max(0, calculatedSubtotal - (discountAmount || 0) + (shippingFee || 0))
-  }, [calculatedSubtotal, discountAmount, shippingFee, bill, mode, items])
+  }, [calculatedSubtotal, discountAmount, shippingFee, bill, mode])
 
   const updateItem = (index: number, patch: Partial<EditableItem>) => {
     setItems((prev) =>
@@ -338,22 +386,23 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           : undefined
         await createContinuation({ parentBillId: bill.id, reason: '', startMode, items: lines })
       } else {
-        // Correction after confirm (Master §20): items and quantities are history — change them with a
-        // new bill / return. Only the money can be corrected, as one CREDIT/DEBIT adjustment (PIN).
-        const changedLines = items.some((i, idx) => {
-          const orig = bill.items[idx]
-          return i.action !== 'UPDATE' || !orig || i.quantity !== orig.quantity || (i.usageCount || 1) !== (orig.usageCount || 1)
-        })
-        if (changedLines) {
-          showToast('แก้รายการหลังยืนยันบิลไม่ได้', 'เพิ่มสินค้า = เปิดบิลใหม่ / ลดสินค้า = รับคืน — แก้ได้เฉพาะยอดเงิน (ราคา ส่วนลด ค่าขนส่ง)', 'ERROR')
+        // แก้ไขบิล (owner 2026-11-17): add / remove / change goods and money; the server moves the stock and prices
+        // the bill again in the same step (bill_revise).
+        if (activeItems.length === 0) {
+          showToast('บิลต้องมีสินค้าอย่างน้อย 1 รายการ', 'ถ้าจะเอาออกทั้งหมด ให้ใช้ยกเลิกบิล', 'ERROR')
           return
         }
-        const delta = correctionDelta(bill, items, discountAmount, shippingFee)
-        if (delta === 0) {
-          showToast('ยอดเงินไม่เปลี่ยน', 'ไม่มีการแก้ราคา ส่วนลด หรือค่าขนส่ง จึงไม่ได้บันทึกรายการปรับยอด', 'INFO')
+        const revision = buildRevision(bill, items, { start: headerRentalDate, end: headerReturnDate }, discountAmount, shippingFee)
+        const untouched =
+          revision.lines.length === bill.items.length &&
+          revision.lines.every((l) => l.line_id && Object.keys(l).length === 1) &&
+          revision.billDiscountAmount === round2(Number(bill.billDiscountAmount || 0)) &&
+          revision.feesTotal === round2(Number(bill.shippingFee || 0))
+        if (untouched) {
+          showToast('ไม่มีการแก้ไข', 'ยังไม่ได้เปลี่ยนสินค้า จำนวน วันที่ ราคา ส่วนลด หรือค่าขนส่ง', 'INFO')
           return
         }
-        await adjustBill(bill.id, delta, '')
+        await reviseBill(bill.id, revision)
       }
 
       showToast(
@@ -371,19 +420,11 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
   }
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-slate-100 dark:bg-black text-slate-900 dark:text-slate-100 overflow-hidden">
-      {/* 1. Header Bar */}
-      <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-3 sm:px-4 py-2.5 flex items-center justify-between shrink-0 shadow-xs">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <button
-            type="button"
-            onClick={onClose}
-            className={`${COMMAND_BUTTON_SIZE_CLASSES} sm:p-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 transition-colors flex items-center shrink-0 cursor-pointer`}
-          >
-            <ChevronLeft className="w-4 h-4" />
-            <span className="hidden sm:inline">กลับ</span>
-          </button>
-
+    <div className="h-full min-h-0 flex flex-col bg-slate-100 dark:bg-black text-slate-900 dark:text-slate-100 overflow-hidden p-2">
+      {/* One work area (owner 2026-11-17): title, fields, items, summary and the buttons in the same box; buttons at the bottom */}
+      <div className="flex-1 min-h-0 flex flex-col bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+      {/* 1. Title */}
+      <div className="border-b border-slate-200 dark:border-slate-700 px-3 py-2 flex items-center shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <div
               className={`p-2 rounded-xl text-white shrink-0 ${
@@ -402,36 +443,10 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
               </p>
             </div>
           </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer`}
-          >
-            ยกเลิก
-          </button>
-          <button
-            type="button"
-            disabled={isSaving}
-            onClick={() => void handleSave()}
-            className={`${COMMAND_BUTTON_SIZE_CLASSES} text-white shadow-md transition-all flex items-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-              mode === 'EXTENSION'
-                ? 'bg-cyan-700 hover:bg-cyan-800 shadow-cyan-600/25'
-                : 'bg-emerald-700 hover:bg-emerald-800 shadow-emerald-600/25'
-            }`}
-          >
-            <Save className="w-3.5 h-3.5" />
-            <span>{isSaving ? 'กำลังบันทึก...' : mode === 'EXTENSION' ? 'ยืนยันเช่าต่อ' : 'บันทึกการแก้ไข'}</span>
-          </button>
-        </div>
       </div>
 
-      {/* 2. Workspace Body */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
-        {/* Top Info & Dates Card: Always 4 fields in 1 single row */}
-        <div className="bg-white dark:bg-slate-800 p-2 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+        {/* 2. Dates & money fields: always 4 fields in 1 row */}
+        <div className="p-2 border-b border-slate-200 dark:border-slate-700 shrink-0">
           <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
             {/* Header Rental Date (Calendar Popover) */}
             <div className="space-y-1 min-w-0">
@@ -494,7 +509,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
         </div>
 
         {/* Product Search & Add Toolbar */}
-        <div className="bg-white dark:bg-slate-800 p-2 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        <div className="p-2 border-b border-slate-200 dark:border-slate-700 shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <div className="flex-1 min-w-0">
             <CustomSelect
               value={selectedProductId}
@@ -516,12 +531,12 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           </button>
         </div>
 
-        {/* Items Table Card */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden flex flex-col">
-          <div className="overflow-y-auto">
+        {/* 3. Items: the table takes the free height and scrolls inside */}
+          <div className="flex-1 min-h-0 overflow-auto">
             <table className="w-full text-left border-collapse text-[10.5px] leading-tight">
               <colgroup>
-                {/* สินค้า / คืนแล้ว / กำลังเช่า / จำนวนในบิล / ราคาต่อหน่วย / วันที่เช่า / วันที่กำหนดคืน / รอบ / จัดการ — no text between <col>s (hydration) */}
+                {/* ลำดับ / สินค้า / คืนแล้ว / กำลังเช่า / จำนวนในบิล / ราคาต่อหน่วย / วันที่เช่า / วันที่กำหนดคืน / รอบ / จัดการ — no text between <col>s (hydration) */}
+                <col className="w-[40px] sm:w-[44px]" />
                 <col className="w-auto" />
                 <col className="w-[52px] sm:w-[60px]" />
                 <col className="w-[52px] sm:w-[60px]" />
@@ -532,8 +547,9 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                 <col className="w-[40px] sm:w-[48px]" />
                 <col className="w-[38px] sm:w-[44px]" />
               </colgroup>
-              <thead className="bg-[#749bfc] border-b border-slate-200 dark:border-slate-700 text-slate-900 font-bold uppercase tracking-wider text-xs">
+              <thead className="sticky top-0 z-10 bg-[#749bfc] border-b border-slate-200 dark:border-slate-700 text-slate-900 font-bold uppercase tracking-wider text-xs">
                 <tr>
+                  <th className="px-1 py-2 text-center whitespace-nowrap">ลำดับ</th>
                   <th className="px-1.5 py-2 whitespace-nowrap">รายการสินค้า</th>
                   <th className="px-1 py-2 text-right whitespace-nowrap">คืนแล้ว</th>
                   <th className="px-1 py-2 text-right whitespace-nowrap">กำลังเช่า</th>
@@ -562,6 +578,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                             : 'hover:bg-slate-50/80 dark:hover:bg-slate-700/30'
                       }`}
                     >
+                      <td className="px-1 py-1 text-center font-mono text-slate-600 dark:text-slate-400">{index + 1}</td>
                       {/* Product Name */}
                       <td className="px-1.5 py-1 font-bold text-slate-900 dark:text-slate-100 overflow-hidden">
                         <div className="truncate">{item.productName}</div>
@@ -584,7 +601,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                       {/* Returned Qty (Editable, snug fit) */}
                       <td className="px-1 py-1">
                         <NumericInput
-                          disabled={isRemoved}
+                          disabled
                           min={0}
                           allowDecimals={false}
                           value={item.returnedQty === 0 ? '' : item.returnedQty}
@@ -599,7 +616,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                       {/* Outstanding Qty / กำลังเช่า (Editable, snug fit) */}
                       <td className="px-1 py-1">
                         <NumericInput
-                          disabled={isRemoved}
+                          disabled
                           min={0}
                           allowDecimals={false}
                           value={item.outstandingQty === 0 ? '' : item.outstandingQty}
@@ -735,12 +752,12 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
               </tbody>
             </table>
           </div>
-        </div>
 
-        {/* Financial Summary (stays in the right-hand column as before) */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          {/* Financial Recalculation Summary */}
-          <div className="lg:col-start-3 bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between gap-2">
+        {/* 4. Bottom: ย้อนกลับ on the left; the summary with ยกเลิก / บันทึก under it on the right */}
+        <div className="shrink-0 border-t border-slate-200 dark:border-slate-700 p-2 flex flex-col sm:flex-row items-stretch sm:items-end justify-between gap-3">
+          <StepNavButton direction="back" onClick={onClose} className="self-start sm:self-end" />
+          <div className="w-full sm:w-80 flex flex-col gap-2">
+          <div className="flex flex-col gap-2">
             <div className="space-y-1 text-xs">
               <div className="flex justify-between text-slate-600 dark:text-slate-400">
                 <span>ค่าเช่าคำนวณใหม่:</span>
@@ -791,6 +808,29 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                 </div>
               )}
             </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} px-3 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer`}
+            >
+              ยกเลิก
+            </button>
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={() => void handleSave()}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} px-3 text-white shadow-md transition-all flex items-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                mode === 'EXTENSION'
+                  ? 'bg-cyan-700 hover:bg-cyan-800 shadow-cyan-600/25'
+                  : 'bg-emerald-700 hover:bg-emerald-800 shadow-emerald-600/25'
+              }`}
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>{isSaving ? 'กำลังบันทึก...' : mode === 'EXTENSION' ? 'ยืนยันเช่าต่อ' : 'บันทึกการแก้ไข'}</span>
+            </button>
+          </div>
           </div>
         </div>
       </div>

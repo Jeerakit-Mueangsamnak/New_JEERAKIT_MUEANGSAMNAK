@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowLeft, ArrowRight } from 'lucide-react'
 
 export interface ActionButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'active' | 'primary' | 'neutral' | 'ghost' | 'dashed' | 'secondary' | 'outline' | 'utility' | 'danger' | 'info'
@@ -60,10 +60,10 @@ export const TABLE_TOOLBAR_CLASSES = `p-2 gap-2 border-b ${TABLE_LINE_COLOUR_CLA
 /** Bar under a table/form (same spacing as the toolbar, line on top). Add the layout (flex …). */
 export const TABLE_FOOTER_CLASSES = `p-2 gap-2 border-t ${TABLE_LINE_COLOUR_CLASSES} shrink-0`
 /**
- * ย้อนกลับ / ถัดไป of a step-by-step screen (owner 2026-11-11, the "NEXT >" picture): black, a thin white
- * line inside the edge, white bold text, the standard command height. Use StepNavButton.
+ * ย้อนกลับ / ถัดไป of a step-by-step screen (owner 2026-11-17: the POS checkout look, black style removed):
+ * white, 2px grey edge, grey bold text, the standard command height. Use StepNavButton.
  */
-export const STEP_NAV_BUTTON_CLASSES = `${COMMAND_BUTTON_SIZE_CLASSES} px-3 inline-flex items-center justify-center whitespace-nowrap bg-slate-950 text-white border border-slate-950 shadow-[inset_0_0_0_2px_#020617,inset_0_0_0_3px_#ffffff] hover:opacity-90 transition-opacity cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed`
+export const STEP_NAV_BUTTON_CLASSES = `${COMMAND_BUTTON_SIZE_CLASSES} px-3 rounded-xl inline-flex items-center justify-center whitespace-nowrap bg-white text-slate-700 border-2 border-slate-200 hover:bg-slate-50 active:scale-[0.99] dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-700/50 transition-all cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed`
 /** Icon-only action button inside a table row (the bills table style). Add the icon colour + hover colour. */
 export const ROW_ICON_BUTTON_CLASSES =
   'inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed'
@@ -86,7 +86,7 @@ export const TAB_BUTTON_BASE_CLASSES =
   'h-7 px-3.5 py-0 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap select-none shrink-0'
 
 export const TAB_BUTTON_ACTIVE_CLASSES =
-  'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-xs border border-slate-200/80 dark:border-slate-600/80'
+  'bg-white dark:bg-violet-600 text-slate-900 dark:text-white shadow-xs border border-slate-200/80 dark:border-violet-500/80'
 
 export const TAB_BUTTON_INACTIVE_CLASSES =
   'bg-transparent border border-transparent text-slate-600 dark:text-slate-300 font-medium hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/40 dark:hover:bg-slate-800/40'
@@ -110,7 +110,7 @@ export const ActionButton = React.forwardRef<HTMLButtonElement, ActionButtonProp
         variantClasses = 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
         break
       case 'primary':
-        variantClasses = 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs'
+        variantClasses = 'bg-emerald-700 hover:bg-emerald-800 dark:bg-violet-600 dark:hover:bg-violet-700 text-white shadow-xs'
         break
       case 'danger':
         variantClasses = 'bg-red-600 hover:bg-red-700 text-white shadow-xs'
@@ -165,9 +165,9 @@ export function StepNavButton({ direction, children, className = '', type = 'but
   const label = children ?? (direction === 'back' ? 'ย้อนกลับ' : 'ถัดไป')
   return (
     <button type={type} className={`${STEP_NAV_BUTTON_CLASSES} ${className}`.trim()} {...props}>
-      {direction === 'back' && <ChevronLeft aria-hidden="true" />}
+      {direction === 'back' && <ArrowLeft aria-hidden="true" />}
       <span className="truncate">{label}</span>
-      {direction === 'next' && <ChevronRight aria-hidden="true" />}
+      {direction === 'next' && <ArrowRight aria-hidden="true" />}
     </button>
   )
 }

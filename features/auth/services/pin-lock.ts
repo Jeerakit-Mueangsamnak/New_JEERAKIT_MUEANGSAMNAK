@@ -10,9 +10,8 @@ export interface PinStatus {
   blocked: boolean
   failedAttempts: number
   lockedUntil: string | null
-  /** Seconds of inactivity before the app locks; 0 = never. */
+  /** Seconds of inactivity before the app locks; 0 = never. The member's own choice (ตั้งค่าส่วนตัว › การตั้งค่า). */
   autoLockSeconds: number
-  autoLockOptions: number[]
 }
 
 export interface PinVerifyResult {
@@ -31,16 +30,23 @@ export function validatePinFormat(pin: string): { isValid: boolean; error: strin
   return { isValid: true, error: null }
 }
 
-export async function fetchPinStatus(): Promise<PinStatus> {
-  const r = await rpc<Record<string, unknown>>('my_pin_status')
+function toPinStatus(r: Record<string, unknown>): PinStatus {
   return {
     pinSet: Boolean(r.pin_set),
     blocked: Boolean(r.blocked),
     failedAttempts: Number(r.failed_attempts ?? 0),
     lockedUntil: (r.locked_until as string | null) ?? null,
     autoLockSeconds: Number(r.auto_lock_seconds ?? 300),
-    autoLockOptions: Array.isArray(r.auto_lock_options_seconds) ? (r.auto_lock_options_seconds as number[]) : [],
   }
+}
+
+export async function fetchPinStatus(): Promise<PinStatus> {
+  return toPinStatus(await rpc<Record<string, unknown>>('my_pin_status'))
+}
+
+/** The member's own auto-lock time (owner 2026-11-17: personal, any of the app's times; 0 = never). Needs a PIN. */
+export async function setAutoLockOnServer(seconds: number): Promise<PinStatus> {
+  return toPinStatus(await rpc<Record<string, unknown>>('set_auto_lock', { p_seconds: seconds }))
 }
 
 export async function verifyPinOnServer(pin: string, purpose: 'UNLOCK' | 'ACTION', action?: string): Promise<PinVerifyResult> {
@@ -118,16 +124,6 @@ export function setLastActivity(userId: string, at: number): void {
   } catch {
     // storage unavailable: the in-memory timer still applies
   }
-}
-
-/**
- * The auto-lock time this device must use. The member's own choice counts only while it is one of
- * the times the OWNER allows (Settings › ความปลอดภัยร้าน); otherwise the shop default applies, so a
- * personal choice made earlier can never outlast the OWNER removing that option.
- */
-export function effectiveAutoLockSeconds(chosen: number, options: readonly number[], shopDefault: number): number {
-  if (options.length === 0 || options.includes(chosen)) return chosen
-  return options.includes(shopDefault) ? shopDefault : options[0]
 }
 
 /** True when the idle time since the last activity reached the user's auto-lock time (0 = never). */

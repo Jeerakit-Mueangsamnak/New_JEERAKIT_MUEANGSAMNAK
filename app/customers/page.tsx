@@ -1,5 +1,6 @@
 'use client'
 
+import { CountUp } from '@/components/common/CountUp'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { useDataActions } from '@/components/common/useDataActions'
 import { loadQuotationPrintTemplate, printQuotationA4 } from '@/features/documents/utils/transaction-print'
@@ -971,22 +972,22 @@ export default function CustomersPage() {
               <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
                 {/* 4 Stat Cards */}
                 <div className="px-3 pt-2.5 pb-1.5 shrink-0">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2 text-xs">
+                  <div className="card-lift-row grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2 text-xs">
                     <div className="bg-slate-50 dark:bg-slate-900/60 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col justify-center h-full">
                       <span className="text-slate-600 dark:text-slate-400 block text-[10px] font-bold truncate">จำนวนบิลทั้งหมด</span>
-                      <span className="text-xs sm:text-sm font-extrabold text-slate-700 dark:text-slate-200 truncate mt-0.5">{totalBills} บิล</span>
+                      <span className="text-xs sm:text-sm font-extrabold text-slate-700 dark:text-slate-200 truncate mt-0.5"><CountUp value={totalBills} /> บิล</span>
                     </div>
                     <div className="bg-emerald-50/60 dark:bg-emerald-950/40 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-emerald-200 dark:border-emerald-800 flex flex-col justify-center h-full">
                       <span className="text-emerald-700 dark:text-emerald-300 block text-[10px] font-bold truncate">ยอดเช่ารวม</span>
-                      <span className="text-xs sm:text-sm font-extrabold text-emerald-700 dark:text-emerald-400 truncate mt-0.5">{totalSpent.toLocaleString('th-TH')}</span>
+                      <span className="text-xs sm:text-sm font-extrabold text-emerald-700 dark:text-emerald-400 truncate mt-0.5"><CountUp value={totalSpent} format={(n) => n.toLocaleString('th-TH')} /></span>
                     </div>
                     <div className="bg-red-50/60 dark:bg-red-950/40 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-red-200 dark:border-red-800 flex flex-col justify-center h-full">
                       <span className="text-red-700 dark:text-red-300 block text-[10px] font-bold truncate">หนี้ค้างชำระ</span>
-                      <span className="text-xs sm:text-sm font-extrabold text-red-700 dark:text-red-400 truncate mt-0.5">{totalOutstanding.toLocaleString('th-TH')}</span>
+                      <span className="text-xs sm:text-sm font-extrabold text-red-700 dark:text-red-400 truncate mt-0.5"><CountUp value={totalOutstanding} format={(n) => n.toLocaleString('th-TH')} /></span>
                     </div>
                     <div className="bg-blue-50/60 dark:bg-blue-950/40 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-blue-200 dark:border-blue-800 flex flex-col justify-center h-full">
                       <span className="text-blue-700 dark:text-blue-300 block text-[10px] font-bold truncate">กำลังเช่าอยู่</span>
-                      <span className="text-xs sm:text-sm font-extrabold text-blue-600 dark:text-blue-400 truncate mt-0.5">{activeRentingBills} บิล</span>
+                      <span className="text-xs sm:text-sm font-extrabold text-blue-600 dark:text-blue-400 truncate mt-0.5"><CountUp value={activeRentingBills} /> บิล</span>
                     </div>
                   </div>
                 </div>

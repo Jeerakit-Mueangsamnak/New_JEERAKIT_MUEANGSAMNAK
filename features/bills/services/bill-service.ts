@@ -38,6 +38,8 @@ export interface BillLineInput {
 export interface BillDraftInput {
   billId?: string | null
   customerId?: string | null
+  /** A typed customer name with no customer record (POS ลูกค้าทั่วไป, owner 2026-11-16); ignored when customerId is set. */
+  guestName?: string | null
   quotationId?: string | null
   /** VAT ON/OFF of this bill (POS); the server snapshots it with the shop's rate and mode. */
   vatEnabled?: boolean
@@ -127,8 +129,11 @@ function linePayload(l: BillLineInput) {
 
 /** Saves (creates or replaces) a DRAFT bill; returns its id. Price/discount overrides ask PIN + reason. */
 export async function saveBillDraft(input: BillDraftInput): Promise<string> {
+  const guestName = input.customerId ? '' : (input.guestName ?? '').trim()
   const data: Record<string, unknown> = {
     customer_id: input.customerId || null,
+    // Sent only when there is one, so bills with a saved customer look exactly as before.
+    ...(guestName ? { guest_name: guestName } : {}),
     quotation_id: input.quotationId || null,
     vat_enabled: input.vatEnabled === true,
     vat_mode: input.vatEnabled === true ? input.vatMode ?? null : null,
@@ -552,26 +557,24 @@ export async function correctBill(
   return refreshAfterChange(billId)
 }
 
+/** What แก้ไขบิล sends (see bill_revise): the bill's own discount, all fees, and every line that stays or is added. */
+export interface BillRevision {
+  billDiscountAmount: number
+  feesTotal: number
+  lines: Array<Record<string, unknown>>
+}
+
 /**
- * Money correction on a confirmed bill (Master §20): a CREDIT (less) or DEBIT (more)
- * adjustment — a compensating entry; the original lines stay as they were. PIN + reason.
+ * แก้ไขบิล (owner 2026-11-17): add / remove / change goods, quantities, rounds, dates, prices, discount and shipping
+ * of a confirmed bill. The server moves the stock and prices the bill again in one step (bill_revise).
  */
-export async function adjustBill(billId: string, delta: number, reason: string): Promise<FullBill | null> {
-  const amount = Math.round(Math.abs(delta) * 100) / 100
-  if (amount <= 0) return refreshAfterChange(billId)
-  const key = newIdempotencyKey()
-  await withPin(
-    { action: 'BILL_ADJUST', title: delta < 0 ? 'ยืนยันลดยอดบิล' : 'ยืนยันเพิ่มยอดบิล', detail: `${amount.toLocaleString()} บาท — ${reason}` },
-    (token) =>
-      rpc('bill_adjust', {
-        p_bill_id: billId,
-        p_adjustment_type: delta < 0 ? 'CREDIT' : 'DEBIT',
-        p_amount: amount,
-        p_reason: reason,
-        p_idempotency_key: key,
-        p_pin_token: token,
-      })
-  )
+export async function reviseBill(billId: string, data: BillRevision): Promise<FullBill | null> {
+  await rpc('bill_revise', {
+    p_bill_id: billId,
+    p_data: { bill_discount_amount: data.billDiscountAmount, fees_total: data.feesTotal, lines: data.lines },
+    p_idempotency_key: newIdempotencyKey(),
+  })
+  await syncProductsFromSupabase()
   return refreshAfterChange(billId)
 }
 

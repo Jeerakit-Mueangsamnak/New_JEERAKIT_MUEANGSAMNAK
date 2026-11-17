@@ -40,7 +40,7 @@ const isUnder = (pathname: string, href: string) => pathname === href || pathnam
 const MENU_ROW_CLASSES =
   'flex min-h-10 items-center justify-between gap-2 px-3 py-2 rounded-lg font-bold text-[13px] leading-5 transition-all duration-150'
 // Selected menu colour #749bfc (owner 2026-11-10); dark text keeps WCAG AA contrast on it.
-const MENU_ROW_ACTIVE_CLASSES = 'bg-[#749bfc] text-slate-900 shadow-lg shadow-[#749bfc]/30'
+const MENU_ROW_ACTIVE_CLASSES = 'bg-[#749bfc] text-slate-900 shadow-lg shadow-[#749bfc]/30 dark:bg-violet-600 dark:text-white dark:shadow-violet-600/30'
 const MENU_ROW_IDLE_CLASSES =
   // Hover shade #edf3ff (owner 2026-11-11)
   'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-[#edf3ff] dark:hover:bg-slate-800'
@@ -135,11 +135,11 @@ function SidebarContent() {
                     className={`${MENU_ROW_CLASSES} cursor-pointer select-none ${isActive ? MENU_ROW_ACTIVE_CLASSES : MENU_ROW_IDLE_CLASSES}`}
                   >
                     <div className="flex min-w-0 items-center gap-2.5">
-                      <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-slate-900' : 'text-slate-600 dark:text-slate-400'}`} />
+                      <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-400'}`} />
                       <span className="min-w-0 whitespace-nowrap">{name}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Chevron className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-slate-900/80' : 'text-slate-600 dark:text-slate-400'}`} />
+                      <Chevron className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-slate-900/80 dark:text-white/80' : 'text-slate-600 dark:text-slate-400'}`} />
                     </div>
                   </div>
 
@@ -178,10 +178,10 @@ function SidebarContent() {
                 className={`${MENU_ROW_CLASSES} ${isActive ? MENU_ROW_ACTIVE_CLASSES : MENU_ROW_IDLE_CLASSES}`}
               >
                 <div className="flex min-w-0 items-center gap-2.5">
-                  <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-slate-900' : 'text-slate-600 dark:text-slate-400'}`} />
+                  <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-400'}`} />
                   <span className="min-w-0 whitespace-nowrap">{name}</span>
                 </div>
-                {isActive && <ChevronRight className="w-3 h-3 shrink-0 text-slate-900/80" />}
+                {isActive && <ChevronRight className="w-3 h-3 shrink-0 text-slate-900/80 dark:text-white/80" />}
               </Link>
             )
           })}

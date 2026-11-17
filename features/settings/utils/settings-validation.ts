@@ -56,10 +56,5 @@ export function validateSection(section: SettingsSection, cfg: SystemConfig): st
       return 'ค่าการตั้งค่า LINE ไม่ถูกต้อง กรุณาโหลดค่าล่าสุดแล้วลองใหม่'
     }
   }
-  if (section === 'shopSecurity') {
-    const s = cfg.shopSecurity
-    if (s.autoLockOptionsSeconds.length === 0) return 'เลือกเวลาล็อกอัตโนมัติที่อนุญาตอย่างน้อย 1 ค่า'
-    if (!s.autoLockOptionsSeconds.includes(s.autoLockDefaultSeconds)) return 'ค่าเริ่มต้นต้องเป็นหนึ่งในตัวเลือกที่อนุญาต'
-  }
   return null
 }

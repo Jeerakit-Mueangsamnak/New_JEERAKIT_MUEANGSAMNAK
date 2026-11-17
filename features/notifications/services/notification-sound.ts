@@ -1,41 +1,8 @@
 /**
- * Notice sound (owner 2026-11-15, like iOS): each device chooses sound on/off for itself in ตั้งค่าส่วนตัว ›
- * การแจ้งเตือนส่วนตัว; which notices exist is the shop's (ตั้งค่าระบบ › การแจ้งเตือนของร้าน). Saved in this browser only.
- * The tone is made with Web Audio (no sound file). iPad/iPhone only let a page play sound after a tap, so the first tap
- * anywhere unlocks it.
+ * Notice sound (owner 2026-11-17): the shop's notices (ตั้งค่าระบบ › การแจ้งเตือนของร้าน) ring on every device —
+ * there is no personal sound switch any more. The tone is made with Web Audio (no sound file). iPad/iPhone only let a
+ * page play sound after a tap, so the first tap anywhere unlocks it.
  */
-const KEY = 'notice_sound_on'
-const CHANGED = 'notice-sound-changed'
-
-export function isNoticeSoundOn(): boolean {
-  if (typeof window === 'undefined') return false
-  try {
-    return window.localStorage.getItem(KEY) !== '0'
-  } catch {
-    return true
-  }
-}
-
-export function setNoticeSoundOn(on: boolean): void {
-  try {
-    window.localStorage.setItem(KEY, on ? '1' : '0')
-  } catch {
-    // private mode: the choice lasts for this page only
-  }
-  window.dispatchEvent(new Event(CHANGED))
-}
-
-/** Calls back when this device's choice changes (this tab or another). Returns the unsubscribe function. */
-export function onNoticeSoundChange(cb: () => void): () => void {
-  const onStorage = (e: StorageEvent) => { if (e.key === KEY) cb() }
-  window.addEventListener(CHANGED, cb)
-  window.addEventListener('storage', onStorage)
-  return () => {
-    window.removeEventListener(CHANGED, cb)
-    window.removeEventListener('storage', onStorage)
-  }
-}
-
 let ctx: AudioContext | null = null
 
 function audio(): AudioContext | null {
@@ -64,9 +31,8 @@ export function unlockNoticeSoundOnGesture(): () => void {
   return remove
 }
 
-/** A short two-note chime. Plays only when this device has sound on. */
+/** A short two-note chime. */
 export function playNoticeSound(): void {
-  if (!isNoticeSoundOn()) return
   const a = audio()
   if (!a) return
   if (a.state === 'suspended') void a.resume().catch(() => undefined)

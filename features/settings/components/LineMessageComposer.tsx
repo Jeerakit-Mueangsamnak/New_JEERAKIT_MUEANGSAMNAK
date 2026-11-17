@@ -1,11 +1,11 @@
 'use client'
 /**
- * เขียนข้อความ (owner 2026-11-13, from the shop's reference screen): write a LINE message, see it before sending,
+ * LINE › ข้อความ › แม่แบบของร้าน (owner 2026-11-13, laid out list | form | preview 2026-11-17): write a LINE message, see it before sending,
  * and keep it as a แม่แบบ for sending bills on LINE. Sending to a whole group at once is not built yet
  * (owner: แม่แบบอย่างเดียวก่อน), so ส่งเลย stays off.
  */
 import React, { useEffect, useRef, useState } from 'react'
-import { Check, Copy, Eraser, Save, Send, Trash2, Users } from 'lucide-react'
+import { Check, Copy, Eraser, Save, Send, Users } from 'lucide-react'
 import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { useToast } from '@/components/common/Toast'
@@ -13,8 +13,9 @@ import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { createClient } from '@/lib/supabase/client'
 import { SETTINGS_INPUT, SETTINGS_LABEL } from '@/features/settings/components/settings-ui'
-import { REF_BUTTON, REF_BUTTON_QUIET, SettingsCard } from '@/features/settings/components/SettingsCards'
+import { REF_BUTTON, REF_BUTTON_QUIET } from '@/features/settings/components/SettingsCards'
 import { LineChatPreview } from '@/features/settings/components/LineChatPreview'
+import { LineBlockTitle, LineEditorLayout, LineListEmpty, LineListItem } from '@/features/settings/components/LineEditorLayout'
 import { validateSection } from '@/features/settings/utils/settings-validation'
 import {
   fillLineMessage,
@@ -140,120 +141,126 @@ export function LineMessageComposer() {
     }`
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-4 items-start">
-      <SettingsCard
-        title="เขียนข้อความ"
-      >
-        <div className="py-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div className="sm:col-span-2 flex flex-wrap gap-2">
-            <button type="button" onClick={() => setDraft(newLineMessageTemplate())} disabled={saving} className={REF_BUTTON_QUIET}>
-              <Eraser className="w-4 h-4" />
-              <span>เริ่มใหม่</span>
-            </button>
+    <LineEditorLayout
+      listTitle="แม่แบบที่บันทึกไว้"
+      listAction={
+        <button type="button" onClick={() => setDraft(newLineMessageTemplate())} disabled={saving} className={REF_BUTTON_QUIET}>
+          <Eraser className="w-3.5 h-3.5" />
+          <span>เริ่มใหม่</span>
+        </button>
+      }
+      list={
+        templates.length === 0 ? (
+          <LineListEmpty text="ยังไม่มีแม่แบบ" />
+        ) : (
+          templates.map((t) => (
+            <LineListItem
+              key={t.id}
+              title={t.name}
+              sub={topicLabel(t.topic)}
+              active={draft.id === t.id}
+              onSelect={() => setDraft(t)}
+              onDelete={() => void remove(t)}
+              deleteLabel={`ลบแม่แบบ ${t.name}`}
+              disabled={saving}
+            />
+          ))
+        )
+      }
+      preview={
+        <div className="space-y-2">
+          <LineBlockTitle
+            action={
+              <button type="button" onClick={() => void copy()} className={`${REF_BUTTON_QUIET} shrink-0`}>
+                <Copy className="w-3.5 h-3.5" />
+                <span>คัดลอก</span>
+              </button>
+            }
+          >
+            ตัวอย่างก่อนส่ง
+          </LineBlockTitle>
+          <LineChatPreview shopName={shopName || 'ร้าน'} bubbles={[{ from: 'shop', text: preview.trim() || ' ' }]} note="ตัวอย่าง · ยังไม่ส่งจริง" />
+        </div>
+      }
+    >
+      <LineBlockTitle
+        action={
+          <div className="flex gap-2 shrink-0">
             <button type="button" onClick={() => void save()} disabled={saving} className={REF_BUTTON}>
-              <Save className="w-4 h-4" />
+              <Save className="w-3.5 h-3.5" />
               <span>บันทึกแม่แบบ</span>
             </button>
             <button type="button" disabled title="ยังส่งถึงทั้งกลุ่มไม่ได้" className={REF_BUTTON}>
-              <Send className="w-4 h-4" />
+              <Send className="w-3.5 h-3.5" />
               <span>ส่งเลย</span>
             </button>
           </div>
-          <div>
-            <label className={SETTINGS_LABEL} htmlFor="line-msg-name">ชื่อแม่แบบ</label>
-            <input id="line-msg-name" value={draft.name} maxLength={LINE_MESSAGE_LIMITS.name} placeholder="เช่น แจ้งนัดรับคืน" onChange={(e) => patch({ name: e.target.value })} className={SETTINGS_INPUT} />
-          </div>
-          <div>
-            <span className={SETTINGS_LABEL}>หัวข้อแจ้งเตือน</span>
-            <CustomSelect value={draft.topic} onChange={(v: LineMessageTopic) => patch({ topic: v })} options={LINE_MESSAGE_TOPICS.map((t) => ({ value: t.id, label: t.label }))} ariaLabel="หัวข้อแจ้งเตือน" />
-          </div>
-          <div className="sm:col-span-2">
-            <span className={SETTINGS_LABEL}>กลุ่มผู้รับ</span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {LINE_MESSAGE_GROUPS.map((g) => {
-                const on = draft.groups.includes(g.id)
-                return (
-                  <button key={g.id} type="button" role="checkbox" aria-checked={on} onClick={() => toggleGroup(g.id)} className={tile(on)}>
-                    <span className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${on ? 'bg-[var(--ref-accent)] text-white' : 'border-2 border-slate-300 dark:border-slate-600'}`}>
-                      {on && <Check className="w-3 h-3" strokeWidth={3} />}
-                    </span>
-                    {g.label}
-                  </button>
-                )
-              })}
-            </div>
-            {linked !== null && (
-              <p className="mt-2 rounded-xl border border-[var(--ref-line)] bg-[var(--ref-field)] px-3.5 py-2.5 flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300">
-                <Users className="w-4 h-4 shrink-0" />
-                ผูก LINE แล้ว {linked.toLocaleString('th-TH')} บัญชี
-              </p>
-            )}
-          </div>
-          <div className="sm:col-span-2">
-            <label className={SETTINGS_LABEL} htmlFor="line-msg-subject">เรื่อง (ถ้ามี)</label>
-            <input id="line-msg-subject" value={draft.subject} maxLength={LINE_MESSAGE_LIMITS.subject} onChange={(e) => patch({ subject: e.target.value })} className={SETTINGS_INPUT} />
-          </div>
-          <div className="sm:col-span-2">
-            <label className={SETTINGS_LABEL} htmlFor="line-msg-text">ข้อความ</label>
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {LINE_MESSAGE_VARS.map((v) => (
-                <button key={v.token} type="button" onClick={() => insertVar(v.token)} className="h-7 px-2.5 rounded-full border border-[var(--ref-line)] bg-[var(--ref-field)] text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:border-[var(--ref-accent)]">
-                  {v.token} {v.label}
-                </button>
-              ))}
-            </div>
-            <textarea
-              id="line-msg-text"
-              ref={textRef}
-              rows={7}
-              value={draft.text}
-              maxLength={LINE_MESSAGE_LIMITS.text}
-              onChange={(e) => patch({ text: e.target.value })}
-              className={`${SETTINGS_INPUT} h-auto py-2 resize-y`}
-            />
-            <p className="mt-1 text-right text-[11px] text-slate-500 dark:text-slate-400">{draft.text.length}/{LINE_MESSAGE_LIMITS.text}</p>
-          </div>
+        }
+      >
+        {draft.id ? draft.name || 'แม่แบบ' : 'แม่แบบใหม่'}
+      </LineBlockTitle>
+      <div className="shrink-0 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div>
+          <label className={SETTINGS_LABEL} htmlFor="line-msg-name">ชื่อแม่แบบ</label>
+          <input id="line-msg-name" value={draft.name} maxLength={LINE_MESSAGE_LIMITS.name} placeholder="เช่น แจ้งนัดรับคืน" onChange={(e) => patch({ name: e.target.value })} className={SETTINGS_INPUT} />
         </div>
-      </SettingsCard>
-
-      <div className="space-y-4 min-w-0">
-        <SettingsCard
-          title="ตัวอย่างก่อนส่ง"
-          action={
-            <button type="button" onClick={() => void copy()} className={`${REF_BUTTON_QUIET} shrink-0 whitespace-nowrap`}>
-              <Copy className="w-4 h-4" />
-              <span>คัดลอก</span>
-            </button>
-          }
-        >
-          <div className="py-2">
-            <LineChatPreview
-              shopName={shopName || 'ร้าน'}
-              bubbles={[{ from: 'shop', text: preview.trim() || ' ' }]}
-              note="ตัวอย่าง · ยังไม่ส่งจริง"
-            />
-          </div>
-        </SettingsCard>
-        <SettingsCard title="แม่แบบที่บันทึกไว้">
-          {templates.length === 0 ? (
-            <p className="px-5 py-8 text-center text-xs text-slate-500 dark:text-slate-400">ยังไม่มีแม่แบบ</p>
-          ) : (
-            <ul className="divide-y divide-[var(--ref-line)]">
-              {templates.map((t) => (
-                <li key={t.id} className={`px-4 py-2.5 flex items-center gap-3 ${draft.id === t.id ? 'bg-[var(--ref-accent-soft)]' : ''}`}>
-                  <button type="button" onClick={() => setDraft(t)} className="flex-1 min-w-0 text-left">
-                    <span className="block text-sm font-bold text-slate-900 dark:text-white truncate">{t.name}</span>
-                    <span className="block text-[11px] text-slate-500 truncate">{topicLabel(t.topic)}</span>
-                  </button>
-                  <button type="button" onClick={() => void remove(t)} disabled={saving} aria-label={`ลบแม่แบบ ${t.name}`} className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-40">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </SettingsCard>
+        <div>
+          <span className={SETTINGS_LABEL}>หัวข้อแจ้งเตือน</span>
+          <CustomSelect value={draft.topic} onChange={(v: LineMessageTopic) => patch({ topic: v })} options={LINE_MESSAGE_TOPICS.map((t) => ({ value: t.id, label: t.label }))} ariaLabel="หัวข้อแจ้งเตือน" />
+        </div>
       </div>
-    </div>
+      <div className="shrink-0">
+        <span className={SETTINGS_LABEL}>กลุ่มผู้รับ</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {LINE_MESSAGE_GROUPS.map((g) => {
+            const on = draft.groups.includes(g.id)
+            return (
+              <button key={g.id} type="button" role="checkbox" aria-checked={on} onClick={() => toggleGroup(g.id)} className={tile(on)}>
+                <span className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${on ? 'bg-[var(--ref-accent)] text-white' : 'border-2 border-slate-300 dark:border-slate-600'}`}>
+                  {on && <Check className="w-3 h-3" strokeWidth={3} />}
+                </span>
+                {g.label}
+              </button>
+            )
+          })}
+          {linked !== null && (
+            <span className="ml-auto inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300">
+              <Users className="w-3.5 h-3.5 shrink-0" />
+              ผูก LINE แล้ว {linked.toLocaleString('th-TH')} บัญชี
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="shrink-0">
+        <label className={SETTINGS_LABEL} htmlFor="line-msg-subject">เรื่อง (ถ้ามี)</label>
+        <input id="line-msg-subject" value={draft.subject} maxLength={LINE_MESSAGE_LIMITS.subject} onChange={(e) => patch({ subject: e.target.value })} className={SETTINGS_INPUT} />
+      </div>
+      <div className="flex-1 min-h-0 flex flex-col">
+        <div className="shrink-0 flex items-center justify-between gap-2">
+          <label className={SETTINGS_LABEL} htmlFor="line-msg-text">ข้อความ</label>
+          <span className="text-[10px] tabular-nums text-slate-500 dark:text-slate-400">{draft.text.length}/{LINE_MESSAGE_LIMITS.text}</span>
+        </div>
+        <div className="shrink-0 flex flex-wrap gap-1.5 mb-2">
+          {LINE_MESSAGE_VARS.map((v) => (
+            <button
+              key={v.token}
+              type="button"
+              onClick={() => insertVar(v.token)}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-dashed border-emerald-700 dark:border-emerald-400 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer`}
+            >
+              {v.token} {v.label}
+            </button>
+          ))}
+        </div>
+        <textarea
+          id="line-msg-text"
+          ref={textRef}
+          value={draft.text}
+          maxLength={LINE_MESSAGE_LIMITS.text}
+          onChange={(e) => patch({ text: e.target.value })}
+          className={`${SETTINGS_INPUT} flex-1 min-h-[120px] h-auto py-2 leading-relaxed resize-none`}
+        />
+      </div>
+    </LineEditorLayout>
   )
 }

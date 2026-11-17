@@ -99,20 +99,21 @@ export function ReturnTableStep({
         <table className={`${DATA_TABLE_CLASSES} text-[10px] leading-tight`}>
           <colgroup>
             {/* No text between <col>s: spaces inside <colgroup> break hydration */}
+            {/* owner 2026-11-15: tablet widths; wider screens widen the number columns instead of only รายการ */}
             <col className="w-[28px]" />
-            <col className="w-[34px]" />
+            <col className="w-[34px] xl:w-[44px]" />
             <col className="w-auto" />
-            <col className="w-[40px]" />
-            <col className="w-[40px]" />
-            <col className="w-[40px]" />
-            <col className="w-[62px]" />
-            <col className="w-[44px]" />
-            <col className="w-[38px]" />
-            <col className="w-[38px]" />
-            <col className="w-[38px]" />
-            <col className="w-[38px]" />
-            <col className="w-[76px]" />
-            <col className="w-[54px]" />
+            <col className="w-[40px] xl:w-[60px] 2xl:w-[76px]" />
+            <col className="w-[40px] xl:w-[60px] 2xl:w-[76px]" />
+            <col className="w-[40px] xl:w-[60px] 2xl:w-[76px]" />
+            <col className="w-[62px] xl:w-[92px] 2xl:w-[116px]" />
+            <col className="w-[44px] xl:w-[64px] 2xl:w-[84px]" />
+            <col className="w-[38px] xl:w-[58px] 2xl:w-[72px]" />
+            <col className="w-[38px] xl:w-[58px] 2xl:w-[72px]" />
+            <col className="w-[38px] xl:w-[58px] 2xl:w-[72px]" />
+            <col className="w-[38px] xl:w-[58px] 2xl:w-[72px]" />
+            <col className="w-[76px] xl:w-[112px] 2xl:w-[140px]" />
+            <col className="w-[54px] xl:w-[80px] 2xl:w-[100px]" />
           </colgroup>
           <thead className={`${DATA_TABLE_THEAD_CLASSES} text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 shadow-sm text-xs`}>
             <tr>

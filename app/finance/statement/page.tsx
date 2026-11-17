@@ -1,4 +1,5 @@
 'use client'
+import { CountUp } from '@/components/common/CountUp'
 import {
   COMMAND_BUTTON_SIZE_CLASSES,
   SEARCH_INPUT_CLASSES,
@@ -309,12 +310,12 @@ export default function StatementPage() {
       {/* One white work area: summary cards, toolbar, table */}
       <div className="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
         {/* Summary cards inside the white work area (owner 2026-11-11) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-2 pb-0 shrink-0">
+        <div className="card-lift-row grid grid-cols-1 sm:grid-cols-3 gap-2 p-2 pb-0 shrink-0">
           <div className="bg-emerald-50 dark:bg-emerald-950/30 p-2.5 sm:p-3 rounded-2xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-sm flex items-center justify-between">
             <div>
               <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold block">รายรับรวม</span>
               <h3 className="text-lg sm:text-xl font-black text-emerald-700 dark:text-emerald-400 mt-0.5">
-                {totalIncome.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                <CountUp value={totalIncome} format={(n) => n.toLocaleString('th-TH', { minimumFractionDigits: 2 })} />
               </h3>
             </div>
             <div className="p-2 sm:p-2.5 bg-emerald-100 dark:bg-emerald-900/50 rounded-xl text-emerald-700 dark:text-emerald-300">
@@ -326,7 +327,7 @@ export default function StatementPage() {
             <div>
               <span className="text-[11px] text-red-700 dark:text-red-300 font-semibold block">เงินออกรวม (รายจ่าย + คืนเงิน)</span>
               <h3 className="text-lg sm:text-xl font-black text-red-700 dark:text-red-400 mt-0.5">
-                {totalExpense.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                <CountUp value={totalExpense} format={(n) => n.toLocaleString('th-TH', { minimumFractionDigits: 2 })} />
               </h3>
             </div>
             <div className="p-2 sm:p-2.5 bg-red-100 dark:bg-red-900/50 rounded-xl text-red-700 dark:text-red-300">
@@ -344,7 +345,7 @@ export default function StatementPage() {
                 คงเหลือสุทธิ
               </span>
               <h3 className={`text-lg sm:text-xl font-black mt-0.5 ${netBalance >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-red-700 dark:text-red-400'}`}>
-                {netBalance.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                <CountUp value={netBalance} format={(n) => n.toLocaleString('th-TH', { minimumFractionDigits: 2 })} />
               </h3>
             </div>
             <div className={`p-2 sm:p-2.5 rounded-xl ${netBalance >= 0 ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300' : 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300'}`}>

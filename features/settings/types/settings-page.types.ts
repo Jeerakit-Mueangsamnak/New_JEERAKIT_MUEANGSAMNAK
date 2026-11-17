@@ -10,7 +10,6 @@ export type {
   DocumentNumberingSettings,
   NotificationItemSettings,
   NotificationSettings,
-  ShopSecuritySettings,
   SystemConfig,
   SettingsSection,
 } from '@/features/settings/services/settings-storage'

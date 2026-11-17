@@ -1,28 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { effectiveAutoLockSeconds } from '@/features/auth/services/pin-lock'
 import { auditCategoryOf } from '@/features/audits/services/audit-storage'
-
-// Settings / permissions check 2026-10-18: central values set by the OWNER win over personal ones.
-describe('effectiveAutoLockSeconds (personal choice never outlasts the OWNER options)', () => {
-  const allowed = [30, 60, 120, 300]
-
-  it('keeps the member choice while the OWNER still allows it', () => {
-    expect(effectiveAutoLockSeconds(60, allowed, 300)).toBe(60)
-  })
-
-  it('falls back to the shop default when the choice was removed (e.g. "never")', () => {
-    expect(effectiveAutoLockSeconds(0, allowed, 300)).toBe(300)
-    expect(effectiveAutoLockSeconds(600, allowed, 120)).toBe(120)
-  })
-
-  it('uses the first allowed time when the default is not allowed either', () => {
-    expect(effectiveAutoLockSeconds(0, allowed, 600)).toBe(30)
-  })
-
-  it('leaves the value alone when the server sent no options', () => {
-    expect(effectiveAutoLockSeconds(0, [], 300)).toBe(0)
-  })
-})
 
 describe('auditCategoryOf (audit tabs filter by the real entity type)', () => {
   it('groups database entity types under the audit tabs', () => {
