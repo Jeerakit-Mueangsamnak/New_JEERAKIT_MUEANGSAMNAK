@@ -1,12 +1,11 @@
 'use client'
 
 import React, { useState, useRef, useEffect, useMemo } from 'react'
-import { Search, Check, X, Loader2 } from 'lucide-react'
+import { Search, Check, X } from 'lucide-react'
 import { Customer } from '@/lib/types/rental-pos'
 import { useClickOutside } from '@/lib/hooks/useClickOutside'
 import { useFloatingPlacement } from '@/lib/hooks/useFloatingPlacement'
 import { ModalPortal } from '@/components/common/ModalPortal'
-import { logger } from '@/lib/utils/logger'
 
 export interface CustomerAutocompleteProps {
   value?: string // customer ID or customerName
@@ -34,7 +33,6 @@ export function CustomerAutocomplete({
   const [query, setQuery] = useState<string>(customerName || '')
   const [isOpen, setIsOpen] = useState(false)
   const [internalCustomers, setInternalCustomers] = useState<Customer[]>([])
-  const [isLoading, setIsLoading] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1)
 
   const triggerRef = useRef<HTMLDivElement>(null)
@@ -193,12 +191,7 @@ export function CustomerAutocomplete({
             }}
             className="overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl p-1 space-y-0.5 text-xs font-medium animate-in fade-in zoom-in-95 duration-100"
           >
-            {isLoading ? (
-              <div className="py-4 text-center text-slate-600 dark:text-slate-400 flex items-center justify-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin text-emerald-700 dark:text-emerald-400" />
-                <span>กำลังโหลดรายชื่อลูกค้า...</span>
-              </div>
-            ) : filteredCustomers.length === 0 ? (
+            {filteredCustomers.length === 0 ? (
               <div className="py-3 px-3 text-center">
                 <p className="text-slate-600 dark:text-slate-400 text-[11px] mb-1.5">
                   ไม่พบข้อมูลลูกค้า &quot;<strong className="text-slate-700 dark:text-slate-300">{query}</strong>&quot;

@@ -15,7 +15,6 @@ import {
   Layers,
   X,
   Search,
-  FileSpreadsheet,
   Package,
   Handshake,
   Wrench,
@@ -68,9 +67,7 @@ import {
 } from '@/features/products/services/product-storage'
 import {
   loadAllCategories,
-  addCategoryAsync,
   loadCompositeRules,
-  addCompositeRuleAsync,
   ProductCategoryItem,
   CategoryCompositeRule,
   loadCategoryRules,
@@ -79,10 +76,9 @@ import {
   CALCULATION_OPTIONS,
   CALCULATION_LONG_LABELS,
 } from '@/lib/category-rules-storage'
-import { loadUnits, addUnitAsync } from '@/lib/unit-storage'
+import { loadUnits } from '@/lib/unit-storage'
 import { NumericInput } from '@/components/common/NumericInput'
 import { CustomDatePicker, parseLocalDate, getLocalDateString } from '@/components/common/CustomDatePicker'
-import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { getDefaultReorderPoint } from '@/features/settings/services/settings-storage'
 import { isLowStock } from '@/features/products/utils/low-stock'
 import { listItemOptions } from '@/features/products/utils/list-items'
@@ -136,7 +132,6 @@ function StatusPill({ tone, label }: { tone: keyof typeof PILL_TONE; label: stri
 function ProductsContent() {
   const searchParams = useSearchParams()
   const { showToast } = useToast()
-  const { user } = useAuth()
   // UI hint only; the server checks menu -> OWNER grant -> PIN on every call.
   const canAction = useActionPermission()
   const [products, setProducts] = useState<Product[]>([])
@@ -349,45 +344,6 @@ function ProductsContent() {
       showToast('ไม่สามารถบันทึกสินค้าได้', err?.message || 'โปรดตรวจสอบข้อมูลสินค้า', 'ERROR')
     } finally {
       setIsCreatingSubmitting(false)
-    }
-  }
-
-  // Quick Add Unit from Create View
-  const handleQuickAddUnit = async (name: string): Promise<string> => {
-    try {
-      const updated = await addUnitAsync(name)
-      setMasterUnits(updated)
-      showToast('เพิ่มหน่วยนับสำเร็จ', `เพิ่มหน่วยนับ "${name}" เรียบร้อยแล้ว`, 'SUCCESS')
-      const newUnit = updated.find((u) => u.name === name)
-      return newUnit?.id || updated[updated.length - 1]?.id
-    } catch (err: any) {
-      showToast('ไม่สามารถเพิ่มหน่วยนับได้', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
-      return ''
-    }
-  }
-
-  // Quick Add Category from Create View
-  const handleQuickAddCategory = async (name: string, calcType: CalculationType, unitId: string): Promise<string> => {
-    try {
-      const updatedCats = await addCategoryAsync(name)
-      setProductCategories(updatedCats)
-      const newCat = updatedCats.find((c) => c.name === name)
-      const newCatId = newCat?.id || updatedCats[updatedCats.length - 1]?.id
-
-      if (newCatId) {
-        const updatedComp = await addCompositeRuleAsync({
-          categoryId: newCatId,
-          calculationType: calcType,
-          unitId: unitId || undefined,
-        })
-        setCompositeRules(updatedComp)
-      }
-
-      showToast('เพิ่มหมวดหมู่สำเร็จ', `เพิ่มหมวดหมู่ "${name}" เรียบร้อยแล้ว`, 'SUCCESS')
-      return newCatId || ''
-    } catch (err: any) {
-      showToast('ไม่สามารถเพิ่มหมวดหมู่ได้', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
-      return ''
     }
   }
 
@@ -605,11 +561,6 @@ function ProductsContent() {
   const focusedIsLow = !!focusedProduct && isLowStock(focusedProduct)
 
   // Handlers
-  // Stock Count Handlers
-  const handleOpenStockCount = () => {
-    setActiveMainTab('COUNT')
-  }
-
   const openProductHistory = (product: Product, initialTab: 'CURRENT' | 'HISTORY' | 'OVERVIEW' = 'CURRENT') => {
     setSelectedProduct(product)
     setIsEditingInline(false)
@@ -893,9 +844,6 @@ function ProductsContent() {
             isSubmitting={isCreatingSubmitting}
             onSubmit={handleCreateSubmit}
             onClearDraft={handleClearDraft}
-            onNavigateToSettings={() => setActiveMainTab('SETTINGS')}
-            onQuickAddCategory={handleQuickAddCategory}
-            onQuickAddUnit={handleQuickAddUnit}
           />
         )}
 
@@ -918,7 +866,6 @@ function ProductsContent() {
           <ProductStockCountView
             products={products}
             onSuccess={(updated) => setProducts(updated)}
-            onNavigateToList={() => setActiveMainTab('LIST')}
           />
         )}
       </div>

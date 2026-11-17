@@ -5,7 +5,6 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 /** คนใน LINE › ตั้งค่า LINE: connection (Vault, never shown back), staff LINE notices, message texts. */
 
-const SECRET = '0123456789abcdef0123456789abcdef'
 const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   maybeSingle: vi.fn(),

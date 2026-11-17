@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
-import { rpc, selectRows, selectAllRows, isDbError } from '@/lib/db/rpc'
+import { rpc, selectAllRows, isDbError } from '@/lib/db/rpc'
 import type { Customer } from '@/lib/types/rental-pos'
 import { uploadCustomerImage, fetchCustomerDocuments, getDocumentFileUrl } from '@/features/documents/api/customer-document-repository'
 

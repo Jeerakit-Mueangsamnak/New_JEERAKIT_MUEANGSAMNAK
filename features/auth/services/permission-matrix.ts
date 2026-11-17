@@ -1,5 +1,3 @@
-import { MENU_CATALOG, type MenuCode } from '@/features/auth/services/permissions'
-
 /**
  * What each important action needs, as the database enforces it today (read only — there is no
  * separate per-action grant). An action runs when the member holds ANY of its menus

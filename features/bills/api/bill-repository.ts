@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
-import { DbError, selectRows } from '@/lib/db/rpc'
+import { DbError, readByIds, selectRows } from '@/lib/db/rpc'
 import { loadProducts } from '@/features/products/services/product-storage'
 import { loadUnits } from '@/lib/unit-storage'
 import { loadSystemSettings } from '@/features/settings/services/settings-storage'
@@ -45,6 +45,8 @@ interface BillRow {
   due_date: string | null
   is_credit_bill: boolean
   confirmed_at: string | null
+  /** วันที่ออกเอกสาร (YYYY-MM-DD): text printed on the bill only; the bill's own day follows its bill number. */
+  document_date?: string | null
   pricing_snapshot: { vat_mode?: string | null; vat_rate?: number | string | null } | null
   /** The customer as on the day the bill was confirmed (null on a draft: live data). */
   customer_snapshot?: CustomerSnapshot | null
@@ -116,7 +118,7 @@ const BILL_COLUMNS =
   'id, bill_no, status, payment_status, customer_id, quotation_id, parent_bill_id, original_bill_id, note, ' +
   'sale_subtotal, rental_subtotal, bill_discount_amount, taxable_amount, delivery_fee, installation_fee, service_fee, ' +
   'vat_amount, grand_total, charge_total, adjustment_net, paid_amount, refunded_amount, write_off_total, balance_due, ' +
-  'deposit_amount, deposit_unpaid, deposit_note, due_date, is_credit_bill, confirmed_at, pricing_snapshot, customer_snapshot, ' +
+  'deposit_amount, deposit_unpaid, deposit_note, due_date, is_credit_bill, confirmed_at, document_date, pricing_snapshot, customer_snapshot, ' +
   'closed_at, cancelled_at, cancel_reason, voided_at, void_reason, created_at'
 
 export const toDate = (ts: string | null | undefined): string => {
@@ -257,6 +259,7 @@ export function mapBill(
     customerId: b.customer_id || undefined,
     billNo: b.bill_no || `ร่าง-${b.id.slice(0, 8)}`,
     billDate,
+    documentDate: b.document_date ? toDate(b.document_date) : undefined,
     customerName: customer?.name || 'ลูกค้าทั่วไป',
     customerPhone: customer?.phone || '',
     customerAddress: customer?.address,
@@ -377,17 +380,6 @@ export interface BillQuery {
 /** Server statuses of bills that are finished: read on demand, never all at once. */
 export const FINISHED_BILL_STATUSES = ['CLOSED', 'CANCELLED', 'VOID'] as const
 
-/** PostgREST keeps the URL short: at most this many ids per `in (...)` filter. */
-const IDS_PER_QUERY = 100
-
-async function inChunks<T>(ids: string[], run: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
-  const unique = [...new Set(ids)]
-  if (unique.length === 0) return []
-  const chunks: string[][] = []
-  for (let i = 0; i < unique.length; i += IDS_PER_QUERY) chunks.push(unique.slice(i, i + IDS_PER_QUERY))
-  return (await Promise.all(chunks.map(run))).flat()
-}
-
 const LOCAL_DAY = /^\d{4}-\d{2}-\d{2}$/
 
 /** Start of a local calendar day as the server timestamp (the browser runs in the shop's time zone). */
@@ -446,7 +438,7 @@ async function productContext(
       is_rent_chargeable: p.isChargeable !== false,
     })
   }
-  const fetched = await inChunks(missingProducts, (chunk) =>
+  const fetched = await readByIds(missingProducts, (chunk) =>
     selectRows<ProductLite>(
       supabase.from('products').select('id, sku, name, default_damage_fee, default_loss_fee, unit_id, is_rent_chargeable').in('id', chunk)
     )
@@ -455,7 +447,7 @@ async function productContext(
 
   const units = new Map(loadUnits().map((u) => [u.id, u.name]))
   const missingUnits = [...new Set([...products.values()].map((p) => p.unit_id))].filter((id) => id && !units.has(id))
-  const fetchedUnits = await inChunks(missingUnits, (chunk) =>
+  const fetchedUnits = await readByIds(missingUnits, (chunk) =>
     selectRows<{ id: string; name: string }>(supabase.from('units').select('id, name').in('id', chunk))
   )
   for (const u of fetchedUnits) units.set(u.id, u.name)
@@ -465,30 +457,30 @@ async function productContext(
 async function loadBills(query: BillQuery = {}): Promise<FullBill[]> {
   const supabase = createClient()
   const bills: BillRow[] = query.ids
-    ? await inChunks(query.ids, (chunk) => selectRows<BillRow>(billsQuery(supabase, query, chunk)))
+    ? await readByIds(query.ids, (chunk) => selectRows<BillRow>(billsQuery(supabase, query, chunk)))
     : await selectRows<BillRow>(billsQuery(supabase, query))
   const billIds = bills.map((b) => b.id)
   const customerIds = bills.map((b) => b.customer_id).filter((id): id is string => Boolean(id))
-  const linesRead = inChunks(billIds, (chunk) => selectRows<LineRow>(supabase.from('bill_lines').select('*').in('bill_id', chunk)))
+  const linesRead = readByIds(billIds, (chunk) => selectRows<LineRow>(supabase.from('bill_lines').select('*').in('bill_id', chunk)))
   const [lines, payments, refunds, charges, allocations, catalogue, customers] = await Promise.all([
     linesRead,
-    inChunks(billIds, (chunk) =>
+    readByIds(billIds, (chunk) =>
       selectRows<{ id: string; bill_id: string; receipt_id: string | null; method: string; amount: number; reference: string | null; status: string; received_at: string }>(
         supabase.from('payments').select('id, bill_id, receipt_id, method, amount, reference, status, received_at').in('bill_id', chunk)
       )
     ),
-    inChunks(billIds, (chunk) =>
+    readByIds(billIds, (chunk) =>
       selectRows<{ id: string; bill_id: string; refund_no: string; payment_id: string; amount: number; method: string; reason: string; paid_at: string; status: string }>(
         supabase.from('refunds').select('id, bill_id, refund_no, payment_id, amount, method, reason, paid_at, status').in('bill_id', chunk)
       )
     ),
-    inChunks(billIds, (chunk) =>
+    readByIds(billIds, (chunk) =>
       selectRows<{ id: string; bill_id: string; charge_type: string; amount: number; suggested_amount: number | null; status: string; reason: string; bill_line_id: string | null; incident_case_id: string | null; created_at: string; basis: Record<string, unknown> | null }>(
         supabase.from('charges').select('id, bill_id, charge_type, amount, suggested_amount, status, reason, bill_line_id, incident_case_id, created_at, basis').in('bill_id', chunk)
       )
     ),
     // A database without migration 20261110192958 has no such table yet: no history rows, the rest still loads.
-    inChunks(billIds, (chunk) =>
+    readByIds(billIds, (chunk) =>
       selectRows<AllocationRow>(supabase.from('bill_payment_allocations').select('*').in('bill_id', chunk).order('created_at')).catch(
         (e: { sqlState?: string }) => {
           if (e?.sqlState === 'PGRST205' || e?.sqlState === '42P01') return [] as AllocationRow[]
@@ -497,7 +489,7 @@ async function loadBills(query: BillQuery = {}): Promise<FullBill[]> {
       )
     ),
     linesRead.then((read) => productContext(supabase, read)),
-    inChunks(customerIds, (chunk) => selectRows<CustomerLite>(supabase.from('customers').select('id, name, phone, address').in('id', chunk))),
+    readByIds(customerIds, (chunk) => selectRows<CustomerLite>(supabase.from('customers').select('id, name, phone, address').in('id', chunk))),
   ])
 
   const linesByBill = groupBy(lines, (l) => l.bill_id)

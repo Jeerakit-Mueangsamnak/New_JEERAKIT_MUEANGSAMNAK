@@ -1,7 +1,7 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
-import { Plus, X, ArrowRight, Tag, Scale } from 'lucide-react'
+import React, { useMemo } from 'react'
+import { Plus, X } from 'lucide-react'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { CustomDatePicker } from '@/components/common/CustomDatePicker'
 import { NumericInput } from '@/components/common/NumericInput'
@@ -14,8 +14,7 @@ import {
   loadCompositeRules,
 } from '@/lib/category-rules-storage'
 import { Unit } from '@/lib/unit-storage'
-import { ActionButton, COMMAND_BUTTON_SIZE_CLASSES, TABLE_FOOTER_CLASSES } from '@/components/common/ActionButton'
-import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
+import { ActionButton, TABLE_FOOTER_CLASSES } from '@/components/common/ActionButton'
 import { ProductCreateDraftRow, createInitialDraftRows } from '@/lib/product-draft-types'
 import { listItemOptions } from '@/features/products/utils/list-items'
 import { loadProducts } from '@/features/products/services/product-storage'
@@ -32,9 +31,6 @@ interface ProductCreateViewProps {
   isSubmitting: boolean
   onSubmit: (e: React.FormEvent) => void
   onClearDraft: () => void
-  onNavigateToSettings?: () => void
-  onQuickAddCategory?: (name: string, calcType: CalculationType, unitId: string) => Promise<string>
-  onQuickAddUnit?: (name: string) => Promise<string>
 }
 
 export function ProductCreateView({
@@ -47,9 +43,6 @@ export function ProductCreateView({
   isSubmitting,
   onSubmit,
   onClearDraft,
-  onNavigateToSettings,
-  onQuickAddCategory,
-  onQuickAddUnit,
 }: ProductCreateViewProps) {
   // Normalize Categories
   const categoriesList: ProductCategoryItem[] = useMemo(() => {
@@ -65,61 +58,6 @@ export function ProductCreateView({
     if (propCompositeRules) return propCompositeRules
     return loadCompositeRules()
   }, [propCompositeRules])
-
-  // Quick Add Category Modal State
-  const [showQuickAddCategoryModal, setShowQuickAddCategoryModal] = useState(false)
-  const [targetRowIdForCategory, setTargetRowIdForCategory] = useState<string | null>(null)
-  const [quickCatName, setQuickCatName] = useState('')
-  const [quickCalcType, setQuickCalcType] = useState<CalculationType>('PER_ROUND')
-  const [quickCatUnitId, setQuickCatUnitId] = useState('')
-
-  // Quick Add Unit Modal State
-  const [showQuickAddUnitModal, setShowQuickAddUnitModal] = useState(false)
-  const [targetRowIdForUnit, setTargetRowIdForUnit] = useState<string | null>(null)
-  const [quickUnitName, setQuickUnitName] = useState('')
-
-  const handleOpenQuickAddCategory = (rowId?: string) => {
-    setTargetRowIdForCategory(rowId || null)
-    setQuickCatName('')
-    setQuickCalcType('PER_ROUND')
-    setQuickCatUnitId(units[0]?.id || '')
-    setShowQuickAddCategoryModal(true)
-  }
-
-  const handleSaveQuickCategory = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const trimmed = quickCatName.trim()
-    if (!trimmed) return
-
-    if (onQuickAddCategory) {
-      const newId = await onQuickAddCategory(trimmed, quickCalcType, quickCatUnitId)
-      if (targetRowIdForCategory) {
-        handleCategoryChange(targetRowIdForCategory, newId)
-      }
-    }
-    setShowQuickAddCategoryModal(false)
-  }
-
-  const handleOpenQuickAddUnit = (rowId?: string) => {
-    setTargetRowIdForUnit(rowId || null)
-    setQuickUnitName('')
-    setShowQuickAddUnitModal(true)
-  }
-
-  const handleSaveQuickUnit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const trimmed = quickUnitName.trim()
-    if (!trimmed) return
-
-    if (onQuickAddUnit) {
-      const newUnitId = await onQuickAddUnit(trimmed)
-      if (targetRowIdForUnit && newUnitId) {
-        handleUpdateRow(targetRowIdForUnit, 'unitId', newUnitId)
-        handleUpdateRow(targetRowIdForUnit, 'accessoryUnitId', newUnitId)
-      }
-    }
-    setShowQuickAddUnitModal(false)
-  }
 
   const handleAddRow = () => {
     setRows((prev) => [
@@ -534,165 +472,6 @@ export function ProductCreateView({
         </div>
       </form>
 
-      {/* Quick Add Category Modal */}
-      <AppModal
-        isOpen={showQuickAddCategoryModal}
-        onClose={() => setShowQuickAddCategoryModal(false)}
-        size="md"
-      >
-        <AppModalHeader
-          title="เพิ่มหมวดหมู่สินค้าใหม่"
-          icon={<Tag className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />}
-          onClose={() => setShowQuickAddCategoryModal(false)}
-        />
-        <form onSubmit={handleSaveQuickCategory}>
-          <AppModalBody className="space-y-3.5 p-4 sm:p-5 text-xs">
-            <div>
-              <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
-                ชื่อหมวดหมู่ <span className="text-red-700 dark:text-red-400">*</span>
-              </label>
-              <input
-                type="text"
-                autoFocus
-                value={quickCatName}
-                onChange={(e) => setQuickCatName(e.target.value)}
-                placeholder="ระบุชื่อหมวดหมู่สินค้า..."
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
-                วิธีคิดเงิน
-              </label>
-              <CustomSelect
-                value={quickCalcType}
-                onChange={(val) => setQuickCalcType(val as CalculationType)}
-                options={CALCULATION_OPTIONS.map((opt) => ({
-                  value: opt.type,
-                  label: opt.label,
-                }))}
-              />
-            </div>
-
-            <div>
-              <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
-                หน่วยนับ
-              </label>
-              <CustomSelect
-                value={quickCatUnitId || units[0]?.id || ''}
-                onChange={(val) => setQuickCatUnitId(String(val))}
-                options={
-                  activeUnits.length > 0
-                    ? activeUnits.map((u) => ({
-                        value: u.id,
-                        label: u.name,
-                      }))
-                    : [{ value: '', label: 'ยังไม่มีรายการ' }]
-                }
-                placeholder={activeUnits.length > 0 ? '-- เลือกหน่วยนับ --' : 'ยังไม่มีรายการ'}
-                emptyText="ยังไม่มีรายการ"
-              />
-            </div>
-
-            {onNavigateToSettings && (
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowQuickAddCategoryModal(false)
-                    onNavigateToSettings()
-                  }}
-                  className={`${COMMAND_BUTTON_SIZE_CLASSES} text-purple-600 dark:text-purple-400 hover:underline flex items-center cursor-pointer`}
-                >
-                  <span>หรือไปจัดการหมวดหมู่และหน่วยนับในแท็บตั้งค่าเสริม</span>
-                  <ArrowRight className="w-3 h-3" />
-                </button>
-              </div>
-            )}
-          </AppModalBody>
-          <AppModalFooter className="p-3 sm:p-4 bg-slate-50 dark:bg-slate-850 flex items-center justify-end gap-2">
-            <ActionButton
-              type="button"
-              onClick={() => setShowQuickAddCategoryModal(false)}
-              variant="outline"
-            >
-              ยกเลิก
-            </ActionButton>
-            <ActionButton
-              type="submit"
-              disabled={!quickCatName.trim()}
-              variant="primary"
-              icon={<Plus />}
-            >
-              บันทึกและเลือกใช้ทันที
-            </ActionButton>
-          </AppModalFooter>
-        </form>
-      </AppModal>
-
-      {/* Quick Add Unit Modal */}
-      <AppModal
-        isOpen={showQuickAddUnitModal}
-        onClose={() => setShowQuickAddUnitModal(false)}
-        size="sm"
-      >
-        <AppModalHeader
-          title="เพิ่มหน่วยนับใหม่"
-          icon={<Scale className="w-4 h-4 text-purple-600 dark:text-purple-400" />}
-          onClose={() => setShowQuickAddUnitModal(false)}
-        />
-        <form onSubmit={handleSaveQuickUnit}>
-          <AppModalBody className="space-y-3.5 p-4 sm:p-5 text-xs">
-            <div>
-              <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
-                ชื่อหน่วยนับ <span className="text-red-700 dark:text-red-400">*</span>
-              </label>
-              <input
-                type="text"
-                autoFocus
-                value={quickUnitName}
-                onChange={(e) => setQuickUnitName(e.target.value)}
-                placeholder="เช่น ชิ้น, ตัว, แผ่น, ลัง, มัด..."
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-purple-500 focus:outline-none"
-              />
-            </div>
-
-            {onNavigateToSettings && (
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowQuickAddUnitModal(false)
-                    onNavigateToSettings()
-                  }}
-                  className={`${COMMAND_BUTTON_SIZE_CLASSES} text-purple-600 dark:text-purple-400 hover:underline flex items-center cursor-pointer`}
-                >
-                  <span>หรือไปจัดการหมวดหมู่และหน่วยนับในแท็บตั้งค่าเสริม</span>
-                  <ArrowRight className="w-3 h-3" />
-                </button>
-              </div>
-            )}
-          </AppModalBody>
-          <AppModalFooter className="p-3 sm:p-4 bg-slate-50 dark:bg-slate-850 flex items-center justify-end gap-2">
-            <ActionButton
-              type="button"
-              onClick={() => setShowQuickAddUnitModal(false)}
-              variant="outline"
-            >
-              ยกเลิก
-            </ActionButton>
-            <ActionButton
-              type="submit"
-              disabled={!quickUnitName.trim()}
-              variant="primary"
-              icon={<Plus />}
-            >
-              บันทึกและเลือกใช้ทันที
-            </ActionButton>
-          </AppModalFooter>
-        </form>
-      </AppModal>
     </div>
   )
 }

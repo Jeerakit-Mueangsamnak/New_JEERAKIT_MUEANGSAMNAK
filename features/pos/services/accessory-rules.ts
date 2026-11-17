@@ -94,13 +94,6 @@ export function findScaffoldPart(products: Product[], key: ScaffoldPartKey): Pro
 export const isNoChargeRental = (p: Pick<Product, 'isChargeable'>) => p.isChargeable === false
 
 /**
- * A RENTAL line of the shop's "ไม่คิดเงิน" (already "-" where a line carries no charge) that is still
- * waiting for its flag: price 0 and not a sale. Only pass products whose price is not editable.
- */
-export const isUnchargedRental = (line: { rentalType?: string | null; price?: number | null; isNoCharge?: boolean }) =>
-  line.isNoCharge ?? (line.rentalType !== 'SALE' && Number(line.price ?? 0) === 0)
-
-/**
  * A bill line of a "ไม่คิดเงิน" rental (owner 2026-11-09): only จำนวน and หน่วย are shown, the money
  * columns are "-". The product's flag decides; a line whose flag is not known counts only when it
  * carries no money at all (never a line whose price was overridden to 0).

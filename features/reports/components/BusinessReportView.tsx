@@ -4,14 +4,10 @@ import { CountUp } from '@/components/common/CountUp'
 import React from 'react'
 import {
   TrendingUp,
-  TrendingDown,
   Users,
   Award,
   CircleDollarSign,
   Receipt,
-  UserCheck,
-  Calendar,
-  Layers,
 } from 'lucide-react'
 import {
   BusinessReportData,

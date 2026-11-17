@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 import { StepNavButton } from '@/components/common/ActionButton'
-import { Customer, Product } from '@/lib/types/rental-pos'
+import { Customer } from '@/lib/types/rental-pos'
 import {
   Trash2,
   Pencil,
@@ -18,7 +18,7 @@ import { useToast } from '@/components/common/Toast'
 import { AppModal, AppModalBody } from '@/components/common/AppModal'
 import { NewCustomerModal } from '@/features/customers/components/NewCustomerModal'
 import { CalendarPanel, getLocalDateString } from '@/components/common/CustomDatePicker'
-import { CustomSelect, SelectOption } from '@/components/common/CustomSelect'
+import { CustomSelect } from '@/components/common/CustomSelect'
 import { CustomerUnifiedSelector } from '@/features/pos/components/CustomerUnifiedSelector'
 import {
   type ActiveCartData,
@@ -32,7 +32,7 @@ import {
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { calculateBillTotals } from '@/lib/calculation-service'
 import { isVatRateConfigured } from '@/features/settings/services/settings-storage'
-import { type VatMode } from '@/features/pos/components/VatModeButtons'
+import { useDocumentVatMode } from '@/features/pos/hooks/useDocumentVatMode'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { loadDocumentNames, getSharedTemplates } from '@/features/documents/services/template-library-storage'
 import { billFormDocumentNames } from '@/features/documents/utils/transaction-print'
@@ -116,17 +116,16 @@ export function CartPanel({
   // every new cart. Owner 2026-11-04: the rate comes from Settings; รวม / ไม่รวม VAT is this document's own
   // button (quotations here, bills on the payment page).
   const vatConfigured = isVatRateConfigured(settings)
-  const [docVatMode, setDocVatMode] = useState<VatMode | null>(initialVatMode ?? null)
-  // A loaded document that had VAT on but no mode of its own keeps the shop's old price mode.
-  const [legacyVatOn, setLegacyVatOn] = useState<boolean>(Boolean(initialVatEnabled) && !initialVatMode)
+  // รวม / ไม่รวม VAT of this document (shared with the payment and quotation pages)
+  const vat = useDocumentVatMode({ mode: initialVatMode, vatEnabled: initialVatEnabled })
+  const loadVat = vat.load
   // Missing / incomplete customer: the customer field blinks red until it is clicked (no pop-up message).
   const [customerAttention, setCustomerAttention] = useState<boolean>(initialCustomerAttention)
   useEffect(() => {
     if (initialVatEnabled === undefined && initialVatMode === undefined) return
-    setDocVatMode(initialVatMode ?? null)
-    setLegacyVatOn(Boolean(initialVatEnabled) && !initialVatMode)
-  }, [initialVatEnabled, initialVatMode])
-  const effectiveVatMode: VatMode | null = docVatMode ?? (legacyVatOn ? settings.taxDiscount?.vatMode ?? null : null)
+    loadVat(initialVatMode, Boolean(initialVatEnabled))
+  }, [initialVatEnabled, initialVatMode, loadVat])
+  const effectiveVatMode = vat.effective
   const vatOn = effectiveVatMode !== null && vatConfigured
   
   const [internalCustomer, setInternalCustomer] = useState<Customer | null>(null)
@@ -188,8 +187,7 @@ export function CartPanel({
   const clearCart = () => {
     setItems([])
     setCustomer(null)
-    setDocVatMode(null)
-    setLegacyVatOn(false)
+    vat.clear()
   }
 
   const totals = calculateBillTotals({
@@ -320,7 +318,7 @@ export function CartPanel({
     if (items.length > 0) saveActiveCart(latestCart.current())
     else if (keptItemCount.current > 0) clearActiveCart('BILL')
     keptItemCount.current = items.length
-  }, [isQuotationMode, items, customer, contactPhone, shippingAddress, headerRentalDate, headerReturnDate, documentType, documentDate, datesPicked, docVatMode, draftBillId, quotationId])
+  }, [isQuotationMode, items, customer, contactPhone, shippingAddress, headerRentalDate, headerReturnDate, documentType, documentDate, datesPicked, vat.mode, draftBillId, quotationId])
 
   const handleOpenAddCustomerModal = () => {
     setShowAddCustomerModal(true)

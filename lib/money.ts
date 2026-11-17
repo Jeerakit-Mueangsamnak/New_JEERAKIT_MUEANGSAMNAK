@@ -174,29 +174,3 @@ export function calculateDepositSettlementSatang(
     balanceDueSatang,
   }
 }
-
-/**
- * Baht boundary helper for Deposit Settlement:
- * Converts Baht inputs to Satang, computes settlement via integer core,
- * and returns Baht results.
- */
-export function calculateDepositSettlement(
-  heldDepositBaht: number,
-  compensationTotalBaht: number
-): {
-  compensationTotal: number
-  appliedDeposit: number
-  refundDue: number
-  balanceDue: number
-} {
-  const heldSatang = toSatang(heldDepositBaht)
-  const compSatang = toSatang(compensationTotalBaht)
-  const res = calculateDepositSettlementSatang(heldSatang, compSatang)
-
-  return {
-    compensationTotal: toBaht(res.compensationTotalSatang),
-    appliedDeposit: toBaht(res.appliedDepositSatang),
-    refundDue: toBaht(res.refundDueSatang),
-    balanceDue: toBaht(res.balanceDueSatang),
-  }
-}

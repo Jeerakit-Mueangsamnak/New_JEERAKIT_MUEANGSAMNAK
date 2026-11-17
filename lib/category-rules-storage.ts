@@ -1,6 +1,6 @@
 import { saveCategoryToSupabase, deleteCategoryFromSupabase } from '@/features/products/api/product-repository'
 import { getCategoryDefaults, saveCategoryDefault } from '@/lib/db/policies'
-import { addUnitAsync, loadUnits } from '@/lib/unit-storage'
+import { loadUnits } from '@/lib/unit-storage'
 /**
  * Shared Product Category Rules & Composite Lookup Storage
  *
@@ -366,18 +366,3 @@ export function loadCategoryRules(): ProductCategoryRule[] {
   return rules
 }
 
-async function resolveRuleUnitId(rule: Pick<ProductCategoryRule, 'unit' | 'unitId'>): Promise<string> {
-  const unitName = rule.unit.trim()
-  if (!unitName) throw new Error('กรุณาระบุหน่วยนับ')
-  const units = loadUnits()
-  const unit = rule.unitId
-    ? units.find((candidate) => candidate.id === rule.unitId)
-    : units.find((candidate) => candidate.name.toLocaleLowerCase() === unitName.toLocaleLowerCase())
-  if (rule.unitId && !unit) throw new Error('ไม่พบหน่วยนับที่เลือก')
-  if (unit) return unit.id
-
-  const updatedUnits = await addUnitAsync(unitName)
-  const createdUnit = updatedUnits.find((candidate) => candidate.name.toLocaleLowerCase() === unitName.toLocaleLowerCase())
-  if (!createdUnit) throw new Error('ไม่สามารถสร้างหน่วยนับได้')
-  return createdUnit.id
-}

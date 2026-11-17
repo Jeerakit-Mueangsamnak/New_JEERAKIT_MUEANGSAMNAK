@@ -344,18 +344,6 @@ export async function deleteUnitFromSupabase(id: string): Promise<void> {
 
 // ─── stock (all PIN + audit, Master §4.4 / §11) ─────────────────────────────
 
-export interface StockMovementRow {
-  id: string
-  product_id: string
-  stock_state: string
-  quantity_delta: number
-  movement_type: string
-  source_type: string
-  source_id: string
-  reason: string | null
-  created_at: string
-  created_by: string
-}
 /** รับสินค้าเข้าสต็อก — PIN + audit (owner decision 2026-10-04). */
 export async function receiveStock(productId: string, quantity: number, reason: string, productName?: string): Promise<void> {
   const key = newIdempotencyKey()

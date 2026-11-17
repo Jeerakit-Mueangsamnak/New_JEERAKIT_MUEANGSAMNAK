@@ -1,11 +1,10 @@
 'use client'
 
 import React, { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, Clock, Plus } from 'lucide-react'
+import { Clock } from 'lucide-react'
 import { useClickOutside } from '@/lib/hooks/useClickOutside'
 import { useFloatingPlacement } from '@/lib/hooks/useFloatingPlacement'
 import { ModalPortal } from '@/components/common/ModalPortal'
-import { plainTypeName, type AppointmentTypeOption } from '@/features/appointments/services/appointment-types'
 
 const FIELD =
   'w-full h-9 px-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-bold focus:ring-2 focus:ring-emerald-500 focus:outline-none'

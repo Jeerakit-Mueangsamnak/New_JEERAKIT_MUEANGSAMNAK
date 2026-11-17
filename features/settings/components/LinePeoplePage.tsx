@@ -2,7 +2,8 @@
 
 /**
  * เมนู LINE (/line). Summary cards on top, then one box whose toolbar row holds two tab bars: the groups คนใน LINE |
- * ข้อความ | การส่ง | ตั้งค่า (the last three OWNER only, owner 2026-11-17), then the pages of the open group.
+ * ข้อความ | การส่ง | ตั้งค่า (the last three OWNER only, owner 2026-11-17), then the pages of the open group
+ * (ตั้งค่า's pages stand in a bar on the left instead, owner 2026-11-18).
  * - รอร้านตรวจ: friends not linked yet — still not answered in the chat, or typed the phone of a
  *   customer who already has another LINE (or of several customers). The shop may type name +
  *   phone for them (same rule as the chat, decided by the database) or reject them.
@@ -13,10 +14,10 @@
  * (no realtime: line_contacts carries the LINE user id, which never reaches a browser).
  */
 import { CountUp } from '@/components/common/CountUp'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { qrDataUrl } from '@/lib/qr-code'
-import { CheckCircle2, Copy, Link2Off, MessageCircle, MessageSquare, QrCode, Search, Send, Settings2, UserPlus, Users, UserX } from 'lucide-react'
+import { BellRing, CalendarClock, CheckCircle2, Copy, FileText, Link2, Link2Off, MessageCircle, MessageSquare, QrCode, ReceiptText, Search, Send, Settings2, UserPlus, Users, UserX } from 'lucide-react'
 import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
 import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_TH_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
 import {
@@ -25,6 +26,8 @@ import {
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_INACTIVE_CLASSES,
   TAB_CONTAINER_CLASSES,
+  TAB_SIDEBAR_BUTTON_CLASSES,
+  TAB_SIDEBAR_CLASSES,
   COMMAND_BUTTON_SIZE_CLASSES,
   SEARCH_INPUT_CLASSES,
   SEARCH_ICON_CLASSES,
@@ -35,6 +38,7 @@ import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { createClient } from '@/lib/supabase/client'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
+import { DbError, readByIds, selectAllRows, selectRows } from '@/lib/db/rpc'
 import { LINE_TEMPLATES, type LineTemplateKey } from '@/lib/line/templates'
 import { getLineOaInfo, registerLineContactByShop, rejectLineContact, unlinkLineContact } from '@/app/actions/line'
 import { DeliveryDriversPanel } from '@/features/settings/components/DeliveryDriversPanel'
@@ -53,8 +57,9 @@ type RegisterStatus = 'WAITING' | 'PHONE_TAKEN' | 'DUPLICATE'
 /**
  * Owner 2026-11-17: the LINE menu in 4 groups, one row of pages each (was 7 tabs + 6 sub-tabs with the same people
  * and messages in several places). Staff see คนใน LINE only (without พนักงานร้าน).
+ * Owner 2026-11-18: the ข้อความ pages moved down into ตั้งค่า's left bar (3 groups on top now).
  */
-type LineGroup = 'PEOPLE' | 'MESSAGES' | 'SENDING' | 'SETTINGS'
+type LineGroup = 'PEOPLE' | 'SENDING' | 'SETTINGS'
 type LineView =
   | 'PENDING' | 'LINKED' | 'STAFF' | 'DRIVERS'
   | 'TEMPLATES' | 'OWN' | 'CARD'
@@ -65,7 +70,10 @@ const LINE_GROUPS: ReadonlyArray<{
   label: string
   icon: ReactNode
   ownerOnly?: boolean
-  views: ReadonlyArray<{ id: LineView; label: string; ownerOnly?: boolean }>
+  /** ตั้งค่า (owner 2026-11-18): its pages stand in a bar on the left instead of the toolbar row */
+  sideBar?: boolean
+  /** `divider`: a line above the page in the left bar (between the settings and the message pages) */
+  views: ReadonlyArray<{ id: LineView; label: string; ownerOnly?: boolean; icon?: ReactNode; divider?: boolean }>
 }> = [
   {
     id: 'PEOPLE',
@@ -76,17 +84,6 @@ const LINE_GROUPS: ReadonlyArray<{
       { id: 'LINKED', label: 'ลูกค้า' },
       { id: 'STAFF', label: 'พนักงานร้าน', ownerOnly: true },
       { id: 'DRIVERS', label: 'พนักงานส่งของ' },
-    ],
-  },
-  {
-    id: 'MESSAGES',
-    label: 'ข้อความ',
-    icon: <MessageSquare className="w-3.5 h-3.5" />,
-    ownerOnly: true,
-    views: [
-      { id: 'TEMPLATES', label: 'ข้อความอัตโนมัติ' },
-      { id: 'OWN', label: 'แม่แบบของร้าน' },
-      { id: 'CARD', label: 'การ์ดบิล' },
     ],
   },
   {
@@ -104,10 +101,14 @@ const LINE_GROUPS: ReadonlyArray<{
     label: 'ตั้งค่า',
     icon: <Settings2 className="w-3.5 h-3.5" />,
     ownerOnly: true,
+    sideBar: true,
     views: [
-      { id: 'CONNECTION', label: 'เชื่อมต่อ LINE' },
-      { id: 'NOTIFY', label: 'แจ้งพนักงาน' },
-      { id: 'SCHEDULE', label: 'เตือนลูกค้า' },
+      { id: 'CONNECTION', label: 'เชื่อมต่อ LINE', icon: <Link2 className="w-3.5 h-3.5" /> },
+      { id: 'NOTIFY', label: 'แจ้งพนักงาน', icon: <BellRing className="w-3.5 h-3.5" /> },
+      { id: 'SCHEDULE', label: 'เตือนลูกค้า', icon: <CalendarClock className="w-3.5 h-3.5" /> },
+      { id: 'TEMPLATES', label: 'ข้อความอัตโนมัติ', icon: <MessageSquare className="w-3.5 h-3.5" />, divider: true },
+      { id: 'OWN', label: 'แม่แบบของร้าน', icon: <FileText className="w-3.5 h-3.5" /> },
+      { id: 'CARD', label: 'การ์ดบิล', icon: <ReceiptText className="w-3.5 h-3.5" /> },
     ],
   },
 ]
@@ -178,7 +179,7 @@ export function LinePeoplePage() {
   const view: LineView = isOwnerView(tab) && !isOwner ? 'PENDING' : tab
   const group = groupOf(view)
   // each group opens on the page last used in it
-  const [lastView, setLastView] = useState<Record<LineGroup, LineView>>({ PEOPLE: 'PENDING', MESSAGES: 'TEMPLATES', SENDING: 'MANUAL', SETTINGS: 'CONNECTION' })
+  const [lastView, setLastView] = useState<Record<LineGroup, LineView>>({ PEOPLE: 'PENDING', SENDING: 'MANUAL', SETTINGS: 'CONNECTION' })
   const [draftView, setDraftView] = useState<LineSettingsView>('TEMPLATES')
   const open = (v: LineView) => {
     setTab(v)
@@ -191,7 +192,8 @@ export function LinePeoplePage() {
   const [linked, setLinked] = useState<LinkedContact[]>([])
   const [customers, setCustomers] = useState<Record<string, CustomerLite>>({})
   const [takenBy, setTakenBy] = useState<Record<string, string | null>>({})
-  const [notReady, setNotReady] = useState(false)
+  /** Why the lists could not be read (null = read fine) */
+  const [notReady, setNotReady] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [openForm, setOpenForm] = useState<string | null>(null)
   const [form, setForm] = useState({ name: '', phone: '' })
@@ -201,39 +203,43 @@ export function LinePeoplePage() {
 
   const load = useCallback(async () => {
     const supabase = createClient()
-    const [p, l] = await Promise.all([
-      supabase
-        .from('line_contacts')
-        .select('id, display_name, register_status, register_customer_id, typed_name, typed_phone, created_at, last_event_at')
-        .eq('status', 'UNLINKED')
-        .in('register_status', ['WAITING', 'PHONE_TAKEN', 'DUPLICATE'])
-        .order('last_event_at', { ascending: false })
-        .limit(200),
-      supabase
-        .from('line_contacts')
-        .select('id, display_name, customer_id, linked_at, followed, self_registered')
-        .eq('status', 'LINKED')
-        .not('customer_id', 'is', null)
-        .order('linked_at', { ascending: false })
-        .limit(500),
-    ])
-    if (p.error || l.error) {
-      setNotReady(true)
-      return
-    }
-    setNotReady(false)
-    const pendingRows = (p.data as PendingContact[] | null) ?? []
-    const linkedRows = (l.data as LinkedContact[] | null) ?? []
-    if (firstSeen.current === null) firstSeen.current = new Set(pendingRows.map((x) => x.id))
+    try {
+      // Every row, page by page (no silent cut at a fixed number of people, audit 2026-11-18)
+      const [pendingRows, linkedRows] = await Promise.all([
+        selectAllRows<PendingContact>(() =>
+          supabase
+            .from('line_contacts')
+            .select('id, display_name, register_status, register_customer_id, typed_name, typed_phone, created_at, last_event_at')
+            .eq('status', 'UNLINKED')
+            .in('register_status', ['WAITING', 'PHONE_TAKEN', 'DUPLICATE'])
+            .order('last_event_at', { ascending: false }),
+        ),
+        selectAllRows<LinkedContact>(() =>
+          supabase
+            .from('line_contacts')
+            .select('id, display_name, customer_id, linked_at, followed, self_registered')
+            .eq('status', 'LINKED')
+            .not('customer_id', 'is', null)
+            .order('linked_at', { ascending: false }),
+        ),
+      ])
+      if (firstSeen.current === null) firstSeen.current = new Set(pendingRows.map((x) => x.id))
 
-    // names of the customers on screen (linked ones, and the owners of a phone already taken)
-    const takenIds = [...new Set(pendingRows.map((x) => x.register_customer_id).filter((x): x is string => Boolean(x)))]
-    const ids = [...new Set([...linkedRows.map((x) => x.customer_id), ...takenIds])]
-    const cu = ids.length ? await supabase.from('customers').select('id, name, phone').in('id', ids) : { data: [] as CustomerLite[] }
-    setCustomers(Object.fromEntries(((cu.data as CustomerLite[] | null) ?? []).map((c) => [c.id, c])))
-    setTakenBy(Object.fromEntries(takenIds.map((id) => [id, linkedRows.find((x) => x.customer_id === id)?.display_name ?? null])))
-    setPending(pendingRows)
-    setLinked(linkedRows)
+      // names of the customers on screen (linked ones, and the owners of a phone already taken), read in chunks
+      const takenIds = [...new Set(pendingRows.map((x) => x.register_customer_id).filter((x): x is string => Boolean(x)))]
+      const cu = await readByIds([...linkedRows.map((x) => x.customer_id), ...takenIds], (chunk) =>
+        selectRows<CustomerLite>(supabase.from('customers').select('id, name, phone').in('id', chunk)),
+      )
+      setCustomers(Object.fromEntries(cu.map((c) => [c.id, c])))
+      setTakenBy(Object.fromEntries(takenIds.map((id) => [id, linkedRows.find((x) => x.customer_id === id)?.display_name ?? null])))
+      setPending(pendingRows)
+      setLinked(linkedRows)
+      setNotReady(null)
+    } catch (e: unknown) {
+      // a missing LINE table (database not set up) or any other read failure is said on screen, never hidden
+      const missing = e instanceof DbError && ['PGRST205', '42P01', '42703', 'PGRST202', '42883'].includes(e.sqlState ?? '')
+      setNotReady(missing ? 'ฐานข้อมูลนี้ยังไม่มีส่วนสมัครผ่าน LINE (รอติดตั้ง Migration) จึงยังแสดงรายชื่อไม่ได้' : e instanceof Error ? e.message : 'โหลดรายชื่อไม่สำเร็จ')
+    }
   }, [])
 
   // no รีเฟรช button: the lists update by themselves (owner 2026-11-17)
@@ -404,21 +410,45 @@ export function LinePeoplePage() {
               </button>
             ))}
           </div>
-          <span aria-hidden="true" className="w-px h-6 shrink-0 bg-slate-300 dark:bg-slate-600" />
+          {!group.sideBar && <span aria-hidden="true" className="w-px h-6 shrink-0 bg-slate-300 dark:bg-slate-600" />}
         </>
       )}
-      <div className={TAB_CONTAINER_CLASSES} role="tablist" aria-label={group.label}>
-        {group.views
-          .filter((v) => isOwner || !v.ownerOnly)
-          .map((v) => (
-            <button key={v.id} type="button" role="tab" aria-selected={view === v.id} onClick={() => open(v.id)} className={tabClass(view === v.id)}>
-              {v.label}
-              {countOf[v.id] !== undefined && countBadge(countOf[v.id] as number, v.id === 'PENDING' && pending.length > 0)}
-            </button>
-          ))}
-      </div>
+      {!group.sideBar && (
+        <div className={TAB_CONTAINER_CLASSES} role="tablist" aria-label={group.label}>
+          {group.views
+            .filter((v) => isOwner || !v.ownerOnly)
+            .map((v) => (
+              <button key={v.id} type="button" role="tab" aria-selected={view === v.id} onClick={() => open(v.id)} className={tabClass(view === v.id)}>
+                {v.label}
+                {countOf[v.id] !== undefined && countBadge(countOf[v.id] as number, v.id === 'PENDING' && pending.length > 0)}
+              </button>
+            ))}
+        </div>
+      )}
     </div>
   )
+  /** ตั้งค่า: its pages in a bar on the left (owner 2026-11-18: the tab bar look standing up, icon before each name) */
+  const sideBar = group.sideBar ? (
+    <aside className="shrink-0 w-44 p-2 border-r border-slate-200 dark:border-slate-700 overflow-y-auto">
+      <nav className={TAB_SIDEBAR_CLASSES} role="tablist" aria-orientation="vertical" aria-label={group.label}>
+        {group.views.map((v) => (
+          <Fragment key={v.id}>
+            {v.divider && <span aria-hidden="true" className="h-px mx-2 my-0.5 bg-slate-300 dark:bg-slate-600" />}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === v.id}
+              onClick={() => open(v.id)}
+              className={`${TAB_SIDEBAR_BUTTON_CLASSES} ${view === v.id ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
+            >
+              {v.icon}
+              {v.label}
+            </button>
+          </Fragment>
+        ))}
+      </nav>
+    </aside>
+  ) : null
   /** Pages without their own controls: the toolbar row holds the tab bars only */
   const plainToolbar = <div className={`${TABLE_TOOLBAR_CLASSES} flex items-center`}>{tabBar}</div>
 
@@ -466,10 +496,12 @@ export function LinePeoplePage() {
         )}
         {(view === 'CONNECTION' || view === 'OWN' || view === 'CARD' || isDraftView(view)) && plainToolbar}
 
+        {/* The work area: ตั้งค่า has its page bar on the left; the other groups use the whole width */}
+        <div className="flex-1 min-h-0 flex">
+        {sideBar}
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col">
         {notReady && listView && (
-          <p className="m-3 rounded-lg px-3 py-2 bg-amber-50 dark:bg-amber-950/40 text-[11px] text-amber-800 dark:text-amber-200">
-            ฐานข้อมูลนี้ยังไม่มีส่วนสมัครผ่าน LINE (รอติดตั้ง Migration) จึงยังแสดงรายชื่อไม่ได้
-          </p>
+          <p className="m-3 rounded-lg px-3 py-2 bg-amber-50 dark:bg-amber-950/40 text-[11px] text-amber-800 dark:text-amber-200">{notReady}</p>
         )}
 
         {view === 'PENDING' && (
@@ -683,6 +715,8 @@ export function LinePeoplePage() {
             <div hidden={view !== 'CARD'} className={view === 'CARD' ? 'flex-1 min-h-0 flex flex-col' : undefined}><LineBillCardDesigner /></div>
           </>
         )}
+        </div>
+        </div>
       </div>
 
       {/* QR to add the shop LINE as a friend (adding a friend links nobody) */}

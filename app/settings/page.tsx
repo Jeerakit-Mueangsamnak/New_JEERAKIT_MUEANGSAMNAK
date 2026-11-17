@@ -67,6 +67,7 @@ import {
   SettingsCard,
 } from '@/features/settings/components/SettingsCards'
 import { NotificationSettingsPanel } from '@/features/settings/components/NotificationSettingsPanel'
+import { SwitchKnob } from '@/features/settings/components/SettingsRows'
 import { FormNotesCard } from '@/features/settings/components/FormNotesCard'
 import { BackupPanel } from '@/features/settings/components/BackupPanel'
 import { CustomerDocumentsWorkspace } from '@/features/documents/components/CustomerDocumentsWorkspace'
@@ -117,14 +118,6 @@ const readFileAsDataUrl = (file: File): Promise<string> =>
     reader.onerror = reject
     reader.readAsDataURL(file)
   })
-
-function SwitchKnob({ checked }: { checked: boolean }) {
-  return (
-    <span aria-hidden className={`w-10 h-6 rounded-full p-0.5 flex shrink-0 transition ${checked ? 'bg-[var(--ref-accent)] justify-end' : 'bg-slate-300 dark:bg-slate-600 justify-start'}`}>
-      <span className="w-5 h-5 rounded-full bg-white shadow" />
-    </span>
-  )
-}
 
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
@@ -517,11 +510,6 @@ function SalesRentalSection({ cfg, set }: { cfg: SystemConfig; set: SetDraft }) 
         onChange={(v) => setS({ allowBackorder: v })}
         label="ยืนยันบิลได้แม้สต็อกไม่พอ (ค้างส่ง)"
       />
-      <Toggle
-        checked={s.reservationAutoRelease}
-        onChange={(v) => setS({ reservationAutoRelease: v })}
-        label="ปล่อยของที่จองไว้อัตโนมัติเมื่อหมดอายุ"
-      />
     </div>
   )
 }
@@ -700,12 +688,15 @@ function SettingsPageContent() {
         return <BackupPanel />
       case 'notices':
         return (
-          <SettingsCard footer={notices.footer}>
+          // One card of rows, save buttons in its last row (owner 2026-11-17: reference "Connection logging" look)
+          <div className="space-y-2">
             {notices.conflict}
-            <div className="py-2">
-              <NotificationSettingsPanel value={notices.cfg.notifications} onChange={(n) => notices.set((c) => ({ ...c, notifications: n }))} />
-            </div>
-          </SettingsCard>
+            <NotificationSettingsPanel
+              value={notices.cfg.notifications}
+              onChange={(n) => notices.set((c) => ({ ...c, notifications: n }))}
+              footer={notices.footer}
+            />
+          </div>
         )
       default:
         return null

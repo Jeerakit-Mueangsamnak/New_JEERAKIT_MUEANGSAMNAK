@@ -15,7 +15,7 @@ vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: mock
 
 // Server calls: settings_update merges policies like the server; appointment_save is recorded.
 const mockRpc = vi.hoisted(() => vi.fn())
-vi.mock('@/lib/db/rpc', () => ({ rpc: mockRpc, selectRows: vi.fn(async () => []), selectAllRows: vi.fn(async () => []) }))
+vi.mock('@/lib/db/rpc', () => ({ rpc: mockRpc, selectRows: vi.fn(async () => []), selectAllRows: vi.fn(async () => []), readByIds: vi.fn(async () => []) }))
 vi.mock('@/lib/supabase/client', () => {
   const chain: any = new Proxy(() => chain, { get: () => chain, apply: () => chain })
   return { createClient: () => chain }

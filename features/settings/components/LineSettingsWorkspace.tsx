@@ -62,21 +62,26 @@ export function LineSettingsWorkspace({ view, hidden = false }: { view: LineSett
     }
   }
 
+  const buttons = (
+    <CardSaveButtons
+      label="บันทึกการตั้งค่า"
+      dirty={dirty}
+      saving={saving}
+      onSave={() => void save()}
+      onCancel={() => setState((st) => resetLinePart(st, part, settings))}
+    />
+  )
+
   return (
     <div hidden={hidden} className={hidden ? undefined : 'flex-1 min-h-0 flex flex-col'}>
-      <LineSettingsPanel config={state.draft} setConfig={setDraft} view={view} />
-      <div className={`${TABLE_FOOTER_CLASSES} flex items-center justify-between bg-white dark:bg-slate-800`}>
-        <span className={SETTINGS_HELPER}>{dirty ? 'มีการแก้ไขที่ยังไม่บันทึก' : ''}</span>
-        <div className="flex gap-2">
-          <CardSaveButtons
-            label="บันทึกการตั้งค่า"
-            dirty={dirty}
-            saving={saving}
-            onSave={() => void save()}
-            onCancel={() => setState((st) => resetLinePart(st, part, settings))}
-          />
+      <LineSettingsPanel config={state.draft} setConfig={setDraft} view={view} footer={view === 'NOTIFY' ? buttons : undefined} />
+      {/* แจ้งพนักงาน has the buttons inside its card (owner 2026-11-17); the other pages keep the bottom bar */}
+      {view !== 'NOTIFY' && (
+        <div className={`${TABLE_FOOTER_CLASSES} flex items-center justify-between bg-white dark:bg-slate-800`}>
+          <span className={SETTINGS_HELPER}>{dirty ? 'มีการแก้ไขที่ยังไม่บันทึก' : ''}</span>
+          <div className="flex gap-2">{buttons}</div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

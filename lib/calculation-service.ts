@@ -25,11 +25,9 @@ import {
   toBaht,
   addSatang,
   subtractSatang,
-  multiplySatang,
   calculateLineTotalSatang,
   calculateVatSatang,
   calculateDiscountSatang,
-  calculateDepositSettlement,
 } from '@/lib/money'
 
 export type RoundingMode = 'ROUND_HALF_UP' | 'ROUND_UP' | 'ROUND_DOWN'
@@ -56,7 +54,7 @@ export interface LineItemInput {
 /**
  * Calculates line total for a single item.
  */
-export function calculateLineTotal(item: LineItemInput, settings?: SystemConfig): number {
+export function calculateLineTotal(item: LineItemInput): number {
   const qty = Number(item.quantity) || 0
   const isSale = item.rentalType === 'SALE'
 
@@ -122,13 +120,13 @@ export interface BillCalculationResult {
 }
 
 /** Stage 1: the raw subtotal before discount, in Satang. */
-function computeSubtotalSatang(items: CalculateTotalsOptions['items'], cfg: SystemConfig): number {
+function computeSubtotalSatang(items: CalculateTotalsOptions['items']): number {
   let rawSubtotalSatang = 0
   for (const it of items) {
     if (typeof it.lineTotal === 'number') {
       rawSubtotalSatang = addSatang(rawSubtotalSatang, toSatang(it.lineTotal))
     } else {
-      rawSubtotalSatang = addSatang(rawSubtotalSatang, toSatang(calculateLineTotal(it as LineItemInput, cfg)))
+      rawSubtotalSatang = addSatang(rawSubtotalSatang, toSatang(calculateLineTotal(it as LineItemInput)))
     }
   }
   return rawSubtotalSatang
@@ -208,7 +206,7 @@ export function calculateBillTotals(options: CalculateTotalsOptions): BillCalcul
   const maxDiscountPercent = discountLimitPercent(cfg) ?? 100
 
   // 1. Subtotal in Satang
-  const rawSubtotalSatang = computeSubtotalSatang(options.items, cfg)
+  const rawSubtotalSatang = computeSubtotalSatang(options.items)
   const subtotal = toBaht(rawSubtotalSatang)
 
   // 2+3. Discount, ceiling validation and net subtotal in Satang
@@ -279,9 +277,3 @@ export function validateDiscountCeiling(subtotal: number, discountAmount: number
   }
 }
 
-/** A date the caller gave, or the fallback when it is missing / not a real date. */
-function usableDate(value: string | Date | undefined, fallback: Date): Date {
-  if (value === undefined) return fallback
-  const d = new Date(value)
-  return isNaN(d.getTime()) ? fallback : d
-}

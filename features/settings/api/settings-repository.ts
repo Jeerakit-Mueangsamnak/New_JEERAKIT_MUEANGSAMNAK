@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
-import { FORM_NOTE_LINES } from '@/features/documents/utils/form-notes'
+import { FORM_NOTE_LINES, FORM_SERVICE_LABELS } from '@/features/documents/utils/form-notes'
 import { parseLineCardDesigns } from '@/lib/line/bill-card-design'
 import { parseLineMessageTemplates } from '@/lib/line/message-templates'
 import { rpc } from '@/lib/db/rpc'
@@ -169,7 +169,6 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
     payment: { allowOverpayment: bool(pol.allow_overpayment, d.payment.allowOverpayment) },
     salesRental: {
       allowBackorder: bool(pol.allow_backorder, d.salesRental.allowBackorder),
-      reservationAutoRelease: bool(pol.reservation_auto_release, d.salesRental.reservationAutoRelease),
     },
     product: { defaultReorderPoint: reorder ?? d.product.defaultReorderPoint },
     documentNumbering,
@@ -180,6 +179,11 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
       Object.entries(obj(pol.document_notes))
         .filter(([, lines]) => Array.isArray(lines))
         .map(([id, lines]) => [id, (lines as unknown[]).slice(0, FORM_NOTE_LINES).map((t) => (typeof t === 'string' ? t : ''))])
+    ),
+    documentServices: Object.fromEntries(
+      Object.entries(obj(pol.document_services))
+        .filter(([, lines]) => Array.isArray(lines))
+        .map(([id, lines]) => [id, (lines as unknown[]).slice(0, FORM_SERVICE_LABELS.length).map((t) => (typeof t === 'string' ? t : ''))])
     ),
     line: {
       notify: Object.fromEntries(Object.entries(obj(lineNotify)).filter(([, on]) => on === true)) as Record<string, boolean>,
@@ -246,7 +250,8 @@ export function sectionPatch(section: SettingsSection, cfg: SystemConfig): Recor
       return {
         policies: {
           allow_backorder: cfg.salesRental.allowBackorder,
-          reservation_auto_release: cfg.salesRental.reservationAutoRelease,
+          // Owner 2026-11-18: the shop never releases holds automatically — saving this page keeps it off
+          reservation_auto_release: false,
         },
       }
     case 'product':
@@ -268,7 +273,8 @@ export function sectionPatch(section: SettingsSection, cfg: SystemConfig): Recor
           notifications: {
             deliveryReminder: { enabled: !!n.deliveryReminder.enabled, daysBefore: clampDays(n.deliveryReminder.daysBefore) },
             returnReminder: { enabled: !!n.returnReminder.enabled, daysBefore: clampDays(n.returnReminder.daysBefore) },
-            paymentReminder: { enabled: !!n.paymentReminder.enabled, daysBefore: clampDays(n.paymentReminder.daysBefore) },
+            // ค้างชำระ is always warned (owner 2026-11-18: a bill marked ค้างชำระ at checkout must be followed up)
+            paymentReminder: { enabled: true, daysBefore: clampDays(n.paymentReminder.daysBefore) },
             lowStockReminder: { enabled: !!n.lowStockReminder.enabled },
             overdueReturnReminder: { enabled: !!n.overdueReturnReminder.enabled },
             appointmentReminder: { enabled: !!n.appointmentReminder.enabled, daysBefore: clampDays(n.appointmentReminder.daysBefore) },
@@ -280,6 +286,10 @@ export function sectionPatch(section: SettingsSection, cfg: SystemConfig): Recor
       return {
         policies: {
           document_notes: Object.fromEntries(sortedEntries(cfg.documentNotes).map(([id, lines]) => [id, lines.map((t) => t.trim())])),
+          // ข้อมูลการบริการ is saved with the หมายเหตุ (same card, same button); sent only once the shop has set one
+          ...(Object.keys(cfg.documentServices ?? {}).length
+            ? { document_services: Object.fromEntries(sortedEntries(cfg.documentServices).map(([id, lines]) => [id, lines.map((t) => t.trim())])) }
+            : {}),
         },
       }
     case 'lineMessageTemplates':

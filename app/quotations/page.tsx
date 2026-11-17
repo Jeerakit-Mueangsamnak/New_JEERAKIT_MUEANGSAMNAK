@@ -31,12 +31,10 @@ import { useRouter } from 'next/navigation'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { Quotation } from '@/lib/types/rental-pos'
-import { logger } from '@/lib/utils/logger'
 import { useToast } from '@/components/common/Toast'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import {
   loadQuotations as loadQuotationsFromStorage,
-  updateQuotationStatus,
   confirmQuotationWorkflow,
   cancelQuotationWorkflow,
   fetchQuotationsFromSupabase,

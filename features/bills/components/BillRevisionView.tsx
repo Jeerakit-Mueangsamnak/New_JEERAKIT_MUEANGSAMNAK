@@ -6,7 +6,6 @@ import React, { useEffect, useMemo, useState } from 'react'
 import {
   CalendarPlus,
   Edit3,
-  Plus,
   Trash2,
   Calendar,
   Package,
@@ -19,10 +18,10 @@ import { useToast } from '@/components/common/Toast'
 import { CustomDatePicker, getLocalDateString, parseLocalDate } from '@/components/common/CustomDatePicker'
 import { CustomSelect, SelectOption } from '@/components/common/CustomSelect'
 import { NumericInput } from '@/components/common/NumericInput'
-import { logger } from '@/lib/utils/logger'
+import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
 import { loadProducts } from '@/features/products/services/product-storage'
-import { useAuth } from '@/features/auth/contexts/AuthContext'
-import { createContinuation, reviseBill, type BillRevision } from '@/features/bills/services/bill-service'
+import { loadCategories } from '@/lib/category-rules-storage'
+import { createContinuation, reviseBill, setBillDocumentDate, type BillRevision } from '@/features/bills/services/bill-service'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { dbErrorMessage } from '@/lib/db/rpc'
 import { isNoChargeBillLine, isNoChargeRental } from '@/features/pos/services/accessory-rules'
@@ -66,11 +65,8 @@ interface ProductOption {
   salePrice: number
   unitName?: string
   isNoCharge?: boolean
-}
-
-function uuid() {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
-  return `req-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  categoryId?: string
+  category?: string
 }
 
 function localDate(value?: string | null): string {
@@ -93,6 +89,13 @@ type RevisionLine = Pick<
   'rentalBillItemId' | 'productId' | 'rentalType' | 'quantity' | 'unitPrice' | 'usageCount' | 'dailyStartDate' | 'dailyEndDate' | 'action'
 >
 type BillItem = FullBill['items'][number]
+
+// Table look shared with the return table (ReturnTableStep): tight centred cells, small number boxes and date buttons.
+const cell = 'px-1 text-center'
+const numberBox =
+  'w-full min-w-0 h-7 px-0.5 text-center font-bold border rounded-lg text-[11px] focus:outline-none border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-emerald-500'
+const TABLE_DATE_BUTTON =
+  'h-7 px-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-[11px] font-mono font-semibold justify-center [&>span]:text-center hover:border-slate-300'
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 const startOfDay = (d: string) => new Date(`${d}T00:00:00`).toISOString()
@@ -176,19 +179,20 @@ export function buildRevision(
 export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionViewProps) {
   const { showToast } = useToast()
   const confirmDialog = useConfirm()
-  const { user } = useAuth()
+  const [documentDate, setDocumentDate] = useState<string>('')
   const [headerRentalDate, setHeaderRentalDate] = useState<string>('')
   const [headerReturnDate, setHeaderReturnDate] = useState<string>('')
   const [discountAmount, setDiscountAmount] = useState<number>(0)
   const [shippingFee, setShippingFee] = useState<number>(0)
   const [items, setItems] = useState<EditableItem[]>([])
   const [products, setProducts] = useState<ProductOption[]>([])
-  const [selectedProductId, setSelectedProductId] = useState<string>('')
+  const [categoryId, setCategoryId] = useState('')
   const [isSaving, setIsSaving] = useState(false)
 
   // Initialize data from bill
   useEffect(() => {
     if (!bill) return
+    setDocumentDate(localDate(bill.documentDate || bill.billDate))
     setHeaderRentalDate(localDate(bill.rentalStartDate) || getLocalDateString(new Date()))
     setHeaderReturnDate(localDate(bill.scheduledReturnDate) || getLocalDateString(new Date()))
     setDiscountAmount(Number(bill.discountAmount || 0))
@@ -229,17 +233,25 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
         salePrice: p.salePrice ?? 0,
         unitName: p.unit,
         isNoCharge: p.rentalType !== 'SALE' && isNoChargeRental(p),
+        categoryId: p.categoryId,
+        category: p.category,
       }))
     )
   }, [])
 
-  // Product select options (showing ONLY product name as requested)
+  // หมวดหมู่สินค้า + สินค้า, same as the appointment form (owner 2026-11-17): the category narrows the product list,
+  // picking a product adds it to the bill at once; the product list shows names only.
+  const categories = useMemo(() => loadCategories().filter((c) => c.isActive !== false), [])
+  const categoryOptions: SelectOption[] = useMemo(
+    () => [{ value: '', label: 'ทุกหมวดหมู่' }, ...categories.map((c) => ({ value: c.id, label: c.name }))],
+    [categories]
+  )
   const productSelectOptions: SelectOption[] = useMemo(() => {
-    return products.map((p) => ({
-      value: p.id,
-      label: p.name,
-    }))
-  }, [products])
+    const selected = categories.find((c) => c.id === categoryId)
+    return products
+      .filter((p) => !selected || p.categoryId === selected.id || p.category === selected.name)
+      .map((p) => ({ value: p.id, label: p.name }))
+  }, [products, categories, categoryId])
 
   const activeItems = useMemo(() => items.filter((item) => item.action !== 'REMOVE'), [items])
 
@@ -289,9 +301,8 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
     )
   }
 
-  const addProduct = () => {
-    if (!selectedProductId) return
-    const product = products.find((p) => p.id === selectedProductId)
+  const addProduct = (productId: string) => {
+    const product = products.find((p) => p.id === productId)
     if (!product) return
     const unitPrice =
       product.rentalType === 'DAILY'
@@ -320,7 +331,6 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
         isNoCharge: product.isNoCharge,
       },
     ])
-    setSelectedProductId('')
   }
 
   const handleSave = async () => {
@@ -392,17 +402,24 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           showToast('บิลต้องมีสินค้าอย่างน้อย 1 รายการ', 'ถ้าจะเอาออกทั้งหมด ให้ใช้ยกเลิกบิล', 'ERROR')
           return
         }
+        // วันที่ออกเอกสาร (owner 2026-11-17): printed text only — bill number, money and stock untouched; never a future day
+        const dateChanged = Boolean(documentDate) && documentDate !== localDate(bill.documentDate || bill.billDate)
+        if (dateChanged && documentDate > getLocalDateString(new Date())) {
+          showToast('วันที่เอกสารไม่ถูกต้อง', 'วันที่ออกเอกสารต้องไม่อยู่ในอนาคต', 'ERROR')
+          return
+        }
         const revision = buildRevision(bill, items, { start: headerRentalDate, end: headerReturnDate }, discountAmount, shippingFee)
         const untouched =
           revision.lines.length === bill.items.length &&
           revision.lines.every((l) => l.line_id && Object.keys(l).length === 1) &&
           revision.billDiscountAmount === round2(Number(bill.billDiscountAmount || 0)) &&
           revision.feesTotal === round2(Number(bill.shippingFee || 0))
-        if (untouched) {
-          showToast('ไม่มีการแก้ไข', 'ยังไม่ได้เปลี่ยนสินค้า จำนวน วันที่ ราคา ส่วนลด หรือค่าขนส่ง', 'INFO')
+        if (untouched && !dateChanged) {
+          showToast('ไม่มีการแก้ไข', 'ยังไม่ได้เปลี่ยนวันที่ สินค้า จำนวน ราคา ส่วนลด หรือค่าขนส่ง', 'INFO')
           return
         }
-        await reviseBill(bill.id, revision)
+        if (!untouched) await reviseBill(bill.id, revision)
+        if (dateChanged) await setBillDocumentDate(bill.id, documentDate)
       }
 
       showToast(
@@ -420,9 +437,9 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
   }
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-slate-100 dark:bg-black text-slate-900 dark:text-slate-100 overflow-hidden p-2">
-      {/* One work area (owner 2026-11-17): title, fields, items, summary and the buttons in the same box; buttons at the bottom */}
-      <div className="flex-1 min-h-0 flex flex-col bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+    // One white work area (owner 2026-11-17), full width like the return / payment work areas: the bills page
+    // already gives the grey edge, so no second padding here. Title, fields, items, summary and buttons inside.
+    <div className="flex flex-col min-h-0 h-full w-full overflow-hidden animate-in fade-in duration-150 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-slate-100">
       {/* 1. Title */}
       <div className="border-b border-slate-200 dark:border-slate-700 px-3 py-2 flex items-center shrink-0">
           <div className="flex items-center gap-2 min-w-0">
@@ -445,9 +462,24 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           </div>
       </div>
 
-        {/* 2. Dates & money fields: always 4 fields in 1 row */}
+        {/* 2. Dates & money fields: one row (5 fields on แก้ไขบิล, 4 on เช่าต่อ) */}
         <div className="p-2 border-b border-slate-200 dark:border-slate-700 shrink-0">
-          <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
+          <div className={`grid ${mode === 'EXTENSION' ? 'grid-cols-4' : 'grid-cols-5'} gap-1.5 sm:gap-2`}>
+            {/* วันที่ออกเอกสาร (owner 2026-11-17): fix a wrong day picked at the POS; not on เช่าต่อ (a new bill) */}
+            {mode !== 'EXTENSION' && (
+              <div className="space-y-1 min-w-0">
+                <label className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 truncate">
+                  <Calendar className="w-3 h-3 text-violet-600 dark:text-violet-400 shrink-0" />
+                  <span className="truncate">วันที่ออกเอกสาร</span>
+                </label>
+                <CustomDatePicker
+                  value={parseLocalDate(documentDate)}
+                  onChange={(val) => setDocumentDate(val ? getLocalDateString(val) : localDate(bill.documentDate || bill.billDate))}
+                  className="w-full text-xs"
+                />
+              </div>
+            )}
+
             {/* Header Rental Date (Calendar Popover) */}
             <div className="space-y-1 min-w-0">
               <label className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 truncate">
@@ -508,32 +540,34 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           </div>
         </div>
 
-        {/* Product Search & Add Toolbar */}
-        <div className="p-2 border-b border-slate-200 dark:border-slate-700 shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-          <div className="flex-1 min-w-0">
+        {/* หมวดหมู่สินค้า / สินค้า (owner 2026-11-17: same dropdowns as the appointment form) */}
+        <div className="p-2 border-b border-slate-200 dark:border-slate-700 shrink-0 grid grid-cols-2 gap-1.5 sm:gap-2">
+          <div className="space-y-1 min-w-0">
+            <label className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 block truncate">หมวดหมู่สินค้า</label>
             <CustomSelect
-              value={selectedProductId}
-              onChange={(val) => setSelectedProductId(String(val))}
-              options={productSelectOptions}
-              placeholder="-- พิมพ์ค้นหาหรือเลือกสินค้าที่ต้องการเพิ่ม --"
-              searchable={true}
-              className="w-full"
+              value={categoryId}
+              onChange={(val) => setCategoryId(String(val))}
+              options={categoryOptions}
+              placeholder="ทุกหมวดหมู่"
             />
           </div>
-          <button
-            type="button"
-            disabled={!selectedProductId}
-            onClick={addProduct}
-            className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-slate-200 text-white dark:text-slate-900 flex items-center justify-center transition-all shadow-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0`}
-          >
-            <Plus className="w-4 h-4" />
-            <span>เพิ่มสินค้าในบิล</span>
-          </button>
+          <div className="space-y-1 min-w-0">
+            <label className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 block truncate">สินค้า</label>
+            <CustomSelect
+              value=""
+              onChange={(val) => addProduct(String(val))}
+              options={productSelectOptions}
+              placeholder="เลือกสินค้า..."
+              emptyText="ไม่มีสินค้าในหมวดนี้"
+              searchable
+            />
+          </div>
         </div>
 
         {/* 3. Items: the table takes the free height and scrolls inside */}
-          <div className="flex-1 min-h-0 overflow-auto">
-            <table className="w-full text-left border-collapse text-[10.5px] leading-tight">
+          {/* Shared table frame, same as the return table: sticky header, rows scroll, count bar under them */}
+          <DataTableFrame fill rowCount={items.length} className="flex-1 min-h-0 min-w-0 rounded-none bg-transparent">
+            <table className={`${DATA_TABLE_CLASSES} text-[10px] leading-tight`}>
               <colgroup>
                 {/* ลำดับ / สินค้า / คืนแล้ว / กำลังเช่า / จำนวนในบิล / ราคาต่อหน่วย / วันที่เช่า / วันที่กำหนดคืน / รอบ / จัดการ — no text between <col>s (hydration) */}
                 <col className="w-[40px] sm:w-[44px]" />
@@ -547,18 +581,18 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                 <col className="w-[40px] sm:w-[48px]" />
                 <col className="w-[38px] sm:w-[44px]" />
               </colgroup>
-              <thead className="sticky top-0 z-10 bg-[#749bfc] border-b border-slate-200 dark:border-slate-700 text-slate-900 font-bold uppercase tracking-wider text-xs">
+              <thead className={`${DATA_TABLE_THEAD_CLASSES} border-b border-slate-200 dark:border-slate-700 shadow-sm text-xs`}>
                 <tr>
-                  <th className="px-1 py-2 text-center whitespace-nowrap">ลำดับ</th>
-                  <th className="px-1.5 py-2 whitespace-nowrap">รายการสินค้า</th>
-                  <th className="px-1 py-2 text-right whitespace-nowrap">คืนแล้ว</th>
-                  <th className="px-1 py-2 text-right whitespace-nowrap">กำลังเช่า</th>
-                  <th className="px-1 py-2 text-right whitespace-nowrap">จำนวน</th>
-                  <th className="px-1 py-2 text-right whitespace-nowrap">ราคา/หน่วย</th>
-                  <th className="px-1 py-2 text-center whitespace-nowrap">วันที่เช่า</th>
-                  <th className="px-1 py-2 text-center whitespace-nowrap">กำหนดคืน</th>
-                  <th className="px-1 py-2 text-center whitespace-nowrap">รอบ</th>
-                  <th className="px-1 py-2 text-center whitespace-nowrap">จัดการ</th>
+                  <th className="px-1 text-center">ลำดับ</th>
+                  <th className="px-1 text-left">รายการสินค้า</th>
+                  <th className="px-1 text-center">คืนแล้ว</th>
+                  <th className="px-1 text-center">กำลังเช่า</th>
+                  <th className="px-1 text-center">จำนวน</th>
+                  <th className="px-1 text-center">ราคา/หน่วย</th>
+                  <th className="px-1 text-center">วันที่เช่า</th>
+                  <th className="px-1 text-center">กำหนดคืน</th>
+                  <th className="px-1 text-center">รอบ</th>
+                  <th className="px-1 text-center">จัดการ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
@@ -578,9 +612,9 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                             : 'hover:bg-slate-50/80 dark:hover:bg-slate-700/30'
                       }`}
                     >
-                      <td className="px-1 py-1 text-center font-mono text-slate-600 dark:text-slate-400">{index + 1}</td>
+                      <td className={`${cell} font-bold text-slate-600 dark:text-slate-400`}>{index + 1}</td>
                       {/* Product Name */}
-                      <td className="px-1.5 py-1 font-bold text-slate-900 dark:text-slate-100 overflow-hidden">
+                      <td className="px-1 font-bold text-slate-800 dark:text-slate-200 overflow-hidden">
                         <div className="truncate">{item.productName}</div>
                         <div className="text-[10px] text-slate-600 dark:text-slate-400 font-mono flex items-center gap-1 mt-0.5 truncate">
                           <span
@@ -599,7 +633,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                       </td>
 
                       {/* Returned Qty (Editable, snug fit) */}
-                      <td className="px-1 py-1">
+                      <td className={cell}>
                         <NumericInput
                           disabled
                           min={0}
@@ -609,12 +643,12 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                           onChange={(val) =>
                             updateItem(index, { returnedQty: val === '' ? 0 : Number(val) })
                           }
-                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-1 py-1 text-right font-mono font-bold text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none disabled:opacity-50 min-w-0"
+                          className={`${numberBox} disabled:opacity-50`}
                         />
                       </td>
 
                       {/* Outstanding Qty / กำลังเช่า (Editable, snug fit) */}
-                      <td className="px-1 py-1">
+                      <td className={cell}>
                         <NumericInput
                           disabled
                           min={0}
@@ -624,12 +658,12 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                           onChange={(val) =>
                             updateItem(index, { outstandingQty: val === '' ? 0 : Number(val) })
                           }
-                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-1 py-1 text-right font-mono font-bold text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none disabled:opacity-50 min-w-0"
+                          className={`${numberBox} disabled:opacity-50`}
                         />
                       </td>
 
                       {/* Total Quantity in Bill */}
-                      <td className="px-1 py-1">
+                      <td className={cell}>
                         <NumericInput
                           disabled={isRemoved}
                           min={1}
@@ -641,12 +675,12 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                               updateItem(index, { quantity: Math.max(1, Number(val)) })
                             }
                           }}
-                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-1 py-1 text-right font-mono font-bold text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none disabled:opacity-50 min-w-0"
+                          className={`${numberBox} disabled:opacity-50`}
                         />
                       </td>
 
                       {/* Unit Price — a "ไม่คิดเงิน" line has none: "-" like its รอบ */}
-                      <td className="px-1 py-1">
+                      <td className={cell}>
                         {item.isNoCharge ? (
                           <span className="text-slate-600 dark:text-slate-400 font-mono text-center block">-</span>
                         ) : (
@@ -659,20 +693,24 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                             onChange={(val) =>
                               updateItem(index, { unitPrice: val === '' ? 0 : Number(val) })
                             }
-                            className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-1 py-1 text-right font-mono font-bold text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none disabled:opacity-50 min-w-0"
+                            className={`${numberBox} disabled:opacity-50`}
                           />
                         )}
                       </td>
 
                       {/* Daily Start Date (Calendar Popover - Editable ONLY for DAILY) */}
-                      <td className="px-1 py-1">
+                      <td className={cell}>
                         {isDaily && !isRemoved ? (
                           <CustomDatePicker
                             value={parseLocalDate(item.dailyStartDate)}
                             onChange={(val) =>
                               updateItem(index, { dailyStartDate: val ? getLocalDateString(val) : '' })
                             }
-                            className="w-full text-xs"
+                            showClear={false}
+                            hideIcon
+                            align="right"
+                            className="text-xs"
+                            buttonClassName={TABLE_DATE_BUTTON}
                           />
                         ) : (
                           <span className="text-slate-600 dark:text-slate-400 font-mono text-center block">-</span>
@@ -680,7 +718,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                       </td>
 
                       {/* Daily End Date (Calendar Popover - Editable ONLY for DAILY) */}
-                      <td className="px-1 py-1">
+                      <td className={cell}>
                         {isDaily && !isRemoved ? (
                           <CustomDatePicker
                             value={parseLocalDate(item.dailyEndDate)}
@@ -690,7 +728,11 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                                 scheduledReturnDate: val ? getLocalDateString(val) : '',
                               })
                             }
-                            className="w-full text-xs"
+                            showClear={false}
+                            hideIcon
+                            align="right"
+                            className="text-xs"
+                            buttonClassName={TABLE_DATE_BUTTON}
                           />
                         ) : (
                           <span className="text-slate-600 dark:text-slate-400 font-mono text-center block">-</span>
@@ -698,7 +740,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                       </td>
 
                       {/* Usage Count / รอบ (For NORMAL items) */}
-                      <td className="px-1 py-1 text-center">
+                      <td className={cell}>
                         {isNormal && !isRemoved && !item.isNoCharge ? (
                           <NumericInput
                             disabled={isRemoved}
@@ -711,7 +753,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                                 updateItem(index, { usageCount: Math.max(1, Number(val)) })
                               }
                             }}
-                            className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-1 py-1 text-center font-mono font-bold text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none min-w-0"
+                            className={numberBox}
                           />
                         ) : (
                           <span className="text-slate-600 dark:text-slate-400 font-mono">-</span>
@@ -719,7 +761,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                       </td>
 
                       {/* Action: Remove / Restore */}
-                      <td className="px-1 py-1 text-center">
+                      <td className={cell}>
                         {item.action === 'ADD' ? (
                           <button
                             type="button"
@@ -751,7 +793,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                 })}
               </tbody>
             </table>
-          </div>
+          </DataTableFrame>
 
         {/* 4. Bottom: ย้อนกลับ on the left; the summary with ยกเลิก / บันทึก under it on the right */}
         <div className="shrink-0 border-t border-slate-200 dark:border-slate-700 p-2 flex flex-col sm:flex-row items-stretch sm:items-end justify-between gap-3">
@@ -833,7 +875,6 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           </div>
           </div>
         </div>
-      </div>
     </div>
   )
 }

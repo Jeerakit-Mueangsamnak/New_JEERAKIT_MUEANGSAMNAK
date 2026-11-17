@@ -8,7 +8,6 @@ import { SystemSettingsProvider } from '@/lib/contexts/SystemSettingsContext'
 import { ConfirmDialogProvider } from '@/components/common/ConfirmDialogProvider'
 import { DEFAULT_SYSTEM_CONFIG, loadSystemSettings, setCachedSystemSettings } from '@/features/settings/services/settings-storage'
 import { CartItem, loadActiveCart, saveActiveCart } from '@/features/pos/services/cart-storage'
-import { Customer } from '@/lib/types/rental-pos'
 
 const mocks = vi.hoisted(() => ({
   saveDraft: vi.fn(async (_input: { lines: unknown[]; vatEnabled?: boolean; vatMode?: string | null }) => 'bill-1'),
@@ -50,7 +49,6 @@ vi.mock('@/features/documents/utils/transaction-print', async (importOriginal) =
 vi.mock('@/features/pos/components/payment/PaymentDynamicContent', () => ({ PaymentDynamicContent: () => null }))
 vi.mock('@/components/common/PostSavePrintModal', () => ({ PostSavePrintModal: () => null }))
 
-const customer = { id: 'customer', customerName: 'Customer', phone: '0812345678', address: 'Bangkok' } as Customer
 const saleItem: CartItem = {
   id: 'SALE', product: { id: 'SALE', code: 'SALE', name: 'SALE', rentalType: 'SALE' } as CartItem['product'],
   itemType: 'SALE', rentalType: 'SALE', unitPrice: 100, quantity: 1, usageCount: 1, lineTotal: 100,

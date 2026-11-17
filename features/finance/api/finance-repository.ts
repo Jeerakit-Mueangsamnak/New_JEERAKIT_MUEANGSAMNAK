@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
-import { DbError, rpc, selectAllRows, selectRows } from '@/lib/db/rpc'
+import { DbError, readByIds, rpc, selectAllRows, selectRows } from '@/lib/db/rpc'
 import { withPin } from '@/lib/db/pin-confirm'
 import { toServerMethod } from '@/features/bills/services/bill-service'
 import { EXPENSE_CATEGORIES } from '@/features/finance/expense-categories'
@@ -42,7 +42,6 @@ export function channelCode(channel: string): 'CASH' | 'TRANSFER' | 'CARD' | 'QR
 
 /** The statement shows the last 90 days unless an older start date is chosen (owner 2026-11-12). */
 export const STATEMENT_DEFAULT_DAYS_BACK = 90
-const IDS_PER_QUERY = 100
 
 /** Start of the local day `daysBack` days before today, as an ISO time for `.gte()`. */
 export function statementSince(daysBack: number, now = new Date()): string {
@@ -61,13 +60,6 @@ async function openingBalance(since: string): Promise<number> {
     if (err instanceof DbError && (err.sqlState === 'PGRST202' || err.sqlState === '42883')) return 0
     throw err
   }
-}
-
-async function byIds<T>(ids: Array<string | null | undefined>, read: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
-  const unique = [...new Set(ids.filter((id): id is string => Boolean(id)))]
-  const chunks: string[][] = []
-  for (let i = 0; i < unique.length; i += IDS_PER_QUERY) chunks.push(unique.slice(i, i + IDS_PER_QUERY))
-  return (await Promise.all(chunks.map(read))).flat()
 }
 
 /**
@@ -94,14 +86,14 @@ export async function fetchTransactionsFromSupabase(daysBack = STATEMENT_DEFAULT
     ),
   ])
   const [bills, receipts] = await Promise.all([
-    byIds([...payments.map((p) => p.bill_id), ...refunds.map((r) => r.bill_id)], (chunk) =>
+    readByIds([...payments.map((p) => p.bill_id), ...refunds.map((r) => r.bill_id)], (chunk) =>
       selectRows<{ id: string; bill_no: string | null; customer_id: string | null; customer_snapshot: { name?: string } | null }>(supabase.from('bills').select('id, bill_no, customer_id, customer_snapshot').in('id', chunk))
     ),
-    byIds(payments.map((p) => p.receipt_id), (chunk) =>
+    readByIds(payments.map((p) => p.receipt_id), (chunk) =>
       selectRows<{ id: string; receipt_no: string }>(supabase.from('payment_receipts').select('id, receipt_no').in('id', chunk))
     ),
   ])
-  const customers = await byIds(bills.map((b) => b.customer_id), (chunk) =>
+  const customers = await readByIds(bills.map((b) => b.customer_id), (chunk) =>
     selectRows<{ id: string; name: string }>(supabase.from('customers').select('id, name').in('id', chunk))
   )
   const receiptNoOf = new Map(receipts.map((r) => [r.id, r.receipt_no]))

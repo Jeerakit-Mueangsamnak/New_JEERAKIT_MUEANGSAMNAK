@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
-import { rpc, selectRows, selectAllRows } from '@/lib/db/rpc'
+import { readByIds, rpc, selectRows, selectAllRows } from '@/lib/db/rpc'
 import { withPinIfRequired } from '@/lib/db/pin-confirm'
 import type { Quotation, QuotationItem, QuotationStatus } from '@/lib/types/rental-pos'
 import type { CustomerSnapshot } from '@/features/bills/api/bill-repository'
@@ -63,14 +63,6 @@ const day = (ts: string | null | undefined) => {
 
 type CustomerLite = { id: string; name: string; phone: string; address: string; tax_id: string | null }
 type ProductLite = { id: string; name: string; unit_id: string; is_accessory: boolean; is_rent_chargeable: boolean; requires_return: boolean }
-const IDS_PER_QUERY = 100
-
-async function byIds<T>(ids: Array<string | null | undefined>, read: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
-  const unique = [...new Set(ids.filter((id): id is string => Boolean(id)))]
-  const chunks: string[][] = []
-  for (let i = 0; i < unique.length; i += IDS_PER_QUERY) chunks.push(unique.slice(i, i + IDS_PER_QUERY))
-  return (await Promise.all(chunks.map(read))).flat()
-}
 
 /**
  * Customers, products and units named on these quotations: from the caches MasterDataProvider already
@@ -95,16 +87,16 @@ async function quotationLookups(supabase: ReturnType<typeof createClient>, quote
   const unitMap = new Map(loadUnits().map((u) => [u.id, u.name]))
 
   const [customers, products] = await Promise.all([
-    byIds(quotes.map((q) => q.customer_id).filter((id) => id && !customerMap.has(id)), (chunk) =>
+    readByIds(quotes.map((q) => q.customer_id).filter((id) => id && !customerMap.has(id)), (chunk) =>
       selectRows<CustomerLite>(supabase.from('customers').select('id, name, phone, address, tax_id').in('id', chunk))
     ),
-    byIds(items.map((it) => it.product_id).filter((id) => id && !productMap.has(id)), (chunk) =>
+    readByIds(items.map((it) => it.product_id).filter((id) => id && !productMap.has(id)), (chunk) =>
       selectRows<ProductLite>(supabase.from('products').select('id, name, unit_id, is_accessory, is_rent_chargeable, requires_return').in('id', chunk))
     ),
   ])
   for (const c of customers) customerMap.set(c.id, c)
   for (const p of products) productMap.set(p.id, p)
-  const units = await byIds([...productMap.values()].map((p) => p.unit_id).filter((id) => id && !unitMap.has(id)), (chunk) =>
+  const units = await readByIds([...productMap.values()].map((p) => p.unit_id).filter((id) => id && !unitMap.has(id)), (chunk) =>
     selectRows<{ id: string; name: string }>(supabase.from('units').select('id, name').in('id', chunk))
   )
   for (const u of units) unitMap.set(u.id, u.name)
@@ -121,7 +113,7 @@ export async function fetchQuotationsFromSupabase(options: { customerId?: string
     quotes = await selectAllRows<QuotationRow>(() =>
       supabase.from('quotations').select('*').eq('customer_id', customerId).order('created_at', { ascending: false })
     )
-    items = await byIds(quotes.map((q) => q.id), (chunk) =>
+    items = await readByIds(quotes.map((q) => q.id), (chunk) =>
       selectRows<QuotationItemRow>(supabase.from('quotation_items').select('*').in('quotation_id', chunk))
     )
   } else {

@@ -138,8 +138,6 @@ export interface PaymentSettings {
 export interface SalesRentalSettings {
   /** policies.allow_backorder — bill_confirm refuses lines above available stock when off. */
   allowBackorder: boolean
-  /** policies.reservation_auto_release — the hourly job releases expired holds when on. */
-  reservationAutoRelease: boolean
 }
 
 export interface ProductSettings {
@@ -211,6 +209,8 @@ export interface SystemConfig {
   line: LineSettings
   /** หมายเหตุ lines per shop form (key = form id), printed instead of the form's own (owner 2026-11-12). */
   documentNotes: Record<string, string[]>
+  /** ข้อมูลการบริการ per shop form (key = form id): [บริการให้เช่า, การบริการ], printed instead of the form's own (owner 2026-11-17). */
+  documentServices: Record<string, string[]>
   /** การ์ดบิล LINE the shop designed (Settings › LINE, owner 2026-11-12). */
   lineBillCards: LineBillCardDesign[]
   /** แม่แบบข้อความ LINE (Settings › LINE, owner 2026-11-13). */
@@ -277,7 +277,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   // No VAT rate/mode and no discount limit until the OWNER sets them (never invented).
   taxDiscount: { vatEnabled: false, vatRate: null, vatMode: null, discountLimitEnabled: false, discountLimitPercent: null },
   payment: { allowOverpayment: false },
-  salesRental: { allowBackorder: false, reservationAutoRelease: false },
+  salesRental: { allowBackorder: false },
   // Same starting value new products had before (the old minimum-stock default).
   product: { defaultReorderPoint: 2 },
   documentNumbering: Object.fromEntries(
@@ -294,6 +294,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   // LINE notices are off until the OWNER switches a type on (spec F4).
   line: { notify: {}, templates: {}, other: {} },
   documentNotes: {},
+  documentServices: {},
   lineBillCards: [],
   lineMessageTemplates: [],
 }

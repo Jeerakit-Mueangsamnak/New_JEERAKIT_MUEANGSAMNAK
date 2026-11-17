@@ -8,7 +8,7 @@ import { QuantityModal } from '@/features/pos/components/QuantityModal'
 import { CustomItemModal, type CustomItemData } from '@/features/pos/components/CustomItemModal'
 import { NutAccessoryModal, ScaffoldAccessoryModal, type AccessoryLine } from '@/features/pos/components/AccessoryModals'
 import { accessoryWindowFor } from '@/features/pos/services/accessory-rules'
-import { Product, Customer, Quotation, Appointment } from '@/lib/types/rental-pos'
+import { Product, Customer, Quotation } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
 import { useCreateCustomer } from '@/features/customers/hooks/useCreateCustomer'
 import {

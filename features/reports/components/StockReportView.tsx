@@ -9,8 +9,6 @@ import {
   AlertTriangle,
   XCircle,
   TrendingUp,
-  TrendingDown,
-  Layers,
   Wrench,
   Boxes,
 } from 'lucide-react'

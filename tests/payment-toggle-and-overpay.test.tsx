@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import type { PaymentMethodType } from '@/features/pos/components/payment/PaymentMethodSelector'

@@ -12,7 +12,7 @@ import { COMMAND_BUTTON_SIZE_CLASSES, TABLE_TOOLBAR_CLASSES } from '@/components
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { qrDataUrl } from '@/lib/qr-code'
 import Image from 'next/image'
-import { Copy, Link2Off, Pencil, Plus, RefreshCw, Truck } from 'lucide-react'
+import { Copy, Link2Off, Pencil, Plus, RefreshCw } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { useDataActions } from '@/components/common/useDataActions'

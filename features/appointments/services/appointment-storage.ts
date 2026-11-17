@@ -5,7 +5,7 @@
  * The app's on-site checklist (items + steps) is kept in appointments.work_order.
  */
 import { createClient } from '@/lib/supabase/client'
-import { isDbError, rpc, selectRows, selectAllRows } from '@/lib/db/rpc'
+import { isDbError, readByIds, rpc, selectRows, selectAllRows } from '@/lib/db/rpc'
 import { loadSystemSettings } from '@/features/settings/services/settings-storage'
 import type { Appointment, AppointmentStatus, AppointmentType } from '@/lib/types/rental-pos'
 import { loadCustomers } from '@/features/customers/services/customer-storage'
@@ -81,7 +81,6 @@ export interface AppointmentRow {
   updated_at?: string
 }
 
-const two = (n: number) => String(n).padStart(2, '0')
 const localParts = (iso: string) => {
   const d = new Date(iso)
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -229,14 +228,6 @@ function editableFields(apt: Appointment): Record<string, unknown> {
 /** A page opening within this long of the last read reuses the cache (pass force after a change). */
 export const APPOINTMENTS_TTL_MS = 60_000
 let _lastAt = 0
-const IDS_PER_QUERY = 100
-
-async function byIds<T>(ids: string[], read: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
-  const unique = [...new Set(ids)]
-  const chunks: string[][] = []
-  for (let i = 0; i < unique.length; i += IDS_PER_QUERY) chunks.push(unique.slice(i, i + IDS_PER_QUERY))
-  return (await Promise.all(chunks.map(read))).flat()
-}
 
 export async function fetchAppointmentsFromSupabase(force = false): Promise<Appointment[]> {
   if (!force && _cachedAppointments && Date.now() - _lastAt < APPOINTMENTS_TTL_MS) return _cachedAppointments
@@ -248,8 +239,8 @@ export async function fetchAppointmentsFromSupabase(force = false): Promise<Appo
   const missingCustomers = rows.map((r) => r.customer_id).filter((id): id is string => Boolean(id) && !customers.has(id as string))
   const missingBills = rows.map((r) => r.bill_id).filter((id): id is string => Boolean(id) && !bills.has(id as string))
   const [moreCustomers, moreBills] = await Promise.all([
-    byIds(missingCustomers, (chunk) => selectRows<{ id: string; name: string }>(supabase.from('customers').select('id, name').in('id', chunk))),
-    byIds(missingBills, (chunk) => selectRows<{ id: string; bill_no: string | null }>(supabase.from('bills').select('id, bill_no').in('id', chunk))),
+    readByIds(missingCustomers, (chunk) => selectRows<{ id: string; name: string }>(supabase.from('customers').select('id, name').in('id', chunk))),
+    readByIds(missingBills, (chunk) => selectRows<{ id: string; bill_no: string | null }>(supabase.from('bills').select('id, bill_no').in('id', chunk))),
   ])
   for (const c of moreCustomers) customers.set(c.id, c.name)
   for (const b of moreBills) if (b.bill_no) bills.set(b.id, b.bill_no)

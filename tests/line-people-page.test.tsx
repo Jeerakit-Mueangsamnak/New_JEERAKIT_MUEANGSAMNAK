@@ -42,6 +42,7 @@ function query(table: string) {
     eq: self,
     order: self,
     limit: self,
+    range: self,
     maybeSingle: () => m.linked(),
     then: (resolve: (v: unknown) => void) => {
       const k = key === 'line_contacts' ? 'line_contacts:pending' : key
@@ -140,7 +141,7 @@ describe('คนใน LINE', () => {
     expect(screen.getByAltText('QR เพิ่มเพื่อน LINE ร้าน')).toBeTruthy()
   })
 
-  it('the groups ข้อความ / การส่ง / ตั้งค่า and พนักงานร้าน are the OWNER\'s only', async () => {
+  it('the groups การส่ง / ตั้งค่า (with the message pages) and พนักงานร้าน are the OWNER\'s only', async () => {
     await showPage()
     expect(screen.queryByRole('tablist', { name: 'เมนู LINE' })).toBeNull()
     expect(screen.queryByRole('tab', { name: 'พนักงานร้าน' })).toBeNull()
@@ -212,7 +213,7 @@ describe('คนใน LINE', () => {
   })
 
   it('database without the new columns: says so instead of an empty list', async () => {
-    m.error = { message: 'column line_contacts.register_status does not exist' }
+    m.error = { message: 'column line_contacts.register_status does not exist', code: '42703' }
     await showPage()
     expect(screen.getByText(/รอติดตั้ง Migration/)).toBeTruthy()
   })

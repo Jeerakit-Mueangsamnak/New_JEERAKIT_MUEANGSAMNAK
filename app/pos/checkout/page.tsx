@@ -8,9 +8,9 @@ import { FileText, Printer } from 'lucide-react'
 import { StepNavButton } from '@/components/common/ActionButton'
 import { PaymentMethodSelector, type PaymentMethodType } from '@/features/pos/components/payment/PaymentMethodSelector'
 import { PaymentDynamicContent } from '@/features/pos/components/payment/PaymentDynamicContent'
-import { type VatMode } from '@/features/pos/components/VatModeButtons'
+import { useDocumentVatMode } from '@/features/pos/hooks/useDocumentVatMode'
 import { DocumentSummaryLayout, DocumentSummaryPanel, documentSummaryRows } from '@/features/pos/components/DocumentSummaryPanel'
-import { RentalBill, Customer, Product } from '@/lib/types/rental-pos'
+import { Customer, Product } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
 import { useNotice } from '@/components/common/ConfirmDialogProvider'
 import { PAYMENT_NOT_CHOSEN_NOTICE } from '@/features/pos/hooks/useCashConfirmation'
@@ -94,7 +94,6 @@ export default function CheckoutPage() {
   const [contactPhone, setContactPhone] = useState<string>('')
   const cartLoadedRef = useRef(false)
   const [quotationId, setQuotationId] = useState<string | null>(null)
-  const [quotationNo, setQuotationNo] = useState<string | null>(null)
   const [draftBillId, setDraftBillId] = useState<string | null>(null)
   // Draft this page already saved on the server but has not confirmed yet (e.g. confirm failed):
   // a retry must update it, not create another one.
@@ -103,9 +102,9 @@ export default function CheckoutPage() {
   const [deliverNow, setDeliverNow] = useState<boolean>(true)
   // VAT of this bill, chosen here with the two buttons รวม VAT / ไม่รวม VAT (owner 2026-11-04):
   // none pressed = no VAT; the chosen mode is sent with the draft and snapshotted by the server.
-  const [vatMode, setVatMode] = useState<VatMode | null>(null)
-  // A quotation / old draft that already had VAT on but no mode of its own: it keeps the shop's price mode.
-  const [legacyVatOn, setLegacyVatOn] = useState<boolean>(false)
+  // รวม / ไม่รวม VAT of this bill (shared with the POS cart and the quotation page)
+  const vat = useDocumentVatMode()
+  const loadVat = vat.load
 
   useEffect(() => {
     const cart = loadActiveCart()
@@ -124,13 +123,11 @@ export default function CheckoutPage() {
       if (cart.headerRentalDate) setHeaderRentalDate(new Date(cart.headerRentalDate))
       if (cart.headerReturnDate) setHeaderReturnDate(new Date(cart.headerReturnDate))
       if (cart.quotationId) setQuotationId(cart.quotationId)
-      if (cart.quotationNo) setQuotationNo(cart.quotationNo)
       if (cart.draftBillId) setDraftBillId(cart.draftBillId)
-      setVatMode(cart.vatMode === 'INCLUSIVE' || cart.vatMode === 'EXCLUSIVE' ? cart.vatMode : null)
-      setLegacyVatOn(cart.vatEnabled === true && !cart.vatMode)
+      loadVat(cart.vatMode, cart.vatEnabled)
     }
     cartLoadedRef.current = true
-  }, [])
+  }, [loadVat])
 
   // ประเภทเอกสาร = a name of จัดการเอกสาร › แบบฟอร์มบิล: the bill shows and prints on that form, the same
   // form whatever the payment (owner 2026-11-07); any other value is printed on the shop's main bill form. null = still reading.
@@ -162,8 +159,7 @@ export default function CheckoutPage() {
   const billFormPending = library === null
 
   // The mode in use: the button pressed here, else the shop's price mode for a bill that came with VAT on.
-  const shopVatMode = settings.taxDiscount?.vatMode ?? null
-  const effectiveVatMode: VatMode | null = vatMode ?? (legacyVatOn ? shopVatMode : null)
+  const effectiveVatMode = vat.effective
 
   // Discount / shipping / deposit / VAT are chosen here: keep them in the saved cart so going back to the POS
   // and forward again does not lose them.
@@ -179,10 +175,7 @@ export default function CheckoutPage() {
   const vatConfigured = isVatRateConfigured(settings)
   const vatOn = effectiveVatMode !== null && vatConfigured
   const vatInclusive = vatOn && effectiveVatMode === 'INCLUSIVE'
-  const toggleVatMode = (mode: VatMode) => {
-    setLegacyVatOn(false)
-    setVatMode(effectiveVatMode === mode ? null : mode)
-  }
+  const toggleVatMode = vat.toggle
   const totals = calculateBillTotals({
     settings,
     items,
@@ -211,7 +204,6 @@ export default function CheckoutPage() {
   const [receivedCashInput, setReceivedCashInput] = useState<string>('')
   const [bankRef, setBankRef] = useState<string>('')
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
-  const [savedBill, setSavedBill] = useState<RentalBill | null>(null)
   // What was saved, frozen before the cart is cleared, so "พิมพ์" prints the real bill
   const [savedPrintData, setSavedPrintData] = useState<BillTemplateData | null>(null)
 
@@ -358,6 +350,8 @@ export default function CheckoutPage() {
       depositAmount: depositAmount || 0,
       isCreditBill: false,
       dueDate: null,
+      // วันที่ออกเอกสาร picked at the POS is kept on the bill (owner 2026-11-17)
+      documentDate: billDate ? getLocalDateString(billDate) : null,
       lines,
     }
   }

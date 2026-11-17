@@ -3,12 +3,11 @@
 import {
   SETTINGS_HELPER,
   SETTINGS_INPUT,
-  SETTINGS_INPUT_MONO,
   SETTINGS_LABEL,
 } from '@/features/settings/components/settings-ui'
 import { StatusPill } from '@/features/settings/components/StatusPill'
-import { REF_BUTTON, REF_BUTTON_QUIET, SettingsCard } from '@/features/settings/components/SettingsCards'
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { REF_BUTTON, REF_BUTTON_QUIET } from '@/features/settings/components/SettingsCards'
+import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { BellRing, Copy, KeyRound, Link2, RotateCcw, Trash2 } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
@@ -19,8 +18,9 @@ import type { SystemConfig } from '@/features/settings/services/settings-storage
 import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 import { LineChatPreview, type LineChatBubble } from '@/features/settings/components/LineChatPreview'
 import { LineSchedulePanel } from '@/features/settings/components/LineSchedulePanel'
-import { LineFormsCard } from '@/features/settings/components/LineFormsCard'
+import { LineFormsRow } from '@/features/settings/components/LineFormsCard'
 import { LineBlockTitle, LineEditorLayout, LineListItem } from '@/features/settings/components/LineEditorLayout'
+import { SETTINGS_ROW_INPUT, SettingsRow, SettingsRowsCard, SettingsSwitch } from '@/features/settings/components/SettingsRows'
 
 /**
  * LINE settings pages of the LINE menu (owner 2026-11-17: 4 groups, no page scroll):
@@ -111,7 +111,7 @@ function templateBubbles(key: LineTemplateKey, templates: Record<string, string>
 /** Red outline button (clear the connection). */
 const DANGER_QUIET = `${COMMAND_BUTTON_SIZE_CLASSES} px-3 border border-red-200 dark:border-red-800 bg-white dark:bg-slate-800 text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-45 flex items-center`
 
-/** ตั้งค่า › เชื่อมต่อ LINE: the OA keys (left), the Webhook URL and the ฟอร์มใน LINE link (right). */
+/** ตั้งค่า › เชื่อมต่อ LINE: the OA keys card, then the links card (Webhook URL, ฟอร์มใน LINE). */
 export function LineConnectionPanel() {
   const { showToast } = useToast()
   const confirm = useConfirm()
@@ -173,7 +173,7 @@ export function LineConnectionPanel() {
   }
 
   const buttons = (
-    <div className="flex flex-wrap justify-end gap-2">
+    <>
       {(status?.lineSecretConfigured || status?.lineTokenConfigured) && (
         <button type="button" onClick={() => void clear()} disabled={busy} className={DANGER_QUIET}>
           <Trash2 className="w-3.5 h-3.5" />
@@ -184,79 +184,72 @@ export function LineConnectionPanel() {
         <KeyRound className="w-3.5 h-3.5" />
         <span>บันทึกการเชื่อมต่อ</span>
       </button>
-    </div>
+    </>
   )
 
+  /** Shown in place of the state pills until the keys can be saved. */
+  const notReady = loadError ? (
+    <span className="text-red-700 dark:text-red-400">{loadError}</span>
+  ) : !status ? (
+    'กำลังโหลดสถานะ…'
+  ) : !status.available ? (
+    <span className="text-amber-700 dark:text-amber-300">ฐานข้อมูลนี้ยังไม่พร้อมสำหรับ LINE (ยังไม่ได้ติดตั้งส่วน LINE) จึงยังบันทึกการเชื่อมต่อไม่ได้</span>
+  ) : null
+  const ready = status?.available ? status : null
+
+  // Rows like the reference (owner 2026-11-18): name on the left, its field on the right, one card per topic.
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 lg:grid-cols-2 gap-4 content-start">
-      <SettingsCard title="การเชื่อมต่อ LINE OA" icon={Link2} action={buttons}>
-        <div className="py-2 space-y-3">
-          {loadError ? (
-            <p className="text-[11px] text-red-700 dark:text-red-400">{loadError}</p>
-          ) : !status ? (
-            <p className={SETTINGS_HELPER}>กำลังโหลดสถานะ…</p>
-          ) : !status.available ? (
-            <p className="text-[11px] text-amber-700 dark:text-amber-300">
-              ฐานข้อมูลนี้ยังไม่พร้อมสำหรับ LINE (ยังไม่ได้ติดตั้งส่วน LINE) จึงยังบันทึกการเชื่อมต่อไม่ได้
-            </p>
-          ) : (
-            <div className="flex flex-wrap items-center gap-2" data-testid="line-status">
-              <span className="text-[11px] text-slate-600 dark:text-slate-300">Channel Secret</span>
-              <StatusPill ok={status.lineSecretConfigured} okText="ตั้งแล้ว" noText="ยังไม่ตั้ง" />
-              <span className="text-[11px] text-slate-600 dark:text-slate-300 ml-2">Access Token</span>
-              <StatusPill ok={status.lineTokenConfigured} okText="ตั้งแล้ว" noText="ยังไม่ตั้ง" />
-              <span className="text-[11px] text-slate-600 dark:text-slate-300 ml-2">โหมดการส่ง</span>
-              <StatusPill ok={status.liveDelivery} okText="ส่งจริง" noText="ทดสอบ (ไม่ส่งถึง LINE จริง)" />
-            </div>
-          )}
-          <div>
-            <label className={SETTINGS_LABEL} htmlFor="line-secret">
-              Channel Secret
-            </label>
+    <div className="flex-1 min-h-0 overflow-y-auto p-3">
+      <div className="space-y-4">
+        <SettingsRowsCard title="การเชื่อมต่อ LINE OA" icon={Link2} footer={buttons}>
+          {notReady && <SettingsRow label="สถานะ" description={notReady} />}
+          <SettingsRow label="Channel Secret">
+            {ready && <StatusPill ok={ready.lineSecretConfigured} okText="ตั้งแล้ว" noText="ยังไม่ตั้ง" />}
             <input
-              id="line-secret"
+              aria-label="Channel Secret"
               type="password"
               autoComplete="off"
               spellCheck={false}
               value={secret}
               maxLength={64}
-              disabled={busy || !status?.available}
-              placeholder={status?.lineSecretConfigured ? 'ตั้งไว้แล้ว · กรอกเฉพาะเมื่อต้องการเปลี่ยน' : 'ตัวอักษร 0-9 a-f 32 ตัว'}
+              disabled={busy || !ready}
+              placeholder="ตัวอักษร 0-9 a-f 32 ตัว"
               onChange={(e) => setSecret(e.target.value.trim())}
-              className={SETTINGS_INPUT_MONO}
+              className={`${SETTINGS_ROW_INPUT} font-mono`}
             />
-          </div>
-          <div>
-            <label className={SETTINGS_LABEL} htmlFor="line-token">
-              Channel Access Token
-            </label>
+          </SettingsRow>
+          <SettingsRow label="Channel Access Token">
+            {ready && <StatusPill ok={ready.lineTokenConfigured} okText="ตั้งแล้ว" noText="ยังไม่ตั้ง" />}
             <input
-              id="line-token"
+              aria-label="Channel Access Token"
               type="password"
               autoComplete="off"
               spellCheck={false}
               value={token}
               maxLength={1024}
-              disabled={busy || !status?.available}
-              placeholder={status?.lineTokenConfigured ? 'ตั้งไว้แล้ว · กรอกเฉพาะเมื่อต้องการเปลี่ยน' : 'จาก LINE Developers › Messaging API'}
+              disabled={busy || !ready}
+              placeholder="จาก LINE Developers › Messaging API"
               onChange={(e) => setToken(e.target.value.trim())}
-              className={SETTINGS_INPUT_MONO}
+              className={`${SETTINGS_ROW_INPUT} font-mono`}
             />
-          </div>
-        </div>
-      </SettingsCard>
+          </SettingsRow>
+          {ready && (
+            <SettingsRow label="โหมดการส่ง">
+              <StatusPill ok={ready.liveDelivery} okText="ส่งจริง" noText="ทดสอบ (ไม่ส่งถึง LINE จริง)" />
+            </SettingsRow>
+          )}
+        </SettingsRowsCard>
 
-      <div className="space-y-4 min-w-0">
-        <SettingsCard title="Webhook URL (นำไปวางใน LINE Developers)" icon={Copy}>
-          <div className="py-2 flex gap-2">
-            <input readOnly aria-label="Webhook URL" value={webhookUrl} className={`${SETTINGS_INPUT_MONO} flex-1 min-w-0`} />
+        <SettingsRowsCard title="ลิงก์" icon={Copy}>
+          <SettingsRow label="Webhook URL (นำไปวางใน LINE Developers)">
+            <input readOnly aria-label="Webhook URL" value={webhookUrl} className={`${SETTINGS_ROW_INPUT} font-mono`} />
             <button type="button" onClick={() => void copyWebhook()} className={`${REF_BUTTON_QUIET} shrink-0`}>
               <Copy className="w-3.5 h-3.5" />
               <span>คัดลอก</span>
             </button>
-          </div>
-        </SettingsCard>
-        <LineFormsCard />
+          </SettingsRow>
+          <LineFormsRow />
+        </SettingsRowsCard>
       </div>
     </div>
   )
@@ -266,9 +259,11 @@ interface LineSettingsPanelProps {
   config: SystemConfig
   setConfig: Dispatch<SetStateAction<SystemConfig>>
   view: LineSettingsView
+  /** แจ้งพนักงาน: the page save buttons, shown in the last row of its card */
+  footer?: ReactNode
 }
 
-export function LineSettingsPanel({ config, setConfig, view }: LineSettingsPanelProps) {
+export function LineSettingsPanel({ config, setConfig, view, footer }: LineSettingsPanelProps) {
   const [focusEvent, setFocusEvent] = useState<LineNotifyEventType>(LINE_NOTIFY_EVENTS[0].type)
   const [tplKey, setTplKey] = useState<LineTemplateKey>(LINE_EDITABLE_TEMPLATES[0].key)
   const tplRef = useRef<HTMLTextAreaElement>(null)
@@ -331,39 +326,26 @@ export function LineSettingsPanel({ config, setConfig, view }: LineSettingsPanel
           />
         }
       >
-        <LineBlockTitle>
-          <BellRing className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
-          <span>แจ้งพนักงานทาง LINE</span>
-          <span className="font-semibold text-[11px] text-slate-500 dark:text-slate-400">
-            เปิดอยู่ {onCount} จาก {LINE_NOTIFY_EVENTS.length}
-          </span>
-        </LineBlockTitle>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5">
+        {/* One card of rows, each notice with its switch on the right; save buttons in the card's last row
+            (owner 2026-11-17: reference "Connection logging" look) */}
+        <SettingsRowsCard title={`แจ้งพนักงานทาง LINE · เปิดอยู่ ${onCount} จาก ${LINE_NOTIFY_EVENTS.length}`} icon={BellRing} footer={footer}>
           {LINE_NOTIFY_EVENTS.map((ev) => (
-            <label
-              key={ev.type}
-              onMouseEnter={() => setFocusEvent(ev.type)}
-              className={`flex items-center gap-2.5 py-1.5 px-1.5 rounded-lg cursor-pointer ${focusEvent === ev.type ? 'bg-slate-100 dark:bg-slate-800' : ''}`}
-            >
-              <input
-                type="checkbox"
-                role="switch"
-                aria-label={ev.label}
+            <SettingsRow key={ev.type} label={ev.label} active={focusEvent === ev.type} onMouseEnter={() => setFocusEvent(ev.type)}>
+              <SettingsSwitch
+                label={ev.label}
                 checked={line.notify[ev.type] === true}
                 onFocus={() => setFocusEvent(ev.type)}
-                onChange={(e) => {
+                onChange={(on) => {
                   const notify = { ...line.notify }
-                  if (e.target.checked) notify[ev.type] = true
+                  if (on) notify[ev.type] = true
                   else delete notify[ev.type]
                   setFocusEvent(ev.type)
                   setLine({ notify })
                 }}
-                className="w-4 h-4 text-emerald-700 dark:text-emerald-400 rounded"
               />
-              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{ev.label}</span>
-            </label>
+            </SettingsRow>
           ))}
-        </div>
+        </SettingsRowsCard>
       </LineEditorLayout>
     )
   }

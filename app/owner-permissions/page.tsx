@@ -2,7 +2,6 @@
 
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { useDataActions } from '@/components/common/useDataActions'
-import { SETTINGS_INPUT } from '@/features/settings/components/settings-ui'
 import {
   ActionButton,
   TAB_BUTTON_ACTIVE_CLASSES,

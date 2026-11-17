@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { FileText } from 'lucide-react'
 import { A4FitPreview } from '@/features/pos/components/A4FitPreview'
 import { DocumentSummaryLayout, DocumentSummaryPanel, documentSummaryRows } from '@/features/pos/components/DocumentSummaryPanel'
-import { type VatMode } from '@/features/pos/components/VatModeButtons'
+import { useDocumentVatMode } from '@/features/pos/hooks/useDocumentVatMode'
 import { useToast } from '@/components/common/Toast'
 import { clearActiveCart, loadActiveCart, saveActiveCart, type ActiveCartData } from '@/features/pos/services/cart-storage'
 import {
@@ -35,9 +35,9 @@ export default function QuotationSummaryPage() {
   const [discount, setDiscount] = useState<number>(0)
   const [shippingFee, setShippingFee] = useState<number>(0)
   const [depositAmount, setDepositAmount] = useState<number>(0)
-  const [vatMode, setVatMode] = useState<VatMode | null>(null)
-  // A quotation saved before the buttons, with VAT on but no mode of its own, keeps the shop's old mode.
-  const [legacyVatOn, setLegacyVatOn] = useState<boolean>(false)
+  // รวม / ไม่รวม VAT of this quotation (shared with the POS cart and the payment page)
+  const vat = useDocumentVatMode()
+  const loadVat = vat.load
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
   const [template, setTemplate] = useState<DocumentTemplate | null | undefined>(undefined)
   const cartLoadedRef = useRef(false)
@@ -54,10 +54,9 @@ export default function QuotationSummaryPage() {
     setDiscount(saved.discount || 0)
     setShippingFee(saved.shippingFee || 0)
     setDepositAmount(saved.depositAmount || 0)
-    setVatMode(saved.vatMode === 'INCLUSIVE' || saved.vatMode === 'EXCLUSIVE' ? saved.vatMode : null)
-    setLegacyVatOn(saved.vatEnabled === true && !saved.vatMode)
+    loadVat(saved.vatMode, saved.vatEnabled)
     cartLoadedRef.current = true
-  }, [])
+  }, [loadVat])
 
   useEffect(() => {
     let alive = true
@@ -69,13 +68,10 @@ export default function QuotationSummaryPage() {
     }
   }, [])
 
-  const effectiveVatMode: VatMode | null = vatMode ?? (legacyVatOn ? settings.taxDiscount?.vatMode ?? null : null)
+  const effectiveVatMode = vat.effective
   const vatOn = effectiveVatMode !== null && isVatRateConfigured(settings)
   const vatInclusive = vatOn && effectiveVatMode === 'INCLUSIVE'
-  const toggleVatMode = (mode: VatMode) => {
-    setLegacyVatOn(false)
-    setVatMode(effectiveVatMode === mode ? null : mode)
-  }
+  const toggleVatMode = vat.toggle
 
   // Keep what is typed here in the saved cart, so going back to POS and forward again keeps it.
   useEffect(() => {

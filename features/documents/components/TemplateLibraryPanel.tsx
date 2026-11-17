@@ -303,7 +303,6 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
     if (convertedSchema) return renderDocumentTemplate(convertedSchema, {}, '', '', DEFAULT_TERMS, business, { items: [] })
     return savedFormForName ? renderLibraryTemplate(savedFormForName, business) : ''
   }, [convertedSchema, savedFormForName, business])
-  const addEmptyTitle = newFormCategory && !uploadedFile ? `ยังไม่มีแบบฟอร์ม "${newFormCategory}"` : undefined
 
   // Layout follows the original "จัดการเอกสาร" page: one card on the left (switchers → list/form → actions), A4 preview on the right.
   return (

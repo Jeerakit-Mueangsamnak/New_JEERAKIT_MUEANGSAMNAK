@@ -22,7 +22,6 @@ import { PaymentDynamicContent } from '@/features/pos/components/payment/Payment
 import { useToast } from '@/components/common/Toast'
 import { PostSavePrintModal, type PrintFormChoice } from '@/components/common/PostSavePrintModal'
 import { BusinessSettings } from '@/lib/types/rental-pos'
-import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { addDepositOnce, applyDepositToBill, chargeExtraRounds, createContinuation, processReturn, receivePayment, refundDeposit, refundOverpayment } from '@/features/bills/services/bill-service'
 import { useConfirm, useNotice } from '@/components/common/ConfirmDialogProvider'
 import { useSplitPayment } from '@/features/pos/hooks/useSplitPayment'
@@ -107,7 +106,6 @@ export function BillActionView({
 }: BillActionViewProps) {
   const { showToast } = useToast()
   const confirmDialog = useConfirm()
-  const { user } = useAuth()
   const { settings: systemSettings } = useSystemSettings()
   const business: Partial<BusinessSettings> = systemSettings.business
 

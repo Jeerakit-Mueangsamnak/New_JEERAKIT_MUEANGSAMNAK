@@ -156,7 +156,10 @@ export interface FullBill {
   id: string
   customerId?: string
   billNo: string
+  /** The bill's day in the system = the day in its bill number (confirm day): lists, search, reports. */
   billDate: string
+  /** วันที่ออกเอกสาร (owner 2026-11-17): text printed on the bill only, picked at the POS / corrected in แก้ไขบิล. */
+  documentDate?: string
   customerName: string
   customerPhone: string
   customerAddress?: string

@@ -40,6 +40,7 @@ export function validateSection(section: SettingsSection, cfg: SystemConfig): st
   }
   if (section === 'documentNotes') {
     if (Object.values(cfg.documentNotes).some((lines) => lines.some((t) => t.trim().length > 300))) return 'หมายเหตุแต่ละข้อยาวได้ไม่เกิน 300 ตัวอักษร'
+    if (Object.values(cfg.documentServices ?? {}).some((lines) => lines.some((t) => t.trim().length > 300))) return 'ข้อมูลการบริการแต่ละข้อยาวได้ไม่เกิน 300 ตัวอักษร'
   }
   if (section === 'documentNumbering') {
     for (const [type, f] of Object.entries(cfg.documentNumbering)) {

@@ -40,8 +40,6 @@ import {
   Phone,
   Receipt,
   Edit3,
-  CalendarPlus,
-  WalletCards,
   FileEdit,
   Trash2,
   Truck,

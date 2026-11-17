@@ -51,7 +51,48 @@ export function applyFormNotes(schema: string, notes: readonly string[] | undefi
   return out
 }
 
-/** The form as shown and printed: its หมายเหตุ lines in the shop's wording from Settings (when saved). */
+/**
+ * ข้อมูลการบริการ lines of a shop form (owner 2026-11-17): the forms carry "บริการให้เช่า : …" and "การบริการ : …"
+ * written in them. Settings → เทมเพลต → หมายเหตุ keeps the shop's own wording per form; at print the text after
+ * the colon is swapped for it (the label stays). The stored form is not changed.
+ */
+export const FORM_SERVICE_LABELS = ['บริการให้เช่า', 'การบริการ'] as const
+
+function findServiceLines(schema: string): Array<{ start: number; end: number; text: string } | null> {
+  return FORM_SERVICE_LABELS.map((label) => {
+    const m = new RegExp(`>\\s*${label}\\s*:([^<]*)<`).exec(schema)
+    if (!m) return null
+    const start = m.index + m[0].length - 1 - m[1].length
+    return { start, end: start + m[1].length, text: decode(m[1]).trim() }
+  })
+}
+
+/** The form's own service texts (after the colon), one per FORM_SERVICE_LABELS entry ('' when the form has none). */
+export function readFormServices(schema: string): string[] {
+  return findServiceLines(schema).map((l) => l?.text ?? '')
+}
+
+/** The form with its service texts replaced by the shop's wording (left as they are when none is saved). */
+export function applyFormServices(schema: string, services: readonly string[] | undefined): string {
+  if (!services) return schema
+  let out = schema
+  findServiceLines(schema)
+    .map((line, i) => ({ line, i }))
+    .filter((x): x is { line: { start: number; end: number; text: string }; i: number } => x.line !== null)
+    // from the last position back, so earlier positions stay valid
+    .sort((a, b) => b.line.start - a.line.start)
+    .forEach(({ line, i }) => {
+      if (services[i] === undefined) return
+      out = out.slice(0, line.start) + ' ' + encode(services[i].trim()) + out.slice(line.end)
+    })
+  return out
+}
+
+/** The form as shown and printed: its หมายเหตุ lines and service texts in the shop's wording from Settings (when saved). */
 export function formSchemaWithNotes(template: Pick<DocumentTemplate, 'id' | 'templateSchema'>): string {
-  return applyFormNotes(template.templateSchema, loadSystemSettings().documentNotes?.[template.id])
+  const settings = loadSystemSettings()
+  return applyFormNotes(
+    applyFormServices(template.templateSchema, settings.documentServices?.[template.id]),
+    settings.documentNotes?.[template.id]
+  )
 }

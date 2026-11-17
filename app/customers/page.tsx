@@ -26,7 +26,6 @@ import {
   BarChart3,
   Tag,
   History,
-  Upload,
   CheckCircle2,
   Trash2,
   Printer,
@@ -128,7 +127,6 @@ export default function CustomersPage() {
   })
   const [customerNoteInput, setCustomerNoteInput] = useState<string>('')
   const [isSavingNote, setIsSavingNote] = useState(false)
-  const [isLoadingCustomerDetails, setIsLoadingCustomerDetails] = useState(false)
 
   // Zoom ID Card Modal State
   const [zoomIDCardUrl, setZoomIDCardUrl] = useState<string | null>(null)
@@ -1136,11 +1134,6 @@ export default function CustomersPage() {
                   <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100">
                     ประวัติการชำระเงินจากฐานข้อมูลจริง ({customerPayments.length} รายการ)
                   </h4>
-                  {isLoadingCustomerDetails && (
-                    <span className="text-[10px] text-slate-600 dark:text-slate-400 flex items-center gap-1">
-                      <RefreshCw className="w-3 h-3 animate-spin" /> กำลังโหลด...
-                    </span>
-                  )}
                 </div>
 
                   {/* Table Area */}
@@ -1324,11 +1317,6 @@ export default function CustomersPage() {
                   <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100">
                     รายการสินค้าที่ถืออยู่นอกคลัง (คัดกรองจากบิลที่ยังมียอดคงค้าง)
                   </h4>
-                  {isLoadingCustomerDetails && (
-                    <span className="text-[10px] text-slate-600 dark:text-slate-400 flex items-center gap-1">
-                      <RefreshCw className="w-3 h-3 animate-spin" /> กำลังโหลด...
-                    </span>
-                  )}
                 </div>
 
                   {/* Table Area */}

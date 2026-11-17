@@ -3,8 +3,13 @@
 import { type Dispatch, type SetStateAction } from 'react'
 import { CalendarClock, Route, Timer } from 'lucide-react'
 import { NumericInput } from '@/components/common/NumericInput'
-import { SETTINGS_INPUT, SETTINGS_LABEL } from '@/features/settings/components/settings-ui'
-import { SettingsCard } from '@/features/settings/components/SettingsCards'
+import {
+  SETTINGS_ROW_NUMBER,
+  SETTINGS_ROW_UNIT,
+  SettingsRow,
+  SettingsRowsCard,
+  SettingsSwitch,
+} from '@/features/settings/components/SettingsRows'
 import type { SystemConfig } from '@/features/settings/services/settings-storage'
 import {
   LINE_CUSTOMER_STAGES,
@@ -27,8 +32,6 @@ interface Props {
   setConfig: Dispatch<SetStateAction<SystemConfig>>
 }
 
-const SWITCH = 'w-4 h-4 shrink-0 text-emerald-700 dark:text-emerald-400 rounded'
-
 export function LineSchedulePanel({ config, setConfig }: Props) {
   const other = config.line.other
   const reminders = (other.reminders ?? {}) as LineReminderSettings
@@ -47,88 +50,63 @@ export function LineSchedulePanel({ config, setConfig }: Props) {
   }
 
   return (
+    // Cards of rows, each setting with its controls and switch on the right (owner 2026-11-17: reference
+    // "Connection logging" look). The page's save buttons stay in the LINE settings bottom bar.
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-      <SettingsCard title="ตารางเตือนลูกค้าทาง LINE" icon={CalendarClock}>
-        {/* one compact row per rule (owner 2026-11-17: the page fits the screen) */}
-        <div className="py-1 divide-y divide-slate-200 dark:divide-slate-700">
-          {LINE_REMINDER_RULES.map((rule) => {
-            const s = reminders[rule.key] ?? {}
-            const on = s.enabled === true
-            return (
-              <div key={rule.key} className="py-2 grid grid-cols-1 sm:grid-cols-[10rem_minmax(0,1fr)] items-center gap-x-3 gap-y-1.5">
-                <label className="flex items-center gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    aria-label={rule.label}
-                    checked={on}
-                    onChange={(e) => setRule(rule.key, { enabled: e.target.checked })}
-                    className={SWITCH}
+      <SettingsRowsCard title="ตารางเตือนลูกค้าทาง LINE" icon={CalendarClock}>
+        {LINE_REMINDER_RULES.map((rule) => {
+          const s = reminders[rule.key] ?? {}
+          const on = s.enabled === true
+          return (
+            <SettingsRow key={rule.key} label={rule.label}>
+              {rule.fields.map((f) => (
+                <span key={f.key} className="flex items-center gap-1">
+                  <label className={SETTINGS_ROW_UNIT} htmlFor={`line-rule-${rule.key}-${f.key}`}>
+                    {f.label}
+                  </label>
+                  <NumericInput
+                    id={`line-rule-${rule.key}-${f.key}`}
+                    value={s[f.key] ?? f.default}
+                    min={f.min}
+                    max={f.max}
+                    allowDecimals={false}
+                    defaultValueOnBlur={f.default}
+                    disabled={!on}
+                    onChange={(v) => setRule(rule.key, { [f.key]: v === '' ? f.default : Math.min(Math.max(v, f.min), f.max) })}
+                    className={SETTINGS_ROW_NUMBER}
                   />
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{rule.label}</span>
-                </label>
-                {rule.fields.length > 0 && (
-                  <div className="grid grid-cols-2 gap-3">
-                    {rule.fields.map((f) => (
-                      <div key={f.key}>
-                        <label className={SETTINGS_LABEL} htmlFor={`line-rule-${rule.key}-${f.key}`}>
-                          {f.label}
-                        </label>
-                        <NumericInput
-                          id={`line-rule-${rule.key}-${f.key}`}
-                          value={s[f.key] ?? f.default}
-                          min={f.min}
-                          max={f.max}
-                          allowDecimals={false}
-                          defaultValueOnBlur={f.default}
-                          disabled={!on}
-                          onChange={(v) => setRule(rule.key, { [f.key]: v === '' ? f.default : Math.min(Math.max(v, f.min), f.max) })}
-                          className={SETTINGS_INPUT}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </SettingsCard>
+                </span>
+              ))}
+              <SettingsSwitch label={rule.label} checked={on} onChange={(enabled) => setRule(rule.key, { enabled })} />
+            </SettingsRow>
+          )
+        })}
+      </SettingsRowsCard>
 
       <div className="space-y-4 min-w-0">
-      <SettingsCard title="แจ้งลูกค้าเมื่อคนขับกดขั้นตอนงาน" icon={Route}>
-        <div className="py-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+        <SettingsRowsCard title="แจ้งลูกค้าเมื่อคนขับกดขั้นตอนงาน" icon={Route}>
           {LINE_CUSTOMER_STAGES.map((st) => (
-            <label key={st.key} className="flex items-center gap-2.5 py-1.5 cursor-pointer">
-              <input
-                type="checkbox"
-                role="switch"
-                aria-label={st.label}
+            <SettingsRow key={st.key} label={st.label}>
+              <SettingsSwitch
+                label={st.label}
                 checked={stages[st.key] === true}
-                onChange={(e) => {
+                onChange={(on) => {
                   const next = { ...stages }
-                  if (e.target.checked) next[st.key] = true
+                  if (on) next[st.key] = true
                   else delete next[st.key]
                   setOther('customerStages', next)
                 }}
-                className={SWITCH}
               />
-              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{st.label}</span>
-            </label>
+            </SettingsRow>
           ))}
-        </div>
-      </SettingsCard>
+        </SettingsRowsCard>
 
-      <SettingsCard title="เวลา" icon={Timer}>
-        <div className="py-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <SettingsRowsCard title="เวลา" icon={Timer}>
           {LINE_SCHEDULE_NUMBER_KEYS.map((key) => {
             const o = LINE_NUMBER_OPTIONS[key]
             const value = typeof other[key] === 'number' ? (other[key] as number) : o.default
             return (
-              <div key={key}>
-                <label className={SETTINGS_LABEL} htmlFor={`line-opt-${key}`}>
-                  {o.label}
-                </label>
+              <SettingsRow key={key} label={<label htmlFor={`line-opt-${key}`}>{o.label}</label>}>
                 <NumericInput
                   id={`line-opt-${key}`}
                   value={value}
@@ -137,13 +115,12 @@ export function LineSchedulePanel({ config, setConfig }: Props) {
                   allowDecimals={false}
                   defaultValueOnBlur={o.default}
                   onChange={(v) => setOther(key, v === '' ? undefined : Math.min(Math.max(v, o.min), o.max))}
-                  className={SETTINGS_INPUT}
+                  className={SETTINGS_ROW_NUMBER}
                 />
-              </div>
+              </SettingsRow>
             )
           })}
-        </div>
-      </SettingsCard>
+        </SettingsRowsCard>
       </div>
     </div>
   )

@@ -91,6 +91,13 @@ export const TAB_BUTTON_ACTIVE_CLASSES =
 export const TAB_BUTTON_INACTIVE_CLASSES =
   'bg-transparent border border-transparent text-slate-600 dark:text-slate-300 font-medium hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/40 dark:hover:bg-slate-800/40'
 
+/** The same tab bar standing on the left (owner 2026-11-18, LINE › ตั้งค่า): pages stacked, icon before each name.
+ *  Buttons take TAB_BUTTON_ACTIVE_CLASSES / TAB_BUTTON_INACTIVE_CLASSES like the row tabs. */
+export const TAB_SIDEBAR_CLASSES =
+  'p-1 flex flex-col gap-1 rounded-xl bg-slate-200/80 dark:bg-slate-700/80 border border-slate-300/60 dark:border-slate-600/60'
+export const TAB_SIDEBAR_BUTTON_CLASSES =
+  'w-full h-8 px-3 py-0 rounded-lg text-xs font-bold transition-all flex items-center justify-start gap-2 cursor-pointer whitespace-nowrap select-none'
+
 export const ActionButton = React.forwardRef<HTMLButtonElement, ActionButtonProps>(
   (
     {

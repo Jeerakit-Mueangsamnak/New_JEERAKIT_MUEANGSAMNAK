@@ -54,6 +54,8 @@ export interface BillDraftInput {
   depositNote?: string
   isCreditBill?: boolean
   dueDate?: string | null
+  /** วันที่ออกเอกสาร (YYYY-MM-DD) picked at the POS; kept on the bill after it is saved. */
+  documentDate?: string | null
   lines: BillLineInput[]
 }
 
@@ -156,7 +158,16 @@ export async function saveBillDraft(input: BillDraftInput): Promise<string> {
         p_pin_token: token,
       })
   )
+  if (input.documentDate) await setBillDocumentDate(saved.id, input.documentDate)
   return saved.id
+}
+
+/**
+ * วันที่ออกเอกสาร of a bill (owner 2026-11-17): text printed on the bill, set from the POS and corrected in แก้ไขบิล.
+ * The bill number, the bill's own day (lists, search, reports) and money are not touched. A future day is refused.
+ */
+export async function setBillDocumentDate(billId: string, day: string): Promise<void> {
+  await rpc('bill_set_document_date', { p_bill_id: billId, p_date: day.slice(0, 10) })
 }
 
 /** DRAFT → CONFIRMED: bill number, stock allocation, optional payment at the counter. */

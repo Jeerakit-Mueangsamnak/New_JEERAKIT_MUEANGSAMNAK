@@ -52,6 +52,7 @@ const MESSAGES: Array<[RegExp, string]> = [
   [/^INVALID_REVISION/, 'ข้อมูลการแก้ไขบิลไม่ถูกต้อง'],
   [/^INVALID_FEES/, 'ค่าขนส่งน้อยกว่าค่าบริการอื่นที่มีในบิล'],
   [/^INVALID_DISCOUNT/, 'ส่วนลดต้องไม่ติดลบ'],
+  [/^INVALID_DOCUMENT_DATE/, 'วันที่ออกเอกสารต้องไม่อยู่ในอนาคต'],
   [/^CUSTOMER_INACTIVE/, 'ลูกค้ารายนี้ถูกปิดใช้งาน'],
   [/^PRODUCT_INACTIVE/, 'มีสินค้าที่ปิดใช้งานอยู่ในบิล'],
   [/^PRODUCT_IN_USE/, 'สินค้านี้มีประวัติการใช้งานแล้ว ลบถาวรไม่ได้ — ใช้ระงับการใช้งานแทน'],
@@ -91,6 +92,133 @@ const MESSAGES: Array<[RegExp, string]> = [
   [/^CANNOT_CHANGE_SELF/, 'ไม่สามารถเปลี่ยนสิทธิ์ของตัวเองได้'],
   [/^IDEMPOTENCY_IN_PROGRESS/, 'รายการนี้กำลังบันทึกอยู่ กรุณารอสักครู่'],
   [/^IDEMPOTENCY/, 'รายการนี้ถูกส่งซ้ำ กรุณาลองใหม่'],
+  // Every other refusal the database can send, in Thai (owner 2026-11-18: no English code on screen)
+  // บิล
+  [/^BILL_NOT_VOIDABLE/, 'บิลนี้ยกเลิกไม่ได้ (ยกเลิกได้เฉพาะบิลที่ยืนยันแล้วหรือกำลังเช่าอยู่)'],
+  [/^BILL_NOT_CORRECTABLE/, 'บิลนี้แก้ไขไม่ได้ (ยังเป็นบิลร่างหรือไม่พบบิล)'],
+  [/^CORRECTION_FIELD_NOT_ALLOWED/, 'แก้ได้เฉพาะหมายเหตุ วันครบกำหนด และมัดจำ — ยอดเงิน วันเช่า และจำนวน ให้ใช้แก้ไขบิลหรือเช่าต่อ'],
+  [/^ITEMS_STILL_WITH_CUSTOMER/, 'ลูกค้ายังถือสินค้าเช่าอยู่ ให้รับคืนก่อนแล้วจึงยกเลิกบิล'],
+  [/^SALE_ALREADY_DELIVERED/, 'สินค้าขายในบิลนี้ส่งไปแล้ว ยกเลิกบิลไม่ได้'],
+  [/^CARRY_FORWARD_ACTIVE/, 'บิลนี้มียอดยกไปบิลเช่าต่อ ให้ยกเลิกการยกยอดก่อน'],
+  [/^BILL_STATUS_TRANSITION/, 'สถานะบิลเปลี่ยนแบบนี้ไม่ได้'],
+  [/^BILL_LINES_LOCKED/, 'บิลยืนยันแล้ว แก้รายการสินค้าตรงไม่ได้ ให้ใช้แก้ไขบิล'],
+  [/^BILL_TERMS_IMMUTABLE_AFTER_CONFIRM|^BILL_LINE_TERMS_IMMUTABLE_AFTER_CONFIRM/, 'บิลยืนยันแล้ว เงื่อนไขบิลแก้ตรงไม่ได้ ให้ใช้แก้ไขบิลหรือเช่าต่อ'],
+  [/^BILL_LINE_IDENTITY_IMMUTABLE|^BILL_LINEAGE_IMMUTABLE|^BILL_NO_IMMUTABLE|^BILL_SNAPSHOT_IMMUTABLE/, 'ข้อมูลส่วนนี้ของบิลบันทึกถาวรแล้ว แก้ไขไม่ได้'],
+  [/^QUOTATION_SNAPSHOT_IMMUTABLE/, 'ข้อมูลส่วนนี้ของใบเสนอราคาบันทึกถาวรแล้ว แก้ไขไม่ได้'],
+  [/^LINE_NOT_IN_BILL/, 'ไม่พบสินค้านี้ในบิล (อาจถูกแก้ไปแล้ว) กรุณาเปิดบิลใหม่'],
+  [/^CUSTOM_LINE_NAME_REQUIRED/, 'กรุณาพิมพ์ชื่อรายการ'],
+  [/^CUSTOM_LINE_PRICE_REQUIRED/, 'กรุณาใส่ราคาของรายการ'],
+  [/^INVALID_DEPOSIT/, 'เงินมัดจำต้องไม่ติดลบ'],
+  [/^INVALID_VAT_ENABLED|^INVALID_VAT_MODE/, 'ค่า VAT ของบิลไม่ถูกต้อง กรุณาเลือกใหม่'],
+  [/^UNKNOWN_FIELDS/, 'ข้อมูลบิลไม่ถูกต้อง กรุณาเปิดหน้าใหม่แล้วลองอีกครั้ง'],
+  // เช่าต่อ
+  [/^PARENT_BILL_NOT_ACTIVE/, 'บิลเดิมไม่ได้อยู่ระหว่างเช่า จึงเช่าต่อไม่ได้'],
+  [/^LINE_NOT_IN_PARENT/, 'ไม่พบสินค้านี้ในบิลเดิม'],
+  [/^ITEMS_REQUIRED/, 'กรุณาเลือกสินค้าที่จะเช่าต่อ'],
+  [/^CONTINUATION_PERIOD_REQUIRED/, 'กรุณาระบุวันเริ่มและวันคืนของรอบเช่าต่อ (วันคืนต้องหลังวันเริ่ม)'],
+  [/^CONTINUATION_OVERLAPS_PREVIOUS_ROUND/, 'วันเริ่มเช่าต่อต้องไม่ก่อนวันคืนของรอบเดิม'],
+  [/^CONTINUATION_QTY_EXCEEDS_HELD/, 'จำนวนเช่าต่อเกินจำนวนที่ลูกค้ายังถืออยู่'],
+  [/^DAILY_CONTINUATION_MUST_START_NEXT_DAY/, 'สินค้าคิดรายวัน รอบเช่าต่อต้องเริ่มวันถัดจากวันคืนเดิม'],
+  [/^MIXED_DUE_LINES/, 'มีสินค้าที่ยังไม่ถึงกำหนดคืนปนอยู่ ให้เช่าต่อแยกรายการ'],
+  [/^START_MODE_REQUIRED/, 'เลยกำหนดคืนแล้ว กรุณาเลือกว่าจะเริ่มนับต่อจากวันคืนเดิม หรือจากวันที่อนุมัติ'],
+  [/^START_MODE_NOT_APPLICABLE/, 'การเลือกวันเริ่มนับใช้ได้เฉพาะสินค้าที่เลยกำหนดคืนแล้ว'],
+  [/^UNITS_REQUIRED/, 'สินค้ามีเลขประจำชิ้น กรุณาเลือกเลขให้ครบตามจำนวน'],
+  [/^UNIT_NOT_HELD_BY_LINE/, 'เลขประจำชิ้นที่เลือกไม่ได้อยู่กับรายการนี้'],
+  // เงิน
+  [/^PAYMENT_DATE_IN_FUTURE/, 'วันที่รับเงินต้องไม่อยู่ในอนาคต'],
+  [/^PAYMENT_NOT_FOUND/, 'ไม่พบรายการรับเงินนี้'],
+  [/^PAYMENT_NOT_COMPLETED/, 'รายการรับเงินนี้ถูกยกเลิกไปแล้ว'],
+  [/^PAYMENT_HAS_REFUNDS/, 'รายการรับเงินนี้มีการคืนเงินแล้ว ยกเลิกไม่ได้'],
+  [/^VOID_WOULD_LEAVE_REFUNDS_UNCOVERED/, 'ยกเลิกไม่ได้ เพราะยอดที่คืนลูกค้าไปแล้วจะมากกว่ายอดรับเงินที่เหลือ'],
+  [/^METHOD_REQUIRED/, 'กรุณาเลือกช่องทางคืนเงิน'],
+  [/^WRITE_OFF_EXCEEDS_BALANCE/, 'ยอดตัดหนี้ต้องมากกว่า 0 และไม่เกินยอดค้าง'],
+  [/^CHARGE_NOT_CONFIRMED_ON_BILL|^INCIDENT_NOT_IN_BILL/, 'รายการนี้ไม่อยู่ในบิล'],
+  // สินค้าและสต็อก
+  [/^PRODUCT_OUT_WITH_CUSTOMER/, 'สินค้านี้ถูกจองหรือลูกค้ายังไม่คืน ลบไม่ได้'],
+  [/^ITEM_TYPE_LOCKED/, 'สินค้านี้มีประวัติสต็อกแล้ว เปลี่ยนชนิดสินค้าไม่ได้'],
+  [/^UNIT_REQUIRED/, 'กรุณาเลือกหน่วยนับที่ใช้งานอยู่'],
+  [/^INVALID_QUANTITY/, 'จำนวนต้องไม่ติดลบ'],
+  [/^SERIALIZED_STOCK_VIA_UNITS/, 'สินค้ามีเลขประจำชิ้น ให้เพิ่มสต็อกโดยลงทะเบียนทีละชิ้น'],
+  [/^SERIALIZED_ADJUST_NEEDS_ONE_UNIT_AND_BOTH_STATES/, 'สินค้ามีเลขประจำชิ้น ปรับได้ครั้งละ 1 ชิ้น และต้องเลือกสถานะต้นทางกับปลายทาง'],
+  [/^UNITS_NOT_ALLOWED_FOR_QUANTITY_PRODUCT/, 'สินค้านับจำนวน ไม่ต้องเลือกเลขประจำชิ้น'],
+  [/^STATE_NOT_ADJUSTABLE/, 'สถานะต้นทางกับปลายทางต้องต่างกัน และต้องเป็นสถานะที่ปรับได้'],
+  [/^DAMAGED_OR_LOST_CANNOT_GO_STRAIGHT_TO_AVAILABLE/, 'ของชำรุดหรือสูญหายต้องผ่านตรวจสอบหรือซ่อมก่อน จึงจะกลับมาพร้อมใช้'],
+  [/^CONVERT_SAME_PRODUCT/, 'สินค้าต้นทางกับปลายทางต้องเป็นคนละตัว'],
+  [/^CONVERT_QUANTITY_PRODUCTS_ONLY/, 'แปลงได้เฉพาะสินค้าแบบนับจำนวน'],
+  [/^TARGET_PRODUCT_INACTIVE/, 'สินค้าปลายทางถูกปิดใช้งาน'],
+  // เอกสาร
+  [/^DOCUMENT_NAME_INVALID/, 'ชื่อเอกสารต้องไม่ว่าง และยาวไม่เกิน 100 ตัวอักษร'],
+  [/^DOCUMENT_NAME_NOT_FOUND/, 'ไม่พบชื่อเอกสารนี้ (อาจถูกลบไปแล้ว)'],
+  [/^DOCUMENT_NAME_TARGET_INVALID|^TEMPLATE_TARGET_INVALID/, 'กลุ่มเอกสารไม่ถูกต้อง (ต้องเป็นเอกสารลูกค้าหรือเอกสารบิล)'],
+  [/^TEMPLATE_NOT_FOUND/, 'ไม่พบแบบฟอร์มนี้ (อาจถูกลบไปแล้ว)'],
+  [/^TEMPLATE_REQUIRED_FIELDS_INVALID/, 'ข้อมูลแบบฟอร์มไม่ครบ หรือไฟล์ใหญ่เกิน 1 MB'],
+  [/^TEMPLATE_(DATA|FIELDS|ID|IDS)_/, 'ข้อมูลแบบฟอร์มไม่ถูกต้อง กรุณาเปิดหน้าใหม่แล้วลองอีกครั้ง'],
+  // ตั้งค่า
+  [/^VAT_SETUP_INCOMPLETE/, 'ต้องกรอกทั้งอัตรา VAT และวิธีคิดราคา'],
+  [/^INVALID_VAT_RATE/, 'อัตรา VAT ต้องมากกว่า 0'],
+  [/^INVALID_DOC_NUMBER_FORMAT/, 'รูปแบบเลขเอกสารไม่ถูกต้อง (จำนวนหลักต้องอยู่ระหว่าง 3–10)'],
+  [/^UNKNOWN_DOC_TYPE/, 'ไม่รู้จักประเภทเอกสารนี้'],
+  [/^INVALID_TIMEZONE/, 'เขตเวลาไม่ถูกต้อง'],
+  [/^AUTO_LOCK_DEFAULT_NOT_IN_OPTIONS/, 'เวลาล็อกเริ่มต้นต้องอยู่ในตัวเลือกเวลาล็อก'],
+  [/^INVALID_POLICY|^INVALID_NOTIFICATION_PREFS/, 'ค่าที่ตั้งไม่ถูกต้อง กรุณาตรวจตัวเลขแล้วลองใหม่'],
+  // สมาชิกและสิทธิ์
+  [/^MEMBER_NOT_FOUND/, 'ไม่พบผู้ใช้งานนี้'],
+  [/^MEMBER_NOT_ACTIVE/, 'ผู้ใช้งานนี้ยังไม่ได้รับอนุมัติหรือถูกระงับ'],
+  [/^GRANTOR_MUST_BE_OWNER|^GRANT_TARGET_MUST_BE_USER/, 'ให้สิทธิ์ได้เฉพาะเจ้าของร้าน และให้ได้เฉพาะพนักงาน'],
+  [/^OWNER_HAS_ALL_ACTIONS/, 'เจ้าของร้านทำได้ทุกรายการอยู่แล้ว'],
+  [/^UNKNOWN_ACTION/, 'ไม่รู้จักรายการที่ขอสิทธิ์'],
+  [/^NO_HARD_DELETE|^INVALID_PENDING_MEMBER_DELETE|^MEMBER_DELETE_NOT_COMPLETED/, 'ลบได้เฉพาะผู้สมัครที่ยังรออนุมัติ'],
+  [/^ACTION_REQUIRED|^INVALID_PURPOSE/, 'คำขอยืนยัน PIN ไม่ถูกต้อง กรุณาลองใหม่'],
+  // LINE (ฝั่งระบบ)
+  [/^LINE_TASK_NOT_OF_SENDER/, 'งานนี้ไม่ได้มอบให้ผู้ส่งข้อความนี้'],
+  [/^LINE_(EVENT_ID|EVENT_KIND|SOURCE|USER)_INVALID/, 'ข้อมูลจาก LINE ไม่ถูกต้อง'],
+  // ป้องกันประวัติ
+  [/^APPEND_ONLY/, 'ข้อมูลประวัติแก้ไขหรือลบไม่ได้'],
+  // จากโครงฐานข้อมูลตั้งต้น (baseline)
+  [/^BILL_NOT_ADJUSTABLE/, 'บิลนี้ปรับยอดไม่ได้ (ปรับได้เฉพาะบิลที่ยืนยันแล้วหรือกำลังเช่าอยู่)'],
+  [/^INVALID_ADJUSTMENT_REVERSAL/, 'รายการปรับยอดนี้ย้อนกลับไม่ได้ (อาจย้อนไปแล้ว)'],
+  [/^INVALID_ADJUSTMENT/, 'ยอดปรับต้องมากกว่า 0'],
+  [/^CREDIT_EXCEEDS_BILL/, 'ยอดลดหนี้เกินยอดของบิล'],
+  [/^ALREADY_REVERSED/, 'รายการนี้ย้อนกลับไปแล้ว'],
+  [/^CARRY_FORWARD_NOT_FOUND/, 'ไม่พบรายการยกยอดนี้'],
+  [/^CHILD_NO_LONGER_HOLDS_QUANTITY/, 'บิลเช่าต่อรับคืนหรือเช่าต่อไปแล้ว ให้ย้อนรายการเหล่านั้นก่อน'],
+  [/^UNIT_NOT_HELD_BY_CHILD/, 'เลขประจำชิ้นนี้ไม่ได้อยู่กับบิลเช่าต่อแล้ว'],
+  [/^CARRY_FORWARD_LINE_MISMATCH|^CARRY_FORWARD_NOT_CHILD_OF_PARENT|^CONTINUATION_CUSTOMER_MISMATCH|^ORIGINAL_BILL_MISMATCH/, 'ข้อมูลบิลเช่าต่อไม่ตรงกับบิลเดิม'],
+  [/^CHARGE_NOT_FOUND/, 'ไม่พบรายการค่าใช้จ่ายนี้'],
+  [/^CHARGE_NOT_PENDING|^CHARGE_NOT_CANCELLABLE/, 'รายการค่าใช้จ่ายนี้ยืนยันหรือยกเลิกไปแล้ว'],
+  [/^RENTAL_LINE_NOT_FOUND|^NOT_A_RENTAL_LINE_OF_BILL/, 'ไม่พบสินค้าเช่านี้ในบิล'],
+  [/^CONDITION_REQUIRED/, 'กรุณาเลือกสภาพสินค้าที่รับคืน'],
+  [/^RETURN_EMPTY/, 'ยังไม่ได้ใส่จำนวนรับคืน'],
+  [/^DELIVERY_EMPTY/, 'ยังไม่ได้ใส่จำนวนส่งของ'],
+  [/^MISSING_EXCEEDS_HELD/, 'จำนวนที่แจ้งหายเกินจำนวนที่ลูกค้าถืออยู่'],
+  [/^LOST_QUANTITY_INVALID/, 'จำนวนสูญหายไม่ถูกต้อง (ต้องไม่เกินจำนวนที่แจ้งไว้)'],
+  [/^NOT_AN_OPEN_MISSING_CASE/, 'ไม่พบรายการแจ้งของหายที่ยังเปิดอยู่'],
+  [/^INVALID_INCIDENT_TYPE/, 'ประเภทเหตุการณ์ไม่ถูกต้อง'],
+  [/^INCIDENT_NOT_OPEN/, 'เหตุการณ์นี้ปิดไปแล้ว'],
+  [/^INCIDENT_HAS_PENDING_CHARGE/, 'ยังมีค่าใช้จ่ายรอยืนยันในเหตุการณ์นี้ ให้ยืนยันหรือยกเลิกก่อน'],
+  [/^CONFIRMED_LOST_CANNOT_BE_REJECTED/, 'ของที่ยืนยันว่าสูญหายแล้ว ปฏิเสธไม่ได้'],
+  [/^COUNT_NOT_OPEN/, 'รอบตรวจนับนี้ปิดไปแล้ว'],
+  [/^COUNT_NOT_COUNTED/, 'ยังตรวจนับไม่ครบ'],
+  [/^COUNT_LINE_NOT_FOUND/, 'ไม่พบสินค้านี้ในรอบตรวจนับ'],
+  [/^DISCREPANCY_REASON_REQUIRED/, 'สินค้าที่นับได้ไม่ตรง ต้องใส่เหตุผล'],
+  [/^PRODUCT_NOT_QUANTITY_OR_INACTIVE/, 'รับเข้าได้เฉพาะสินค้านับจำนวนที่ใช้งานอยู่'],
+  [/^PRODUCT_NOT_SERIALIZED/, 'สินค้านี้ไม่ได้ใช้เลขประจำชิ้น หรือถูกปิดใช้งาน'],
+  [/^UNIT_STATE_INVALID/, 'สถานะของเลขประจำชิ้นนี้ทำรายการนี้ไม่ได้'],
+  [/^UNIT_IDENTITY_IMMUTABLE/, 'เลขประจำชิ้นแก้ไขไม่ได้'],
+  [/^STOCK_MOVE_NEEDS_STATE/, 'ต้องระบุสถานะสต็อกต้นทางหรือปลายทาง'],
+  [/^QUOTATION_NOT_OPEN/, 'ใบเสนอราคานี้ปิดไปแล้ว จองสินค้าไม่ได้'],
+  [/^RESERVATION_EXPIRY_REQUIRED/, 'วันหมดอายุการจองต้องอยู่ในอนาคต'],
+  [/^RESERVATION_NOT_ACTIVE/, 'การจองนี้ถูกปล่อยหรือหมดอายุไปแล้ว'],
+  [/^PAYMENT_IMMUTABLE|^PAYMENT_STATUS_TRANSITION/, 'รายการรับเงินบันทึกถาวรแล้ว แก้ไขไม่ได้'],
+  [/^DOCUMENT_NOT_FOUND/, 'ไม่พบเอกสารนี้'],
+  [/^CONTRACT_CONTENT_IMMUTABLE/, 'เนื้อหาสัญญาแก้ไขไม่ได้ ให้สร้างเอกสารใหม่แทน'],
+  [/^DOCUMENT_SEQUENCE_NO_RECYCLE/, 'เลขเอกสารย้อนกลับไม่ได้'],
+  [/^NOTIFICATION_NOT_FOUND/, 'ไม่พบการแจ้งเตือนนี้'],
+  [/^INVALID_INITIAL_STATUS/, 'สถานะเริ่มต้นของนัดหมายไม่ถูกต้อง'],
+  [/^USE_RESCHEDULE_OR_SET_STATUS/, 'เปลี่ยนเวลาหรือสถานะนัดหมายให้ใช้ปุ่มเลื่อนนัดหรือปุ่มเปลี่ยนสถานะ'],
+  [/^GRANT_REQUIRES_OWNER|^MENU_OWNER_ONLY/, 'เมนูนี้ให้สิทธิ์ได้เฉพาะเจ้าของร้าน'],
+  [/^UNKNOWN_MENU_CODE/, 'ไม่รู้จักเมนูนี้'],
+  [/^OWNER_ALREADY_EXISTS/, 'ร้านนี้มีเจ้าของร้านแล้ว'],
   [/Failed to fetch|NetworkError|fetch failed/i, 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่ (รายการยังไม่ถูกบันทึก)'],
   [/(JWT|api key|apikey|Invalid API key|invalid claim)/i, 'การเชื่อมต่อฐานข้อมูลไม่ถูกต้อง (คีย์ระบบ) — แจ้งเจ้าของร้านตรวจสอบการตั้งค่า'],
   [/statement timeout|canceling statement/i, 'ฐานข้อมูลใช้เวลานานเกินกำหนด — กรุณาลองใหม่ด้วยรายการที่เล็กลง'],
@@ -102,7 +230,10 @@ export function dbErrorMessage(raw: string): string {
   for (const [re, text] of MESSAGES) {
     if (re.test(raw)) return text
   }
-  return raw
+  // Thai text from the server is shown as it is; anything else never reaches the screen in English
+  if (/[฀-๿]/.test(raw)) return raw
+  const code = raw.match(/^[A-Z][A-Z0-9_]{3,}/)?.[0]
+  return code ? `ทำรายการไม่สำเร็จ (รหัส ${code}) กรุณาลองใหม่ หรือแจ้งเจ้าของร้าน` : 'ทำรายการไม่สำเร็จ กรุณาลองใหม่อีกครั้ง'
 }
 
 /** Calls a business RPC; throws DbError with a Thai message on any server refusal. */
@@ -159,6 +290,20 @@ export async function selectRows<T>(
   const { data, error } = await query
   if (error) throw new DbError(error.message, error.code)
   return data ?? []
+}
+
+/** PostgREST keeps the URL short: at most this many ids per `in (...)` filter. */
+export const IDS_PER_QUERY = 100
+
+/**
+ * Reads rows for a list of ids in chunks of IDS_PER_QUERY (in parallel), so a long list never makes a URL the
+ * server refuses. Empty / repeated ids are skipped. The one shared helper (was copied in 4 repositories).
+ */
+export async function readByIds<T>(ids: ReadonlyArray<string | null | undefined>, read: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
+  const unique = [...new Set(ids.filter((id): id is string => Boolean(id)))]
+  const chunks: string[][] = []
+  for (let i = 0; i < unique.length; i += IDS_PER_QUERY) chunks.push(unique.slice(i, i + IDS_PER_QUERY))
+  return (await Promise.all(chunks.map(read))).flat()
 }
 
 /** The most rows the database returns for one request (Supabase default max rows). */

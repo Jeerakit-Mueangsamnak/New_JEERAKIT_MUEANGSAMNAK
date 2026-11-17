@@ -50,23 +50,3 @@ export interface CustomerDocumentItem {
   normalPrice: number
   damageFee: number
 }
-
-export interface CustomerDocument {
-  id: string
-  docNo: string
-  customerId: string
-  customerName: string
-  templateId: string
-  templateName: string
-  templateVersion: number
-  category: string
-  customerSnapshot: CustomerSnapshot
-  customFields: Record<string, string>
-  items: CustomerDocumentItem[]
-  terms: string
-  createdDate: string
-  createdTime: string
-  createdBy: string
-  status: 'ACTIVE' | 'CANCELLED'
-  attachments: string[]
-}

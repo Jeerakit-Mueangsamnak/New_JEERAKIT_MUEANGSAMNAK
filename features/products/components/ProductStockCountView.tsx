@@ -19,7 +19,6 @@ import {
 import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { Product } from '@/lib/types/rental-pos'
 import { useToast } from '@/components/common/Toast'
-import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { applyStockCount, StockCountPartialError } from '@/features/products/services/product-storage'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
@@ -42,17 +41,14 @@ export interface StockCountRowState {
 interface ProductStockCountViewProps {
   products: Product[]
   onSuccess?: (updatedProducts: Product[]) => void
-  onNavigateToList?: () => void
 }
 
 export function ProductStockCountView({
   products,
   onSuccess,
-  onNavigateToList,
 }: ProductStockCountViewProps) {
   const { showToast } = useToast()
   const confirm = useConfirm()
-  const { user } = useAuth()
   const [countItems, setCountItems] = useState<StockCountRowState[]>([])
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL')
   const [searchTerm, setSearchTerm] = useState<string>('')

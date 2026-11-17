@@ -5,7 +5,6 @@ export type ProductMasterType = 'RENT' | 'SALE' | 'BOTH'
 export type ProductType = ProductMasterType
 export type DeliveryStatus = 'PENDING' | 'PARTIAL_DELIVERED' | 'DELIVERED'
 export type CustomerType = 'INDIVIDUAL' | 'CORPORATE'
-export type CustomerStatus = 'ACTIVE' | 'INACTIVE'
 export type AppointmentType = 'DELIVERY' | 'RETURN' | 'PAYMENT' | 'CONTRACT' | 'QUOTATION' | 'INSPECTION' | 'GENERAL'
 /** Master §9 / §26 lifecycle (same values as public.appointments.status). */
 export type AppointmentStatus =
@@ -21,16 +20,8 @@ export type QuotationStatus = 'DRAFT' | 'SENT' | 'WAITING' | 'ACCEPTED' | 'REJEC
 export type RentalStatus = 'DRAFT' | 'CONFIRMED' | 'RENTING' | 'EXTENDED' | 'PARTIAL_RETURNED' | 'RETURNED' | 'CLOSED' | 'CANCELLED' | 'VOID'
 export type PaymentStatus = 'UNPAID' | 'PARTIAL' | 'PAID' | 'REFUND_PARTIAL' | 'REFUNDED'
 export type PaymentMethod = 'CASH' | 'TRANSFER' | 'QR' | 'CHEQUE' | 'OTHER'
-export type DepositStatus = 'HELD' | 'PARTIALLY_REFUNDED' | 'REFUNDED'
 export type TransactionType = 'INCOME' | 'EXPENSE'
-export type StockMovementType = 'RECEIVE' | 'RENT' | 'SALE' | 'RETURN' | 'DAMAGE' | 'LOST' | 'ADJUSTMENT'
 export type StockAdjustmentType = 'NEW_STOCK' | 'DISPOSAL' | 'DAMAGE_TRANSFER' | 'REPAIR_RETURN' | 'LOSS_WRITE_OFF' | 'LOSS_RECOVERY' | 'COUNT_RECONCILE' | 'MAINTENANCE_IN' | 'MAINTENANCE_OUT'
-
-export interface StockAdjustment {
-  type: StockAdjustmentType
-  quantity: number
-  reason: string
-}
 
 export type UserRole = 'OWNER' | 'USER'
 
@@ -95,31 +86,10 @@ export interface BusinessSettings {
   updatedAt: string
 }
 
-export interface ProductCategory {
-  id: string
-  name: string
-  description?: string
-  isActive: boolean
-}
-
 export interface Unit {
   id: string
   name: string
   isActive: boolean
-}
-
-export interface StockBalance {
-  id: string
-  businessId: string
-  productId: string
-  availableQty: number
-  rentedQty: number
-  damagedQty: number
-  lostQty: number
-  reservedQty: number
-  maintenanceQty: number
-  createdAt?: string
-  updatedAt?: string
 }
 
 export interface Permission {
@@ -128,15 +98,6 @@ export interface Permission {
   name: string
   description?: string | null
   module: string
-  createdAt?: string
-  updatedAt?: string
-}
-
-export interface BusinessMemberPermission {
-  id: string
-  businessMemberId: string
-  permissionId: string
-  grantedBy?: string | null
   createdAt?: string
   updatedAt?: string
 }
@@ -497,20 +458,6 @@ export interface BillRevisionRecord {
     refundDueDelta?: number
   }
   correlationId: string
-}
-
-export interface FinancialTransaction {
-  id: string
-  dateTime: string
-  refNo: string
-  type: TransactionType
-  category: string
-  description: string
-  customerName?: string
-  incomeAmount: number
-  expenseAmount: number
-  runningBalance: number
-  channel: string
 }
 
 export interface CustomerPaymentRecord {

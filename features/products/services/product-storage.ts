@@ -94,17 +94,6 @@ export async function reactivateProductAsync(id: string): Promise<Product[]> {
   return syncProductsFromSupabase()
 }
 
-export interface ProductAvailabilityResult {
-  total: number
-  usable: number
-  available: number
-  availableForRange: number
-  reserved: number
-  rented: number
-  damaged: number
-  lost: number
-  inRepair: number
-}
 export interface StockCountAdjustmentInput {
   normalQty?: number
   damagedQty?: number

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
+import React, { createContext, useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { RefreshCw } from 'lucide-react'
 import { setCachedProducts } from '@/features/products/services/product-storage'

@@ -35,20 +35,12 @@ import { changeOwnPassword } from '@/app/actions/auth'
 import { validatePassword } from '@/features/settings/utils/settings-page-utils'
 import { useAppLock } from '@/features/auth/contexts/AppLockContext'
 import { AUTO_LOCK_CHOICES_SECONDS } from '@/features/settings/services/settings-storage'
+import { SettingsRow, SettingsRowsCard, SettingsSwitch } from '@/features/settings/components/SettingsRows'
 import { autoLockLabel } from '@/features/settings/utils/settings-validation'
 import { dbErrorMessage } from '@/lib/db/rpc'
 
 /** ตั้งค่าส่วนตัว tabs (owner 2026-11-17): โปรไฟล์ของฉัน | การตั้งค่า (theme + auto-lock); personal notices are gone. */
 export type MyAccountTab = 'PROFILE' | 'SETTINGS'
-
-/** The switch look of the settings pages. */
-function SwitchKnob({ checked }: { checked: boolean }) {
-  return (
-    <span aria-hidden className={`w-10 h-6 rounded-full p-0.5 flex shrink-0 transition ${checked ? 'bg-[var(--ref-accent,#2563eb)] justify-end' : 'bg-slate-300 dark:bg-slate-600 justify-start'}`}>
-      <span className="w-5 h-5 rounded-full bg-white shadow" />
-    </span>
-  )
-}
 
 const INPUT_CLASSES = SETTINGS_INPUT
 const LABEL_CLASSES = SETTINGS_LABEL
@@ -487,67 +479,37 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
 
             {tab === 'SETTINGS' && (
               <>
-                {/* ธีม (owner 2026-11-17): plain switches, no boxes — มืด / สว่าง, one is always on */}
-                <div className={sectionClass}>
-                  <span className={sectionTitleClass}>
-                    <Palette className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                    <span>ธีม</span>
-                  </span>
-                  <div className="flex flex-wrap items-center gap-x-8 gap-y-2">
+                {/* ธีม + ล็อกหน้าจออัตโนมัติ (owner 2026-11-17): reference "Connection logging" look — a card of rows,
+                    each name with its switch on the right. Theme: one is always on. Auto-lock: each person's own time,
+                    saved at once (no save buttons). */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+                  <SettingsRowsCard title="ธีม" icon={Palette}>
                     {([
                       { id: 'dark', label: 'มืด', icon: Moon },
                       { id: 'light', label: 'สว่าง', icon: Sun },
-                    ] as const).map((m) => {
-                      const Icon = m.icon
-                      const on = theme === m.id
-                      return (
-                        <label key={m.id} className="flex items-center gap-3 cursor-pointer">
-                          <Icon className="w-4 h-4 text-slate-600 dark:text-slate-300" />
-                          <span className="text-xs font-bold text-slate-900 dark:text-slate-200">{m.label}</span>
-                          <input
-                            type="checkbox"
-                            role="switch"
-                            aria-label={m.label}
-                            checked={on}
-                            onChange={(e) => setTheme(e.target.checked ? m.id : m.id === 'dark' ? 'light' : 'dark')}
-                            className="sr-only"
-                          />
-                          <SwitchKnob checked={on} />
-                        </label>
-                      )
-                    })}
-                  </div>
-                </div>
+                    ] as const).map((m) => (
+                      <SettingsRow key={m.id} label={m.label} icon={m.icon}>
+                        <SettingsSwitch
+                          label={m.label}
+                          checked={theme === m.id}
+                          onChange={(on) => setTheme(on ? m.id : m.id === 'dark' ? 'light' : 'dark')}
+                        />
+                      </SettingsRow>
+                    ))}
+                  </SettingsRowsCard>
 
-                {/* ล็อกหน้าจออัตโนมัติ (owner 2026-11-17): moved here from ตั้งค่าระบบ — each person's own time, saved at once */}
-                <div className={sectionClass}>
-                  <span className={sectionTitleClass}>
-                    <Lock className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                    <span>ล็อกหน้าจออัตโนมัติ</span>
-                  </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {AUTO_LOCK_CHOICES_SECONDS.filter((sec) => sec > 0).map((sec) => {
-                      const on = lockSeconds === sec
-                      return (
-                        <label
-                          key={sec}
-                          className="flex items-center justify-between gap-3 rounded-xl border border-[var(--ref-line,#e2e8f0)] bg-[var(--ref-field,#f8fafc)] px-4 py-3 cursor-pointer"
-                        >
-                          <span className="text-xs font-bold text-slate-900 dark:text-slate-200">{autoLockLabel(sec)}</span>
-                          <input
-                            type="checkbox"
-                            role="switch"
-                            aria-label={autoLockLabel(sec)}
-                            checked={on}
-                            disabled={lockSaving}
-                            onChange={(e) => void pickAutoLock(e.target.checked ? sec : 0)}
-                            className="sr-only"
-                          />
-                          <SwitchKnob checked={on} />
-                        </label>
-                      )
-                    })}
-                  </div>
+                  <SettingsRowsCard title="ล็อกหน้าจออัตโนมัติ" icon={Lock}>
+                    {AUTO_LOCK_CHOICES_SECONDS.filter((sec) => sec > 0).map((sec) => (
+                      <SettingsRow key={sec} label={autoLockLabel(sec)}>
+                        <SettingsSwitch
+                          label={autoLockLabel(sec)}
+                          checked={lockSeconds === sec}
+                          disabled={lockSaving}
+                          onChange={(on) => void pickAutoLock(on ? sec : 0)}
+                        />
+                      </SettingsRow>
+                    ))}
+                  </SettingsRowsCard>
                 </div>
               </>
             )}
