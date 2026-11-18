@@ -167,7 +167,7 @@ export async function loginWithUsername(formData: {
 
 /**
  * Site origin used to build Supabase email links (must be in Supabase Auth "Redirect URLs").
- * Priority: NEXT_PUBLIC_SITE_URL -> request Origin -> VERCEL_URL -> localhost.
+ * Priority: NEXT_PUBLIC_SITE_URL -> request Origin -> localhost.
  */
 async function getSiteUrl(): Promise<string> {
   const configured = (process.env.NEXT_PUBLIC_SITE_URL || '').trim().replace(/\/+$/, '')
@@ -181,7 +181,7 @@ async function getSiteUrl(): Promise<string> {
     // Outside a request context (tests / scripts)
   }
 
-  return process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'
+  return 'http://localhost:3000'
 }
 
 /**

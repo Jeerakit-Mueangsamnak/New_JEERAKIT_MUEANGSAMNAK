@@ -20,8 +20,6 @@ export type QuotationStatus = 'DRAFT' | 'SENT' | 'WAITING' | 'ACCEPTED' | 'REJEC
 export type RentalStatus = 'DRAFT' | 'CONFIRMED' | 'RENTING' | 'EXTENDED' | 'PARTIAL_RETURNED' | 'RETURNED' | 'CLOSED' | 'CANCELLED' | 'VOID'
 export type PaymentStatus = 'UNPAID' | 'PARTIAL' | 'PAID' | 'REFUND_PARTIAL' | 'REFUNDED'
 export type PaymentMethod = 'CASH' | 'TRANSFER' | 'QR' | 'CHEQUE' | 'OTHER'
-export type TransactionType = 'INCOME' | 'EXPENSE'
-export type StockAdjustmentType = 'NEW_STOCK' | 'DISPOSAL' | 'DAMAGE_TRANSFER' | 'REPAIR_RETURN' | 'LOSS_WRITE_OFF' | 'LOSS_RECOVERY' | 'COUNT_RECONCILE' | 'MAINTENANCE_IN' | 'MAINTENANCE_OUT'
 
 export type UserRole = 'OWNER' | 'USER'
 
