@@ -16,6 +16,10 @@
       "service": "jjk-jeerakit-ttb"
     }
   ],
+  // Keep plain-text variables set in the Cloudflare dashboard (Settings → Variables and Secrets).
+  // Without this, every `wrangler deploy` removes dashboard variables that are not listed in this file.
+  // Secrets are never removed either way. Do not put secret values in this file.
+  "keep_vars": true,
   "observability": {
     "enabled": true
   }
