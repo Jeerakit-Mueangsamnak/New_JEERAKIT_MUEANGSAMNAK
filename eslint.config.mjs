@@ -19,6 +19,8 @@ const config = [
       'coverage/**',
       'dist/**',
       'build/**',
+      '.open-next/**',
+      '.wrangler/**',
     ],
   },
   ...compat.extends('next/core-web-vitals'),

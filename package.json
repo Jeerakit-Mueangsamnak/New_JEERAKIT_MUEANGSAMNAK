@@ -25,7 +25,11 @@
     "baseline": "pnpm run check:type && pnpm run test:run",
     "check:code": "pnpm run check:type && pnpm run test:run && pnpm run check:lint",
     "clean:next": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\"",
-    "clean:cache": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true}); require('fs').rmSync('coverage',{recursive:true,force:true})\""
+    "clean:cache": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true}); require('fs').rmSync('coverage',{recursive:true,force:true})\"",
+    "cf:build": "opennextjs-cloudflare build",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload"
   },
   "dependencies": {
     "@line/liff": "2.31.2",
@@ -47,6 +51,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "1.20.15",
     "@playwright/test": "^1.62.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^20",
@@ -62,7 +67,8 @@
     "supabase": "^2.122.0",
     "tailwindcss": "^3.4.1",
     "typescript": "^5",
-    "vitest": "^4.1.12"
+    "vitest": "^4.1.12",
+    "wrangler": "4.163.0"
   },
   "overrides": {
     "sharp": "^0.35.5"
