@@ -22,7 +22,7 @@ const promptFont = Prompt({
 })
 
 export const metadata: Metadata = {
-  title: 'Rental POS',
+  title: 'JEERAKIT POS',
   description: 'ระบบ POS สำหรับธุรกิจเช่าอุปกรณ์และสินค้า',
 }
 
