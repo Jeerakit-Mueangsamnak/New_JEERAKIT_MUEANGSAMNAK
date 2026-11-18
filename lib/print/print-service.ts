@@ -19,6 +19,12 @@ function isAppleTouchDevice(): boolean {
   return /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
 }
 
+/** Running as a Home Screen web app (no Safari bar): iOS may give such apps no print window. */
+function isStandaloneWebApp(): boolean {
+  return (navigator as Navigator & { standalone?: boolean }).standalone === true
+    || window.matchMedia?.('(display-mode: standalone)').matches === true
+}
+
 function removeTarget(): void {
   pendingCleanup?.()
   pendingCleanup = null
@@ -76,6 +82,19 @@ export function openPrint(
   // anyway, so the images are in by then.
   if (isAppleTouchDevice()) {
     void target.offsetHeight
+    // The Home Screen icon (no Safari bar) may give no print window at all: when none opens, say so
+    // instead of doing nothing (owner 2026-11-18).
+    if (isStandaloneWebApp()) {
+      let opened = false
+      const onBeforePrint = () => { opened = true }
+      window.addEventListener('beforeprint', onBeforePrint, { once: true })
+      window.print()
+      window.setTimeout(() => {
+        window.removeEventListener('beforeprint', onBeforePrint)
+        if (!opened) window.alert('หน้าต่างพิมพ์ไม่เปิดเมื่อเปิดเว็บจากไอคอนบนหน้าจอโฮม กรุณาเปิดเว็บร้านด้วย Safari แล้วกดพิมพ์อีกครั้ง')
+      }, 1500)
+      return
+    }
     window.print()
     return
   }
