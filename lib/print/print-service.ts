@@ -13,6 +13,12 @@ export type PrintOrientation = 'portrait' | 'landscape'
 let pendingCleanup: (() => void) | null = null
 let pageHideHooked = false
 
+/** iPad (also iPadOS that reports itself as a Mac), iPhone, iPod. */
+function isAppleTouchDevice(): boolean {
+  const ua = navigator.userAgent
+  return /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
+}
+
 function removeTarget(): void {
   pendingCleanup?.()
   pendingCleanup = null
@@ -64,6 +70,15 @@ export function openPrint(
     window.removeEventListener('afterprint', done)
   }
   window.addEventListener('afterprint', done)
+
+  // iPad / iPhone (Safari) open the print window only while the tap is still "fresh": waiting for the images
+  // first made the print button do nothing on iPad (owner 2026-11-18). Safari builds its preview later
+  // anyway, so the images are in by then.
+  if (isAppleTouchDevice()) {
+    void target.offsetHeight
+    window.print()
+    return
+  }
 
   // Let the browser lay out (and load images) before the dialog takes its snapshot.
   const images = Array.from(target.querySelectorAll('img'))
