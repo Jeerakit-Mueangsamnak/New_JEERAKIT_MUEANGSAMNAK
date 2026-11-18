@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Cloudflare Worker name. Must match the Worker/project name on Cloudflare (jjk-jeerakit-ttb).
+  "name": "jjk-jeerakit-ttb",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      // OpenNext calls back into this same Worker, so the service must be the Worker's own name.
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "jjk-jeerakit-ttb"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

@@ -83,6 +83,7 @@ _CURRENT_AUDIT_STATE/
 # OpenNext / Cloudflare generated artifacts
 .open-next/
 .wrangler/
+.dev.vars*
 .claude/
 .agents/
 .impeccable/
