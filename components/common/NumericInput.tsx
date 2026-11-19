@@ -62,7 +62,9 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
       pendingCaretRef.current = null
       try {
         inputRef.current?.setSelectionRange(caret, caret)
-      } catch {}
+      } catch {
+        // The box may have lost focus or been removed before this ran; nothing to restore.
+      }
     }, [rawText])
 
     // Synchronize external value changes ONLY when not focused (rawText is the single source of truth while typing)

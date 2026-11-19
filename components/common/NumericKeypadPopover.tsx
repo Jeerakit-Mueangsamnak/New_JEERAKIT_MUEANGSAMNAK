@@ -15,7 +15,7 @@ const ARROW = 10
 export function useCoarsePointer(): boolean {
   const [coarse, setCoarse] = useState(false)
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined
     const mq = window.matchMedia('(pointer: coarse)')
     const update = () => setCoarse(mq.matches)
     update()
@@ -68,7 +68,8 @@ export function NumericKeypadPopover({ anchorRef, allowDecimal, onKey, onDismiss
     ? Math.min(Math.max(rect.left + rect.width / 2 - coords.left, 24), PANEL_WIDTH - 24)
     : PANEL_WIDTH / 2
 
-  const keys: Array<KeypadKey | null> = ['1', '2', '3', '4', '5', '6', '7', '8', '9', allowDecimal ? '.' : null, '0', 'backspace']
+  // 'blank' keeps the "." slot empty on whole-number boxes.
+  const keys: Array<KeypadKey | 'blank'> = ['1', '2', '3', '4', '5', '6', '7', '8', '9', allowDecimal ? '.' : 'blank', '0', 'backspace']
 
   const keyClass = (key: KeypadKey) =>
     `h-12 rounded-xl text-2xl font-normal text-slate-900 dark:text-slate-100 select-none flex items-center justify-center transition-colors ${
@@ -90,9 +91,9 @@ export function NumericKeypadPopover({ anchorRef, allowDecimal, onKey, onDismiss
       onMouseDown={(e) => e.preventDefault()}
     >
       <div className="grid grid-cols-3 gap-2">
-        {keys.map((key, i) =>
-          key === null ? (
-            <span key={`blank-${i}`} aria-hidden="true" />
+        {keys.map((key) =>
+          key === 'blank' ? (
+            <span key="blank" aria-hidden="true" />
           ) : (
             <button
               key={key}
