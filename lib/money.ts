@@ -141,36 +141,3 @@ export function calculateDiscountSatang(
     effectivePercent,
   }
 }
-
-export interface DepositSettlementSatangResult {
-  compensationTotalSatang: number
-  appliedDepositSatang: number
-  refundDueSatang: number
-  balanceDueSatang: number
-}
-
-/**
- * Calculates Deposit Settlement strictly using integer Satang:
- * - Compensation Total = Damage Actual + Lost Actual
- * - Applied Deposit = min(Held Deposit, Compensation Total)
- * - Refund Due = max(Held Deposit - Applied Deposit, 0)
- * - Balance Due = max(Compensation Total - Applied Deposit, 0)
- */
-export function calculateDepositSettlementSatang(
-  heldDepositSatang: number,
-  compensationTotalSatang: number
-): DepositSettlementSatangResult {
-  const held = Math.max(0, heldDepositSatang || 0)
-  const comp = Math.max(0, compensationTotalSatang || 0)
-
-  const appliedDepositSatang = Math.min(held, comp)
-  const refundDueSatang = Math.max(0, held - appliedDepositSatang)
-  const balanceDueSatang = Math.max(0, comp - appliedDepositSatang)
-
-  return {
-    compensationTotalSatang: comp,
-    appliedDepositSatang,
-    refundDueSatang,
-    balanceDueSatang,
-  }
-}
