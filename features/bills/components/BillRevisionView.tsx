@@ -468,15 +468,16 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
       setCustomer(saved)
       showToast('เพิ่มลูกค้าสำเร็จ', `เพิ่มลูกค้า ${newCustomer.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
       return true
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (isIdCardUploadError(err)) {
         setCustomers(loadCustomers())
         setCustomer(err.saved)
         showToast('บันทึกข้อมูลลูกค้าแล้ว', err.message, 'INFO')
         return true
       }
-      if (err?.tag === 'DUPLICATE_CUSTOMER') return false
-      showToast('ไม่สามารถเพิ่มลูกค้าได้', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
+      const failure = err as { tag?: string; message?: string } | null
+      if (failure?.tag === 'DUPLICATE_CUSTOMER') return false
+      showToast('ไม่สามารถเพิ่มลูกค้าได้', failure?.message || 'เกิดข้อผิดพลาด', 'ERROR')
       return false
     }
   }
