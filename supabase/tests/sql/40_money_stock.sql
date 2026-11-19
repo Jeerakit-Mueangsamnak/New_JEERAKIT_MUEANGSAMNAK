@@ -304,8 +304,8 @@ SELECT t.err('M-ATOMIC', 'refund on a draft bill is refused and records nothing'
            t.v('dG'), t.pin('cashier', 'REFUND'), t.v('pA')), 'BILL_NOT_REFUNDABLE');
 
 -- ===================================================================== CANCEL / VOID BALANCE
--- A cancelled or voided bill is no longer a receivable. Money already received on a VOID bill stays
--- and is owed back (balance_due < 0 → refund suggestion), never hidden as 0 (Master §20).
+-- A cancelled or voided bill is no longer a receivable. ยกเลิกบิล undoes everything at once (owner 2026-11-19):
+-- money received on a VOID bill is voided with it (payments VOIDED, refunds REVERSED), so nothing is owed back.
 SELECT t.set('dX', (t.ok('M-CANCEL', 'draft X: 1 × T-SALE = 10', 'cashier', t.sale(ARRAY[['ps', '1']]))) ->> 'id');
 SELECT t.err('M-CANCEL', 'a draft is not cancelled (it is deleted)', 'cashier',
     format($q$select public.bill_cancel(%L::uuid, 'customer left')$q$, t.v('dX')), 'BILL_IS_DRAFT');
@@ -328,21 +328,21 @@ SELECT t.err('M-CANCEL', 'a paid bill cannot be cancelled (workflow: void)', 'ca
     format($q$select public.bill_cancel(%L::uuid, 'x', %L::uuid)$q$, t.v('dZ'), t.pin('cashier', 'BILL_CANCEL')), 'BILL_NOT_CANCELLABLE');
 SELECT t.ok('M-CANCEL', 'void paid Z (PIN)', 'cashier',
     format($q$select public.bill_void(%L::uuid, 'wrong items', %L::uuid)$q$, t.v('dZ'), t.pin('cashier', 'BILL_VOID')));
-SELECT t.check('M-CANCEL', 'void Z: no receivable; the 20 received is owed back (balance −20, suggestion 20)',
-    (t.bill('dZ')).status = 'VOID' AND (t.bill('dZ')).balance_due = -20 AND (t.bill('dZ')).paid_amount = 20
-    AND (t.exec_as(t.u('cashier'), 'authenticated', format($q$select public.bill_refund_suggestion(%L::uuid)$q$, t.v('dZ')))
-         ->> 'suggested_refund')::numeric = 20);
-SELECT t.check('M-CANCEL', 'void keeps the money history: payment still COMPLETED 20, revenue reversed to 0',
-    t.pay_count('dZ') = 1
-    AND (SELECT amount FROM public.payments WHERE bill_id = t.v('dZ')::uuid) = 20
-    AND (SELECT COALESCE(sum(amount * direction), 0) FROM public.finance_ledger_entries WHERE bill_id = t.v('dZ')::uuid) = 0);
-SELECT t.ok('M-CANCEL', 'refund the 20 on void Z', 'cashier',
-    format($q$select public.refund_pay(%L::uuid, 20, NULL, 'void refund', 'key-cx-z-rf', %L::uuid, %L::uuid)$q$, t.v('dZ'),
-           t.pin('cashier', 'REFUND'), (SELECT id::text FROM public.payments WHERE bill_id = t.v('dZ')::uuid)));
-SELECT t.check('M-CANCEL', 'void Z after refund: balance 0, REFUNDED, nothing more to suggest',
-    (t.bill('dZ')).balance_due = 0 AND (t.bill('dZ')).refunded_amount = 20 AND (t.bill('dZ')).payment_status = 'REFUNDED'
+SELECT t.check('M-CANCEL', 'void Z: no receivable and nothing owed back (the 20 is voided with the bill)',
+    (t.bill('dZ')).status = 'VOID' AND (t.bill('dZ')).balance_due = 0 AND (t.bill('dZ')).paid_amount = 0
+    AND (t.bill('dZ')).payment_status = 'UNPAID'
     AND (t.exec_as(t.u('cashier'), 'authenticated', format($q$select public.bill_refund_suggestion(%L::uuid)$q$, t.v('dZ')))
          ->> 'suggested_refund')::numeric = 0);
+SELECT t.check('M-CANCEL', 'void keeps the money history: the 20 payment row stays, VOIDED with the reason; revenue 0',
+    t.pay_count('dZ') = 0
+    AND (SELECT amount = 20 AND status = 'VOIDED' AND void_reason = 'wrong items' FROM public.payments WHERE bill_id = t.v('dZ')::uuid)
+    AND (SELECT COALESCE(sum(amount * direction), 0) FROM public.finance_ledger_entries WHERE bill_id = t.v('dZ')::uuid) = 0);
+SELECT t.check('M-CANCEL', 'void Z: its receipt is voided too, the stock of T-SALE is back',
+    NOT EXISTS (SELECT 1 FROM public.bill_payment_allocations WHERE bill_id = t.v('dZ')::uuid AND voided_at IS NULL)
+    AND NOT EXISTS (SELECT 1 FROM public.bill_lines WHERE bill_id = t.v('dZ')::uuid AND allocated_qty > 0));
+SELECT t.err('M-CANCEL', 'no refund on void Z: nothing is left to refund', 'cashier',
+    format($q$select public.refund_pay(%L::uuid, 20, NULL, 'void refund', 'key-cx-z-rf', %L::uuid, %L::uuid)$q$, t.v('dZ'),
+           t.pin('cashier', 'REFUND'), (SELECT id::text FROM public.payments WHERE bill_id = t.v('dZ')::uuid)), 'REFUND_EXCEEDS');
 SELECT t.check('M-CANCEL', 'reconcile X, Y, Z twice: nothing changes either time',
     (SELECT bool_and((r -> 'before') - 'updated_at' = (r -> 'after') - 'updated_at')
        -- draft X was deleted above (bill_draft_delete): only the bills that still exist
@@ -353,43 +353,31 @@ SELECT t.check('M-CANCEL', 'cancel / void are audited',
     AND EXISTS (SELECT 1 FROM public.audit_logs WHERE action = 'BILL_VOID' AND entity_id = t.v('dZ')::uuid));
 
 -- ===================================================================== VOID + PARTIAL REFUND / WRITE-OFF
--- W1: paid 20 → void → refund 5 → 15 still owed back, and never more than that.
+-- W1: paid 20 → refund 5 → void: the refund is reversed and the payment voided, both kept as history.
 SELECT t.set('dW1', (t.ok('M-VOID', 'draft W1: 2 × T-SALE = 20', 'cashier', t.sale(ARRAY[['ps', '2']]))) ->> 'id');
 SELECT t.ok('M-VOID', 'confirm W1 paid 20', 'cashier',
     format($q$select public.bill_confirm(%L::uuid, 'key-w1-0', '[{"method":"CASH","amount":20}]'::jsonb)$q$, t.v('dW1')));
 SELECT t.set('pW1', (SELECT id::text FROM public.payments WHERE bill_id = t.v('dW1')::uuid));
+SELECT t.ok('M-VOID', 'refund 5 of the 20 on open W1', 'cashier',
+    format($q$select public.refund_pay(%L::uuid, 5, NULL, 'part back', 'key-w1-rf1', %L::uuid, %L::uuid)$q$,
+           t.v('dW1'), t.pin('cashier', 'REFUND'), t.v('pW1')));
 SELECT t.ok('M-VOID', 'void W1', 'cashier',
     format($q$select public.bill_void(%L::uuid, 'wrong bill', %L::uuid)$q$, t.v('dW1'), t.pin('cashier', 'BILL_VOID')));
 SELECT t.err('M-VOID', 'void W1 again is refused (no second reversal)', 'cashier',
     format($q$select public.bill_void(%L::uuid, 'again', %L::uuid)$q$, t.v('dW1'), t.pin('cashier', 'BILL_VOID')), 'BILL_NOT_VOIDABLE');
-SELECT t.ok('M-VOID', 'refund 5 of the 20 on void W1', 'cashier',
-    format($q$select public.refund_pay(%L::uuid, 5, NULL, 'void part', 'key-w1-rf1', %L::uuid, %L::uuid)$q$,
-           t.v('dW1'), t.pin('cashier', 'REFUND'), t.v('pW1')));
-SELECT t.check('M-VOID', 'W1 after refund 5: balance −15, PARTIALLY_REFUNDED, suggestion 15, payment refundable 15',
-    (t.bill('dW1')).balance_due = -15 AND (t.bill('dW1')).payment_status = 'PARTIALLY_REFUNDED'
-    AND (SELECT (r ->> 'suggested_refund')::numeric = 15 AND (r #>> '{payments,0,refundable}')::numeric = 15
-           FROM t.exec_as(t.u('cashier'), 'authenticated', format($q$select public.bill_refund_suggestion(%L::uuid)$q$, t.v('dW1'))) r));
-SELECT t.check('M-VOID', 'refund 5 pressed twice (same key) = replay, one refund row',
-    (t.exec_as(t.u('cashier'), 'authenticated',
-        format($q$select public.refund_pay(%L::uuid, 5, NULL, 'void part', 'key-w1-rf1', %L::uuid, %L::uuid)$q$,
-               t.v('dW1'), t.pin('cashier', 'REFUND'), t.v('pW1'))) ->> 'idempotent_replay') = 'true'
-    AND (SELECT count(*) FROM public.refunds WHERE bill_id = t.v('dW1')::uuid) = 1);
-SELECT t.err('M-VOID', 'refund 16 when 15 is left is refused', 'cashier',
-    format($q$select public.refund_pay(%L::uuid, 16, NULL, 'too much', 'key-w1-rf2', %L::uuid, %L::uuid)$q$,
-           t.v('dW1'), t.pin('cashier', 'REFUND'), t.v('pW1')), 'REFUND_EXCEEDS');
-SELECT t.ok('M-VOID', 'refund the remaining 15', 'cashier',
-    format($q$select public.refund_pay(%L::uuid, 15, NULL, 'void rest', 'key-w1-rf3', %L::uuid, %L::uuid)$q$,
-           t.v('dW1'), t.pin('cashier', 'REFUND'), t.v('pW1')));
-SELECT t.err('M-VOID', 'nothing left on W1: 0.01 more is refused', 'cashier',
+SELECT t.check('M-VOID', 'W1 after void: paid 0, refunded 0, balance 0; payment VOIDED, refund REVERSED (rows kept)',
+    (t.bill('dW1')).paid_amount = 0 AND (t.bill('dW1')).refunded_amount = 0 AND (t.bill('dW1')).balance_due = 0
+    AND (SELECT status FROM public.payments WHERE id = t.v('pW1')::uuid) = 'VOIDED'
+    AND (SELECT count(*) = 1 AND bool_and(status = 'REVERSED') FROM public.refunds WHERE bill_id = t.v('dW1')::uuid));
+SELECT t.check('M-VOID', 'W1 ledger: revenue and the refund both net 0 (each entry has its reversal)',
+    (SELECT COALESCE(sum(amount * direction), 0) FROM public.finance_ledger_entries WHERE bill_id = t.v('dW1')::uuid) = 0
+    AND (SELECT count(*) FROM public.finance_ledger_entries r JOIN public.finance_ledger_entries e ON e.id = r.reverses_entry_id
+          WHERE e.bill_id = t.v('dW1')::uuid AND e.source_type = 'REFUND') = 1);
+SELECT t.err('M-VOID', 'no refund on void W1: nothing is left to refund', 'cashier',
     format($q$select public.refund_pay(%L::uuid, 0.01, NULL, 'more', 'key-w1-rf4', %L::uuid, %L::uuid)$q$,
            t.v('dW1'), t.pin('cashier', 'REFUND'), t.v('pW1')), 'REFUND_EXCEEDS');
-SELECT t.check('M-VOID', 'W1 settled: balance 0, REFUNDED, refunds 5 + 15 = 20 in table and ledger, payment kept',
-    (t.bill('dW1')).balance_due = 0 AND (t.bill('dW1')).payment_status = 'REFUNDED'
-    AND (SELECT sum(amount) FROM public.refunds WHERE bill_id = t.v('dW1')::uuid AND status = 'PAID') = 20
-    AND (SELECT sum(amount) FROM public.finance_ledger_entries WHERE bill_id = t.v('dW1')::uuid AND entry_type = 'REFUND') = 20
-    AND (SELECT status FROM public.payments WHERE id = t.v('pW1')::uuid) = 'COMPLETED');
 
--- W2: bill 100 → paid 60 → write-off 40 → void: the customer gets 60 back and the bill leaves no write-off loss.
+-- W2: bill 100 → paid 60 → write-off 40 → void: the money and the write-off both leave the books.
 SELECT t.set('dW2', (t.ok('M-VOID', 'draft W2: 10 × T-SALE = 100', 'cashier', t.sale(ARRAY[['ps', '10']]))) ->> 'id');
 SELECT t.ok('M-VOID', 'confirm W2 paid 60', 'cashier',
     format($q$select public.bill_confirm(%L::uuid, 'key-w2-0', '[{"method":"TRANSFER","amount":60}]'::jsonb)$q$, t.v('dW2')));
@@ -405,10 +393,11 @@ SELECT t.check('M-VOID', 'after write-off: balance 0, write-off 40 in table and 
           WHERE source_type = 'WRITE_OFF' AND source_id = t.v('wo2')::uuid) = -40);
 SELECT t.ok('M-VOID', 'void W2', 'cashier',
     format($q$select public.bill_void(%L::uuid, 'wrong customer', %L::uuid)$q$, t.v('dW2'), t.pin('cashier', 'BILL_VOID')));
-SELECT t.check('M-VOID', 'void W2: customer is owed back the 60 received (balance −60, suggestion 60)',
-    (t.bill('dW2')).status = 'VOID' AND (t.bill('dW2')).balance_due = -60
+SELECT t.check('M-VOID', 'void W2: nothing owed either way (the 60 is voided with the bill)',
+    (t.bill('dW2')).status = 'VOID' AND (t.bill('dW2')).balance_due = 0 AND (t.bill('dW2')).paid_amount = 0
+    AND (SELECT status FROM public.payments WHERE bill_id = t.v('dW2')::uuid) = 'VOIDED'
     AND (t.exec_as(t.u('cashier'), 'authenticated', format($q$select public.bill_refund_suggestion(%L::uuid)$q$, t.v('dW2')))
-         ->> 'suggested_refund')::numeric = 60);
+         ->> 'suggested_refund')::numeric = 0);
 SELECT t.check('M-VOID', 'void W2: revenue reversed to 0',
     (SELECT COALESCE(sum(e.amount * e.direction), 0) FROM public.finance_ledger_entries e
       WHERE e.bill_id = t.v('dW2')::uuid AND (e.source_type = 'BILL_CONFIRM'
@@ -426,17 +415,10 @@ SELECT t.check('M-VOID', 'write-off history kept: the write-off row and its orig
                   AND entry_type = 'WRITE_OFF' AND direction = -1 AND amount = 40));
 SELECT t.err('M-VOID', 'no write-off on a void bill', 'cashier',
     format($q$select public.write_off_record(%L::uuid, 1, 'x', %L::uuid)$q$, t.v('dW2'), t.pin('cashier', 'WRITE_OFF')), 'BILL_NOT_OPEN');
-SELECT t.ok('M-VOID', 'refund the 60 on void W2', 'cashier',
-    format($q$select public.refund_pay(%L::uuid, 60, NULL, 'void refund', 'key-w2-rf', %L::uuid, %L::uuid)$q$, t.v('dW2'),
-           t.pin('cashier', 'REFUND'), (SELECT id::text FROM public.payments WHERE bill_id = t.v('dW2')::uuid)));
-SELECT t.check('M-VOID', 'W2 settled: balance 0, REFUNDED, refund ledger 60',
-    (t.bill('dW2')).balance_due = 0 AND (t.bill('dW2')).payment_status = 'REFUNDED'
-    AND (SELECT sum(amount) FROM public.finance_ledger_entries WHERE bill_id = t.v('dW2')::uuid AND entry_type = 'REFUND') = 60);
-SELECT t.check('M-VOID', 'audited: WRITE_OFF, BILL_VOID and REFUND_PAY for W2',
+SELECT t.check('M-VOID', 'audited: WRITE_OFF and BILL_VOID (with the voided money) for W2',
     EXISTS (SELECT 1 FROM public.audit_logs WHERE action = 'WRITE_OFF' AND entity_id = t.v('dW2')::uuid)
-    AND EXISTS (SELECT 1 FROM public.audit_logs WHERE action = 'BILL_VOID' AND entity_id = t.v('dW2')::uuid)
-    AND EXISTS (SELECT 1 FROM public.audit_logs a JOIN public.refunds r ON r.id = a.entity_id
-                 WHERE a.action = 'REFUND_PAY' AND r.bill_id = t.v('dW2')::uuid));
+    AND EXISTS (SELECT 1 FROM public.audit_logs WHERE action = 'BILL_VOID' AND entity_id = t.v('dW2')::uuid
+                  AND (after_data ->> 'payments_voided')::numeric = 60));
 
 -- ===================================================================== DRAFTS FOR THE RACES (run_local.sh)
 SELECT t.set('dK1', (t.ok('M-RACE-SETUP', 'race draft K1 (same key twice)', 'cashier', t.sale(ARRAY[['ps', '1']]))) ->> 'id');

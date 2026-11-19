@@ -52,11 +52,18 @@ SELECT t.check('M-REPORT', 'cash report: payments − refunds (money tables) = �
     (SELECT COALESCE(sum(amount), 0) FROM public.payments WHERE status = 'COMPLETED')
       - (SELECT COALESCE(sum(amount), 0) FROM public.refunds WHERE status = 'PAID')
     = (SELECT sum(paid_amount - refunded_amount) FROM public.bills));
-SELECT t.check('M-REPORT', 'refund ledger = refund table (amount and count)',
+-- A refund undone by ยกเลิกบิล (REVERSED) keeps its REFUND entry plus a REVERSAL entry pointing at it.
+SELECT t.check('M-REPORT', 'refund ledger (not reversed) = paid refunds (amount and count); every reversed refund has its reversal',
     (SELECT COALESCE(sum(amount), 0) FROM public.refunds WHERE status = 'PAID')
-      = (SELECT COALESCE(sum(amount), 0) FROM public.finance_ledger_entries WHERE entry_type = 'REFUND')
+      = (SELECT COALESCE(sum(e.amount), 0) FROM public.finance_ledger_entries e WHERE e.entry_type = 'REFUND'
+           AND NOT EXISTS (SELECT 1 FROM public.finance_ledger_entries r WHERE r.reverses_entry_id = e.id))
     AND (SELECT count(*) FROM public.refunds WHERE status = 'PAID')
-      = (SELECT count(*) FROM public.finance_ledger_entries WHERE entry_type = 'REFUND'));
+      = (SELECT count(*) FROM public.finance_ledger_entries e WHERE e.entry_type = 'REFUND'
+           AND NOT EXISTS (SELECT 1 FROM public.finance_ledger_entries r WHERE r.reverses_entry_id = e.id))
+    AND NOT EXISTS (SELECT 1 FROM public.refunds f WHERE f.status = 'REVERSED'
+                     AND NOT EXISTS (SELECT 1 FROM public.finance_ledger_entries e
+                                      JOIN public.finance_ledger_entries r ON r.reverses_entry_id = e.id
+                                     WHERE e.source_type = 'REFUND' AND e.source_id = f.id)));
 SELECT t.check('M-REPORT', 'every open/closed bill: confirm-time revenue + VAT in the ledger = its grand total',
     NOT EXISTS (
         SELECT 1 FROM public.bills b

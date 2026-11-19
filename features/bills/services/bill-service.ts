@@ -536,7 +536,10 @@ export async function cancelBill(billId: string, reason: string): Promise<FullBi
   return refreshAfterChange(billId)
 }
 
-/** Void a confirmed bill (PIN); goods must be back first; money already received is refunded separately. */
+/**
+ * Void a confirmed bill (PIN): the server undoes everything at once — stock back, payments voided, refunds and
+ * charges reversed, goods carried in go back to the earlier bill (owner 2026-11-19).
+ */
 export async function voidBill(billId: string, reason: string): Promise<FullBill | null> {
   await withPin({ action: 'BILL_VOID', title: 'ยืนยัน Void บิล', detail: reason }, (token) =>
     rpc('bill_void', { p_bill_id: billId, p_reason: reason, p_pin_token: token })
@@ -547,7 +550,7 @@ export async function voidBill(billId: string, reason: string): Promise<FullBill
 
 /**
  * "ยกเลิกบิล" button on a confirmed bill: an untouched bill is cancelled; once money or goods
- * moved, the bill is voided instead. Money received is refunded as its own act. Drafts: deleteDraftBill.
+ * moved, the bill is voided instead, which undoes all of it. Drafts: deleteDraftBill.
  */
 export async function cancelOrVoidBill(bill: Pick<FullBill, 'id' | 'serverStatus'>, reason: string): Promise<FullBill | null> {
   if (bill.serverStatus === 'CONFIRMED') {
