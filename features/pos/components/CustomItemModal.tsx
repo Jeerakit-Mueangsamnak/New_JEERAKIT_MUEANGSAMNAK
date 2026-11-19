@@ -32,9 +32,9 @@ const FIELD_CLASSES =
   'w-full h-10 px-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold text-sm tabular-nums focus:ring-2 focus:ring-emerald-500 focus:outline-none'
 const HEAD_CLASSES = 'whitespace-nowrap text-xs font-medium text-slate-700 dark:text-slate-300'
 // Column widths sized to what each box holds (owner 2026-11-19): จำนวน 3 digits, หน่วย and ราคา
-// 4 capital letters (XXXX), รอบ the word จำนวน, การเช่า the word ต่อรอบ, จำนวนเงิน XXX,XXX.XX;
+// 4 capital letters (XXXX), รอบ the word จำนวน, การเช่า the word ต่อรอบ, จำนวนเงิน 999,999.99;
 // the name takes what is left. Narrow screens scroll the rows sideways.
-const GRID_CLASSES = 'grid grid-cols-[minmax(120px,1fr)_52px_76px_62px_40px_76px_114px] gap-1.5 items-center'
+const GRID_CLASSES = 'grid grid-cols-[minmax(120px,1fr)_52px_76px_62px_40px_76px_98px] gap-1.5 items-center'
 
 interface Row {
   name: string
