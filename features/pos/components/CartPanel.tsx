@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
-import { StepNavButton } from '@/components/common/ActionButton'
 import { Customer } from '@/lib/types/rental-pos'
 import {
   Trash2,
@@ -9,15 +8,13 @@ import {
   UserPlus,
   ShoppingBag,
   ArrowRight,
-  MapPin,
   Phone,
-  Calendar,
   FileText
 } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
-import { AppModal, AppModalBody } from '@/components/common/AppModal'
 import { NewCustomerModal } from '@/features/customers/components/NewCustomerModal'
-import { CalendarPanel, getLocalDateString } from '@/components/common/CustomDatePicker'
+import { getLocalDateString } from '@/components/common/CustomDatePicker'
+import { CartDatesButton, CartDatesModal, CartDeliveryInput } from '@/features/pos/components/CartDetailFields'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { CustomerUnifiedSelector } from '@/features/pos/components/CustomerUnifiedSelector'
 import {
@@ -238,7 +235,6 @@ export function CartPanel({
 
   // Sequential Date Picker State
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false)
-  const [dateStep, setDateStep] = useState<number>(0) // 0=Document, 1=Rental, 2=Return
 
   // Sync prop changes
   useEffect(() => {
@@ -382,16 +378,7 @@ export function CartPanel({
           </div>
 
           {/* Row 2: Shipping Address / Project (Full Width) */}
-          <div className="relative">
-            <MapPin className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="สถานที่จัดส่ง / โครงการ..."
-              value={shippingAddress}
-              onChange={(e) => setShippingAddress(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-            />
-          </div>
+          <CartDeliveryInput value={shippingAddress} onChange={setShippingAddress} />
 
           {/* Contact phone of the bill (a bill only: a quotation does not keep it) */}
           {!isQuotationMode && (
@@ -438,25 +425,17 @@ export function CartPanel({
           </div>
 
           {/* Row 4: Date Picker (Full Width) */}
-          <div>
-            <button
-              type="button"
-              aria-label="วันที่เอกสาร วันเริ่มเช่า วันกำหนดคืน"
-              onClick={() => {
-                setDatesAttention(false)
-                setDateStep(0)
-                setShowDatePicker(true)
-              }}
-              className={`w-full px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-[10px] sm:text-[11px] font-bold flex items-center justify-between shadow-xs hover:border-emerald-500 transition-colors ${datesAttention ? 'field-attention' : ''}`}
-            >
-              <div className="flex items-center gap-2 flex-wrap min-w-0 leading-tight">
-                <span className="text-emerald-700 dark:text-emerald-400 whitespace-nowrap">📝 {showDates && documentDate ? documentDate.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit'}) : '--/--'}</span>
-                <span className="text-blue-600 dark:text-blue-400 whitespace-nowrap">🟢 {showDates && headerRentalDate ? headerRentalDate.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit'}) : '--/--'}</span>
-                <span className="text-red-700 dark:text-red-400 whitespace-nowrap">🔴 {showDates && headerReturnDate ? headerReturnDate.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit'}) : '--/--'}</span>
-              </div>
-              <Calendar className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 shrink-0 ml-1" />
-            </button>
-          </div>
+          <CartDatesButton
+            documentDate={documentDate}
+            rentalDate={headerRentalDate}
+            returnDate={headerReturnDate}
+            showDates={showDates}
+            attention={datesAttention}
+            onClick={() => {
+              setDatesAttention(false)
+              setShowDatePicker(true)
+            }}
+          />
         </div>
       </div>
 
@@ -603,77 +582,27 @@ export function CartPanel({
         }}
       />
 
-      {/* Sequential Date Picker Modal */}
-      <AppModal isOpen={showDatePicker} onClose={() => setShowDatePicker(false)} size="sm">
-          <AppModalBody className="space-y-4">
-            <div className="text-center space-y-1">
-              <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">
-                {dateStep === 0 && '📝 เลือกวันที่ออกเอกสาร'}
-                {dateStep === 1 && '🟢 เลือกวันเริ่มเช่า'}
-                {dateStep === 2 && '🔴 เลือกวันที่กำหนดคืน'}
-              </h3>
-              <p className="text-xs text-slate-600 dark:text-slate-400">
-                ขั้นตอนที่ {dateStep + 1} จาก 3
-              </p>
-            </div>
-            
-            {/* No grey backing; a black frame and black lines above / below the days (owner 2026-11-11).
-                `!` because the panel's own border / shadow classes would otherwise win. */}
-            <div className="flex justify-center">
-               <CalendarPanel
-                 value={dateStep === 0 ? documentDate : dateStep === 1 ? headerRentalDate : headerReturnDate}
-                 onChange={(d) => {
-                   if (!d) return
-                   if (dateStep === 0) {
-                     if (getLocalDateString(d) > getLocalDateString(new Date())) {
-                       showToast('วันที่เอกสารไม่ถูกต้อง', 'วันที่ออกเอกสารต้องไม่อยู่ในอนาคต', 'ERROR')
-                       return
-                     }
-                     setDocumentDate(d)
-                     setHeaderRentalDate(null)
-                     setHeaderReturnDate(null)
-                     setDateStep(1)
-                   } else if (dateStep === 1) {
-                     setHeaderRentalDate(d)
-                     setHeaderReturnDate(null)
-                     setDateStep(2)
-                   } else {
-                     if (headerRentalDate && getLocalDateString(d) < getLocalDateString(headerRentalDate)) {
-                       showToast('ช่วงวันเช่าไม่ถูกต้อง', 'วันกำหนดคืนต้องไม่ก่อนวันเริ่มเช่า', 'ERROR')
-                       return
-                     }
-                     setHeaderReturnDate(d)
-                     setDatesPicked(true)
-                     setShowDatePicker(false)
-                     setDateStep(0)
-                   }
-                 }}
-                 showClear={false}
-                 showToday={true}
-                 className="w-full !shadow-none !border-slate-900 dark:!border-slate-100"
-                 dividerClassName="border-slate-900 dark:border-slate-100"
-               />
-            </div>
-            
-            {/* Actions: Back Button (for Steps 2 & 3) + Cancel Button */}
-            <div className="flex items-center gap-2">
-              {dateStep > 0 && (
-                <StepNavButton
-                  direction="back"
-                  onClick={() => setDateStep((prev) => (prev > 0 ? prev - 1 : 0))}
-                  className="flex-1"
-                />
-              )}
-              <button
-                type="button"
-                onClick={() => setShowDatePicker(false)}
-                className={`${dateStep > 0 ? 'flex-1' : 'w-full'} py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-xs transition-colors cursor-pointer text-center`}
-              >
-                ยกเลิก
-              </button>
-            </div>
-          </AppModalBody>
-      </AppModal>
+      {/* Sequential Date Picker Modal (shared with แก้ไขบิลเช่า) */}
+      <CartDatesModal
+        isOpen={showDatePicker}
+        onClose={() => setShowDatePicker(false)}
+        documentDate={documentDate}
+        rentalDate={headerRentalDate}
+        returnDate={headerReturnDate}
+        onDocumentDate={(d) => {
+          setDocumentDate(d)
+          setHeaderRentalDate(null)
+          setHeaderReturnDate(null)
+        }}
+        onRentalDate={(d) => {
+          setHeaderRentalDate(d)
+          setHeaderReturnDate(null)
+        }}
+        onReturnDate={(d) => {
+          setHeaderReturnDate(d)
+          setDatesPicked(true)
+        }}
+      />
 
     </div>
   )
