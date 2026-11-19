@@ -170,6 +170,18 @@ export async function setBillDocumentDate(billId: string, day: string): Promise<
   await rpc('bill_set_document_date', { p_bill_id: billId, p_date: day.slice(0, 10) })
 }
 
+/**
+ * Change the customer of a confirmed bill (owner 2026-11-19): a saved customer, or a typed name that is not a saved
+ * customer (the bill becomes ลูกค้าทั่วไป). Audited on the server; credit and เช่าต่อ bills keep their customer.
+ */
+export async function setBillCustomer(billId: string, customerId: string | null, guestName: string | null): Promise<void> {
+  await rpc('bill_set_customer', {
+    p_bill_id: billId,
+    p_customer_id: customerId || null,
+    p_guest_name: customerId ? null : guestName?.trim() || null,
+  })
+}
+
 /** DRAFT → CONFIRMED: bill number, stock allocation, optional payment at the counter. */
 export async function confirmBill(billId: string, tenders: TenderInput[] = []): Promise<FullBill | null> {
   const payload = tendersPayload(tenders)

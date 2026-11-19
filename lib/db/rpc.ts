@@ -46,6 +46,9 @@ const MESSAGES: Array<[RegExp, string]> = [
   [/^GUEST_NAME_TOO_LONG/, 'ชื่อลูกค้ายาวเกิน 200 ตัวอักษร'],
   // แก้ไขบิล (bill_revise, owner 2026-11-17)
   [/^BILL_NOT_REVISABLE/, 'บิลนี้ปิดหรือยกเลิกแล้ว แก้ไขไม่ได้'],
+  [/^BILL_CUSTOMER_LOCKED: credit/, 'บิลเครดิตเปลี่ยนลูกค้าไม่ได้'],
+  [/^BILL_CUSTOMER_LOCKED: continuation/, 'บิลที่มีการเช่าต่อเปลี่ยนลูกค้าไม่ได้'],
+  [/Could not find the function public\.bill_set_customer/, 'ระบบยังไม่ได้ติดตั้งคำสั่งเปลี่ยนลูกค้าในฐานข้อมูล'],
   [/^LINE_HAS_CONTINUATION/, 'สินค้านี้ผูกกับบิลเช่าต่อ ลดหรือลบไม่ได้ ให้ใช้รับคืน'],
   [/^LINE_HAS_UNITS/, 'สินค้ามีเลขประจำชิ้นที่ลูกค้าถืออยู่ ให้รับคืนก่อนแล้วค่อยลบหรือลดจำนวน'],
   [/^INVALID_LINE/, 'ข้อมูลสินค้าในบิลไม่ถูกต้อง (จำนวน ราคา รอบ หรือวันที่)'],
