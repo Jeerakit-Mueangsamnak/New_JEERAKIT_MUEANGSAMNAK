@@ -63,6 +63,19 @@ describe('NumericInput on-screen number pad', () => {
     expect(screen.queryByRole('group', { name: 'แป้นตัวเลข' })).toBeNull()
   })
 
+  it('keeps typing after a press that leaves the text unchanged (box shows 1, user taps 1 then 2)', () => {
+    const onValue = vi.fn()
+    render(<Harness onValue={onValue} />)
+    const input = screen.getByLabelText('จำนวน') as HTMLInputElement
+    fireEvent.focus(input)
+    key('1')
+    fireEvent.blur(input)
+    act(() => input.focus())
+    input.setSelectionRange(0, 1) // focus selects the existing "1"
+    key('1'); key('2')
+    expect(input.value).toBe('12')
+  })
+
   it('closes when tapping outside the box and the pad', () => {
     render(<div><Harness onValue={vi.fn()} /><p>outside</p></div>)
     const input = screen.getByLabelText('จำนวน') as HTMLInputElement

@@ -8,7 +8,7 @@ import { useFloatingPlacement } from '@/lib/hooks/useFloatingPlacement'
 export type KeypadKey = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '.' | 'backspace'
 
 const PANEL_WIDTH = 264
-const PANEL_HEIGHT = 236
+const PANEL_HEIGHT = 240 // 4 rows × 48px + 3 gaps × 8px + 24px padding
 const ARROW = 10
 
 /** True on touch-first screens (iPad / phone), where the on-screen number pad replaces the device keyboard. */
@@ -90,7 +90,11 @@ export function NumericKeypadPopover({ anchorRef, allowDecimal, onKey, onDismiss
       onPointerDown={(e) => e.preventDefault()}
       onMouseDown={(e) => e.preventDefault()}
     >
-      <div className="grid grid-cols-3 gap-2">
+      {/* On a very short screen the rows scroll inside the pad so every key stays reachable. */}
+      <div
+        className="grid grid-cols-3 gap-2 overflow-y-auto overscroll-contain"
+        style={coords.maxHeight && coords.maxHeight < PANEL_HEIGHT ? { maxHeight: coords.maxHeight - 24 } : undefined}
+      >
         {keys.map((key) =>
           key === 'blank' ? (
             <span key="blank" aria-hidden="true" />

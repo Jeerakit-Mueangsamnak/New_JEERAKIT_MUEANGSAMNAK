@@ -54,6 +54,9 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
     const keypadEnabled = touchKeypad && coarsePointer
     const [keypadOpen, setKeypadOpen] = useState(false)
     const pendingCaretRef = useRef<number | null>(null)
+    // Bumped on every accepted keypad press so the caret is placed even when the text did not change
+    // (e.g. the box shows "1", focus selects it, and the user taps "1" again).
+    const [keypadPress, setKeypadPress] = useState(0)
 
     // Put the caret back where the last keypad press left it (React resets it to the end).
     useLayoutEffect(() => {
@@ -65,7 +68,7 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
       } catch {
         // The box may have lost focus or been removed before this ran; nothing to restore.
       }
-    }, [rawText])
+    }, [rawText, keypadPress])
 
     // Synchronize external value changes ONLY when not focused (rawText is the single source of truth while typing)
     useEffect(() => {
@@ -149,7 +152,10 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
         next = rawText.slice(0, start) + key + rawText.slice(end)
         caret = start + 1
       }
-      if (applyText(next)) pendingCaretRef.current = caret
+      if (applyText(next)) {
+        pendingCaretRef.current = caret
+        setKeypadPress((n) => n + 1)
+      }
     }
 
     const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
