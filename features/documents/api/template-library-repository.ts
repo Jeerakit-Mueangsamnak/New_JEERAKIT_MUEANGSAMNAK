@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/client'
 import { readByIds, rpc, selectRows } from '@/lib/db/rpc'
 import { readDeviceCache, writeDeviceCache } from '@/lib/db/device-cache'
+import { moveInlineImagesToStorage } from '@/lib/storage/shop-images'
 import type { DocumentTemplate, TemplateTargetGroup } from '@/lib/types/document'
 
 interface DocumentTemplateRow {
@@ -71,7 +72,7 @@ function toRowData(template: NewDocumentTemplate) {
   }
 }
 
-/** Every column except template_schema (the page images, ~1 MB a form). */
+/** Every column except template_schema (the form text; older forms still carry their page pictures inside). */
 const TEMPLATE_LIST_COLUMNS =
   'id, name, category, target_group, source, file_type, file_name, paper_size, orientation, page_count, version, is_default, description, default_terms, status, status_reason, created_at, created_by, updated_at, updated_by'
 
@@ -117,10 +118,15 @@ export async function fetchDocumentTemplates(): Promise<DocumentTemplate[]> {
   return templates
 }
 
+/**
+ * Saves a new form. Its page pictures (data:image/… inside the form text) go to Storage first and the form keeps
+ * only their addresses (owner 2026-11-20: 7 forms were 5.9 MB of pictures inside the database).
+ */
 export async function createDocumentTemplate(id: string, template: NewDocumentTemplate): Promise<DocumentTemplate> {
+  const templateSchema = await moveInlineImagesToStorage(template.templateSchema)
   const row = await rpc<DocumentTemplateRow>('document_template_create', {
     p_template_id: id,
-    p_data: toRowData(template),
+    p_data: toRowData({ ...template, templateSchema }),
   })
   return toDocumentTemplate(row)
 }

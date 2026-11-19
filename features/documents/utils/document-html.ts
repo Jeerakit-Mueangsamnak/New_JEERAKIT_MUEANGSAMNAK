@@ -1,3 +1,5 @@
+import { isShopImageUrl } from '@/lib/storage/shop-images'
+
 const ALLOWED_TAGS = new Set([
   'div', 'p', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'b', 'em',
   'i', 'u', 'br', 'hr', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tfoot',
@@ -22,6 +24,8 @@ export function escapeDocumentHtml(value: unknown): string {
 function isSafeImageSource(value: string) {
   return /^(https:\/\/|data:image\/(png|jpeg|jpg|webp|gif);base64,)/i.test(value)
     || /^\/(?!\/)[A-Za-z0-9/_-]+\.(?:png|jpe?g|svg|webp|gif)$/i.test(value)
+    // The shop's own pictures in Storage (logo, form pictures): also on Supabase Local, which is http.
+    || isShopImageUrl(value)
 }
 
 /** Splits an inline style on ";" that are not inside (...) or quotes (data:image/png;base64 stays whole). */

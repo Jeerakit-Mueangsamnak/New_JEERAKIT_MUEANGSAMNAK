@@ -1,3 +1,4 @@
+import { isInlineImage, storedImageUrl } from '@/lib/storage/shop-images'
 import { createClient } from '@/lib/supabase/client'
 import { FORM_NOTE_LINES, FORM_SERVICE_LABELS } from '@/features/documents/utils/form-notes'
 import { parseLineCardDesigns } from '@/lib/line/bill-card-design'
@@ -95,7 +96,8 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
     taxId: str(row.tax_id, oldBiz.taxId),
     address: str(row.address, oldBiz.address),
     phone: str(row.phone, oldBiz.phone),
-    logoDataUrl: str(row.logo_url, oldBiz.logoDataUrl),
+    // The logo lives only in logo_url (owner 2026-11-20): the copy the old screen kept in app_config is not read.
+    logoDataUrl: str(row.logo_url),
     email: str(profile.email, oldBiz.email),
     lineId: str(profile.lineId, oldBiz.lineId),
     authorizedPerson: str(profile.authorizedPerson, oldBiz.authorizedPerson),
@@ -371,9 +373,30 @@ export const SECTION_REASON: Record<SettingsSection, string> = {
   lineMessageTemplates: 'แก้แม่แบบข้อความ LINE',
 }
 
+/**
+ * Logos picked on the screen arrive as pictures inside the text (data:image/…); they are uploaded to Storage
+ * first and the settings keep only their address (owner 2026-11-20: the row was ~1.2 MB, read on every start).
+ */
+async function withStoredLogos(section: SettingsSection, draft: SystemConfig): Promise<SystemConfig> {
+  if (section !== 'business') return draft
+  const b = draft.business
+  if (!isInlineImage(b.logoDataUrl) && !(b.shopProfiles ?? []).some((p) => isInlineImage(p.logoDataUrl))) return draft
+  return {
+    ...draft,
+    business: {
+      ...b,
+      logoDataUrl: await storedImageUrl('logo', b.logoDataUrl),
+      shopProfiles: b.shopProfiles
+        ? await Promise.all(b.shopProfiles.map(async (p) => ({ ...p, logoDataUrl: await storedImageUrl('logo', p.logoDataUrl) })))
+        : b.shopProfiles,
+    },
+  }
+}
+
 /** Saves ONE section (only its keys) and returns the whole config the server now holds. */
 export async function saveSettingsSection(section: SettingsSection, draft: SystemConfig): Promise<SystemConfig> {
-  const row = await rpc<StoreSettingsRow>('settings_update', { p_patch: sectionPatch(section, draft), p_reason: SECTION_REASON[section] })
+  const stored = await withStoredLogos(section, draft)
+  const row = await rpc<StoreSettingsRow>('settings_update', { p_patch: sectionPatch(section, stored), p_reason: SECTION_REASON[section] })
   await rememberSettingsRow(row)
   setCachedPolicies(row.policies)
   return rowToConfig(row)
