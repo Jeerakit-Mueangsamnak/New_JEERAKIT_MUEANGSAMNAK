@@ -186,6 +186,10 @@ export function paymentStatusOf(s: string): FullBill['paymentStatus'] {
   }
 }
 
+/** The POS keeps the bill's delivery place in its note as a "ส่งที่: …" line (app/pos/checkout). */
+const siteNameFromNote = (note: string | null): string | undefined =>
+  /(?:^|\n)ส่งที่:[ \t]*(.+)/u.exec(note || '')?.[1]?.trim() || undefined
+
 export function mapBill(
   b: BillRow,
   lines: LineRow[],
@@ -263,6 +267,7 @@ export function mapBill(
     customerName: customer?.name || 'ลูกค้าทั่วไป',
     customerPhone: customer?.phone || '',
     customerAddress: customer?.address,
+    siteName: siteNameFromNote(b.note),
     rentalStartDate: starts.length ? toDate(starts.sort()[0]) : billDate,
     scheduledReturnDate: ends.length ? toDate(ends.sort()[ends.length - 1]) : billDate,
     actualReturnDate: returnedAll ? toDate(actualReturns.sort()[actualReturns.length - 1]) : undefined,

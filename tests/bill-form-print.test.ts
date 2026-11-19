@@ -349,6 +349,14 @@ describe('แบบฟอร์มทุกใบตอนพิมพ์ (owner
     expect(out).toMatch(/width:\s*auto/)
   })
 
+  it('item field boxes take the height their line needs: the bottom of Thai text is not cut (owner 2026-11-19)', () => {
+    const out = render('<table><tr><td style="height:22.5625px; overflow-y:hidden"><span style="display:block; width:274px; height:14px; min-height:14px; max-height:14px; overflow:hidden; text-overflow:ellipsis">{{items.1.name}}</span></td></tr></table>')
+    expect(out).toMatch(/width:274px; min-height:14px; overflow:hidden; text-overflow:ellipsis; height:auto">/)
+    expect(out).not.toMatch(/(?:^|[;"\s])(?:max-)?height:\s*14px/)
+    // The row keeps its height
+    expect(out).toMatch(/<td style="height:22\.5625px/)
+  })
+
   it('text the form drew on one line does not wrap (bank lines, หมายเหตุ lines); fields are untouched', () => {
     const out = render(
       '<div style="white-space:pre-wrap; width:249px; height:100px; overflow-x:hidden">ธนาคาร: ออมสิน\nเลขบัญชี: 0 2 0 4</div>' +

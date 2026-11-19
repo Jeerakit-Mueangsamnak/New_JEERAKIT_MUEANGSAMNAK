@@ -3,6 +3,7 @@ import { FORM_NOTE_LINES, FORM_SERVICE_LABELS } from '@/features/documents/utils
 import { parseLineCardDesigns } from '@/lib/line/bill-card-design'
 import { parseLineMessageTemplates } from '@/lib/line/message-templates'
 import { rpc } from '@/lib/db/rpc'
+import { readDeviceCache, writeDeviceCache, SETTINGS_ROW_CACHE_KEY as SETTINGS_ROW_KEY } from '@/lib/db/device-cache'
 import { setCachedPolicies, type Policies } from '@/lib/db/policies'
 import {
   activePaymentAccount,
@@ -49,6 +50,8 @@ export interface StoreSettingsRow {
   vat_mode: string | null
   doc_number_formats: Record<string, { prefix?: string; digits?: number } | undefined> | null
   policies: Policies | null
+  /** Set by settings_update on every save; tells whether the copy on this device is still current. */
+  updated_at?: string | null
 }
 
 type LegacyAppConfig = {
@@ -325,12 +328,31 @@ export function sectionPatch(section: SettingsSection, cfg: SystemConfig): Recor
   }
 }
 
+/**
+ * The settings row is ~1.2 MB (logo and QR images) and is read on every app start and tab return
+ * (2026-11-19 speed). This device keeps the last row read; the full row is downloaded only when
+ * the server's updated_at differs (settings_update, the only writer, sets it on every save).
+ */
+function rememberSettingsRow(row: StoreSettingsRow): Promise<void> {
+  return row.updated_at ? writeDeviceCache(SETTINGS_ROW_KEY, row) : Promise.resolve()
+}
+
 /** Reads the shop settings row; null when signed out / not yet allowed. */
 export async function fetchSharedSystemConfig(): Promise<SystemConfig | null> {
   const supabase = createClient()
-  const { data, error } = await supabase.from('store_settings').select('*').maybeSingle()
-  if (error || !data) return null
-  const row = data as StoreSettingsRow
+  const saved = await readDeviceCache<StoreSettingsRow>(SETTINGS_ROW_KEY)
+  let row: StoreSettingsRow | null = null
+  if (saved?.updated_at) {
+    const { data, error } = await supabase.from('store_settings').select('updated_at').maybeSingle()
+    if (error || !data) return null
+    if ((data as { updated_at?: string | null }).updated_at === saved.updated_at) row = saved
+  }
+  if (!row) {
+    const { data, error } = await supabase.from('store_settings').select('*').maybeSingle()
+    if (error || !data) return null
+    row = data as StoreSettingsRow
+    await rememberSettingsRow(row)
+  }
   setCachedPolicies(row.policies)
   return rowToConfig(row)
 }
@@ -352,6 +374,7 @@ export const SECTION_REASON: Record<SettingsSection, string> = {
 /** Saves ONE section (only its keys) and returns the whole config the server now holds. */
 export async function saveSettingsSection(section: SettingsSection, draft: SystemConfig): Promise<SystemConfig> {
   const row = await rpc<StoreSettingsRow>('settings_update', { p_patch: sectionPatch(section, draft), p_reason: SECTION_REASON[section] })
+  await rememberSettingsRow(row)
   setCachedPolicies(row.policies)
   return rowToConfig(row)
 }
