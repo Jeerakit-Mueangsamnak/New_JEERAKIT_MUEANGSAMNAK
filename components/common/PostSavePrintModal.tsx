@@ -1,10 +1,12 @@
 'use client'
 import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
 import { useToast } from '@/components/common/Toast'
 import { printFormPages } from '@/features/documents/utils/transaction-print'
+import { preparePrintPictures, printsThroughShareSheet } from '@/lib/print/print-service'
+import { sharePrintPictures } from '@/lib/print/print-share-images'
 import { CheckCircle2, Printer, X } from 'lucide-react'
 
 /** One shop form offered for printing, already filled with the document's data (empty = nothing to print on it). */
@@ -66,8 +68,61 @@ export function PostSavePrintModal({
   const toggle = (name: string) => setSelected((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]))
   const toggleAll = () => setSelected(allSelected ? [] : printable.map((f) => f.name))
 
-  const print = () => {
-    const pages = printable.filter((f) => selected.includes(f.name)).flatMap((f) => f.pages)
+  // iPad / iPhone web app from the Home Screen icon: the ticked forms are turned into pictures while this
+  // window is open, so "พิมพ์" opens the share sheet right on the tap; its "พิมพ์" opens the iPad print
+  // window with its preview (owner 2026-11-19). Per form; null = the pictures could not be made.
+  const [shareSheet, setShareSheet] = useState(false)
+  useEffect(() => setShareSheet(printsThroughShareSheet()), [])
+  const pictures = useRef(new Map<string, { pages: string[]; files: File[] | null }>())
+  const making = useRef(new Set<string>())
+  const [, setPicturesReady] = useState(0)
+  const selectedForms = printable.filter((f) => selected.includes(f.name))
+  const picturesOf = (f: PrintFormChoice) => {
+    const made = pictures.current.get(f.name)
+    return made && made.pages === f.pages ? made : undefined
+  }
+
+  useEffect(() => {
+    if (!isOpen) {
+      pictures.current.clear()
+      return
+    }
+    if (!shareSheet) return
+    for (const f of forms) {
+      if (!selected.includes(f.name) || f.pages.length === 0 || picturesOf(f) || making.current.has(f.name)) continue
+      making.current.add(f.name)
+      const pages = f.pages
+      preparePrintPictures(pages, printTitle ? `${printTitle} ${f.name}` : f.name)
+        .catch((error) => {
+          console.error('[print] pictures for the share sheet failed', error)
+          return null
+        })
+        .then((files) => {
+          making.current.delete(f.name)
+          pictures.current.set(f.name, { pages, files })
+          setPicturesReady((n) => n + 1)
+        })
+    }
+  })
+
+  const preparing = shareSheet && selectedForms.some((f) => !picturesOf(f))
+
+  const print = async () => {
+    const pages = selectedForms.flatMap((f) => f.pages)
+    if (pages.length === 0) {
+      showToast('ไม่มีข้อมูลสำหรับพิมพ์', '', 'INFO')
+      return
+    }
+    if (shareSheet) {
+      const files = selectedForms.flatMap((f) => picturesOf(f)?.files ?? [])
+      const ready = selectedForms.every((f) => picturesOf(f)?.files)
+      if (ready) {
+        const result = await sharePrintPictures(files)
+        if (result === 'shared') onPrinted?.()
+        if (result !== 'failed') return
+      }
+      // Pictures not made / the sheet did not open: the central print makes them again with its own window.
+    }
     if (!printFormPages(pages, printTitle)) {
       showToast('ไม่มีข้อมูลสำหรับพิมพ์', '', 'INFO')
       return
@@ -152,12 +207,12 @@ export function PostSavePrintModal({
 
           <button
             type="button"
-            onClick={print}
-            disabled={loading || selected.length === 0}
+            onClick={() => void print()}
+            disabled={loading || selected.length === 0 || preparing}
             className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             <Printer className="w-4 h-4" />
-            <span>{printButtonText}</span>
+            <span>{preparing ? 'กำลังเตรียม...' : printButtonText}</span>
           </button>
         </div>
       </AppModalFooter>

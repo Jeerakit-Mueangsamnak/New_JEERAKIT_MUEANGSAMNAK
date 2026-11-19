@@ -4,6 +4,7 @@
  * then window.print() runs, then the element is removed.
  */
 import { escapeDocumentHtml } from '@/features/documents/utils/document-html'
+import { askTapToPrint, documentToPictures, shareDocumentImages } from '@/lib/print/print-share-images'
 
 const TARGET_ID = 'central-print-target'
 
@@ -81,18 +82,20 @@ export function openPrint(
   // first made the print button do nothing on iPad (owner 2026-11-18). Safari builds its preview later
   // anyway, so the images are in by then.
   if (isAppleTouchDevice()) {
-    void target.offsetHeight
-    // The Home Screen icon (no Safari bar) may give no print window at all: when none opens, say so
-    // instead of doing nothing (owner 2026-11-18).
+    // The Home Screen icon (no Safari bar) gives no print window: the document goes to the share
+    // sheet as pictures, whose "พิมพ์" opens the iPad print window (owner 2026-11-19).
     if (isStandaloneWebApp()) {
-      let opened = false
-      const onBeforePrint = () => { opened = true }
-      window.addEventListener('beforeprint', onBeforePrint, { once: true })
-      window.print()
-      window.setTimeout(() => {
-        window.removeEventListener('beforeprint', onBeforePrint)
-        if (!opened) window.alert('หน้าต่างพิมพ์ไม่เปิดเมื่อเปิดเว็บจากไอคอนบนหน้าจอโฮม กรุณาเปิดเว็บร้านด้วย Safari แล้วกดพิมพ์อีกครั้ง')
-      }, 1500)
+      void shareDocumentImages(target, opts.title, () => {
+        done()
+        removeTarget()
+      })
+      return
+    }
+    void target.offsetHeight
+    // Safari opens the print window only while the tap is fresh; a print that came later (a form read
+    // from the server first) gets one "พิมพ์" tap instead of doing nothing.
+    if (navigator.userActivation?.isActive === false) {
+      askTapToPrint()
       return
     }
     window.print()
@@ -175,14 +178,44 @@ export function printTable(opts: PrintTableOptions): boolean {
   return true
 }
 
+/** The printed markup of `pages`: one A4 page each. */
+function documentPagesHtml(pages: string[]): string {
+  return `<div class="print-multi-document-container">${pages
+    .map((p) => `<div class="print-document-wrapper" style="width:210mm;min-height:297mm;box-sizing:border-box;">${p}</div>`)
+    .join('')}</div>`
+}
+
 /** One A4 page per document (customer forms, bills); `pages` are already-rendered HTML. */
 export function printDocuments(pages: string[], title?: string): boolean {
   if (pages.length === 0) return false
-  printHtml(
-    `<div class="print-multi-document-container">${pages
-      .map((p) => `<div class="print-document-wrapper" style="width:210mm;min-height:297mm;box-sizing:border-box;">${p}</div>`)
-      .join('')}</div>`,
-    { orientation: 'portrait', margin: '0', title }
-  )
+  printHtml(documentPagesHtml(pages), { orientation: 'portrait', margin: '0', title })
   return true
+}
+
+/**
+ * iPad / iPhone web app opened from the Home Screen icon: window.print() opens nothing there, printing goes
+ * through the share sheet (see print-share-images.ts).
+ */
+export function printsThroughShareSheet(): boolean {
+  return typeof window !== 'undefined' && isAppleTouchDevice() && isStandaloneWebApp()
+}
+
+/**
+ * The pictures `printDocuments` would print, made ahead (while the document picker is open) so the share
+ * sheet opens right on the tap (owner 2026-11-19).
+ */
+export async function preparePrintPictures(pages: string[], title?: string): Promise<File[]> {
+  const holder = document.createElement('div')
+  holder.style.position = 'fixed'
+  holder.style.left = '-10000px'
+  holder.style.top = '0'
+  holder.style.width = '210mm'
+  holder.setAttribute('aria-hidden', 'true')
+  holder.innerHTML = documentPagesHtml(pages)
+  document.body.appendChild(holder)
+  try {
+    return await documentToPictures(holder, title)
+  } finally {
+    holder.remove()
+  }
 }
