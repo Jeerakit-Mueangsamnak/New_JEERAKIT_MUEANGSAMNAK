@@ -7,6 +7,9 @@
 const DB_NAME = 'rental-pos-device-cache'
 const STORE = 'entries'
 
+/** The shop settings row (settings-repository); removed on sign-out. */
+export const SETTINGS_ROW_CACHE_KEY = 'store-settings-row:v1'
+
 let dbPromise: Promise<IDBDatabase | null> | null = null
 
 function openDb(): Promise<IDBDatabase | null> {
@@ -50,6 +53,22 @@ export async function writeDeviceCache<T>(key: string, value: T): Promise<void> 
     try {
       const tx = db.transaction(STORE, 'readwrite')
       tx.objectStore(STORE).put(value, key)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => resolve()
+      tx.onabort = () => resolve()
+    } catch {
+      resolve()
+    }
+  })
+}
+
+export async function removeDeviceCache(key: string): Promise<void> {
+  const db = await openDb()
+  if (!db) return
+  await new Promise<void>((resolve) => {
+    try {
+      const tx = db.transaction(STORE, 'readwrite')
+      tx.objectStore(STORE).delete(key)
       tx.oncomplete = () => resolve()
       tx.onerror = () => resolve()
       tx.onabort = () => resolve()

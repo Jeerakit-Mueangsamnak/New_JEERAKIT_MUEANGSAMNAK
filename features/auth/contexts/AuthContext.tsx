@@ -8,6 +8,7 @@ import { hasMenu as userHasMenu, type MenuCode } from '@/features/auth/services/
 import { logout } from '@/app/actions/auth'
 import { clearFinanceCache } from '@/features/finance/services/finance-storage'
 import { clearAllCarts } from '@/features/pos/services/cart-storage'
+import { removeDeviceCache, SETTINGS_ROW_CACHE_KEY } from '@/lib/db/device-cache'
 import type { CurrentUser, UserRole } from '@/lib/types/rental-pos'
 
 export interface AuthContextType {
@@ -275,6 +276,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Ignore network errors during signout
     } finally {
       clearFinanceCache()
+      // The shop settings copy kept on this device for a fast start goes with the session.
+      void removeDeviceCache(SETTINGS_ROW_CACHE_KEY)
       // A held POS cart belongs to this user: the next person on the device starts empty.
       clearAllCarts()
       clearAuthState()
