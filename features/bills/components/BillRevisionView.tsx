@@ -3,7 +3,7 @@ import { COMMAND_BUTTON_SIZE_CLASSES, StepNavButton } from '@/components/common/
 
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import React, { useEffect, useMemo, useState } from 'react'
-import { CalendarPlus, Edit3, Trash2, Package, Save, DollarSign } from 'lucide-react'
+import { CalendarPlus, Edit3, Trash2, Package, Save, DollarSign, UserPlus } from 'lucide-react'
 import { FullBill } from '@/lib/types/rental-return'
 import { useToast } from '@/components/common/Toast'
 import { CustomDatePicker, getLocalDateString, parseLocalDate } from '@/components/common/CustomDatePicker'
@@ -12,11 +12,14 @@ import { NumericInput } from '@/components/common/NumericInput'
 import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
 import { loadProducts } from '@/features/products/services/product-storage'
 import { loadCategories } from '@/lib/category-rules-storage'
-import { correctBill, createContinuation, reviseBill, setBillDocumentDate, type BillRevision } from '@/features/bills/services/bill-service'
+import { correctBill, createContinuation, reviseBill, setBillCustomer, setBillDocumentDate, type BillRevision } from '@/features/bills/services/bill-service'
 import { CartDatesButton, CartDatesModal, CartDeliveryInput, CartPhoneInput } from '@/features/pos/components/CartDetailFields'
 import { CustomerUnifiedSelector } from '@/features/pos/components/CustomerUnifiedSelector'
 import { CustomItemModal, type CustomItemData } from '@/features/pos/components/CustomItemModal'
 import type { Customer } from '@/lib/types/rental-pos'
+import { NewCustomerModal } from '@/features/customers/components/NewCustomerModal'
+import { useCreateCustomer } from '@/features/customers/hooks/useCreateCustomer'
+import { isIdCardUploadError, loadCustomers, syncCustomersFromSupabase } from '@/features/customers/services/customer-storage'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { dbErrorMessage } from '@/lib/db/rpc'
 import { isNoChargeBillLine, isNoChargeRental } from '@/features/pos/services/accessory-rules'
@@ -204,6 +207,18 @@ export function noteWithDeliveryPlace(note: string | null | undefined, place: st
   return noteWithLine(note, DELIVERY_LABEL, place)
 }
 
+/**
+ * The customer picked in แก้ไขบิล (owner 2026-11-19): the bill's own name typed again keeps the bill's customer; a typed
+ * name that is exactly one saved customer's name is that customer; any other typed name is ลูกค้าทั่วไป (guest).
+ */
+export function resolveBillCustomer(picked: Customer, current: Customer, customers: Customer[]): Customer {
+  if (picked.id) return picked
+  const name = picked.customerName.trim().toLowerCase()
+  if (name === current.customerName.trim().toLowerCase()) return current
+  const same = customers.filter((c) => (c.customerName || '').trim().toLowerCase() === name)
+  return same.length === 1 ? same[0] : picked
+}
+
 export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionViewProps) {
   const { showToast } = useToast()
   const confirmDialog = useConfirm()
@@ -222,6 +237,21 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
   const [contactPhone, setContactPhone] = useState('')
   const [customItemOpen, setCustomItemOpen] = useState(false)
   const [showDatePicker, setShowDatePicker] = useState(false)
+  // ลูกค้า (owner 2026-11-19): may be changed to another saved customer, or to a typed name (ลูกค้าทั่วไป)
+  const [customer, setCustomer] = useState<Customer | null>(null)
+  const [customers, setCustomers] = useState<Customer[]>(() => loadCustomers())
+  const [showAddCustomer, setShowAddCustomer] = useState(false)
+  const createCustomer = useCreateCustomer()
+
+  useEffect(() => {
+    let alive = true
+    void syncCustomersFromSupabase()
+      .then((list) => alive && setCustomers(list))
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
 
   // Initialize data from bill
   useEffect(() => {
@@ -402,14 +432,53 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
     setCustomItemOpen(false)
   }
 
-  // The bill's customer, shown as in the cart; locked here (a confirmed bill keeps its customer)
-  const billCustomer: Customer = {
-    id: bill.customerId || '',
-    customerName: bill.customerName,
-    phone: bill.customerPhone || '',
-    address: '',
-    taxId: '',
-    status: 'ACTIVE',
+  // The bill's customer, shown as in the cart
+  const billCustomer: Customer = useMemo(
+    () => ({
+      id: bill.customerId || '',
+      customerName: bill.customerName,
+      phone: bill.customerPhone || '',
+      address: '',
+      taxId: '',
+      status: 'ACTIVE',
+    }),
+    [bill.customerId, bill.customerName, bill.customerPhone]
+  )
+  useEffect(() => setCustomer(billCustomer), [billCustomer])
+  // เช่าต่อ, credit bills and bills made by เช่าต่อ keep their customer (the server refuses the change too)
+  const customerLocked = mode === 'EXTENSION' || Boolean(bill.isCreditBill || bill.parentBillId)
+
+  const pickCustomer = (picked: Customer | null) => {
+    if (!picked) {
+      setCustomer(null)
+      return
+    }
+    if (picked.isSuspended) {
+      showToast('ลูกค้าถูกระงับสิทธิ์', `ลูกค้า ${picked.customerName} ถูกระงับสิทธิ์ ไม่สามารถทำรายการได้`, 'ERROR')
+      return
+    }
+    setCustomer(resolveBillCustomer(picked, billCustomer, customers))
+  }
+
+  const handleAddCustomer = async (newCustomer: Customer): Promise<boolean> => {
+    try {
+      // The server assigns the customer id; select the saved record, not the form copy (as the POS does).
+      const saved = await createCustomer(newCustomer)
+      setCustomers(loadCustomers())
+      setCustomer(saved)
+      showToast('เพิ่มลูกค้าสำเร็จ', `เพิ่มลูกค้า ${newCustomer.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
+      return true
+    } catch (err: any) {
+      if (isIdCardUploadError(err)) {
+        setCustomers(loadCustomers())
+        setCustomer(err.saved)
+        showToast('บันทึกข้อมูลลูกค้าแล้ว', err.message, 'INFO')
+        return true
+      }
+      if (err?.tag === 'DUPLICATE_CUSTOMER') return false
+      showToast('ไม่สามารถเพิ่มลูกค้าได้', err?.message || 'เกิดข้อผิดพลาด', 'ERROR')
+      return false
+    }
   }
 
   const handleSave = async () => {
@@ -499,10 +568,18 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           revision.feesTotal === round2(Number(bill.shippingFee || 0))
         const placeChanged = deliveryPlace.trim() !== (bill.siteName || deliveryPlaceOfNote(bill.remark))
         const phoneChanged = contactPhone.trim() !== noteLineValue(bill.remark, PHONE_LABEL)
-        if (untouched && !dateChanged && !placeChanged && !phoneChanged) {
-          showToast('ไม่มีการแก้ไข', 'ยังไม่ได้เปลี่ยนวันที่ สินค้า จำนวน ราคา ส่วนลด ค่าขนส่ง สถานที่จัดส่ง หรือเบอร์โทร', 'INFO')
+        if (!customer) {
+          showToast('กรุณาเลือกลูกค้า', 'เลือกลูกค้าในระบบ หรือพิมพ์ชื่อลูกค้าทั่วไป', 'ERROR')
           return
         }
+        const customerChanged =
+          customer.id !== billCustomer.id || (!customer.id && customer.customerName.trim() !== billCustomer.customerName.trim())
+        if (untouched && !dateChanged && !placeChanged && !phoneChanged && !customerChanged) {
+          showToast('ไม่มีการแก้ไข', 'ยังไม่ได้เปลี่ยนลูกค้า วันที่ สินค้า จำนวน ราคา ส่วนลด ค่าขนส่ง สถานที่จัดส่ง หรือเบอร์โทร', 'INFO')
+          return
+        }
+        // The customer first: a refused change (credit / เช่าต่อ bill) stops before anything else is saved
+        if (customerChanged) await setBillCustomer(bill.id, customer.id || null, customer.id ? null : customer.customerName)
         if (!untouched) await reviseBill(bill.id, revision)
         if (dateChanged) await setBillDocumentDate(bill.id, documentDate)
         // The delivery place and contact phone are lines of the bill's note (bill_correct: PIN + audit, as any note fix)
@@ -822,11 +899,31 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
             ย้อนกลับ under it; the summary with ยกเลิก / บันทึก under it on the right */}
         <div className="shrink-0 border-t border-slate-200 dark:border-slate-700 p-2 flex flex-col sm:flex-row items-stretch sm:items-end justify-between gap-3">
           <div className="w-full sm:w-80 flex flex-col gap-2">
-            <CustomerUnifiedSelector selectedCustomer={billCustomer} customers={[]} onSelectCustomer={() => {}} disabled />
+            {customerLocked ? (
+              <CustomerUnifiedSelector selectedCustomer={billCustomer} customers={[]} onSelectCustomer={() => {}} disabled />
+            ) : (
+              <CustomerUnifiedSelector selectedCustomer={customer} customers={customers} onSelectCustomer={pickCustomer} />
+            )}
             {mode !== 'EXTENSION' && (
               <>
                 <CartDeliveryInput value={deliveryPlace} onChange={setDeliveryPlace} />
-                <CartPhoneInput value={contactPhone} onChange={setContactPhone} />
+                {/* เบอร์โทรติดต่อ + เพิ่มลูกค้า in one row (the cart's ประเภทเอกสาร is not part of a bill) */}
+                <div className="flex items-center gap-1.5">
+                  <div className="flex-1 min-w-0">
+                    <CartPhoneInput value={contactPhone} onChange={setContactPhone} />
+                  </div>
+                  {!customerLocked && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAddCustomer(true)}
+                      className="px-2.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs flex items-center gap-1 shrink-0 shadow-sm transition-all whitespace-nowrap"
+                      title="เพิ่มลูกค้าใหม่"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>เพิ่มลูกค้า</span>
+                    </button>
+                  )}
+                </div>
               </>
             )}
             <CartDatesButton
@@ -945,6 +1042,8 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           </div>
           </div>
         </div>
+
+      <NewCustomerModal isOpen={showAddCustomer} onClose={() => setShowAddCustomer(false)} onSave={handleAddCustomer} />
 
       {customItemOpen && <CustomItemModal onAdd={addCustomItems} onClose={() => setCustomItemOpen(false)} submitLabel="เพิ่มลงบิล" />}
 

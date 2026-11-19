@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildRevision, deliveryPlaceOfNote, noteLineValue, noteWithDeliveryPlace, noteWithLine, PHONE_LABEL } from '@/features/bills/components/BillRevisionView'
+import { buildRevision, deliveryPlaceOfNote, resolveBillCustomer, noteLineValue, noteWithDeliveryPlace, noteWithLine, PHONE_LABEL } from '@/features/bills/components/BillRevisionView'
 
 // แก้ไขบิลเช่า › สถานที่จัดส่ง (owner 2026-11-19): the "ส่งที่: …" line the POS writes into the bill's note
 describe('สถานที่จัดส่งในหมายเหตุบิล', () => {
@@ -57,5 +57,26 @@ describe('+ รายการนอกร้าน ในแก้ไขบิ�
     expect(revision.lines).toEqual([
       { product_id: null, product_name: 'ค่าแรงติดตั้ง', unit_name: 'งาน', line_mode: 'SALE', ordered_qty: 2, unit_price: 300 },
     ])
+  })
+})
+
+// แก้ไขบิล › เปลี่ยนลูกค้า (owner 2026-11-19)
+describe('เลือกลูกค้าในแก้ไขบิล', () => {
+  const c = (id: string, customerName: string) => ({ id, customerName, phone: '', address: '', taxId: '', status: 'ACTIVE' as const })
+  const current = c('cust-a', 'สมชาย ใจดี')
+  const saved = [current, c('cust-b', 'สมหญิง รักงาน'), c('cust-c', 'ซ้ำ'), c('cust-d', 'ซ้ำ')]
+
+  it('พิมพ์ชื่อเดิมของบิล = ลูกค้าคนเดิม', () => {
+    expect(resolveBillCustomer(c('', ' สมชาย ใจดี '), current, saved)).toBe(current)
+  })
+  it('พิมพ์ชื่อที่ตรงกับลูกค้าในระบบคนเดียว = ลูกค้าคนนั้น', () => {
+    expect(resolveBillCustomer(c('', 'สมหญิง รักงาน'), current, saved).id).toBe('cust-b')
+  })
+  it('ชื่อใหม่ที่ไม่มีในระบบ (หรือชื่อซ้ำหลายคน) = ลูกค้าทั่วไป', () => {
+    expect(resolveBillCustomer(c('', 'คนใหม่'), current, saved).id).toBe('')
+    expect(resolveBillCustomer(c('', 'ซ้ำ'), current, saved).id).toBe('')
+  })
+  it('เลือกลูกค้าจากรายการ = ลูกค้าคนนั้น', () => {
+    expect(resolveBillCustomer(saved[1], current, saved).id).toBe('cust-b')
   })
 })
