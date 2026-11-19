@@ -1,4 +1,4 @@
--- Rule tests for supabase/migrations/20261119100000_bill_set_customer_v1.sql (owner 2026-11-19):
+-- Rule tests for supabase/migrations/20261119104511_bill_set_customer_v1.sql (owner 2026-11-19):
 -- แก้ไขบิล may change the customer of a confirmed bill — another saved customer, or a typed name that is not a
 -- saved customer (ลูกค้าทั่วไป). The same customer changes nothing. Credit and เช่าต่อ bills keep their customer.
 -- Runs after 40_money_stock.sql (customer 'c1').
