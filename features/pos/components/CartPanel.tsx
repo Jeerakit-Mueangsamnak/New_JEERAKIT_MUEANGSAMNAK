@@ -8,13 +8,12 @@ import {
   UserPlus,
   ShoppingBag,
   ArrowRight,
-  Phone,
   FileText
 } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { NewCustomerModal } from '@/features/customers/components/NewCustomerModal'
 import { getLocalDateString } from '@/components/common/CustomDatePicker'
-import { CartDatesButton, CartDatesModal, CartDeliveryInput } from '@/features/pos/components/CartDetailFields'
+import { CartDatesButton, CartDatesModal, CartDeliveryInput, CartPhoneInput } from '@/features/pos/components/CartDetailFields'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { CustomerUnifiedSelector } from '@/features/pos/components/CustomerUnifiedSelector'
 import {
@@ -381,21 +380,7 @@ export function CartPanel({
           <CartDeliveryInput value={shippingAddress} onChange={setShippingAddress} />
 
           {/* Contact phone of the bill (a bill only: a quotation does not keep it) */}
-          {!isQuotationMode && (
-            <div className="relative">
-              <Phone className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="tel"
-                inputMode="tel"
-                maxLength={45}
-                aria-label="เบอร์โทรติดต่อ"
-                placeholder="เบอร์โทรติดต่อ..."
-                value={contactPhone}
-                onChange={(e) => setContactPhone(e.target.value.replace(/[^0-9+\-\s(),]/g, ''))}
-                className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-              />
-            </div>
-          )}
+          {!isQuotationMode && <CartPhoneInput value={contactPhone} onChange={setContactPhone} />}
 
           {/* Row 3: Document Type (Left) + Add Customer Button (Right) */}
           <div className="flex items-center gap-1.5">

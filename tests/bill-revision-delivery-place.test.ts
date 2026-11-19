@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deliveryPlaceOfNote, noteWithDeliveryPlace } from '@/features/bills/components/BillRevisionView'
+import { buildRevision, deliveryPlaceOfNote, noteLineValue, noteWithDeliveryPlace, noteWithLine, PHONE_LABEL } from '@/features/bills/components/BillRevisionView'
 
 // แก้ไขบิลเช่า › สถานที่จัดส่ง (owner 2026-11-19): the "ส่งที่: …" line the POS writes into the bill's note
 describe('สถานที่จัดส่งในหมายเหตุบิล', () => {
@@ -18,5 +18,44 @@ describe('สถานที่จัดส่งในหมายเหตุ�
     expect(noteWithDeliveryPlace(undefined, 'บางนา')).toBe('ส่งที่: บางนา')
     expect(noteWithDeliveryPlace('ส่งที่: บางนา\nโทร: 081', '')).toBe('โทร: 081')
     expect(noteWithDeliveryPlace('ส่งที่: บางนา', '  ')).toBe('')
+  })
+})
+
+describe('เบอร์โทรติดต่อในหมายเหตุบิล', () => {
+  it('อ่าน/แก้บรรทัด "โทร:" โดยไม่แตะบรรทัด "ส่งที่:"', () => {
+    const note = 'ส่งที่: บางนา\nโทร: 081'
+    expect(noteLineValue(note, PHONE_LABEL)).toBe('081')
+    expect(noteWithLine(note, PHONE_LABEL, '089-999')).toBe('ส่งที่: บางนา\nโทร: 089-999')
+    expect(noteWithLine('ส่งที่: บางนา', PHONE_LABEL, '081')).toBe('ส่งที่: บางนา\nโทร: 081')
+  })
+})
+
+describe('+ รายการนอกร้าน ในแก้ไขบิล', () => {
+  it('ส่งเป็นรายการที่ไม่มีสินค้า: product_name + unit_name แบบเดียวกับ POS', () => {
+    const bill = { items: [], rentalStartDate: '2026-11-19', scheduledReturnDate: '2026-11-26', discountAmount: 0, billDiscountAmount: 0, shippingFee: 0 }
+    const revision = buildRevision(
+      bill,
+      [
+        {
+          productId: '',
+          productName: 'ค่าแรงติดตั้ง',
+          unitName: 'งาน',
+          isCustom: true,
+          rentalType: 'SALE',
+          quantity: 2,
+          unitPrice: 300,
+          usageCount: 1,
+          dailyStartDate: '2026-11-19',
+          dailyEndDate: '2026-11-26',
+          action: 'ADD',
+        },
+      ],
+      { start: '2026-11-19', end: '2026-11-26' },
+      0,
+      0
+    )
+    expect(revision.lines).toEqual([
+      { product_id: null, product_name: 'ค่าแรงติดตั้ง', unit_name: 'งาน', line_mode: 'SALE', ordered_qty: 2, unit_price: 300 },
+    ])
   })
 })

@@ -13,7 +13,10 @@ import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/
 import { loadProducts } from '@/features/products/services/product-storage'
 import { loadCategories } from '@/lib/category-rules-storage'
 import { correctBill, createContinuation, reviseBill, setBillDocumentDate, type BillRevision } from '@/features/bills/services/bill-service'
-import { CartDatesButton, CartDatesModal, CartDeliveryInput } from '@/features/pos/components/CartDetailFields'
+import { CartDatesButton, CartDatesModal, CartDeliveryInput, CartPhoneInput } from '@/features/pos/components/CartDetailFields'
+import { CustomerUnifiedSelector } from '@/features/pos/components/CustomerUnifiedSelector'
+import { CustomItemModal, type CustomItemData } from '@/features/pos/components/CustomItemModal'
+import type { Customer } from '@/lib/types/rental-pos'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { dbErrorMessage } from '@/lib/db/rpc'
 import { isNoChargeBillLine, isNoChargeRental } from '@/features/pos/services/accessory-rules'
@@ -45,6 +48,8 @@ interface EditableItem {
   unitName?: string
   /** Rental method "ไม่คิดเงิน": ราคา/หน่วย and รอบ print "-" and cannot be typed (owner 2026-11-09). */
   isNoCharge?: boolean
+  /** + รายการนอกร้าน: a typed-in line with no product (no stock), as in the POS cart. */
+  isCustom?: boolean
 }
 
 interface ProductOption {
@@ -79,7 +84,8 @@ type RevisionBill = Pick<FullBill, 'items' | 'rentalStartDate' | 'scheduledRetur
 type RevisionLine = Pick<
   EditableItem,
   'rentalBillItemId' | 'productId' | 'rentalType' | 'quantity' | 'unitPrice' | 'usageCount' | 'dailyStartDate' | 'dailyEndDate' | 'action'
->
+> &
+  Partial<Pick<EditableItem, 'productName' | 'unitName' | 'isCustom'>>
 type BillItem = FullBill['items'][number]
 
 // Table look shared with the return table (ReturnTableStep): tight centred cells, small number boxes and date buttons.
@@ -151,7 +157,7 @@ export function buildRevision(
     }
     const daily = item.rentalType === 'DAILY'
     lines.push({
-      product_id: item.productId,
+      ...(item.isCustom ? { product_id: null, product_name: item.productName ?? '', unit_name: item.unitName ?? null } : { product_id: item.productId }),
       line_mode: item.rentalType === 'SALE' ? 'SALE' : 'RENTAL',
       ordered_qty: item.quantity,
       unit_price: item.unitPrice,
@@ -168,21 +174,34 @@ export function buildRevision(
   return { billDiscountAmount: round2(Math.max(0, discountAmount - lineDiscounts)), feesTotal: round2(shippingFee), lines }
 }
 
-/** The POS keeps a bill's delivery place in its note as a "ส่งที่: …" line (app/pos/checkout). */
-const DELIVERY_LINE = /(?:^|\n)ส่งที่:[ \t]*(.*)/u
+/**
+ * The POS keeps a bill's delivery place and contact phone in its note as "ส่งที่: …" and "โทร: …" lines
+ * (app/pos/checkout).
+ */
+export const DELIVERY_LABEL = 'ส่งที่'
+export const PHONE_LABEL = 'โทร'
 
-export function deliveryPlaceOfNote(note?: string | null): string {
-  return DELIVERY_LINE.exec(note || '')?.[1]?.trim() || ''
+export function noteLineValue(note: string | null | undefined, label: string): string {
+  const line = (note || '').split('\n').find((l) => l.startsWith(`${label}:`))
+  return line ? line.slice(label.length + 1).trim() : ''
 }
 
-/** The note with its "ส่งที่:" line set to `place` (added if missing, dropped when empty); the other lines stay. */
-export function noteWithDeliveryPlace(note: string | null | undefined, place: string): string {
+export function deliveryPlaceOfNote(note?: string | null): string {
+  return noteLineValue(note, DELIVERY_LABEL)
+}
+
+/** The note with its "label:" line set to `value` (added at the end if missing, dropped when empty); other lines stay. */
+export function noteWithLine(note: string | null | undefined, label: string, value: string): string {
   const lines = (note || '').split('\n')
-  const at = lines.findIndex((line) => /^ส่งที่:/u.test(line))
-  const next = place.trim() ? `ส่งที่: ${place.trim()}` : ''
+  const at = lines.findIndex((line) => line.startsWith(`${label}:`))
+  const next = value.trim() ? `${label}: ${value.trim()}` : ''
   if (at >= 0) lines.splice(at, 1, ...(next ? [next] : []))
   else if (next) lines.push(next)
   return lines.join('\n').trim()
+}
+
+export function noteWithDeliveryPlace(note: string | null | undefined, place: string): string {
+  return noteWithLine(note, DELIVERY_LABEL, place)
 }
 
 export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionViewProps) {
@@ -199,6 +218,9 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
   const [isSaving, setIsSaving] = useState(false)
   // สถานที่จัดส่ง (owner 2026-11-19): the "ส่งที่:" line of the bill's note, as the POS saved it
   const [deliveryPlace, setDeliveryPlace] = useState('')
+  // เบอร์โทรติดต่อ: the "โทร:" line of the note, as the POS saved it
+  const [contactPhone, setContactPhone] = useState('')
+  const [customItemOpen, setCustomItemOpen] = useState(false)
   const [showDatePicker, setShowDatePicker] = useState(false)
 
   // Initialize data from bill
@@ -210,6 +232,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
     setDiscountAmount(Number(bill.discountAmount || 0))
     setShippingFee(Number(bill.shippingFee || 0))
     setDeliveryPlace(bill.siteName || deliveryPlaceOfNote(bill.remark))
+    setContactPhone(noteLineValue(bill.remark, PHONE_LABEL))
     setItems(
       bill.items.map((item) => ({
         rentalBillItemId: item.rentalBillItemId,
@@ -346,6 +369,49 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
     ])
   }
 
+  /** + รายการนอกร้าน (owner 2026-11-19): typed-in lines, the same window as the POS cart; dates follow the bill. */
+  const addCustomItems = (rows: CustomItemData[]) => {
+    const start = headerRentalDate || getLocalDateString(new Date())
+    const end = headerReturnDate || getLocalDateString(new Date())
+    setItems((prev) => [
+      ...prev,
+      ...rows.map((row) => {
+        const count = row.rentalType === 'SALE' ? 1 : Math.max(1, Math.floor(Number(row.count) || 1))
+        // A daily line counts both ends: N days = start … start + N - 1
+        const dailyEnd = new Date(`${start}T00:00:00`)
+        dailyEnd.setDate(dailyEnd.getDate() + count - 1)
+        return {
+          productId: '',
+          productName: row.name,
+          rentalType: row.rentalType,
+          quantity: row.quantity,
+          returnedQty: 0,
+          outstandingQty: row.rentalType === 'SALE' ? 0 : row.quantity,
+          unitPrice: row.unitPrice,
+          usageCount: row.rentalType === 'NORMAL' ? count : 1,
+          dailyStartDate: start,
+          dailyEndDate: row.rentalType === 'DAILY' ? getLocalDateString(dailyEnd) : end,
+          scheduledReturnDate: end,
+          action: 'ADD' as const,
+          addRounds: 0,
+          unitName: row.unit,
+          isCustom: true,
+        }
+      }),
+    ])
+    setCustomItemOpen(false)
+  }
+
+  // The bill's customer, shown as in the cart; locked here (a confirmed bill keeps its customer)
+  const billCustomer: Customer = {
+    id: bill.customerId || '',
+    customerName: bill.customerName,
+    phone: bill.customerPhone || '',
+    address: '',
+    taxId: '',
+    status: 'ACTIVE',
+  }
+
   const handleSave = async () => {
     if (!bill) return
     if (!headerReturnDate) {
@@ -432,15 +498,17 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           revision.billDiscountAmount === round2(Number(bill.billDiscountAmount || 0)) &&
           revision.feesTotal === round2(Number(bill.shippingFee || 0))
         const placeChanged = deliveryPlace.trim() !== (bill.siteName || deliveryPlaceOfNote(bill.remark))
-        if (untouched && !dateChanged && !placeChanged) {
-          showToast('ไม่มีการแก้ไข', 'ยังไม่ได้เปลี่ยนวันที่ สินค้า จำนวน ราคา ส่วนลด ค่าขนส่ง หรือสถานที่จัดส่ง', 'INFO')
+        const phoneChanged = contactPhone.trim() !== noteLineValue(bill.remark, PHONE_LABEL)
+        if (untouched && !dateChanged && !placeChanged && !phoneChanged) {
+          showToast('ไม่มีการแก้ไข', 'ยังไม่ได้เปลี่ยนวันที่ สินค้า จำนวน ราคา ส่วนลด ค่าขนส่ง สถานที่จัดส่ง หรือเบอร์โทร', 'INFO')
           return
         }
         if (!untouched) await reviseBill(bill.id, revision)
         if (dateChanged) await setBillDocumentDate(bill.id, documentDate)
-        // The delivery place is the bill's note text (bill_correct: PIN + audit, as any note fix)
-        if (placeChanged) {
-          await correctBill(bill.id, { note: noteWithDeliveryPlace(bill.remark, deliveryPlace) || null }, 'แก้ไขสถานที่จัดส่ง')
+        // The delivery place and contact phone are lines of the bill's note (bill_correct: PIN + audit, as any note fix)
+        if (placeChanged || phoneChanged) {
+          const note = noteWithLine(noteWithDeliveryPlace(bill.remark, deliveryPlace), PHONE_LABEL, contactPhone)
+          await correctBill(bill.id, { note: note || null }, 'แก้ไขสถานที่จัดส่ง / เบอร์โทรติดต่อ')
         }
       }
 
@@ -463,7 +531,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
     // already gives the grey edge, so no second padding here. Title, fields, items, summary and buttons inside.
     <div className="flex flex-col min-h-0 h-full w-full overflow-hidden animate-in fade-in duration-150 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-slate-100">
       {/* 1. Title */}
-      <div className="border-b border-slate-200 dark:border-slate-700 px-3 py-2 flex items-center shrink-0">
+      <div className="border-b border-slate-200 dark:border-slate-700 px-3 py-2 flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <div
               className={`p-2 rounded-xl text-white shrink-0 ${
@@ -482,6 +550,16 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
               </p>
             </div>
           </div>
+          {/* + รายการนอกร้าน, as in the POS cart header (แก้ไขบิล only: เช่าต่อ carries the goods still out) */}
+          {mode !== 'EXTENSION' && (
+            <button
+              type="button"
+              onClick={() => setCustomItemOpen(true)}
+              className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 font-semibold transition-colors whitespace-nowrap shrink-0"
+            >
+              + รายการนอกร้าน
+            </button>
+          )}
       </div>
 
 
@@ -740,11 +818,17 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
             </table>
           </DataTableFrame>
 
-        {/* 4. Bottom (owner 2026-11-19): the cart's input set on the left (สถานที่จัดส่ง, dates, ส่วนลด, ค่าขนส่ง) with
+        {/* 4. Bottom (owner 2026-11-19): the cart's input set on the left (ลูกค้า, สถานที่จัดส่ง, เบอร์โทร, dates, ส่วนลด, ค่าขนส่ง) with
             ย้อนกลับ under it; the summary with ยกเลิก / บันทึก under it on the right */}
         <div className="shrink-0 border-t border-slate-200 dark:border-slate-700 p-2 flex flex-col sm:flex-row items-stretch sm:items-end justify-between gap-3">
           <div className="w-full sm:w-80 flex flex-col gap-2">
-            {mode !== 'EXTENSION' && <CartDeliveryInput value={deliveryPlace} onChange={setDeliveryPlace} />}
+            <CustomerUnifiedSelector selectedCustomer={billCustomer} customers={[]} onSelectCustomer={() => {}} disabled />
+            {mode !== 'EXTENSION' && (
+              <>
+                <CartDeliveryInput value={deliveryPlace} onChange={setDeliveryPlace} />
+                <CartPhoneInput value={contactPhone} onChange={setContactPhone} />
+              </>
+            )}
             <CartDatesButton
               documentDate={parseLocalDate(documentDate)}
               rentalDate={parseLocalDate(headerRentalDate)}
@@ -796,13 +880,13 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
               <div className="flex justify-between text-slate-600 dark:text-slate-400">
                 <span>ส่วนลด:</span>
                 <span className="font-mono font-bold text-red-700 dark:text-red-400">
-                  -{(discountAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                  {(discountAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                 </span>
               </div>
               <div className="flex justify-between text-slate-600 dark:text-slate-400">
                 <span>ค่าขนส่ง:</span>
                 <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                  +{(shippingFee || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                  {(shippingFee || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                 </span>
               </div>
             </div>
@@ -861,6 +945,8 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           </div>
           </div>
         </div>
+
+      {customItemOpen && <CustomItemModal onAdd={addCustomItems} onClose={() => setCustomItemOpen(false)} submitLabel="เพิ่มลงบิล" />}
 
       {/* The cart's step-by-step date window (shared with the POS cart) */}
       <CartDatesModal

@@ -97,15 +97,17 @@ export function CustomerUnifiedSelector({
               )}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={handleClear}
-            disabled={disabled}
-            className="p-1 text-slate-600 dark:text-slate-400 hover:text-red-600 rounded-md hover:bg-white dark:hover:bg-slate-800 transition-colors"
-            title="เปลี่ยนลูกค้า"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
+          {/* Locked (disabled): the customer shows without the change button */}
+          {!disabled && (
+            <button
+              type="button"
+              onClick={handleClear}
+              className="p-1 text-slate-600 dark:text-slate-400 hover:text-red-600 rounded-md hover:bg-white dark:hover:bg-slate-800 transition-colors"
+              title="เปลี่ยนลูกค้า"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       ) : (
         <div className="relative">

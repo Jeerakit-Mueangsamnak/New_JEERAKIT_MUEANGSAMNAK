@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { Calendar, MapPin } from 'lucide-react'
+import { Calendar, MapPin, Phone } from 'lucide-react'
 import { StepNavButton } from '@/components/common/ActionButton'
 import { AppModal, AppModalBody } from '@/components/common/AppModal'
 import { CalendarPanel, getLocalDateString } from '@/components/common/CustomDatePicker'
@@ -9,7 +9,7 @@ import { useToast } from '@/components/common/Toast'
 
 /**
  * The cart's own input set (POS ตะกร้าสินค้า), shared with แก้ไขบิลเช่า (owner 2026-11-19): the delivery place box,
- * the date row (📝 document · 🟢 rental start · 🔴 return) and the step-by-step date window it opens.
+ * the contact phone box, the date row (📝 document · 🟢 rental start · 🔴 return) and the step-by-step date window it opens.
  */
 
 const FIELD_CLASSES =
@@ -26,6 +26,25 @@ export function CartDeliveryInput({ value, onChange }: { value: string; onChange
         placeholder="สถานที่จัดส่ง / โครงการ..."
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        className={`w-full pl-9 pr-3 py-1.5 ${FIELD_CLASSES} text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none`}
+      />
+    </div>
+  )
+}
+
+/** เบอร์โทรติดต่อ box of the cart (a bill's own contact phone): digits and + - ( ) , only. */
+export function CartPhoneInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="relative">
+      <Phone className="w-4 h-4 text-slate-600 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+      <input
+        type="tel"
+        inputMode="tel"
+        maxLength={45}
+        aria-label="เบอร์โทรติดต่อ"
+        placeholder="เบอร์โทรติดต่อ..."
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/[^0-9+\-\s(),]/g, ''))}
         className={`w-full pl-9 pr-3 py-1.5 ${FIELD_CLASSES} text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none`}
       />
     </div>
