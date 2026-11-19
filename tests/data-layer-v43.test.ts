@@ -143,6 +143,13 @@ describe('bill rows → bill screen (server numbers only)', () => {
     expect(mapBill({ ...baseBill, bill_no: null, status: 'DRAFT' } as never, [], ctx).billNo).toMatch(/^ร่าง-/)
   })
 
+  it('สถานที่จัดส่งที่พิมพ์ใน POS (เก็บในหมายเหตุบิลเป็น "ส่งที่: …") กลับมาเป็นสถานที่จัดส่งของบิล', () => {
+    const note = 'ส่งของช่วงเช้า\nส่งที่: โครงการบ้านสวน ซอย 5\nโทร: 0812345678'
+    expect(mapBill({ ...baseBill, note } as never, [], ctx).siteName).toBe('โครงการบ้านสวน ซอย 5')
+    expect(mapBill({ ...baseBill, note: 'ส่งของช่วงเช้า' } as never, [], ctx).siteName).toBeUndefined()
+    expect(mapBill(baseBill as never, [], ctx).siteName).toBeUndefined()
+  })
+
   it('a confirmed bill shows the product and customer as written on it, not today\'s renamed master data', () => {
     const b = mapBill(
       { ...baseBill, customer_snapshot: { name: 'สมชาย (วันออกบิล)', phone: '089', address: 'บางนา' } } as never,
