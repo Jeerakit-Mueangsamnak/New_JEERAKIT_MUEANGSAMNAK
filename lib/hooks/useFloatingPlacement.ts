@@ -10,6 +10,8 @@ export interface UseFloatingPlacementOptions {
   estimatedHeight?: number
   matchTriggerWidth?: boolean
   minWidth?: number
+  /** Side to open on when both fit (default 'bottom'); it still flips when that side is too short. */
+  prefer?: 'top' | 'bottom'
 }
 
 export interface FloatingCoords {
@@ -44,6 +46,7 @@ export function useFloatingPlacement(
     estimatedHeight = 260,
     matchTriggerWidth = false,
     minWidth,
+    prefer = 'bottom',
   } = options
 
   const [coords, setCoords] = useState<FloatingCoords>({ left: minMargin })
@@ -61,7 +64,10 @@ export function useFloatingPlacement(
     const spaceAbove = rect.top - offset - minMargin
 
     // Auto-flip decision
-    const shouldPlaceTop = spaceBelow < estimatedHeight && spaceAbove > spaceBelow
+    const shouldPlaceTop =
+      prefer === 'top'
+        ? !(spaceAbove < estimatedHeight && spaceBelow > spaceAbove)
+        : spaceBelow < estimatedHeight && spaceAbove > spaceBelow
     const currentPlacement = shouldPlaceTop ? 'top' : 'bottom'
     setPlacement(currentPlacement)
 
@@ -112,7 +118,7 @@ export function useFloatingPlacement(
         maxHeight: calculatedMaxHeight,
       })
     }
-  }, [triggerRef, align, offset, minMargin, estimatedWidth, estimatedHeight, matchTriggerWidth, minWidth])
+  }, [triggerRef, align, offset, minMargin, estimatedWidth, estimatedHeight, matchTriggerWidth, minWidth, prefer])
 
   useEffect(() => {
     if (isOpen) {
