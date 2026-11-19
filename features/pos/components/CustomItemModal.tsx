@@ -31,9 +31,10 @@ export const CUSTOM_ITEM_ROWS = 5
 const FIELD_CLASSES =
   'w-full h-10 px-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold text-sm tabular-nums focus:ring-2 focus:ring-emerald-500 focus:outline-none'
 const HEAD_CLASSES = 'whitespace-nowrap text-xs font-medium text-slate-700 dark:text-slate-300'
-// Column widths sized to what each box holds (owner 2026-11-11): จำนวน 3 digits, ราคา 4, รอบ 2,
-// จำนวนเงิน 6; the name takes what is left. Narrow screens scroll the rows sideways.
-const GRID_CLASSES = 'grid grid-cols-[minmax(120px,1fr)_52px_84px_64px_60px_84px_100px] gap-1.5 items-center'
+// Column widths sized to what each box holds (owner 2026-11-19): จำนวน 3 digits, หน่วย and ราคา
+// 4 capital letters (XXXX), รอบ the word จำนวน, การเช่า the word ต่อรอบ, จำนวนเงิน 999,999.99;
+// the name takes what is left. Narrow screens scroll the rows sideways.
+const GRID_CLASSES = 'grid grid-cols-[minmax(120px,1fr)_52px_76px_62px_40px_76px_98px] gap-1.5 items-center'
 
 interface Row {
   name: string
@@ -115,14 +116,15 @@ export function CustomItemModal({ onAdd, onClose, initial, submitLabel = 'เพ
       </AppModalHeader>
 
       <AppModalBody>
-        <div className="overflow-x-auto">
+        {/* p-1 keeps the focus ring of the edge boxes inside the scroll area, so it is not cut off */}
+        <div className="overflow-x-auto p-1 -m-1">
           <div className="min-w-[600px] space-y-1.5">
             <div className={GRID_CLASSES} aria-hidden="true">
               <span className={HEAD_CLASSES}>ชื่อรายการ</span>
               <span className={HEAD_CLASSES}>จำนวน</span>
               <span className={HEAD_CLASSES}>หน่วย</span>
               <span className={HEAD_CLASSES}>ราคา</span>
-              <span className={HEAD_CLASSES}>จำนวนรอบ</span>
+              <span className={HEAD_CLASSES}>จำนวน</span>
               <span className={HEAD_CLASSES}>การเช่า</span>
               <span className={HEAD_CLASSES}>จำนวนเงิน</span>
             </div>
@@ -157,6 +159,7 @@ export function CustomItemModal({ onAdd, onClose, initial, submitLabel = 'เพ
                     allowCustom
                     placeholder="หน่วย"
                     buttonClassName="h-10 px-2 py-0 rounded-xl"
+                    selectedMark="border"
                     align="left"
                   />
                   <NumericInput
@@ -182,6 +185,7 @@ export function CustomItemModal({ onAdd, onClose, initial, submitLabel = 'เพ
                     onChange={(v) => setRow(i, { rentalType: v as CustomItemRentalType })}
                     options={RENTAL_TYPE_OPTIONS}
                     buttonClassName="h-10 px-2 py-0 rounded-xl"
+                    selectedMark="border"
                     align="right"
                   />
                   <div
