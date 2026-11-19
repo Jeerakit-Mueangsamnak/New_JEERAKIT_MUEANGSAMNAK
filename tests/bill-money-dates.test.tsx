@@ -43,7 +43,7 @@ vi.mock('@/features/bills/services/bill-storage', async (orig) => ({
 }))
 vi.mock('@/features/products/services/product-storage', async (orig) => ({
   ...(await orig<object>()),
-  syncProductsFromSupabase: vi.fn(async () => []),
+  syncStockFromSupabase: vi.fn(async () => []),
 }))
 vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: vi.fn() }) }))
 vi.mock('@/features/settings/api/settings-repository', () => ({

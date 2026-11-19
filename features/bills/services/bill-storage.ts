@@ -143,6 +143,11 @@ export function loadRentalBills(): RentalBill[] {
 export const BILLS_TTL_MS = 60_000
 let _lastAt = 0
 
+/** True when the bills in work were read from the server within the last `ms`. */
+export function billsReadWithin(ms: number, now = Date.now()): boolean {
+  return _lastAt > 0 && now - _lastAt < ms
+}
+
 export async function fetchBillsFromSupabase(force = false): Promise<FullBill[]> {
   if (!force && _lastAt > 0 && Date.now() - _lastAt < BILLS_TTL_MS) return _openBills
   const bills = await fetchBillsFromRepository()

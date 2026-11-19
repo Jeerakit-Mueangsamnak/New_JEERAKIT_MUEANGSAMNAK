@@ -10,6 +10,8 @@
 import { Product, ProductType } from '@/lib/types/rental-pos'
 import {
   fetchProductsFromSupabase,
+  fetchStockBalancesFromSupabase,
+  applyStockBalances,
   saveProductToSupabase,
   deleteProductFromSupabase,
   hardDeleteProductInSupabase,
@@ -42,6 +44,7 @@ export function validateProductMode(p: Product, mode: 'RENT' | 'SALE'): void {
 let _cachedProducts: Product[] | null = null
 
 export function setCachedProducts(products: Product[]) {
+  _productsGeneration += 1
   _cachedProducts = products
 }
 
@@ -59,12 +62,29 @@ function notifyProductsChanged(): void {
   }
 }
 
+// Bumped by every full product reload: a stock read that started before it must not overwrite its newer figures.
+let _productsGeneration = 0
+
 /** Reload products from Supabase into the cache (after any write). */
 export async function syncProductsFromSupabase(): Promise<Product[]> {
+  _productsGeneration += 1
   const remoteProducts = await fetchProductsFromSupabase()
   _cachedProducts = remoteProducts
   notifyProductsChanged()
   return remoteProducts
+}
+
+/**
+ * Reload only the stock figures of the cached products (stock_balances, after a bill command moved goods
+ * and every minute in the background); names, prices and the rest stay as last read.
+ */
+export async function syncStockFromSupabase(): Promise<Product[]> {
+  const generation = _productsGeneration
+  const balances = await fetchStockBalancesFromSupabase()
+  if (generation !== _productsGeneration || !_cachedProducts) return loadProducts()
+  _cachedProducts = applyStockBalances(_cachedProducts, balances)
+  notifyProductsChanged()
+  return _cachedProducts
 }
 /** Create one or more new products on the server, then reload. */
 export async function addProductsAsync(incoming: Product | Product[]): Promise<Product[]> {

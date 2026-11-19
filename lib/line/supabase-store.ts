@@ -7,6 +7,7 @@ import { type LinkResult, type RecordedEvent, type SelfRegisterResult, type Task
 import { type CronStore, type ReminderRow } from './cron'
 import { customerNoticeMessages } from './templates'
 import { lineOaMessageUrl } from './oa-link'
+import { SHOP_LINE_ID_COLUMN, SHOP_LINE_TEMPLATES_COLUMN } from './policy'
 
 /**
  * Database side of the webhook and the outbox, through the service_role-only RPCs of
@@ -94,17 +95,24 @@ export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()
   let profileCache: Promise<ShopProfile> | null = null
   async function shopProfile(): Promise<ShopProfile> {
     profileCache ??= (async () => {
-      const { data, error } = await db.from('store_settings').select('company_name, phone, policies').eq('singleton', true).maybeSingle()
+      // Only the LINE parts of policies: the whole column also carries the shop's images (~600 KB).
+      const { data: row, error } = await db
+        .from('store_settings')
+        .select(`company_name, phone, ${SHOP_LINE_ID_COLUMN}, ${SHOP_LINE_TEMPLATES_COLUMN}`)
+        .eq('singleton', true)
+        .maybeSingle()
       if (error) throw new LineStoreError('store_settings', error.code)
-      const policies = (data?.policies ?? {}) as {
-        line?: { templates?: Record<string, unknown> }
-        business_profile?: { lineId?: string }
-      }
+      const data = row as {
+        company_name?: string | null
+        phone?: string | null
+        line_id?: string | null
+        templates?: Record<string, unknown> | null
+      } | null
       return {
         shopName: (data?.company_name || '').trim() || 'ร้าน',
-        templates: policies.line?.templates ?? {},
-        lineId: policies.business_profile?.lineId?.trim() || null,
-        phone: (data?.phone as string | null | undefined)?.trim() || null,
+        templates: data?.templates ?? {},
+        lineId: data?.line_id?.trim() || null,
+        phone: data?.phone?.trim() || null,
       }
     })()
     return profileCache

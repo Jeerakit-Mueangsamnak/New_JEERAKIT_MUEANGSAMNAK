@@ -29,7 +29,7 @@ import { allocateTenders, type Tender } from '@/features/pos/services/split-paym
 import { QrPaymentDialog } from '@/features/pos/components/payment/QrPaymentDialog'
 import { fullBillToTemplateData, type BillTemplateData } from '@/features/documents/utils/rental-bill-print'
 import { buildContinuationLine, formatBaht } from '@/features/bills/utils/bill-workspace'
-import { refreshBillsCache } from '@/features/bills/services/bill-storage'
+import { BILLS_TTL_MS, billsReadWithin, fetchBillByIdFromSupabase, refreshBillsCache } from '@/features/bills/services/bill-storage'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { dbErrorMessage, newIdempotencyKey } from '@/lib/db/rpc'
 import { ReturnTableStep } from '@/features/bills/components/ReturnTableStep'
@@ -213,6 +213,26 @@ export function BillActionView({
       active = false
     }
   }, [])
+
+  // Before money / goods are recorded on this bill, the screen shows its latest copy: when the bill list was read
+  // more than a minute ago (another device may have paid or returned since), this one bill is read again. It replaces
+  // the one shown only when it really changed, so nothing typed is lost otherwise. The server checks again on save.
+  useEffect(() => {
+    if (!initialBillId || billsReadWithin(BILLS_TTL_MS)) return
+    let active = true
+    fetchBillByIdFromSupabase(initialBillId)
+      .then((fresh) => {
+        if (!active || !fresh) return
+        setBills((prev) =>
+          prev.map((b) => (b.id === fresh.id && JSON.stringify(b) !== JSON.stringify(fresh) ? fresh : b))
+        )
+      })
+      .catch((err: unknown) => console.error('Reading the latest bill failed:', err))
+    return () => {
+      active = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per opened bill
+  }, [initialBillId])
 
   // Auto select if initialBillId or activeBill available
   useEffect(() => {

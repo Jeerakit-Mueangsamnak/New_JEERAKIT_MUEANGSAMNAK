@@ -3,7 +3,7 @@
 import React, { createContext, useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { RefreshCw } from 'lucide-react'
-import { setCachedProducts } from '@/features/products/services/product-storage'
+import { setCachedProducts, syncStockFromSupabase } from '@/features/products/services/product-storage'
 import { setCachedCategories, type CalculationType, type ProductCategoryItem } from '@/lib/category-rules-storage'
 import { setCachedUnits } from '@/lib/unit-storage'
 import { setCachedCustomers } from '@/features/customers/services/customer-storage'
@@ -73,29 +73,57 @@ function mapCategories(categories: CategoryRow[]): ProductCategoryItem[] {
 
 const mapUnits = (units: UnitRow[]) => units.map((u) => ({ id: u.id, name: u.name, isActive: u.active }))
 
-let _loading: Promise<void> | null = null
-let _lastLoadedAt = 0
+/**
+ * A tab coming back into view reads again only the data older than its refresh time (owner 2026-11-20):
+ * work in progress (open bills, stock, notices) after 1 minute; the rest (shop settings, products,
+ * categories, units, customers, money statement) after 5 minutes. A save re-reads its own data at once
+ * (bill-service, product / customer / finance storage) and the server checks the latest figures in every action.
+ */
+export const WORK_REFRESH_MIN_MS = 60_000
+export const GENERAL_REFRESH_MIN_MS = 5 * 60_000
 
-/** A tab coming back into view reloads the shop data at most this often. */
-export const BACKGROUND_REFRESH_MIN_MS = 60_000
+let _loading: { kind: 'all' | 'work'; run: Promise<void> } | null = null
+let _allLoadedAt = 0
+let _workLoadedAt = 0
 
-/** Reloads every business cache from Supabase (v4.3 schema, RLS SELECT only). One load at a time:
- *  a call while a load runs waits for that load instead of starting a second one. */
-export function loadAllBusinessData(opts: { scanNotices?: boolean } = {}): Promise<void> {
-  if (_loading) return _loading
-  _loading = loadAllBusinessDataOnce(opts)
-    .then(() => {
-      _lastLoadedAt = Date.now()
-    })
-    .finally(() => {
-      _loading = null
-    })
-  return _loading
+/** One load at a time: a call while a load covering it runs waits for that load instead of starting another. */
+function runExclusive(kind: 'all' | 'work', load: () => Promise<void>): Promise<void> {
+  if (_loading && (_loading.kind === 'all' || kind === 'work')) return _loading.run
+  // A complete load asked while only the work data is loading starts after it.
+  const before = _loading?.run.catch(() => undefined) ?? Promise.resolve()
+  const run: Promise<void> = before.then(load).finally(() => {
+    if (_loading?.run === run) _loading = null
+  })
+  _loading = { kind, run }
+  return run
 }
 
-/** Time of the last complete load (0 = none yet). */
-export function lastBusinessDataLoadAt(): number {
-  return _lastLoadedAt
+/** Reloads every business cache from Supabase (v4.3 schema, RLS SELECT only). */
+export function loadAllBusinessData(opts: { scanNotices?: boolean } = {}): Promise<void> {
+  return runExclusive('all', async () => {
+    await loadAllBusinessDataOnce(opts)
+    _allLoadedAt = _workLoadedAt = Date.now()
+  })
+}
+
+/** Reads again what is older than its refresh time (tab back in view); true when something was read. */
+export async function refreshStaleBusinessData(now = Date.now()): Promise<boolean> {
+  if (now - _allLoadedAt >= GENERAL_REFRESH_MIN_MS) {
+    await loadAllBusinessData()
+    return true
+  }
+  if (now - _workLoadedAt >= WORK_REFRESH_MIN_MS) {
+    await runExclusive('work', async () => {
+      await Promise.all([
+        loadOrEmpty('bills', () => fetchBillsFromSupabase(true)),
+        syncStockFromSupabase(),
+        loadOrEmpty('notifications', fetchNotificationsFromSupabase, setCachedNotifications),
+      ])
+      _workLoadedAt = Date.now()
+    })
+    return true
+  }
+  return false
 }
 
 async function loadAllBusinessDataOnce(opts: { scanNotices?: boolean }): Promise<void> {
@@ -108,11 +136,14 @@ async function loadAllBusinessDataOnce(opts: { scanNotices?: boolean }): Promise
   }
 
   // Shop settings (the only place store_settings is loaded) and the product catalogue load together;
-  // category defaults are applied once the settings are in.
+  // category defaults are applied once the settings are in. Categories and units are read once and handed to
+  // the product read, which needs their names too.
+  const categoriesRead = loadOrEmpty('product_categories', fetchCategoriesFromSupabase)
+  const unitsRead = loadOrEmpty('units', fetchUnitsFromSupabase)
   const catalogue = Promise.all([
-    loadOrEmpty('products', fetchProductsFromSupabase),
-    loadOrEmpty('product_categories', fetchCategoriesFromSupabase),
-    loadOrEmpty('units', fetchUnitsFromSupabase),
+    loadOrEmpty('products', () => fetchProductsFromSupabase({ categories: categoriesRead, units: unitsRead })),
+    categoriesRead,
+    unitsRead,
   ])
   const shared = await fetchSharedSystemConfig()
   if (shared) setCachedSystemSettings(shared)
@@ -196,16 +227,17 @@ export function MasterDataProvider({ children }: { children: React.ReactNode }) 
     }
   }, [sessionUserId, authLoading, canLoadShopData, retryAttempt])
 
-  // Other devices change data too: refresh when the tab comes back into view (at most once a minute,
-  // so switching apps back and forth on the iPad does not reload everything each time).
+  // Other devices change data too: refresh when the tab comes back into view, each kind of data only once it is
+  // older than its refresh time (switching apps back and forth on the iPad does not reload everything each time).
   useEffect(() => {
     if (authLoading || !canLoadShopData) return
     const onVisible = () => {
-      if (document.visibilityState === 'visible' && Date.now() - lastBusinessDataLoadAt() >= BACKGROUND_REFRESH_MIN_MS) {
-        void loadAllBusinessData()
-          .then(() => window.dispatchEvent(new Event('business_data_refreshed')))
-          .catch((err: unknown) => console.error('Background refresh failed:', err))
-      }
+      if (document.visibilityState !== 'visible') return
+      void refreshStaleBusinessData()
+        .then((read) => {
+          if (read) window.dispatchEvent(new Event('business_data_refreshed'))
+        })
+        .catch((err: unknown) => console.error('Background refresh failed:', err))
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)

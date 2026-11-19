@@ -9,6 +9,13 @@ import { LINE_NUMBER_OPTIONS, LINE_REMINDER_RULES } from './config'
  * come from lib/line/config.ts.
  */
 
+/**
+ * The only parts of store_settings.policies the LINE server code reads. The whole column also carries
+ * the shop's images (~600 KB), so LINE reads ask for these two paths alone (egress check 2026-11-20).
+ */
+export const SHOP_LINE_ID_COLUMN = 'line_id:policies->business_profile->>lineId'
+export const SHOP_LINE_TEMPLATES_COLUMN = 'templates:policies->line->templates'
+
 export const LINE_POLICY_INT_RANGES: Record<string, readonly [number, number]> = Object.fromEntries(
   Object.entries(LINE_NUMBER_OPTIONS).map(([k, o]) => [k, [o.min, o.max] as const]),
 )

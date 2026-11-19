@@ -18,7 +18,13 @@ vi.mock('@/lib/supabase/server', () => ({
     rpc: db.rpc,
     auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) },
     from: () => {
-      const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: { policies: { business_profile: { lineId: '@myshop' } } } }) }
+      // PostgREST answers the aliased JSON path (SHOP_LINE_ID_COLUMN), not the whole policies column.
+      let columns = ''
+      const q = {
+        select: (c: string) => ((columns = c), q),
+        eq: () => q,
+        maybeSingle: async () => ({ data: columns.includes('line_id:policies->business_profile->>lineId') ? { line_id: '@myshop' } : {} }),
+      }
       return q
     },
   }),

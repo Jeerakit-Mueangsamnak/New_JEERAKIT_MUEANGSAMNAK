@@ -8,6 +8,9 @@ import { PinLockScreen } from '@/features/auth/components/PinLockScreen'
 import { isPublicRoute as isPublicPath } from '@/features/auth/services/public-routes'
 import { firstAllowedHref, menuForPath } from '@/features/auth/services/permissions'
 
+/** A page change re-reads the member's role and menus at most this often. */
+export const ACCESS_RECHECK_MIN_MS = 60_000
+
 export function AuthShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -79,15 +82,21 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
   }, [authLoading, session, user, isPublicRoute, pathname, router])
 
   // Menus and role are set centrally by the OWNER (จัดการสิทธิ์), possibly from another device:
-  // read them again on every page change so an open device follows the latest grants.
+  // a page change reads them again (not the picture), at most once a minute (egress check 2026-11-20).
+  // The server still checks the member on every page request (middleware) and every database action (RLS/RPC).
   const firstPath = useRef(true)
+  const lastAccessCheck = useRef(Date.now())
   const signedIn = Boolean(session && user)
   useEffect(() => {
     if (firstPath.current) {
       firstPath.current = false
       return
     }
-    if (signedIn && !isPublicRoute) void refreshUser()
+    if (!signedIn || isPublicRoute) return
+    const now = Date.now()
+    if (now - lastAccessCheck.current < ACCESS_RECHECK_MIN_MS) return
+    lastAccessCheck.current = now
+    void refreshUser({ keepAvatar: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a page change triggers the re-read
   }, [pathname])
 

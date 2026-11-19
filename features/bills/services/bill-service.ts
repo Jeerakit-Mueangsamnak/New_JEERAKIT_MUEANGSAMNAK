@@ -10,7 +10,7 @@ import { createClient } from '@/lib/supabase/client'
 import { rpc, newIdempotencyKey, selectRows, isDbError } from '@/lib/db/rpc'
 import { withPin, withPinIfRequired, isPinCancelled } from '@/lib/db/pin-confirm'
 import { fetchBillByIdFromSupabase, refreshBillsCache } from '@/features/bills/services/bill-storage'
-import { syncProductsFromSupabase } from '@/features/products/services/product-storage'
+import { syncStockFromSupabase } from '@/features/products/services/product-storage'
 import { activePaymentAccount, loadSystemSettings } from '@/features/settings/services/settings-storage'
 import type { FullBill } from '@/lib/types/rental-return'
 
@@ -190,6 +190,9 @@ export async function confirmBill(billId: string, tenders: TenderInput[] = []): 
     p_idempotency_key: newIdempotencyKey(),
     p_tenders: payload.length ? payload : null,
   })
+  // Confirming reserves the goods: the stock figures on screen follow at once. The bill is already saved,
+  // so a failed stock read only leaves the older figures until the next refresh.
+  await syncStockFromSupabase().catch((err: unknown) => console.error('Stock refresh after confirm failed:', err))
   return refreshAfterChange(billId)
 }
 // ─── money ───────────────────────────────────────────────────────────────────
@@ -342,7 +345,7 @@ export async function deliverBill(
     p_delivered_at: dayToTimestamp(deliveredDay),
     p_note: note || null,
   })
-  await syncProductsFromSupabase()
+  await syncStockFromSupabase()
   return refreshAfterChange(billId)
 }
 
@@ -481,7 +484,7 @@ export async function processReturn(opts: {
     })
   }
 
-  await syncProductsFromSupabase()
+  await syncStockFromSupabase()
   const bill = await refreshAfterChange(opts.billId)
   return {
     returnNo: returnNos.join(', ') || null,
@@ -532,7 +535,7 @@ export async function cancelBill(billId: string, reason: string): Promise<FullBi
   await withPinIfRequired({ action: 'BILL_CANCEL', title: 'ยืนยันยกเลิกบิล' }, (token) =>
     rpc('bill_cancel', { p_bill_id: billId, p_reason: reason, p_pin_token: token })
   )
-  await syncProductsFromSupabase()
+  await syncStockFromSupabase()
   return refreshAfterChange(billId)
 }
 
@@ -544,7 +547,7 @@ export async function voidBill(billId: string, reason: string): Promise<FullBill
   await withPin({ action: 'BILL_VOID', title: 'ยืนยัน Void บิล', detail: reason }, (token) =>
     rpc('bill_void', { p_bill_id: billId, p_reason: reason, p_pin_token: token })
   )
-  await syncProductsFromSupabase()
+  await syncStockFromSupabase()
   return refreshAfterChange(billId)
 }
 
@@ -600,7 +603,7 @@ export async function reviseBill(billId: string, data: BillRevision): Promise<Fu
     p_data: { bill_discount_amount: data.billDiscountAmount, fees_total: data.feesTotal, lines: data.lines },
     p_idempotency_key: newIdempotencyKey(),
   })
-  await syncProductsFromSupabase()
+  await syncStockFromSupabase()
   return refreshAfterChange(billId)
 }
 

@@ -12,6 +12,11 @@ import { formatThaiDate, reminderMessages, type CronShop, type ReminderRow } fro
 import { type LineInviteKind } from '@/lib/line/config'
 import { billDesignMessage, cardMessage } from '@/lib/line/flex'
 import { isLineCardColor, LINE_CARD_COLORS, LINE_CARD_LIMITS } from '@/lib/line/bill-card-design'
+import { SHOP_LINE_ID_COLUMN, SHOP_LINE_TEMPLATES_COLUMN } from '@/lib/line/policy'
+
+/** store_settings read through SHOP_LINE_ID_COLUMN / SHOP_LINE_TEMPLATES_COLUMN (not the whole policies). */
+type ShopLineId = { line_id?: string | null }
+type ShopLineTemplates = { templates?: Record<string, string> | null }
 
 /**
  * LINE actions for screens. Every call runs with the signed-in user's own session, so the
@@ -95,8 +100,8 @@ export async function createCustomerLineLinkCode(customerId: string) {
   const r = await callRpc<{ code: string; expires_at: string }>('line_link_code_create_customer', { p_customer_id: customerId })
   if (!r.success || !r.data) return r as LineActionResult<never>
   const supabase = await createServerSupabase()
-  const { data: shop } = await supabase.from('store_settings').select('policies').eq('singleton', true).maybeSingle()
-  const lineId = (shop?.policies as { business_profile?: { lineId?: string } } | null)?.business_profile?.lineId
+  const { data: shop } = await supabase.from('store_settings').select(SHOP_LINE_ID_COLUMN).eq('singleton', true).maybeSingle()
+  const lineId = (shop as ShopLineId | null)?.line_id ?? undefined
   return {
     success: true,
     data: { code: r.data.code, expires_at: r.data.expires_at, oaUrl: lineOaMessageUrl(lineId, r.data.code) },
@@ -295,10 +300,10 @@ export async function createLineTask(input: {
   if (!auth.user) return bad('กรุณาเข้าสู่ระบบ')
   const [{ data: me }, { data: shop }] = await Promise.all([
     supabase.from('profiles').select('display_name, username').eq('id', auth.user.id).maybeSingle(),
-    supabase.from('store_settings').select('policies').eq('singleton', true).maybeSingle(),
+    supabase.from('store_settings').select(SHOP_LINE_TEMPLATES_COLUMN).eq('singleton', true).maybeSingle(),
   ])
   // The text the OWNER saved in Settings › LINE (TASK_NEW) is the one sent
-  const templates = (shop?.policies as { line?: { templates?: Record<string, string> } } | null)?.line?.templates
+  const templates = (shop as ShopLineTemplates | null)?.templates ?? undefined
   // The buttons need the task id before the row exists: the database accepts a pre-made id.
   const taskId = crypto.randomUUID()
   let messages: LineMessage[]
@@ -333,8 +338,8 @@ export async function createDriverLineLinkCode(driverCode: string) {
   const r = await callRpc<{ code: string; expires_at: string }>('line_link_code_create_driver', { p_driver_code: driverCode })
   if (!r.success || !r.data) return r as LineActionResult<never>
   const supabase = await createServerSupabase()
-  const { data: shop } = await supabase.from('store_settings').select('policies').eq('singleton', true).maybeSingle()
-  const lineId = (shop?.policies as { business_profile?: { lineId?: string } } | null)?.business_profile?.lineId
+  const { data: shop } = await supabase.from('store_settings').select(SHOP_LINE_ID_COLUMN).eq('singleton', true).maybeSingle()
+  const lineId = (shop as ShopLineId | null)?.line_id ?? undefined
   return {
     success: true,
     data: { code: r.data.code, expires_at: r.data.expires_at, oaUrl: lineOaMessageUrl(lineId, r.data.code) },
@@ -372,14 +377,14 @@ export async function sendDispatchToDriver(input: {
   if (!auth.user) return bad('กรุณาเข้าสู่ระบบ')
   const [{ data: me }, { data: shop }, { data: apt }] = await Promise.all([
     supabase.from('profiles').select('display_name, username').eq('id', auth.user.id).maybeSingle(),
-    supabase.from('store_settings').select('policies').eq('singleton', true).maybeSingle(),
+    supabase.from('store_settings').select(SHOP_LINE_TEMPLATES_COLUMN).eq('singleton', true).maybeSingle(),
     supabase
       .from('appointments')
       .select('start_datetime, location, contact_name, contact_phone, description, customer:customers(name, phone, address)')
       .eq('id', input.appointmentId)
       .maybeSingle(),
   ])
-  const templates = (shop?.policies as { line?: { templates?: Record<string, string> } } | null)?.line?.templates
+  const templates = (shop as ShopLineTemplates | null)?.templates ?? undefined
   const customer = (Array.isArray(apt?.customer) ? apt?.customer[0] : apt?.customer) as
     | { name?: string; phone?: string; address?: string }
     | null
@@ -431,8 +436,8 @@ export interface WithdrawResult {
 /** The notice to a driver who loses the job (Settings › LINE texts when the OWNER changed them). */
 async function withdrawMessages(kind: 'WITHDRAWN' | 'CANCELLED', title: string, reason?: string): Promise<LineMessage[] | null> {
   const supabase = await createServerSupabase()
-  const { data: shop } = await supabase.from('store_settings').select('policies').eq('singleton', true).maybeSingle()
-  const templates = (shop?.policies as { line?: { templates?: Record<string, string> } } | null)?.line?.templates
+  const { data: shop } = await supabase.from('store_settings').select(SHOP_LINE_TEMPLATES_COLUMN).eq('singleton', true).maybeSingle()
+  const templates = (shop as ShopLineTemplates | null)?.templates ?? undefined
   const subject = (title ?? '').trim().slice(0, 200) || 'งาน'
   try {
     const messages =
@@ -547,8 +552,8 @@ export async function createLineInviteLink(kind: LineInviteKind, target: string)
   const r = await callRpc<{ code: string; expires_at: string }>('line_invite_create', { p_kind: kind, p_target: target })
   if (!r.success || !r.data) return r as LineActionResult<never>
   const supabase = await createServerSupabase()
-  const { data: shop } = await supabase.from('store_settings').select('company_name, policies').eq('singleton', true).maybeSingle()
-  const lineId = (shop?.policies as { business_profile?: { lineId?: string } } | null)?.business_profile?.lineId
+  const { data: shop } = await supabase.from('store_settings').select(`company_name, ${SHOP_LINE_ID_COLUMN}`).eq('singleton', true).maybeSingle()
+  const lineId = (shop as ShopLineId | null)?.line_id ?? undefined
   const url = liffUrl('bind', { t: r.data.code, k: kind })
   const shopName = (shop?.company_name as string | null)?.trim() || 'ร้าน'
   const shareText = url ? `${shopName}: กดลิงก์นี้เพื่อยืนยันตัวตนและผูก LINE (ใช้ได้ครั้งเดียว)\n${url}` : null
@@ -580,12 +585,16 @@ export async function getReminderCandidates() {
 
 async function cronShop(): Promise<CronShop> {
   const supabase = await createServerSupabase()
-  const { data } = await supabase.from('store_settings').select('company_name, phone, policies').eq('singleton', true).maybeSingle()
-  const policies = (data?.policies ?? {}) as { line?: { templates?: Record<string, unknown> }; business_profile?: { lineId?: string } }
+  const { data: row } = await supabase
+    .from('store_settings')
+    .select(`company_name, phone, ${SHOP_LINE_ID_COLUMN}, ${SHOP_LINE_TEMPLATES_COLUMN}`)
+    .eq('singleton', true)
+    .maybeSingle()
+  const data = row as ({ company_name?: string | null; phone?: string | null } & ShopLineId & ShopLineTemplates) | null
   return {
-    shopName: (data?.company_name as string | null)?.trim() || 'ร้าน',
-    templates: policies.line?.templates ?? {},
-    lineId: policies.business_profile?.lineId?.trim() || null,
+    shopName: data?.company_name?.trim() || 'ร้าน',
+    templates: data?.templates ?? {},
+    lineId: data?.line_id?.trim() || null,
     phone: (data?.phone as string | null)?.trim() || null,
   }
 }
@@ -662,8 +671,8 @@ export async function rejectLineContact(contactId: string, reason?: string) {
 /** The shop OA's LINE ID (Settings › กิจการ) and its add-friend link, for the QR on คนใน LINE. */
 export async function getLineOaInfo(): Promise<LineActionResult<{ lineId: string | null; addFriendUrl: string | null }>> {
   const supabase = await createServerSupabase()
-  const { data, error } = await supabase.from('store_settings').select('policies').eq('singleton', true).maybeSingle()
+  const { data, error } = await supabase.from('store_settings').select(SHOP_LINE_ID_COLUMN).eq('singleton', true).maybeSingle()
   if (error) return bad('โหลดข้อมูลร้านไม่สำเร็จ')
-  const lineId = (data?.policies as { business_profile?: { lineId?: string } } | null)?.business_profile?.lineId?.trim() || null
+  const lineId = (data as ShopLineId | null)?.line_id?.trim() || null
   return { success: true, data: { lineId, addFriendUrl: lineOaAddFriendUrl(lineId) } }
 }
