@@ -407,6 +407,21 @@ function freeItemNumberWidth(html: string): string {
   })
 }
 
+/**
+ * The item rows: each field box (รายการ, จำนวน, ราคา, ...) keeps the fixed height it was drawn with
+ * (14 px for 12 px text) and hides what does not fit, so the bottom of Thai text (สระล่าง ุ ู, ฤ) and of
+ * a wider font on another device was cut off (owner 2026-11-19). The box takes the height its line
+ * needs; the row keeps its height and the box still cuts a name that is too long at the side.
+ */
+function freeItemFieldHeight(html: string): string {
+  return html.replace(/(<span\b[^>]*?style=")([^"]*)("[^>]*>\s*\{\{\s*items\.\d+\.\w+\s*\}\})/g, (_m, open: string, style: string, close: string) => {
+    const fixedHeight = /(^|;)\s*(?:height|max-height):\s*[^;]*/g
+    if (!fixedHeight.test(style)) return _m
+    const next = style.replace(fixedHeight, '$1').replace(/;\s*;/g, ';')
+    return `${open}${next}; height:auto${close}`
+  })
+}
+
 /** An image whose picture comes from Settings (e.g. {{business.qr_url}}) and is not set there prints nothing. */
 function hideEmptyImages(html: string): string {
   return html.replace(/<img\b[^>]*\ssrc\s*=\s*(["'])\s*\1[^>]*>/gi, '')
@@ -436,13 +451,13 @@ export function renderDocumentTemplate(
   const bill = billSnapshot || {}
 
   // Print fixes that keep the shop's form as drawn (the stored form is not changed)
-  let html = freeItemNumberWidth(
+  let html = freeItemFieldHeight(freeItemNumberWidth(
     keepFormTextOnItsLine(
       centreEmptySignatureBrackets(
         enlargeBusinessLogo(setFormSideMargins(standardizeFormFont(removeThaiAmountTextParentheses(templateSchema))))
       )
     )
-  )
+  ))
 
   const replace = (pattern: RegExp, value: unknown) => {
     html = html.replace(pattern, escapeDocumentHtml(value))
