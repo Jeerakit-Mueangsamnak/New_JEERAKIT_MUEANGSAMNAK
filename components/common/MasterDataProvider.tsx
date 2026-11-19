@@ -3,7 +3,7 @@
 import React, { createContext, useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { RefreshCw } from 'lucide-react'
-import { setCachedProducts, syncStockFromSupabase } from '@/features/products/services/product-storage'
+import { setCachedProducts, startProductsRead, applyProductsRead, syncStockFromSupabase } from '@/features/products/services/product-storage'
 import { setCachedCategories, type CalculationType, type ProductCategoryItem } from '@/lib/category-rules-storage'
 import { setCachedUnits } from '@/lib/unit-storage'
 import { setCachedCustomers } from '@/features/customers/services/customer-storage'
@@ -18,7 +18,7 @@ import { fetchCustomersFromSupabase } from '@/features/customers/api/customer-re
 import { fetchBillsFromSupabase, setCachedBills } from '@/features/bills/services/bill-storage'
 import { setCachedQuotations } from '@/features/quotations/services/quotation-storage'
 import { setCachedAppointments } from '@/features/appointments/services/appointment-storage'
-import { fetchTransactionsFromSupabase, setCachedTransactions, clearFinanceCache } from '@/features/finance/services/finance-storage'
+import { clearFinanceCache } from '@/features/finance/services/finance-storage'
 import { fetchNotificationsFromSupabase, setCachedNotifications, runNotificationScan } from '@/features/notifications/services/notification-storage'
 import { fetchSharedSystemConfig } from '@/features/settings/api/settings-repository'
 import { setCachedSystemSettings, resetSystemSettings } from '@/features/settings/services/settings-storage'
@@ -76,7 +76,7 @@ const mapUnits = (units: UnitRow[]) => units.map((u) => ({ id: u.id, name: u.nam
 /**
  * A tab coming back into view reads again only the data older than its refresh time (owner 2026-11-20):
  * work in progress (open bills, stock, notices) after 1 minute; the rest (shop settings, products,
- * categories, units, customers, money statement) after 5 minutes. A save re-reads its own data at once
+ * categories, units, customers) after 5 minutes. Money screens read their own data (finance-storage). A save re-reads its own data at once
  * (bill-service, product / customer / finance storage) and the server checks the latest figures in every action.
  */
 export const WORK_REFRESH_MIN_MS = 60_000
@@ -140,6 +140,7 @@ async function loadAllBusinessDataOnce(opts: { scanNotices?: boolean }): Promise
   // the product read, which needs their names too.
   const categoriesRead = loadOrEmpty('product_categories', fetchCategoriesFromSupabase)
   const unitsRead = loadOrEmpty('units', fetchUnitsFromSupabase)
+  const productsSeq = startProductsRead()
   const catalogue = Promise.all([
     loadOrEmpty('products', () => fetchProductsFromSupabase({ categories: categoriesRead, units: unitsRead })),
     categoriesRead,
@@ -154,14 +155,14 @@ async function loadAllBusinessDataOnce(opts: { scanNotices?: boolean }): Promise
     loadOrEmpty('bills', () => fetchBillsFromSupabase(true)),
     // Quotations and appointments are read by the pages that show them (audit 2026-11-12: not at app start):
     // quotations, customers, POS, reports, appointments, dashboard, drivers.
-    loadOrEmpty('finance', fetchTransactionsFromSupabase, setCachedTransactions),
+    // Money rows are read by the screens that show them (owner 2026-11-20): statement, reports, dashboard, customers.
     loadOrEmpty('notifications', fetchNotificationsFromSupabase, setCachedNotifications),
   ])
 
   const [products, categories, units] = await catalogue
   setCachedCategories(mapCategories(categories))
   setCachedUnits(mapUnits(units))
-  setCachedProducts(products)
+  applyProductsRead(productsSeq, products)
 
   await rest
 }

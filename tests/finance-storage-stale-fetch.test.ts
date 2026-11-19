@@ -5,14 +5,11 @@ const tx = (id: string): Tx => ({ id, dateTime: '2026-11-09T00:00:00Z', refNo: i
 
 const repo = vi.hoisted(() => ({ pending: [] as Array<(rows: unknown[]) => void> }))
 
-vi.mock('@/features/finance/api/finance-repository', () => ({
-  fetchTransactionsFromSupabase: () => new Promise((resolve) => repo.pending.push(resolve)),
+vi.mock('@/features/finance/api/finance-repository', async (orig) => ({
+  ...(await orig<object>()),
+  fetchStatementFromSupabase: () =>
+    new Promise((resolve) => repo.pending.push((rows: unknown[]) => resolve({ opening: 0, rows }))),
   fetchRevenueLedgerFromSupabase: async () => [],
-  STATEMENT_DEFAULT_DAYS_BACK: 90,
-  createExpense: vi.fn(),
-  createOtherIncome: vi.fn(),
-  voidExpense: vi.fn(),
-  voidOtherIncome: vi.fn(),
 }))
 
 import { clearFinanceCache, fetchTransactionsFromSupabase, loadTransactions } from '@/features/finance/services/finance-storage'

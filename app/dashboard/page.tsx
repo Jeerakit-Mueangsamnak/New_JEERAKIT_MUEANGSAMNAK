@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Suspense, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { loadTransactions } from '@/features/finance/services/finance-storage'
+import { useFinanceRows } from '@/features/finance/hooks/useFinanceRows'
 import { loadBills, countCancelledBills } from '@/features/bills/services/bill-storage'
 import { loadProducts } from '@/features/products/services/product-storage'
 import { loadReservations } from '@/features/reservations/services/reservation-storage'
@@ -41,6 +41,8 @@ function DashboardContent() {
   const [refreshError, setRefreshError] = useState('')
   // Cancelled / void bills are not kept loaded: their number comes from a server count.
   const [cancelledCount, setCancelledCount] = useState<number | null>(null)
+  // Money rows are read when the dashboard opens (owner 2026-11-20), not at app start.
+  const { rows: moneyRows, loading: moneyLoading, reload: reloadMoney } = useFinanceRows()
   // Appointments are not loaded at app start (audit 2026-11-12): read here (60 s cache), then the cards redraw.
   useEffect(() => {
     let alive = true
@@ -110,7 +112,7 @@ function DashboardContent() {
 
   // Compute metrics from actual domain persistence
   const metrics = useMemo(() => {
-    const txs = loadTransactions()
+    const txs = moneyRows
     const bills = loadBills()
     const products = loadProducts()
     const reservations = loadReservations()
@@ -130,17 +132,17 @@ function DashboardContent() {
     if (cancelledCount !== null) computed.billStatusCounts.cancelled = cancelledCount
     return computed
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey, assigneeNames, cancelledCount])
+  }, [refreshKey, assigneeNames, cancelledCount, moneyRows])
 
   const handleManualRefresh = useCallback(() => {
     setRefreshError('')
-    void loadAllBusinessData()
+    void Promise.all([loadAllBusinessData(), reloadMoney()])
       .then(refreshAssigneeNames)
       .then(() => setRefreshKey((key) => key + 1))
       .catch((error: unknown) => {
         setRefreshError(error instanceof Error ? error.message : String(error))
       })
-  }, [refreshAssigneeNames])
+  }, [refreshAssigneeNames, reloadMoney])
 
   const currentView = viewParam === 'stock' || viewParam === 'business' ? viewParam : 'assets'
 
@@ -152,12 +154,18 @@ function DashboardContent() {
         </div>
       )}
       {currentView === 'assets' && (
-        <AssetsTransactionView metrics={metrics} onRefresh={handleManualRefresh} showFinance={hasMenu('finance')} />
+        <AssetsTransactionView metrics={metrics} onRefresh={handleManualRefresh} showFinance={hasMenu('finance')} moneyLoading={moneyLoading} />
       )}
       {currentView === 'stock' && (
         <StockManagementView metrics={metrics} onRefresh={handleManualRefresh} />
       )}
-      {currentView === 'business' && (
+      {/* Revenue charts and payment channels come from the money rows: shown once they are read. */}
+      {currentView === 'business' && moneyLoading && (
+        <div className="p-4 text-xs text-slate-600 dark:text-slate-400 flex items-center justify-center min-h-[200px]">
+          กำลังโหลดแดชบอร์ด...
+        </div>
+      )}
+      {currentView === 'business' && !moneyLoading && (
         <BusinessAnalyticsView metrics={metrics} onRefresh={handleManualRefresh} />
       )}
     </div>

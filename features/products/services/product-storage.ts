@@ -43,9 +43,50 @@ export function validateProductMode(p: Product, mode: 'RENT' | 'SALE'): void {
 
 let _cachedProducts: Product[] | null = null
 
+/**
+ * Reads can finish out of order (a slow answer arriving after a newer one). Every product / stock read takes the
+ * next number when it starts, and the cache only takes an answer newer than what it holds: an older full read
+ * never replaces a newer one, older stock figures never replace newer ones.
+ */
+let _readSeq = 0
+let _productsSeq = 0
+let _stockSeq = 0
+let _latestBalances: Map<string, Record<string, number>> | null = null
+let _productsLoadedAt = 0
+let _stockLoadedAt = 0
+
+/** Replaces the cache from outside (sign-out clear, tests): the next page open reads the server. */
 export function setCachedProducts(products: Product[]) {
-  _productsGeneration += 1
+  _productsSeq = _stockSeq = ++_readSeq
+  _latestBalances = null
+  _productsLoadedAt = _stockLoadedAt = 0
   _cachedProducts = products
+}
+
+/** Number for a full product read that is about to start (pass it to applyProductsRead). */
+export function startProductsRead(): number {
+  return ++_readSeq
+}
+
+/**
+ * Puts a full product read into the cache unless a newer one is already there. Stock figures read after this
+ * read started are kept on top of it. Returns the products now in the cache.
+ */
+export function applyProductsRead(seq: number, products: Product[]): Product[] {
+  if (seq < _productsSeq) return loadProducts()
+  const now = Date.now()
+  _productsSeq = seq
+  _productsLoadedAt = now
+  if (_latestBalances && _stockSeq > seq) {
+    _cachedProducts = applyStockBalances(products, _latestBalances)
+  } else {
+    _stockSeq = seq
+    _stockLoadedAt = now
+    _latestBalances = null
+    _cachedProducts = products
+  }
+  notifyProductsChanged()
+  return _cachedProducts
 }
 
 export function loadProducts(): Product[] {
@@ -62,29 +103,39 @@ function notifyProductsChanged(): void {
   }
 }
 
-// Bumped by every full product reload: a stock read that started before it must not overwrite its newer figures.
-let _productsGeneration = 0
-
 /** Reload products from Supabase into the cache (after any write). */
 export async function syncProductsFromSupabase(): Promise<Product[]> {
-  _productsGeneration += 1
-  const remoteProducts = await fetchProductsFromSupabase()
-  _cachedProducts = remoteProducts
-  notifyProductsChanged()
-  return remoteProducts
+  const seq = startProductsRead()
+  return applyProductsRead(seq, await fetchProductsFromSupabase())
 }
 
 /**
  * Reload only the stock figures of the cached products (stock_balances, after a bill command moved goods
- * and every minute in the background); names, prices and the rest stay as last read.
+ * and on a tab return); names, prices and the rest stay as last read.
  */
 export async function syncStockFromSupabase(): Promise<Product[]> {
-  const generation = _productsGeneration
+  const seq = ++_readSeq
   const balances = await fetchStockBalancesFromSupabase()
-  if (generation !== _productsGeneration || !_cachedProducts) return loadProducts()
+  if (seq < _stockSeq || !_cachedProducts) return loadProducts()
+  _stockSeq = seq
+  _stockLoadedAt = Date.now()
+  _latestBalances = balances
   _cachedProducts = applyStockBalances(_cachedProducts, balances)
   notifyProductsChanged()
   return _cachedProducts
+}
+
+/**
+ * A page opening reads again only what is old (owner 2026-11-20): the whole list after 5 minutes, otherwise
+ * the stock figures after 1 minute, otherwise nothing. Every save re-reads at once (the functions below).
+ */
+export const PRODUCTS_REFRESH_MIN_MS = 5 * 60_000
+export const STOCK_REFRESH_MIN_MS = 60_000
+
+export function refreshProductsIfStale(now = Date.now()): Promise<Product[]> {
+  if (now - _productsLoadedAt >= PRODUCTS_REFRESH_MIN_MS) return syncProductsFromSupabase()
+  if (now - _stockLoadedAt >= STOCK_REFRESH_MIN_MS) return syncStockFromSupabase()
+  return Promise.resolve(loadProducts())
 }
 /** Create one or more new products on the server, then reload. */
 export async function addProductsAsync(incoming: Product | Product[]): Promise<Product[]> {

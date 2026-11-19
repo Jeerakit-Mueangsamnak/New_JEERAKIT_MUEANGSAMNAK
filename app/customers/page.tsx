@@ -10,7 +10,7 @@ import type { Quotation } from '@/lib/types/rental-pos'
 import type { FullBill } from '@/lib/types/rental-return'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { CustomerLineLinkButton } from '@/features/customers/components/CustomerLineLinkButton'
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Users,
@@ -68,7 +68,7 @@ import {
   getRentalStatusPresentation,
   isOwingBill,
 } from '@/features/bills/utils/bill-list-presentation'
-import { loadTransactions, formatLocalDateTime } from '@/features/finance/services/finance-storage'
+import { fetchMoneyOfBills, formatLocalDateTime } from '@/features/finance/services/finance-storage'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
 
 // Bills whose items are still out with the customer (same set as the products menu).
@@ -194,7 +194,6 @@ export default function CustomersPage() {
   // Fetch Customer 360 detailed records whenever selectedCustomerId changes
   useEffect(() => {
     if (!selectedCustomerId) {
-      setCustomerPayments([])
       setCustomerOutstandingItems([])
       setCustomerReturnStats({ totalReturnedItemsWithDates: 0, onTimeReturnedItems: 0 })
       setCustomerNoteInput('')
@@ -206,44 +205,6 @@ export default function CustomersPage() {
 
     // Bills belong to the customer by id only (two customers may share a name).
     const currentBills = bills.filter((b) => currentCustomer && b.customerId === currentCustomer.id)
-    const currentBillIds = new Set(currentBills.map((b) => b.id))
-
-    // Payments and refunds of this customer's bills: the receipt number of each payment, how much
-    // of it was refunded, and each refund as its own row (amount shown as money out).
-    const allTx = loadTransactions().filter((tx) => tx.billId && currentBillIds.has(tx.billId))
-    const refunds = allTx.filter((tx) => tx.source === 'REFUND')
-    const refundedOf = (paymentId: string) =>
-      refunds.filter((r) => r.originalTxId === paymentId).reduce((sum, r) => sum + r.expenseAmount, 0)
-    const payments: CustomerPaymentRecord[] = allTx
-      .filter((tx) => tx.source === 'PAYMENT' || tx.source === 'REFUND')
-      .map((tx) => {
-        if (tx.source === 'REFUND') {
-          return {
-            id: tx.id,
-            paymentNo: tx.refNo,
-            receiptNo: tx.refNo,
-            paymentDate: tx.dateTime,
-            paymentMethod: tx.channel,
-            amount: -tx.expenseAmount,
-            status: 'REFUND',
-            note: tx.description.split(' — ').slice(1).join(' — ') || null,
-            billNo: tx.billNo,
-          }
-        }
-        const refunded = refundedOf(tx.id)
-        return {
-          id: tx.id,
-          paymentNo: tx.refNo,
-          receiptNo: tx.receiptNo || null,
-          paymentDate: tx.dateTime,
-          paymentMethod: tx.channel,
-          amount: tx.incomeAmount,
-          status: refunded <= 0 ? 'COMPLETED' : refunded >= tx.incomeAmount ? 'REFUNDED' : 'PARTIAL_REFUND',
-          referenceNo: tx.reference || null,
-          billNo: tx.billNo || tx.refNo,
-        }
-      })
-    setCustomerPayments(payments)
 
     // Outstanding items from customerBills
     const outstanding: CustomerOutstandingItemRecord[] = []
@@ -280,6 +241,72 @@ export default function CustomersPage() {
       })
     setCustomerOutstandingItems(outstanding)
   }, [selectedCustomerId, customers, bills])
+
+  // Payment history of the chosen customer: every payment / refund of their bills, read when the customer is
+  // opened (owner 2026-11-20: money is read by the screens that show it). No figures show until it is in.
+  const [paymentsLoading, setPaymentsLoading] = useState(false)
+  const customerBillIdsKey = useMemo(
+    () =>
+      selectedCustomerId
+        ? bills.filter((b) => b.customerId === selectedCustomerId).map((b) => b.id).sort().join(',')
+        : '',
+    [bills, selectedCustomerId]
+  )
+  useEffect(() => {
+    setCustomerPayments([])
+    if (!customerBillIdsKey) {
+      setPaymentsLoading(false)
+      return
+    }
+    let alive = true
+    setPaymentsLoading(true)
+    fetchMoneyOfBills(customerBillIdsKey.split(','))
+      .then((allTx) => {
+        if (!alive) return
+        // Payments and refunds of this customer's bills: the receipt number of each payment, how much
+        // of it was refunded, and each refund as its own row (amount shown as money out).
+        const refunds = allTx.filter((tx) => tx.source === 'REFUND')
+        const refundedOf = (paymentId: string) =>
+          refunds.filter((r) => r.originalTxId === paymentId).reduce((sum, r) => sum + r.expenseAmount, 0)
+        const payments: CustomerPaymentRecord[] = allTx
+          .filter((tx) => tx.source === 'PAYMENT' || tx.source === 'REFUND')
+          .map((tx) => {
+            if (tx.source === 'REFUND') {
+              return {
+                id: tx.id,
+                paymentNo: tx.refNo,
+                receiptNo: tx.refNo,
+                paymentDate: tx.dateTime,
+                paymentMethod: tx.channel,
+                amount: -tx.expenseAmount,
+                status: 'REFUND',
+                note: tx.description.split(' — ').slice(1).join(' — ') || null,
+                billNo: tx.billNo,
+              }
+            }
+            const refunded = refundedOf(tx.id)
+            return {
+              id: tx.id,
+              paymentNo: tx.refNo,
+              receiptNo: tx.receiptNo || null,
+              paymentDate: tx.dateTime,
+              paymentMethod: tx.channel,
+              amount: tx.incomeAmount,
+              status: refunded <= 0 ? 'COMPLETED' : refunded >= tx.incomeAmount ? 'REFUNDED' : 'PARTIAL_REFUND',
+              referenceNo: tx.reference || null,
+              billNo: tx.billNo || tx.refNo,
+            }
+          })
+        setCustomerPayments(payments)
+      })
+      .catch((err: unknown) => console.error('Reading the customer payments failed:', err))
+      .finally(() => {
+        if (alive) setPaymentsLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [customerBillIdsKey])
 
   const selectedCustomerRecord: Customer | undefined = customers.find((c) => c.id === selectedCustomerId)
   // ID card photo lives in private Storage (customer document). Selecting a customer only checks that a
@@ -1116,14 +1143,16 @@ export default function CustomersPage() {
                     <div className="bg-emerald-50/60 dark:bg-emerald-950/40 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-emerald-200 dark:border-emerald-800 flex flex-col justify-center h-full">
                       <span className="text-emerald-700 dark:text-emerald-300 block text-[10px] font-bold truncate">ยอดรับชำระสุทธิ (หักคืนเงินแล้ว)</span>
                       <span className="text-xs sm:text-sm font-extrabold text-emerald-700 dark:text-emerald-400 truncate mt-0.5">
-                        {customerPayments.reduce((sum, p) => sum + p.amount, 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                        {paymentsLoading ? '…' : customerPayments.reduce((sum, p) => sum + p.amount, 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                       </span>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-900/60 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col justify-center h-full">
                       <span className="text-slate-600 dark:text-slate-400 block text-[10px] font-bold truncate">จำนวนรายการชำระเงิน</span>
                       <span className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100 truncate mt-0.5">
-                        {customerPayments.filter((p) => p.status !== 'REFUND').length} รายการ
-                        {customerPayments.some((p) => p.status === 'REFUND') && ` · คืนเงิน ${customerPayments.filter((p) => p.status === 'REFUND').length}`}
+                        {paymentsLoading ? '…' : <>
+                          {customerPayments.filter((p) => p.status !== 'REFUND').length} รายการ
+                          {customerPayments.some((p) => p.status === 'REFUND') && ` · คืนเงิน ${customerPayments.filter((p) => p.status === 'REFUND').length}`}
+                        </>}
                       </span>
                     </div>
                   </div>

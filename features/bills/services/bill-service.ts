@@ -646,16 +646,16 @@ export async function createContinuation(opts: {
 
 async function refreshAfterChange(billId: string): Promise<FullBill | null> {
   // A command on one bill re-reads only that bill into the cache (owner standard 2026-11-12), not
-  // the whole list. Money moves with bill commands (payment, refund, void ...): the finance
-  // statement, reports and dashboard read the finance cache, so it is reloaded together.
-  const [bill] = await Promise.all([fetchBillByIdFromSupabase(billId), refreshFinanceCache()])
+  // the whole list. Money moves with bill commands (payment, refund, void ...): only this bill's
+  // payments / refunds are read again into the money cache (owner 2026-11-20), not the whole statement.
+  const [bill] = await Promise.all([fetchBillByIdFromSupabase(billId), refreshFinanceCache(billId)])
   return bill
 }
 
-async function refreshFinanceCache(): Promise<void> {
+async function refreshFinanceCache(billId: string): Promise<void> {
   try {
-    const { fetchTransactionsFromSupabase } = await import('@/features/finance/services/finance-storage')
-    await fetchTransactionsFromSupabase()
+    const { refreshBillMoney } = await import('@/features/finance/services/finance-storage')
+    await refreshBillMoney(billId)
   } catch (err) {
     // The bill command already succeeded; a stale statement must not turn it into an error.
     console.error('Finance refresh after bill change failed:', err)

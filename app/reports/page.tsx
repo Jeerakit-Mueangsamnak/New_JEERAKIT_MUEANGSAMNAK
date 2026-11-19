@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect, Suspense, useCallback } from 'reac
 import { useSearchParams } from 'next/navigation'
 import { loadAllBusinessData } from '@/components/common/MasterDataProvider'
 import { fetchClosedBills } from '@/features/bills/services/bill-storage'
-import { ensureTransactionsSince } from '@/features/finance/services/finance-storage'
+import { ensureRevenueLedgerSince, ensureTransactionsSince, fetchTransactionsFromSupabase } from '@/features/finance/services/finance-storage'
 import { fetchQuotationsFromSupabase } from '@/features/quotations/services/quotation-storage'
 import { getPreviousPeriod, toLocalDateString } from '@/features/reports/services/report-data-common'
 import { useToast } from '@/components/common/Toast'
@@ -50,24 +50,35 @@ function ReportsWorkspace() {
   // The app keeps only bills still in work loaded: finished bills of the report period, and of the
   // period before it (comparison), are read from the server whenever the period changes.
   const [rangeLoadKey, setRangeLoadKey] = useState<number>(0)
+  // The reports show only once the period's data is in: no figure from an older read shows meanwhile.
+  const [rangeReady, setRangeReady] = useState<boolean>(false)
   useEffect(() => {
     let alive = true
+    setRangeReady(false)
     const { prevStart } = getPreviousPeriod(startDate, endDate)
-    // Finished bills and the money rows (statement keeps 90 days) of this period and the one before
+    // Finished bills, money rows and revenue lines of this period and the one before; money is not read at
+    // app start (owner 2026-11-20): read here unless the last read is under a minute old.
     Promise.all([
       fetchClosedBills({ from: toLocalDateString(prevStart), to: toLocalDateString(endDate) }),
       ensureTransactionsSince(prevStart),
+      ensureRevenueLedgerSince(prevStart),
       // Quotations are not loaded at app start (audit 2026-11-12); 60 s cache
       fetchQuotationsFromSupabase(false),
     ])
       .then(() => {
         if (alive) setRangeLoadKey((k) => k + 1)
       })
-      .catch((err: unknown) => console.error('Report bills load failed:', err))
+      .catch((err: unknown) => {
+        console.error('Report data load failed:', err)
+        if (alive) showToast('โหลดข้อมูลรายงานไม่สำเร็จ', 'กรุณากดรีเฟรชอีกครั้ง', 'ERROR')
+      })
+      .finally(() => {
+        if (alive) setRangeReady(true)
+      })
     return () => {
       alive = false
     }
-  }, [startDate, endDate, refreshKey])
+  }, [startDate, endDate, refreshKey, showToast])
 
   // Handle Preset Changes
   const handlePresetChange = useCallback((newPreset: string) => {
@@ -133,7 +144,8 @@ function ReportsWorkspace() {
   // รีเฟรช = reload the latest data from the server, then recompute the reports.
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true)
-    void loadAllBusinessData()
+    const { prevStart } = getPreviousPeriod(startDate, endDate)
+    void Promise.all([loadAllBusinessData(), fetchTransactionsFromSupabase(), ensureRevenueLedgerSince(prevStart, true)])
       .catch((err: unknown) => {
         console.error('Report refresh failed:', err)
         showToast('รีเฟรชรายงานไม่สำเร็จ', 'โหลดข้อมูลล่าสุดไม่ได้ หน้าจอยังแสดงข้อมูลชุดเดิม กรุณาลองกดรีเฟรชอีกครั้ง', 'ERROR')
@@ -142,7 +154,7 @@ function ReportsWorkspace() {
         setRefreshKey((k) => k + 1)
         setIsRefreshing(false)
       })
-  }, [showToast])
+  }, [showToast, startDate, endDate])
 
   // Filter Object
   const filter: ReportDateFilter = useMemo(
@@ -200,24 +212,30 @@ function ReportsWorkspace() {
       />
 
       {/* ─── Report Content By View ────────────────────────────────────────── */}
-      {currentView === 'finance' && financeData && (
+      {rangeReady && currentView === 'finance' && financeData && (
         <FinanceReportView data={financeData} />
       )}
 
-      {currentView === 'sales-rental' && salesRentalData && (
+      {rangeReady && currentView === 'sales-rental' && salesRentalData && (
         <SalesRentalReportView data={salesRentalData} />
       )}
 
-      {currentView === 'operations' && operationsData && (
+      {rangeReady && currentView === 'operations' && operationsData && (
         <OperationsReportView data={operationsData} />
       )}
 
-      {currentView === 'stock' && stockData && (
+      {rangeReady && currentView === 'stock' && stockData && (
         <StockReportView data={stockData} />
       )}
 
-      {currentView === 'business' && businessData && (
+      {rangeReady && currentView === 'business' && businessData && (
         <BusinessReportView data={businessData} />
+      )}
+
+      {!rangeReady && knownView && (
+        <div className="p-4 text-xs text-slate-600 dark:text-slate-400 flex items-center justify-center min-h-[200px]">
+          กำลังโหลดข้อมูลรายงานสรุป...
+        </div>
       )}
 
       {!knownView && (

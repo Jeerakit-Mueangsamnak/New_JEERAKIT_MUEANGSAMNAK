@@ -62,29 +62,76 @@ async function openingBalance(since: string): Promise<number> {
   }
 }
 
+type PaymentRow = { id: string; bill_id: string; method: string; amount: number; reference: string | null; status: string; received_at: string; receipt_id: string }
+type RefundRow = { id: string; bill_id: string; payment_id: string; refund_no: string; amount: number; method: string; reason: string; paid_at: string; status: string }
+type ExpenseRow = { id: string; expense_no: string; category: string; amount: number; paid_method: string; note: string | null; status: string; created_at: string }
+type IncomeRow = { id: string; income_no: string; category: string; amount: number; channel: string; note: string | null; status: string; created_at: string }
+
+const PAYMENT_COLUMNS = 'id, bill_id, method, amount, reference, status, received_at, receipt_id'
+const REFUND_COLUMNS = 'id, bill_id, payment_id, refund_no, amount, method, reason, paid_at, status'
+
+/** Money rows read for one screen; `opening` = money total before the window (0 when read without a window). */
+export interface StatementRead {
+  opening: number
+  rows: StatementTransaction[]
+}
+
 /**
  * Money in / out of the last `daysBack` days (payments, refunds, expenses, other income), newest first.
- * Bill numbers, customer names and receipt numbers are read only for the rows found.
  * คงเหลือ (runningBalance) starts from the money total before that window (server opening balance).
  */
-export async function fetchTransactionsFromSupabase(daysBack = STATEMENT_DEFAULT_DAYS_BACK): Promise<StatementTransaction[]> {
+export async function fetchStatementFromSupabase(daysBack = STATEMENT_DEFAULT_DAYS_BACK): Promise<StatementRead> {
   const supabase = createClient()
   const since = statementSince(daysBack)
   const [opening, payments, refunds, expenses, incomes] = await Promise.all([
     openingBalance(since),
-    selectAllRows<{ id: string; bill_id: string; method: string; amount: number; reference: string | null; status: string; received_at: string; receipt_id: string }>(
-      () => supabase.from('payments').select('id, bill_id, method, amount, reference, status, received_at, receipt_id').gte('received_at', since)
-    ),
-    selectAllRows<{ id: string; bill_id: string; payment_id: string; refund_no: string; amount: number; method: string; reason: string; paid_at: string; status: string }>(
-      () => supabase.from('refunds').select('id, bill_id, payment_id, refund_no, amount, method, reason, paid_at, status').gte('paid_at', since)
-    ),
-    selectAllRows<{ id: string; expense_no: string; category: string; amount: number; paid_method: string; note: string | null; status: string; created_at: string }>(
+    selectAllRows<PaymentRow>(() => supabase.from('payments').select(PAYMENT_COLUMNS).gte('received_at', since)),
+    selectAllRows<RefundRow>(() => supabase.from('refunds').select(REFUND_COLUMNS).gte('paid_at', since)),
+    selectAllRows<ExpenseRow>(
       () => supabase.from('expense_entries').select('id, expense_no, category, amount, paid_method, note, status, created_at').gte('created_at', since)
     ),
-    selectAllRows<{ id: string; income_no: string; category: string; amount: number; channel: string; note: string | null; status: string; created_at: string }>(
+    selectAllRows<IncomeRow>(
       () => supabase.from('other_income_entries').select('id, income_no, category, amount, channel, note, status, created_at').gte('created_at', since)
     ),
   ])
+  return { opening, rows: withRunningBalance(await toStatementRows(payments, refunds, expenses, incomes), opening) }
+}
+
+/**
+ * Payments and refunds of these bills only: after a money step on one bill (inside the statement window
+ * `daysBack`, with the window's opening total read again) or one customer's history (all time, no window).
+ */
+export async function fetchBillMoneyFromSupabase(billIds: string[], daysBack?: number): Promise<StatementRead> {
+  const supabase = createClient()
+  const since = daysBack === undefined ? null : statementSince(daysBack)
+  const [opening, payments, refunds] = await Promise.all([
+    since ? openingBalance(since) : Promise.resolve(0),
+    readByIds(billIds, (chunk) => {
+      const q = supabase.from('payments').select(PAYMENT_COLUMNS).in('bill_id', chunk)
+      return selectRows<PaymentRow>(since ? q.gte('received_at', since) : q)
+    }),
+    readByIds(billIds, (chunk) => {
+      const q = supabase.from('refunds').select(REFUND_COLUMNS).in('bill_id', chunk)
+      return selectRows<RefundRow>(since ? q.gte('paid_at', since) : q)
+    }),
+  ])
+  return { opening, rows: withRunningBalance(await toStatementRows(payments, refunds, [], []), opening) }
+}
+
+/** Newest first, คงเหลือ (runningBalance) counted in time order from `opening`. */
+export function withRunningBalance(rows: StatementTransaction[], opening: number): StatementTransaction[] {
+  const ordered = rows.map((r) => ({ ...r })).sort((a, b) => a.dateTime.localeCompare(b.dateTime))
+  let balance = opening
+  for (const r of ordered) {
+    balance += r.incomeAmount - r.expenseAmount
+    r.runningBalance = Math.round(balance * 100) / 100
+  }
+  return ordered.reverse()
+}
+
+/** Server records → statement rows; bill numbers, customer names and receipt numbers read only for these rows. */
+async function toStatementRows(payments: PaymentRow[], refunds: RefundRow[], expenses: ExpenseRow[], incomes: IncomeRow[]): Promise<StatementTransaction[]> {
+  const supabase = createClient()
   const [bills, receipts] = await Promise.all([
     readByIds([...payments.map((p) => p.bill_id), ...refunds.map((r) => r.bill_id)], (chunk) =>
       selectRows<{ id: string; bill_no: string | null; customer_id: string | null; customer_snapshot: { name?: string } | null }>(supabase.from('bills').select('id, bill_no, customer_id, customer_snapshot').in('id', chunk))
@@ -106,7 +153,7 @@ export async function fetchTransactionsFromSupabase(daysBack = STATEMENT_DEFAULT
   }
   const expenseLabel = (code: string) => EXPENSE_CATEGORIES.find((c) => c.code === code)?.label || code
 
-  const rows: StatementTransaction[] = [
+  return [
     ...payments
       .filter((p) => p.status === 'COMPLETED' || p.status === 'REFUNDED')
       .map((p) => ({
@@ -178,22 +225,14 @@ export async function fetchTransactionsFromSupabase(daysBack = STATEMENT_DEFAULT
         source: 'OTHER_INCOME' as const,
       })),
   ]
-
-  rows.sort((a, b) => a.dateTime.localeCompare(b.dateTime))
-  let balance = opening
-  for (const r of rows) {
-    balance += r.incomeAmount - r.expenseAmount
-    r.runningBalance = Math.round(balance * 100) / 100
-  }
-  return rows.reverse()
 }
 
 /**
- * Revenue lines from the server's finance ledger (Master §22, §31 Revenue per Mode): recorded
- * when a bill is confirmed / a charge is confirmed / other income is saved. Reversals carry the
- * same revenue class with the opposite direction. Readable with the finance menu (RLS).
+ * Revenue lines from the server's finance ledger (Master §22, §31 Revenue per Mode) from `since` on
+ * (the report period): recorded when a bill is confirmed / a charge is confirmed / other income is saved.
+ * Reversals carry the same revenue class with the opposite direction. Readable with the finance menu (RLS).
  */
-export async function fetchRevenueLedgerFromSupabase(): Promise<RevenueLedgerEntry[]> {
+export async function fetchRevenueLedgerFromSupabase(since: string): Promise<RevenueLedgerEntry[]> {
   const supabase = createClient()
   const rows = await selectAllRows<{ revenue_class: string; amount: number; direction: number; occurred_at: string }>(
     () => supabase
@@ -201,6 +240,7 @@ export async function fetchRevenueLedgerFromSupabase(): Promise<RevenueLedgerEnt
       .select('revenue_class, amount, direction, occurred_at')
       .in('entry_type', ['REVENUE', 'REVERSAL'])
       .not('revenue_class', 'is', null)
+      .gte('occurred_at', since)
   )
   return rows.map((r) => ({
     revenueClass: r.revenue_class,

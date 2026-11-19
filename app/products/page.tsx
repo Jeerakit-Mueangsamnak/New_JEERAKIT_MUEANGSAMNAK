@@ -63,7 +63,7 @@ import {
   deleteProductAsync,
   hardDeleteProductAsync,
   reactivateProductAsync,
-  syncProductsFromSupabase,
+  refreshProductsIfStale,
 } from '@/features/products/services/product-storage'
 import {
   loadAllCategories,
@@ -149,7 +149,8 @@ function ProductsContent() {
     // Stock changes from other screens (bills, returns) reload the shared product cache.
     const onChange = () => setProducts(loadStorageProducts())
     window.addEventListener('products_updated', onChange)
-    void syncProductsFromSupabase().catch(() => undefined)
+    // Products were read at app start: read again only what is old (whole list after 5 min, stock after 1 min).
+    void refreshProductsIfStale().catch(() => undefined)
     return () => window.removeEventListener('products_updated', onChange)
   }, [loadProducts])
 

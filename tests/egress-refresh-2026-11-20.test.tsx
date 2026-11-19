@@ -232,8 +232,9 @@ describe('4. MasterDataProvider refreshes each kind of data on its own time', ()
   it('full load once, then nothing within 1 minute, work data after 1 minute, everything after 5', async () => {
     const m = await import('@/components/common/MasterDataProvider')
     await m.loadAllBusinessData()
+    // Money rows are not read at app start (owner 2026-11-20): the money screens read them.
     expect([...calls].sort()).toEqual(
-      ['bills', 'categories', 'customers', 'finance', 'notifications', 'products(shared lists)', 'settings', 'units'].sort()
+      ['bills', 'categories', 'customers', 'notifications', 'products(shared lists)', 'settings', 'units'].sort()
     )
     const t0 = Date.now()
 
@@ -250,6 +251,7 @@ describe('4. MasterDataProvider refreshes each kind of data on its own time', ()
     expect(calls).toContain('settings')
     expect(calls.filter((c) => c === 'categories')).toHaveLength(1)
     expect(calls.filter((c) => c === 'units')).toHaveLength(1)
+    expect(calls).not.toContain('finance')
   })
 
   it('a full load asked while the work data is loading still runs (not swallowed by the smaller load)', async () => {
