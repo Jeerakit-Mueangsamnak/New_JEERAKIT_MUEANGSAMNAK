@@ -699,6 +699,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
               <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
                 {items.map((item, index) => {
                   const isRemoved = item.action === 'REMOVE'
+                  const isTypedIn = Boolean(item.isCustom || !item.productId)
                   const isDaily = item.rentalType === 'DAILY'
                   const isNormal = item.rentalType === 'NORMAL'
 
@@ -767,13 +768,14 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                       <td className={cell}>
                         <NumericInput
                           disabled={isRemoved}
-                          min={1}
-                          allowDecimals={false}
+                          min={isTypedIn ? 0 : 1}
+                          allowDecimals={isTypedIn}
                           value={item.quantity}
                           defaultValueOnBlur={1}
                           onChange={(val) => {
-                            if (val !== '') {
-                              updateItem(index, { quantity: Math.max(1, Number(val)) })
+                            // รายการนอกร้าน takes decimals (e.g. 50.30 เมตร, owner 2026-11-20); shop products stay whole
+                            if (val !== '' && (!isTypedIn || Number(val) > 0)) {
+                              updateItem(index, { quantity: isTypedIn ? Number(val) : Math.max(1, Number(val)) })
                             }
                           }}
                           className={`${numberBox} disabled:opacity-50`}

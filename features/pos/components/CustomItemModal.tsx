@@ -31,10 +31,10 @@ export const CUSTOM_ITEM_ROWS = 5
 const FIELD_CLASSES =
   'w-full h-10 px-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold text-sm tabular-nums focus:ring-2 focus:ring-emerald-500 focus:outline-none'
 const HEAD_CLASSES = 'whitespace-nowrap text-xs font-medium text-slate-700 dark:text-slate-300'
-// Column widths sized to what each box holds (owner 2026-11-19): จำนวน 3 digits, หน่วย and ราคา
+// Column widths sized to what each box holds (owner 2026-11-19): จำนวน XXX.XX (decimals, e.g. 50.30 เมตร, owner 2026-11-20), หน่วย and ราคา
 // 4 capital letters (XXXX), รอบ the word จำนวน, การเช่า the word ต่อรอบ, จำนวนเงิน 999,999.99;
 // the name takes what is left. Narrow screens scroll the rows sideways.
-const GRID_CLASSES = 'grid grid-cols-[minmax(120px,1fr)_52px_76px_62px_40px_76px_98px] gap-1.5 items-center'
+const GRID_CLASSES = 'grid grid-cols-[minmax(120px,1fr)_68px_76px_62px_40px_76px_98px] gap-1.5 items-center'
 
 interface Row {
   name: string
@@ -146,8 +146,8 @@ export function CustomItemModal({ onAdd, onClose, initial, submitLabel = 'เพ
                     aria-label={`จำนวน แถว ${n}`}
                     value={r.quantity}
                     onChange={(v) => setRow(i, { quantity: v })}
-                    min={1}
-                    allowDecimals={false}
+                    min={0}
+                    allowDecimals={true}
                     className={FIELD_CLASSES}
                   />
                   <CustomSelect
