@@ -320,15 +320,22 @@ body.non-pos-route input[type="date"]::-webkit-inner-spin-button {
   }
 
   /* iPad / iPhone only (-webkit-touch-callout exists only there): the print keeps the printer's own
-     margins instead of printing to the paper's edge, and does not shrink the page, so a full A4 form
-     ran off the right and bottom (owner 2026-11-12). The form is printed at 92%, centred — that fits
-     printer margins up to about 8mm at the sides and 12mm at the top/bottom. PCs print as before. */
+     margins instead of printing to the paper's edge, and does not shrink the page, so a full A4 sheet
+     ran off the right and bottom (owner 2026-11-12). The form prints at 100% with 1cm paper on the left
+     and right (owner 2026-11-20): only the drawing is printed — the sheet's blank 10mm side margins
+     (FORM_SIDE_MARGIN_MM) and 10mm of its blank top/bottom are cut off — and that 190mm-wide box is
+     centred on the paper, so the drawing sits 10mm from each side. PCs print the full sheet as before. */
   @supports (-webkit-touch-callout: none) {
+    .print-document-wrapper:has(> .print-form-page) {
+      width: 190mm !important;
+      height: 277mm !important;
+      margin: 0 auto !important;
+      overflow: hidden !important;
+    }
     .print-form-page {
-      zoom: 0.92;
       width: 210mm !important;
-      margin-left: auto !important;
-      margin-right: auto !important;
+      height: 297mm !important;
+      margin: -10mm 0 0 -10mm !important;
     }
   }
 
