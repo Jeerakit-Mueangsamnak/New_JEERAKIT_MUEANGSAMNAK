@@ -78,7 +78,8 @@ function fallbackSchema(name: string, category: string) {
 </div>`.trim()
 }
 
-const wrapPage = (html: string) => `<div class="p-8 text-slate-900 font-sans text-xs bg-white">${html}</div>`
+// print-form-page: printed like the other shop forms (globals.css, printDocuments).
+const wrapPage = (html: string) => `<div class="print-form-page p-8 text-slate-900 font-sans text-xs bg-white">${html}</div>`
 
 interface TemplateLibraryPanelProps {
   mode: TemplateLibraryMode

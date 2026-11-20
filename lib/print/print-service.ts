@@ -185,10 +185,19 @@ function documentPagesHtml(pages: string[]): string {
     .join('')}</div>`
 }
 
+/**
+ * The page margin of a shop form on iPad / iPhone: there the print keeps the printer's own margins, so the
+ * form is printed inside 10mm margins, centred (globals.css), for 1cm of paper left and right (owner 2026-11-20).
+ * PCs print the full sheet to the paper's edge; the sheet itself has the 1cm margins.
+ */
+const APPLE_FORM_PAGE_MARGIN = '10mm'
+
 /** One A4 page per document (customer forms, bills); `pages` are already-rendered HTML. */
 export function printDocuments(pages: string[], title?: string): boolean {
   if (pages.length === 0) return false
-  printHtml(documentPagesHtml(pages), { orientation: 'portrait', margin: '0', title })
+  const formPages = pages.some((p) => p.includes('print-form-page'))
+  const margin = formPages && isAppleTouchDevice() ? APPLE_FORM_PAGE_MARGIN : '0'
+  printHtml(documentPagesHtml(pages), { orientation: 'portrait', margin, title })
   return true
 }
 

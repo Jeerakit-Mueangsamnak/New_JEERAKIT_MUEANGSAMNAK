@@ -69,7 +69,10 @@ const today = () => new Date().toISOString().slice(0, 10)
 const DRAFT_DOC_NO = '(ยังไม่บันทึก)'
 const docNoOf = (row: CustomerDocumentRow) =>
   ((row.data_snapshot as SavedSnapshot | null)?.docNo as string | undefined) || `CD-${row.id.slice(0, 8).toUpperCase()}`
-const wrapPage = (html: string) => `<div class="p-8 text-slate-900 font-sans text-xs bg-white">${html}</div>`
+// A page drawn on a shop form (template-document) is printed like the other shop forms (print-form-page,
+// globals.css); a photo page prints as before.
+const wrapPage = (html: string) =>
+  `<div class="${html.includes('template-document') ? 'print-form-page ' : ''}p-8 text-slate-900 font-sans text-xs bg-white">${html}</div>`
 
 function snapshotOf(c: Customer): CustomerSnapshot {
   return {
