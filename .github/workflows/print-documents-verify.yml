@@ -1,0 +1,52 @@
+name: Verify print and documents (Linux)
+on:
+  push:
+    branches:
+      - fix/print-documents-isolated-20261121
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'components/common/ActionButton.tsx'
+      - 'components/common/PostSavePrintModal.tsx'
+      - 'features/documents/**'
+      - 'lib/print/**'
+      - 'tests/bill-form-print.test.ts'
+      - '.github/workflows/print-documents-verify.yml'
+permissions:
+  contents: read
+concurrency:
+  group: print-docs-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321'
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'test-publishable-key'
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'test-anon-key'
+      SUPABASE_SECRET_KEY: 'test-secret-key'
+      NEXT_PUBLIC_SITE_URL: 'http://localhost:3000'
+      LINE_DELIVERY_MODE: 'mock'
+      NODE_OPTIONS: '--max-old-space-size=4096'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.20.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install exact dependencies
+        run: pnpm install --frozen-lockfile
+      - name: TypeScript
+        run: pnpm run typecheck
+      - name: ESLint
+        run: pnpm run lint
+      - name: Print and documents unit tests
+        run: pnpm exec vitest run tests/bill-form-print.test.ts --maxWorkers=1
+      - name: Build Cloudflare Worker (Linux, no deploy)
+        run: pnpm run cf:build

@@ -2,8 +2,10 @@
  * How every shop form prints (owner 2026-11-12), applied when a form is filled — the uploaded file is not
  * changed, so forms added later follow it too:
  * - no background colour anywhere (pictures stay); a box at most 4px thin is a line the form drew with a fill,
- *   so it prints as a black line instead;
+ *   so it prints as one standard black line (1px, like the table lines) instead (owner 2026-11-20: the 0.375px
+ *   line under the shop details was lost in print);
  * - text, lines, frames and table borders in black (#000); a line drawn invisible stays invisible;
+ * - dotted / dashed lines (the customer detail underlines) print as one plain line (owner 2026-11-20);
  * - the "ภาษีมูลค่าเพิ่ม" label (and the rate after it) sits 2px higher: its ู was cut by the cell's bottom line.
  * Inline styles are rewritten (the forms are styled inline and <style> tags are removed by the sanitizer).
  */
@@ -50,6 +52,32 @@ function isThinBox(style: string): boolean {
   return [...style.matchAll(/(?:^|;)\s*(?:height|width)\s*:\s*(\d+(?:\.\d+)?)px/gi)].some((m) => Number(m[1]) <= 4)
 }
 
+/** The box is filled with a visible colour (a line drawn with a fill, when it is also thin). */
+function hasVisibleFill(style: string): boolean {
+  return [...style.matchAll(/(?:^|;)\s*background(?:-color)?\s*:([^;]*)/gi)].some((m) => {
+    const colour = m[1].match(COLOUR_TOKEN)?.[0]
+    return Boolean(colour) && !isInvisible(colour as string)
+  })
+}
+
+/**
+ * One line for every form (owner 2026-11-20): a line the form drew as a filled bar (0.375px under the shop
+ * details, 0.75px under the signatures) is drawn as a 1px solid line like the table lines. As a fill it was
+ * lost in print (iPad: always under the shop details, on some forms under the signatures).
+ */
+const STANDARD_LINE = `1px solid ${INK}`
+
+/** A filled thin bar (`filledLine`) as a line: no fill, no thickness of its own, one standard line on its long side. */
+function asStandardLine(style: string): string {
+  const horizontal = [...style.matchAll(/(?:^|;)\s*height\s*:\s*(\d+(?:\.\d+)?)px/gi)].some((m) => Number(m[1]) <= 4)
+  const size = horizontal ? 'height' : 'width'
+  const kept = declarations(style).filter((d) => {
+    const prop = d.slice(0, d.indexOf(':')).trim().toLowerCase()
+    return d.includes(':') && prop !== size && prop !== 'background' && prop !== 'background-color'
+  })
+  return [...kept, ` ${size}:0px`, ` border-${horizontal ? 'top' : 'left'}:${STANDARD_LINE}`].join(';')
+}
+
 function inkDeclaration(declaration: string, thin: boolean): string {
   const at = declaration.indexOf(':')
   if (at < 0) return declaration
@@ -58,6 +86,9 @@ function inkDeclaration(declaration: string, thin: boolean): string {
   const value = declaration.slice(at + 1)
   const set = (v: string) => `${rawProp}:${v}`
   const fill = (colour: string) => (isInvisible(colour) ? colour : thin ? INK : 'transparent')
+  // Underlines and frames are one plain line: a dotted / dashed one printed as dots on some pages and as a
+  // line on others (owner 2026-11-20).
+  if (/^border(?:-(?:top|right|bottom|left))?-style$/.test(prop)) return set(value.replace(/\b(?:dotted|dashed)\b/gi, 'solid'))
   if (prop === 'background-color') return set(fill(value.trim()))
   if (prop === 'background') {
     // A picture stays (only its colour is changed); a colour-only shorthand becomes that colour's fill
@@ -68,16 +99,19 @@ function inkDeclaration(declaration: string, thin: boolean): string {
   if (prop === 'color' || /^(?:border(?:-(?:top|right|bottom|left))?|outline|text-decoration|column-rule)-color$/.test(prop)) {
     return isInvisible(value) ? declaration : set(INK)
   }
-  if (/^(?:border(?:-(?:top|right|bottom|left))?|outline)$/.test(prop)) return set(inkColours(value))
+  if (/^(?:border(?:-(?:top|right|bottom|left))?|outline)$/.test(prop)) {
+    return set(inkColours(value).replace(/\b(?:dotted|dashed)\b/gi, 'solid'))
+  }
   return declaration
 }
 
-/** Every style attribute: no background colour, black text / lines / frames. */
+/** Every style attribute: no background colour, black text / lines / frames, plain lines at least 1px. */
 export function inkOnlyStyles(html: string): string {
   return html.replace(/(\sstyle\s*=\s*)(?:"([^"]*)"|'([^']*)')/gi, (_m, lead: string, dq?: string, sq?: string) => {
     const raw = dq ?? sq ?? ''
     const thin = isThinBox(raw)
-    const style = declarations(raw).map((d) => inkDeclaration(d, thin)).join(';')
+    const inked = declarations(raw).map((d) => inkDeclaration(d, thin)).join(';')
+    const style = thin && hasVisibleFill(raw) ? asStandardLine(inked) : inked
     return dq !== undefined ? `${lead}"${style}"` : `${lead}'${style}'`
   })
 }
