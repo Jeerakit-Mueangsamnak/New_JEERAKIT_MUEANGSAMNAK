@@ -1,4 +1,5 @@
-import { dailyRentalPeriodText, fitFormItemColumns, formatBahtCurrency, renderDocumentTemplate, removeThaiAmountTextParentheses, thaiBahtText } from '@/features/documents/utils/documentRenderer'
+import { dailyRentalPeriodText, formatBahtCurrency, renderDocumentTemplate, removeThaiAmountTextParentheses, thaiBahtText } from '@/features/documents/utils/documentRenderer'
+import { escapeDocumentHtml } from '@/features/documents/utils/document-html'
 import { getTemplateTarget, getSharedTemplates } from '@/features/documents/services/template-library-storage'
 import type { DocumentName } from '@/features/documents/api/template-library-repository'
 import { printDocuments } from '@/lib/print/print-service'
@@ -295,23 +296,10 @@ export function renderReturnFormPagesHtml(
     const offset = pageIndex * BILL_FORM_ROWS_PER_PAGE
     const pageItems = data.items.slice(offset, offset + BILL_FORM_ROWS_PER_PAGE)
     const isLast = pageIndex === pageCount - 1
-    const schema = removeThaiAmountTextParentheses(printedSchema(template))
-      .replace(RETURN_TOTAL_FIELDS, (match) => {
-        if (!isLast) return ''
-        const field = /return\.([a-z_]+)/.exec(match)?.[1] || ''
-        return match.replace(/\{\{[^}]*\}\}/, totals[field] ?? '')
-      })
-      .replace(RETURN_ITEM_FIELD, (_match, row: string, field: string) => {
-        const item = pageItems[Number(row) - 1]
-        if (!item) return ''
-        if (field === 'returned') return String(item.returnedQty)
-        if (field === 'normal') return String(item.normalQty)
-        if (field === 'damaged') return String(item.damagedQty)
-        if (field === 'lost') return String(item.lostQty)
-        return formatBahtCurrency(item.damageFee)
-      })
+    // The form's own fields are filled after the shared print rules, which find a field by its {{...}} (owner
+    // 2026-11-20: the return counts sat lower than the item names, the bill forms did not).
     return renderDocumentTemplate(
-      schema,
+      removeThaiAmountTextParentheses(printedSchema(template)),
       { customerName: data.customerName, phone: data.customerPhone || '', address: data.customerAddress || '', taxId: data.customerTaxId || '' },
       data.slipNo,
       thaiLongDate(data.returnDate),
@@ -328,6 +316,20 @@ export function renderReturnFormPagesHtml(
       undefined,
       offset
     )
+      .replace(RETURN_TOTAL_FIELDS, (match) => {
+        if (!isLast) return ''
+        const field = /return\.([a-z_]+)/.exec(match)?.[1] || ''
+        return match.replace(/\{\{[^}]*\}\}/, escapeDocumentHtml(totals[field] ?? ''))
+      })
+      .replace(RETURN_ITEM_FIELD, (_match, row: string, field: string) => {
+        const item = pageItems[Number(row) - 1]
+        if (!item) return ''
+        if (field === 'returned') return String(item.returnedQty)
+        if (field === 'normal') return String(item.normalQty)
+        if (field === 'damaged') return String(item.damagedQty)
+        if (field === 'lost') return String(item.lostQty)
+        return formatBahtCurrency(item.damageFee)
+      })
   })
 }
 
@@ -423,25 +425,10 @@ export function renderFineFormPagesHtml(
     const offset = pageIndex * BILL_FORM_ROWS_PER_PAGE
     const pageRows = rows.slice(offset, offset + BILL_FORM_ROWS_PER_PAGE)
     const isLast = pageIndex === pageCount - 1
-    // Columns are fitted while the item fields are still there (จำนวนเงิน is found by its field)
-    const schema = fitFormItemColumns(removeThaiAmountTextParentheses(printedSchema(template)))
-      .replace(FINE_TOTAL_FIELDS, (match) => {
-        if (!isLast) return ''
-        const field = /fine\.([a-z_]+)/.exec(match)?.[1] || ''
-        return match.replace(/\{\{[^}]*\}\}/, totals[field] ?? '')
-      })
-      .replace(FINE_ITEM_FIELD, (_match, row: string, field: string) => {
-        const item = pageRows[Number(row) - 1]
-        if (!item) return ''
-        if (field === 'delivered') return count(item.deliveredQty)
-        if (field === 'normal') return count(item.normalQty)
-        if (field === 'lost') return count(item.lostQty)
-        if (field === 'damaged') return count(item.damagedQty)
-        if (field === 'fine_rate') return formatBahtCurrency(item.fineRate)
-        return formatBahtCurrency(item.fine)
-      })
+    // The form's own fields are filled after the shared print rules (columns fitted, field boxes), which find
+    // a field by its {{...}} (owner 2026-11-20: one standard for every form).
     return renderDocumentTemplate(
-      schema,
+      removeThaiAmountTextParentheses(printedSchema(template)),
       { customerName: data.customerName, phone: data.customerPhone || '', address: data.customerAddress || '', taxId: data.customerTaxId || '' },
       data.slipNo,
       thaiLongDate(data.returnDate),
@@ -458,5 +445,20 @@ export function renderFineFormPagesHtml(
       undefined,
       offset
     )
+      .replace(FINE_TOTAL_FIELDS, (match) => {
+        if (!isLast) return ''
+        const field = /fine\.([a-z_]+)/.exec(match)?.[1] || ''
+        return match.replace(/\{\{[^}]*\}\}/, escapeDocumentHtml(totals[field] ?? ''))
+      })
+      .replace(FINE_ITEM_FIELD, (_match, row: string, field: string) => {
+        const item = pageRows[Number(row) - 1]
+        if (!item) return ''
+        if (field === 'delivered') return count(item.deliveredQty)
+        if (field === 'normal') return count(item.normalQty)
+        if (field === 'lost') return count(item.lostQty)
+        if (field === 'damaged') return count(item.damagedQty)
+        if (field === 'fine_rate') return formatBahtCurrency(item.fineRate)
+        return formatBahtCurrency(item.fine)
+      })
   })
 }
