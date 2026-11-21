@@ -21,8 +21,7 @@ import {
   TAB_CONTAINER_CLASSES,
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
-  TAB_BUTTON_INACTIVE_CLASSES,
-} from '@/components/common/ActionButton'
+  TAB_BUTTON_INACTIVE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 import { Product } from '@/lib/types/rental-pos'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
 import { DataTableFrame, DATA_TABLE_CLASSES } from '@/components/common/DataTableFrame'
@@ -251,7 +250,7 @@ export function ProductListView({
                             type="button"
                             onClick={() => onRestoreDamaged(p)}
                             disabled={!canAdjustStock}
-                            className={`${COMMAND_BUTTON_SIZE_CLASSES} disabled:opacity-40 disabled:cursor-not-allowed bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 transition-all flex items-center shadow-2xs hover:scale-102 cursor-pointer`}
+                            className={`${COMMAND_BUTTON_SIZE_CLASSES} disabled:opacity-40 disabled:cursor-not-allowed border transition-all flex items-center shadow-2xs hover:scale-102 cursor-pointer ${BUTTON_FUNCTION_COLOURS.save}`}
                             title={canAdjustStock ? 'นำสินค้าชำรุดกลับมาใช้งานต่อ' : 'ไม่มีสิทธิ์ปรับสต็อก — ให้เจ้าของร้านเปิดสิทธิ์ที่หน้า จัดการสิทธิ์'}
                           >
                             <RotateCcw className="w-3 h-3" />
@@ -261,7 +260,7 @@ export function ProductListView({
                             type="button"
                             onClick={() => onTransformDamaged(p)}
                             disabled={!canAdjustStock}
-                            className={`${COMMAND_BUTTON_SIZE_CLASSES} disabled:opacity-40 disabled:cursor-not-allowed bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-all flex items-center shadow-2xs hover:scale-102 cursor-pointer`}
+                            className={`${COMMAND_BUTTON_SIZE_CLASSES} disabled:opacity-40 disabled:cursor-not-allowed border transition-all flex items-center shadow-2xs hover:scale-102 cursor-pointer ${BUTTON_FUNCTION_COLOURS.edit}`}
                             title={canAdjustStock ? 'ดัดแปลงสินค้าชำรุดเป็นสินค้าอื่น' : 'ไม่มีสิทธิ์ปรับสต็อก — ให้เจ้าของร้านเปิดสิทธิ์ที่หน้า จัดการสิทธิ์'}
                           >
                             <Shuffle className="w-3 h-3" />

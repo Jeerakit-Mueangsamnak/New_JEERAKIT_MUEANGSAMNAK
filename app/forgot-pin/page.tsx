@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React, { Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -47,7 +47,7 @@ function ForgotPin() {
       type="button"
       onClick={handleBack}
       aria-label="ย้อนกลับ"
-      className={`${COMMAND_BUTTON_SIZE_CLASSES} fixed bottom-3 right-3 sm:bottom-5 sm:right-5 z-[60] bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 flex items-center transition-colors shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600`}
+      className={`${COMMAND_BUTTON_SIZE_CLASSES} fixed bottom-3 right-3 sm:bottom-5 sm:right-5 z-[60] border flex items-center transition-colors shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${BUTTON_FUNCTION_COLOURS.cancel}`}
     >
       <ArrowLeft className="w-4 h-4" aria-hidden="true" />
       <span>ย้อนกลับ</span>
@@ -146,7 +146,7 @@ function ForgotPin() {
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="รหัสผ่านของบัญชี"
                 className="w-full rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2.5 text-sm" />
               <button type="button" disabled={busy || !password} onClick={() => void verifyPassword()}
-                className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full flex items-center justify-center border border-slate-300 dark:border-slate-700 disabled:opacity-50`}>
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full flex items-center justify-center border disabled:opacity-50 ${BUTTON_FUNCTION_COLOURS.open}`}>
                 <KeyRound className="w-4 h-4" /> ยืนยันด้วยรหัสผ่าน
               </button>
             </div>

@@ -277,7 +277,7 @@ export function ProductStockCountView({
               type="button"
               onClick={handleClearAll}
               disabled={isSubmitting}
-              variant="outline"
+              variant="clear"
               icon={<RotateCcw />}
               className=""
             >
@@ -289,7 +289,7 @@ export function ProductStockCountView({
             type="button"
             onClick={handlePrintTable}
             disabled={isSubmitting}
-            variant="outline"
+            variant="export"
             icon={<Printer />}
             className=""
           >

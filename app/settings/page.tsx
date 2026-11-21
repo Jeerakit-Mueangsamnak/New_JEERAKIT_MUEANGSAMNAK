@@ -6,8 +6,7 @@ import {
   TAB_BUTTON_INACTIVE_CLASSES,
   TAB_CONTAINER_CLASSES,
   TAB_BAR_SURFACE_CLASSES,
-  TABLE_TOOLBAR_CLASSES,
-} from '@/components/common/ActionButton'
+  TABLE_TOOLBAR_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import {
   SETTINGS_INPUT,
@@ -232,7 +231,7 @@ function ImageField({ label, value, onChange }: { label: string; value?: string;
             <button
               type="button"
               onClick={() => onChange('')}
-              className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 flex items-center`}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} border flex items-center ${BUTTON_FUNCTION_COLOURS.remove}`}
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span>ลบรูป</span>
@@ -295,7 +294,7 @@ function BusinessSection({ cfg, saved, set }: { cfg: SystemConfig; saved: System
             <button
               type="button"
               onClick={removeProfile}
-              className={`${COMMAND_BUTTON_SIZE_CLASSES} px-3 shrink-0 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 flex items-center`}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} px-3 shrink-0 border flex items-center ${BUTTON_FUNCTION_COLOURS.remove}`}
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span>ลบข้อมูลนี้</span>
@@ -368,7 +367,7 @@ function LogoField({ name, value, onChange }: { name: string; value?: string; on
           <button
             type="button"
             onClick={() => onChange('')}
-            className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 flex items-center`}
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} border flex items-center ${BUTTON_FUNCTION_COLOURS.remove}`}
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>ลบรูป</span>
@@ -452,7 +451,7 @@ function PaymentSection({ cfg, saved, set }: { cfg: SystemConfig; saved: SystemC
               <button
                 type="button"
                 onClick={removeAccount}
-                className={`${COMMAND_BUTTON_SIZE_CLASSES} px-3 shrink-0 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 flex items-center`}
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} px-3 shrink-0 border flex items-center ${BUTTON_FUNCTION_COLOURS.remove}`}
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>ลบบัญชีนี้</span>
@@ -592,7 +591,7 @@ function SettingsPageContent() {
       cancel,
       dirty,
       conflict: drafts[id].conflict ? (
-        <div className="mx-4 mt-3 p-2.5 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 text-amber-800 dark:text-amber-200 flex flex-wrap items-center gap-2"><AlertTriangle className="w-4 h-4 shrink-0"/><span className="flex-1 min-w-0">ค่าของหัวข้อนี้ถูกเปลี่ยนจากที่อื่นระหว่างที่คุณแก้ไข · ค่าที่คุณกรอกยังอยู่</span><button type="button" onClick={cancel} className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-amber-400`}>โหลดค่าล่าสุด</button></div>
+        <div className="mx-4 mt-3 p-2.5 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 text-amber-800 dark:text-amber-200 flex flex-wrap items-center gap-2"><AlertTriangle className="w-4 h-4 shrink-0"/><span className="flex-1 min-w-0">ค่าของหัวข้อนี้ถูกเปลี่ยนจากที่อื่นระหว่างที่คุณแก้ไข · ค่าที่คุณกรอกยังอยู่</span><button type="button" onClick={cancel} className={`${COMMAND_BUTTON_SIZE_CLASSES} ${BUTTON_FUNCTION_COLOURS.open}`}>โหลดค่าล่าสุด</button></div>
       ) : null,
       footer: <CardSaveButtons label={saveLabel} dirty={dirty} saving={savingSection === id} onSave={() => void save()} onCancel={cancel} />,
     }

@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React from 'react'
 import { RefreshCw, Filter } from 'lucide-react'
@@ -103,7 +103,7 @@ export function ReportFilter({
           type="button"
           onClick={onRefresh}
           disabled={isRefreshing}
-          className={`${COMMAND_BUTTON_SIZE_CLASSES} flex items-center border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer shadow-xs`}
+          className={`${COMMAND_BUTTON_SIZE_CLASSES} flex items-center border transition-colors cursor-pointer shadow-xs ${BUTTON_FUNCTION_COLOURS.open}`}
           title="รีเฟรชข้อมูลตามช่วงเวลา"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}`} />

@@ -1,6 +1,6 @@
 'use client'
 import { CountUp } from '@/components/common/CountUp'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React from 'react'
 import Link from 'next/link'
@@ -116,7 +116,7 @@ export function StockManagementView({ metrics, onRefresh }: ViewProps) {
                 <button
                   type="button"
                   onClick={onRefresh}
-                  className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer`}
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center transition-colors cursor-pointer ${BUTTON_FUNCTION_COLOURS.open}`}
                   title="รีเฟรชข้อมูล"
                   aria-label="รีเฟรชข้อมูล"
                 >

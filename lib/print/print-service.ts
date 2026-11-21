@@ -4,7 +4,7 @@
  * then window.print() runs, then the element is removed.
  */
 import { escapeDocumentHtml } from '@/features/documents/utils/document-html'
-import { askTapToPrint, documentToPictures, shareDocumentImages } from '@/lib/print/print-share-images'
+import { askTapToPrint, shareDocumentImages } from '@/lib/print/print-share-images'
 
 const TARGET_ID = 'central-print-target'
 
@@ -185,37 +185,18 @@ function documentPagesHtml(pages: string[]): string {
     .join('')}</div>`
 }
 
+/**
+ * The page margin of a shop form on iPad / iPhone: there the print keeps the printer's own margins, so the
+ * form is printed inside 10mm margins, centred (globals.css), for 1cm of paper left and right (owner 2026-11-20).
+ * PCs print the full sheet to the paper's edge; the sheet itself has the 1cm margins.
+ */
+const APPLE_FORM_PAGE_MARGIN = '10mm'
+
 /** One A4 page per document (customer forms, bills); `pages` are already-rendered HTML. */
 export function printDocuments(pages: string[], title?: string): boolean {
   if (pages.length === 0) return false
-  printHtml(documentPagesHtml(pages), { orientation: 'portrait', margin: '0', title })
+  const formPages = pages.some((p) => p.includes('print-form-page'))
+  const margin = formPages && isAppleTouchDevice() ? APPLE_FORM_PAGE_MARGIN : '0'
+  printHtml(documentPagesHtml(pages), { orientation: 'portrait', margin, title })
   return true
-}
-
-/**
- * iPad / iPhone web app opened from the Home Screen icon: window.print() opens nothing there, printing goes
- * through the share sheet (see print-share-images.ts).
- */
-export function printsThroughShareSheet(): boolean {
-  return typeof window !== 'undefined' && isAppleTouchDevice() && isStandaloneWebApp()
-}
-
-/**
- * The pictures `printDocuments` would print, made ahead (while the document picker is open) so the share
- * sheet opens right on the tap (owner 2026-11-19).
- */
-export async function preparePrintPictures(pages: string[], title?: string): Promise<File[]> {
-  const holder = document.createElement('div')
-  holder.style.position = 'fixed'
-  holder.style.left = '-10000px'
-  holder.style.top = '0'
-  holder.style.width = '210mm'
-  holder.setAttribute('aria-hidden', 'true')
-  holder.innerHTML = documentPagesHtml(pages)
-  document.body.appendChild(holder)
-  try {
-    return await documentToPictures(holder, title)
-  } finally {
-    holder.remove()
-  }
 }

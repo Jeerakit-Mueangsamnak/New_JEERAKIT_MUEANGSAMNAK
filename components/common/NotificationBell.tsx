@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { HEADER_ICON_BUTTON_CLASSES, HEADER_ICON_BUTTON_OPEN_CLASSES, HEADER_ICON_BUTTON_IDLE_CLASSES, COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { HEADER_ICON_BUTTON_CLASSES, HEADER_ICON_BUTTON_OPEN_CLASSES, HEADER_ICON_BUTTON_IDLE_CLASSES, COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 import {
   Bell,
   CheckCheck,
@@ -277,7 +277,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
                   onClick={handleMarkAllRead}
                   disabled={markingAll}
                   aria-busy={markingAll}
-                  className={`${COMMAND_BUTTON_SIZE_CLASSES} text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-wait`}
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} flex items-center cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-wait ${BUTTON_FUNCTION_COLOURS.open}`}
                   title="ทำเครื่องหมายว่าอ่านแล้วทั้งหมด"
                 >
                   <CheckCheck className="w-3.5 h-3.5" />
@@ -384,7 +384,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
                             <button
                               type="button"
                               onClick={(e) => handleMarkHandled(e, item)}
-                              className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center cursor-pointer`}
+                              className={`${COMMAND_BUTTON_SIZE_CLASSES} border flex items-center cursor-pointer ${BUTTON_FUNCTION_COLOURS.save}`}
                             >
                               <Check className="w-3 h-3" />
                               จัดการแล้ว

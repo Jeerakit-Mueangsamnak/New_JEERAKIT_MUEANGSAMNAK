@@ -900,6 +900,9 @@ export function BillActionView({
         if (canPay) {
           setSavedReturnInfo({ receiptNo, paidAmount: paid, depositApplied: fromDeposit, depositLeft: depositAfter })
           setPostSavePrintModal({ isOpen: true, title: 'บันทึกรับชำระเงินสำเร็จ' })
+        } else {
+          // Nothing to print (deposit / extra rounds only): straight back to the bill list (owner 2026-11-20)
+          onClose()
         }
       } catch (err: any) {
         if (!isPinCancelled(err)) {
@@ -1438,10 +1441,10 @@ export function BillActionView({
         defaultSelected={printChoices.ticked}
         printTitle={activeBill?.billNo}
         onClose={() => {
-          // Stay in the workspace: the panel already shows the saved result; go back with the arrow.
+          // Saved (payment / return, part or all): back to the bill list (owner 2026-11-20).
           setPostSavePrintModal({ isOpen: false, title: '' })
           setPrintChoices({ forms: [], ticked: [] })
-          setCurrentStep(1)
+          onClose()
         }}
       />
     </div>

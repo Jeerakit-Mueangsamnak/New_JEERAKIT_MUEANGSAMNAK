@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { User, Check, Camera, ShieldCheck, CheckCircle2, AlertTriangle, Trash2, Upload, RefreshCw } from 'lucide-react'
@@ -399,7 +399,7 @@ export function NewCustomerModal({
                 type="button"
                 onClick={() => photoInputRef.current?.click()}
                 disabled={readingPhotoPercent !== null}
-                className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 shadow-xs flex items-center transition-all active:scale-95 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed`}
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} border shadow-xs flex items-center transition-all active:scale-95 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${BUTTON_FUNCTION_COLOURS.open}`}
               >
                 {readingPhotoPercent !== null ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
                 <span>{readingPhotoPercent !== null ? `กำลังอ่านบัตร... ${readingPhotoPercent}%` : 'อัปโหลดรูปบัตร'}</span>
@@ -440,7 +440,7 @@ export function NewCustomerModal({
                         <button
                           type="button"
                           onClick={() => acceptOcrSuggestion(key)}
-                          className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-amber-400 bg-white dark:bg-slate-900`}
+                          className={`${COMMAND_BUTTON_SIZE_CLASSES} border ${BUTTON_FUNCTION_COLOURS.save}`}
                         >
                           ใส่ในช่อง{OCR_FIELD_LABELS[key]}
                         </button>
@@ -746,7 +746,7 @@ export function NewCustomerModal({
             <button
               type="button"
               onClick={onClose}
-              className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer`}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} border transition-colors cursor-pointer ${BUTTON_FUNCTION_COLOURS.cancel}`}
             >
               ยกเลิก
             </button>

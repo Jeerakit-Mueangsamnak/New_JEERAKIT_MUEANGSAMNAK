@@ -92,7 +92,7 @@ export function askTapToPrint(): void {
  * The rendered document as PNG pictures: one per A4 page (`.print-document-wrapper`), otherwise the whole
  * `target` as one picture (a table report).
  */
-export async function documentToPictures(target: HTMLElement, title?: string): Promise<File[]> {
+async function documentToPictures(target: HTMLElement, title?: string): Promise<File[]> {
   await waitForImages(target)
   await document.fonts?.ready
   const { domToBlob } = await import('modern-screenshot')
@@ -110,23 +110,6 @@ export async function documentToPictures(target: HTMLElement, title?: string): P
     files.push(new File([blob], `${base}${pages.length > 1 ? `-${i + 1}` : ''}.png`, { type: 'image/png' }))
   }
   return files
-}
-
-/**
- * Opens the share sheet with the pictures ("พิมพ์" there opens the iPad print window with its preview).
- * 'cancelled' = the sheet was closed; 'failed' = it did not open (no file sharing, or the tap was too old).
- */
-export async function sharePrintPictures(files: File[]): Promise<'shared' | 'cancelled' | 'failed'> {
-  if (files.length === 0 || typeof navigator.share !== 'function' || !navigator.canShare?.({ files })) return 'failed'
-  try {
-    // Files only: a title would be shared as an extra text item next to the pictures.
-    await navigator.share({ files })
-    return 'shared'
-  } catch (error) {
-    if (isError(error, 'AbortError')) return 'cancelled'
-    console.error('[print] share sheet failed', error)
-    return 'failed'
-  }
 }
 
 /**

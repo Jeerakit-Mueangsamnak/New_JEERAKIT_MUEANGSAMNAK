@@ -25,7 +25,7 @@ import {
   TAB_CONTAINER_CLASSES,
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
-  TAB_BUTTON_INACTIVE_CLASSES, COMMAND_BUTTON_SIZE_CLASSES, TABLE_LINE_COLOUR_CLASSES } from '@/components/common/ActionButton'
+  TAB_BUTTON_INACTIVE_CLASSES, COMMAND_BUTTON_SIZE_CLASSES, TABLE_LINE_COLOUR_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 import { REF_BUTTON, REF_BUTTON_QUIET } from '@/features/settings/components/SettingsCards'
 import { SecuritySettings } from '@/features/auth/components/SecuritySettings'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
@@ -397,7 +397,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
                           <button
                             type="button"
                             onClick={handleRemoveAvatar}
-                            className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 flex items-center`}
+                            className={`${COMMAND_BUTTON_SIZE_CLASSES} border flex items-center ${BUTTON_FUNCTION_COLOURS.remove}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>ลบรูป</span>

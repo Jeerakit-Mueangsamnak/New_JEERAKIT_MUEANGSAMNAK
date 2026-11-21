@@ -14,7 +14,8 @@ import dynamic from 'next/dynamic'
 import { useToast } from '@/components/common/Toast'
 import { useRouter } from 'next/navigation'
 import { FullBill, loadBills as fetchBills, fetchBillsFromSupabase, fetchClosedBills, countClosedBills, canHardDeleteBill } from '@/features/bills/services/bill-storage'
-import { cancelOrVoidBill, confirmBill, deleteDraftBill } from '@/features/bills/services/bill-service'
+import { cancelOrVoidBill, confirmBill, deleteDraftBill, quickCloseBill } from '@/features/bills/services/bill-service'
+import { formatBaht } from '@/features/bills/utils/bill-workspace'
 import { useDataActions } from '@/components/common/useDataActions'
 import {
   getBillListReturnDate,
@@ -52,7 +53,7 @@ import {
   COMMAND_BUTTON_SIZE_CLASSES,
   SEARCH_INPUT_CLASSES,
   SEARCH_ICON_CLASSES,
-  TABLE_TOOLBAR_CLASSES, TABLE_LINE_COLOUR_CLASSES, ROW_ICON_BUTTON_CLASSES } from '@/components/common/ActionButton'
+  TABLE_TOOLBAR_CLASSES, TABLE_LINE_COLOUR_CLASSES, ROW_ICON_BUTTON_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_THEAD_CLASSES, DATA_TABLE_TH_CLASSES } from '@/components/common/DataTableFrame'
 import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
 import { CountUp } from '@/components/common/CountUp'
@@ -319,6 +320,57 @@ export default function BillsPage() {
         setPrinting(null)
       })
   }
+  // ปิดบิลด่วน (owner 2026-11-20): everything still open on the bill is settled and saved first; only then the
+  // bill's print window opens, as from the printer icon.
+  const [quickClosing, setQuickClosing] = useState(false)
+  const canQuickClose = (b: FullBill | null): b is FullBill =>
+    Boolean(b) && !['DRAFT', 'CLOSED', 'CANCELLED', 'VOID'].includes(b!.rentalStatus)
+  const quickClose = async (bill: FullBill) => {
+    const out = bill.items.reduce((sum, i) => sum + Math.max(0, i.outstandingQty) + Math.max(0, i.remainingQty ?? 0), 0)
+    const owed = Math.max(0, bill.outstandingAmount - (bill.depositOutstanding || 0))
+    const held = bill.heldDepositAmount || 0
+    const ok = await confirmDialog({
+      title: `ปิดบิลด่วน ${bill.billNo}`,
+      message: [
+        out > 0 ? `รับคืนสินค้าที่ยังไม่คืน ${out.toLocaleString('th-TH')} ชิ้น สภาพปกติ วันนี้` : '',
+        owed > 0 ? `ยอดค้าง ${formatBaht(owed)} บาท${held > 0 ? ' หักจากมัดจำก่อน' : ''} ที่เหลือรับเป็นเงินสด` : '',
+        held > 0 ? `มัดจำที่เหลือคืนลูกค้าเป็นเงินสด` : '',
+      ].filter(Boolean).join('\n') || 'บันทึกบิลนี้เป็นชำระครบ คืนครบ',
+      confirmLabel: 'ปิดบิลด่วน',
+    })
+    if (!ok) return
+    setQuickClosing(true)
+    try {
+      const result = await quickCloseBill(bill.id, getLocalDateString(new Date()))
+      const fresh = result.bill
+      if (fresh) setBills((prev) => prev.map((b) => (b.id === fresh.id ? fresh : b)))
+      if (!result.closed || !fresh) {
+        showToast('บันทึกแล้ว แต่บิลยังปิดไม่ได้', 'บิลยังมีรายการค้าง เช่น ค่าเสียหายที่ยังไม่ยืนยัน กรุณาเปิด จัดการบิล เพื่อตรวจสอบ', 'ERROR')
+        return
+      }
+      setClosedCount((c) => (c === null ? c : c + 1))
+      setSelectedRowBill(null)
+      showToast(
+        'ปิดบิลด่วนสำเร็จ',
+        [
+          result.returnedQty > 0 ? `รับคืน ${result.returnedQty.toLocaleString('th-TH')} ชิ้น${result.returnNo ? ` ใบคืน ${result.returnNo}` : ''}` : '',
+          result.depositUsed > 0 ? `หักมัดจำ ${formatBaht(result.depositUsed)} บาท` : '',
+          result.cashReceived > 0 ? `รับเงินสด ${formatBaht(result.cashReceived)} บาท` : '',
+          result.overpaidBack > 0 ? `คืนเงินที่ชำระเกิน ${formatBaht(result.overpaidBack)} บาท` : '',
+          result.depositBack > 0 ? `คืนมัดจำ ${formatBaht(result.depositBack)} บาท` : '',
+        ].filter(Boolean).join(' · ') || `บิล ${bill.billNo} ปิดแล้ว`,
+        'SUCCESS'
+      )
+      printBill(fresh)
+    } catch (err: any) {
+      if (!isPinCancelled(err)) showToast('ปิดบิลด่วนไม่สำเร็จ', dbErrorMessage(err?.message || '') || 'กรุณาลองใหม่', 'ERROR')
+      // Some steps may already be saved: show the bill as it is now; pressing again does only what is left.
+      await loadBills()
+    } finally {
+      setQuickClosing(false)
+    }
+  }
+
   const openBillPreview = (e: React.MouseEvent | React.KeyboardEvent, b: FullBill) => {
     if ((e.target as HTMLElement).closest('button, a, input, select, textarea')) return
     window.getSelection()?.removeAllRanges()
@@ -539,6 +591,18 @@ export default function BillsPage() {
                       จัดการบิล
                     </ActionButton>
 
+                    <ActionButton
+                      className={BILL_TOOLBAR_BUTTON_CLASSES}
+                      disabled={!canQuickClose(selectedRowBill) || quickClosing}
+                      onClick={() => {
+                        if (canQuickClose(selectedRowBill)) void quickClose(selectedRowBill)
+                      }}
+                      variant={canQuickClose(selectedRowBill) ? 'info' : 'neutral'}
+                      icon={<CheckCircle2 className="w-3.5 h-3.5" />}
+                      title="บันทึกบิลที่เลือกเป็นคืนครบ ชำระครบ แล้วปิดบิล"
+                    >
+                      {quickClosing ? 'กำลังปิดบิล...' : 'ปิดบิลด่วน'}
+                    </ActionButton>
 
                     <ActionButton
                       disabled={!selectedRowBill || !['RENTING', 'PARTIAL_RETURNED'].includes(selectedRowBill.rentalStatus)}
@@ -555,7 +619,7 @@ export default function BillsPage() {
                       className={BILL_TOOLBAR_BUTTON_CLASSES}
                       disabled={!selectedRowBill || selectedRowBill.deliveryStatus === 'DELIVERED' || !['CONFIRMED', 'ACTIVE'].includes(selectedRowBill.serverStatus || '')}
                       onClick={() => setShowDelivery(true)}
-                      variant="outline"
+                      variant="deliver"
                       icon={<Truck className="w-3.5 h-3.5" />}
                       title="บันทึกส่งของให้ลูกค้า (ส่งบางส่วนได้)"
                     >
@@ -579,7 +643,7 @@ export default function BillsPage() {
                       className={BILL_TOOLBAR_BUTTON_CLASSES}
                       disabled={!selectedRowBill}
                       onClick={() => setSelectedBillForDispatch(selectedRowBill)}
-                      variant={selectedRowBill ? 'outline' : 'neutral'}
+                      variant={selectedRowBill ? 'share' : 'neutral'}
                       icon={<Send className="w-3.5 h-3.5" />}
                       title={selectedRowBill ? `สร้างงานจากบิล ${selectedRowBill.billNo}` : 'เลือกบิลก่อนสั่งงาน'}
                     >
@@ -603,7 +667,7 @@ export default function BillsPage() {
               <button
                 type="button"
                 onClick={() => void loadBills()}
-                className={`${COMMAND_BUTTON_SIZE_CLASSES} shrink-0 inline-flex items-center border border-amber-400 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900`}
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} shrink-0 inline-flex items-center border ${BUTTON_FUNCTION_COLOURS.open}`}
               >
                 <RefreshCw className="w-3 h-3" />
                 ลองอีกครั้ง

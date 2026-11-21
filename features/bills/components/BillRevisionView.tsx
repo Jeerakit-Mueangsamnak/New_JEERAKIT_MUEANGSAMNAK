@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES, StepNavButton } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, StepNavButton, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import React, { useEffect, useMemo, useState } from 'react'
@@ -1025,7 +1025,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
             <button
               type="button"
               onClick={onClose}
-              className={`${COMMAND_BUTTON_SIZE_CLASSES} px-3 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer`}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} px-3 border transition-all cursor-pointer ${BUTTON_FUNCTION_COLOURS.cancel}`}
             >
               ยกเลิก
             </button>

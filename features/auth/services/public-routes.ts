@@ -22,6 +22,7 @@ export const PUBLIC_API_ROUTES = [
   '/api/line/cron', // Bearer LINE_OUTBOX_CRON_SECRET
   '/api/line/outbox', // Bearer LINE_OUTBOX_CRON_SECRET
   '/api/line/liff-bind', // LINE ID token verified with LINE
+  '/api/line/liff-register', // GET: what the form asks (public); POST: LINE ID token verified with LINE
   '/api/line/liff-job', // LINE ID token verified with LINE
   '/api/line/liff-finance', // LINE ID token verified with LINE
 ]

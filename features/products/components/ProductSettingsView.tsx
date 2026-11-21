@@ -6,8 +6,7 @@ import { useDataActions } from '@/components/common/useDataActions'
 import {
   ActionButton,
   COMMAND_BUTTON_SIZE_CLASSES,
-  TABLE_TOOLBAR_CLASSES,
-} from '@/components/common/ActionButton'
+  TABLE_TOOLBAR_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import {
@@ -711,7 +710,7 @@ export function ProductSettingsView({
                               <button
                                 type="button"
                                 onClick={() => setItemDeleteKey(null)}
-                                className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors`}
+                                className={`${COMMAND_BUTTON_SIZE_CLASSES} border cursor-pointer transition-colors ${BUTTON_FUNCTION_COLOURS.cancel}`}
                               >
                                 ยกเลิก
                               </button>

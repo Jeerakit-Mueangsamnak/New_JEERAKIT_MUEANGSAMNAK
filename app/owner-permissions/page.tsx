@@ -364,12 +364,12 @@ export default function OwnerPermissionsPage() {
           </div>
           <div className="flex items-center gap-1.5 justify-end">
             {activeTab !== 'PERMISSIONS' && (
-              <ActionButton variant="neutral" onClick={handleExportAuditExcel} disabled={visibleLogs.length === 0} icon={<FileSpreadsheet />}>
+              <ActionButton variant="export" onClick={handleExportAuditExcel} disabled={visibleLogs.length === 0} icon={<FileSpreadsheet />}>
                 Export
               </ActionButton>
             )}
             <ActionButton
-              variant="neutral"
+              variant="info"
               className="w-8 px-0"
               title="รีเฟรชข้อมูล"
               onClick={activeTab === 'PERMISSIONS' ? loadMembers : loadLogs}

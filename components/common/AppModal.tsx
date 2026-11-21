@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React, { createContext, useContext, useEffect, useCallback, useId, useRef } from 'react'
 import { X, Loader2 } from 'lucide-react'
@@ -270,7 +270,7 @@ export function AppModalHeader({
           <button
             type="button"
             onClick={onClose}
-            className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800`}
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} border ${BUTTON_FUNCTION_COLOURS.cancel}`}
           >
             ปิดหน้าต่าง
           </button>
@@ -280,7 +280,7 @@ export function AppModalHeader({
             type="button"
             onClick={onClose}
             aria-label="ปิดหน้าต่าง"
-            className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer`}
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center shrink-0 transition-colors cursor-pointer ${BUTTON_FUNCTION_COLOURS.cancel}`}
           >
             <X className="w-4 h-4" />
           </button>
@@ -377,11 +377,7 @@ export function AppModalFooter({
         <button
           type="button"
           onClick={onCancel}
-          className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700
- bg-white dark:bg-slate-800
- hover:bg-slate-50 dark:hover:bg-slate-700
- text-slate-700 dark:text-slate-300
- transition-colors cursor-pointer`}
+          className={`${COMMAND_BUTTON_SIZE_CLASSES} border transition-colors cursor-pointer ${BUTTON_FUNCTION_COLOURS.cancel}`}
         >
           {cancelText}
         </button>

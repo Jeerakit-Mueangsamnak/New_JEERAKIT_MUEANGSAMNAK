@@ -46,8 +46,7 @@ import {
   SEARCH_ICON_CLASSES,
   TABLE_TOOLBAR_CLASSES,
   TABLE_LINE_COLOUR_CLASSES,
-  TAB_BAR_SURFACE_CLASSES,
-} from '@/components/common/ActionButton'
+  TAB_BAR_SURFACE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 import {
   Customer,
   RentalBill,
@@ -1298,7 +1297,7 @@ export default function CustomersPage() {
                               <button
                                 type="button"
                                 onClick={() => handlePrintQuotation(q)}
-                                className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 inline-flex items-center cursor-pointer`}
+                                className={`${COMMAND_BUTTON_SIZE_CLASSES} border inline-flex items-center cursor-pointer ${BUTTON_FUNCTION_COLOURS.export}`}
                                 title="พิมพ์ใบเสนอราคา"
                               >
                                 <Printer className="w-3 h-3" />
@@ -1484,7 +1483,7 @@ export default function CustomersPage() {
                             type="button"
                             onClick={() => handleOpenEdit(selectedCustomer)}
                             title="แก้ไข / อัปโหลดรูปใหม่"
-                            className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer`}
+                            className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center transition-colors cursor-pointer ${BUTTON_FUNCTION_COLOURS.edit}`}
                           >
                             <Edit className="w-3.5 h-3.5" />
                           </button>
@@ -1499,7 +1498,7 @@ export default function CustomersPage() {
                         <button
                           type="button"
                           onClick={() => handleOpenEdit(selectedCustomer)}
-                          className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 self-end sm:self-center cursor-pointer transition-colors`}
+                          className={`${COMMAND_BUTTON_SIZE_CLASSES} self-end sm:self-center cursor-pointer transition-colors ${BUTTON_FUNCTION_COLOURS.open}`}
                         >
                           + อัปโหลดไฟล์สำเนาบัตร
                         </button>
