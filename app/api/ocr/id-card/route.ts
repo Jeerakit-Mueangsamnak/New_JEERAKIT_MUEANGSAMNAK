@@ -1,21 +1,22 @@
 import { createClient } from '@/lib/supabase/server'
 import { ocrSpaceConfigured, readWithOcrSpace } from '@/lib/ocr/ocr-space'
+import { THAI_ID_CLAIRIC_FIELDS } from '@/lib/ocr/clairic-fields'
+import { parseClairicThaiIdCard, type ClairicAnswers } from '@/lib/ocr/clairic-id-card'
+import { THAI_ADDRESS_DATA } from '@/lib/thai-address-data'
 
 /**
- * ID card photo → OCR lines from OCR.space (free, reads Thai, deletes uploads after processing),
- * for signed-in staff only. The browser parses the lines itself (thai-id-parser.ts) and falls
- * back to Tesseract on any non-200. Nothing is stored here: the photo is kept only when the
- * customer is saved (customer-repository).
- *
- * Free plan = 25,000 requests a month. This server never goes past OCRSPACE_MONTHLY_LIMIT
- * (default and ceiling 25,000). The count lives in server memory, so a restart starts it again.
+ * Signed-in POS staff only: Cloudflare Clairic structured extraction on the existing
+ * Worker first; OCR.space second; browser Tesseract is the final fallback.
+ * No images or customer records are stored by this route. Photos are saved only via
+ * the existing private Supabase customer-document flow when the owner confirms.
+ * OCRSPACE_MONTHLY_LIMIT only controls the OCR.space fallback, not Clairic usage.
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 const FREE_MONTHLY_REQUESTS = 25_000
-/** About 4 MB of base64 — a 1600 px JPEG card photo is far below this. */
-const MAX_IMAGE_CHARS = 4_000_000
+/** 4 MiB JPEG represented as base64 (Clairic media limit). */
+const MAX_IMAGE_CHARS = 5_600_000 // up to 4 MiB of decoded JPEG
 
 const usage = { month: '', count: 0 }
 
@@ -41,8 +42,6 @@ export async function POST(request: Request): Promise<Response> {
   const { data } = await supabase.auth.getUser()
   if (!data.user) return Response.json({ ok: false, reason: 'UNAUTHORIZED' }, { status: 401 })
 
-  if (!ocrSpaceConfigured()) return Response.json({ ok: false, reason: 'NOT_CONFIGURED' }, { status: 503 })
-
   let image = ''
   try {
     const body = (await request.json()) as { image?: unknown }
@@ -54,6 +53,30 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ ok: false, reason: 'BAD_IMAGE' }, { status: 400 })
   }
 
+  // First: structured extraction through the AI binding on the EXISTING POS Worker.
+  // Local Next.js development may not provide a Workers AI binding: fall back gracefully.
+  try {
+    const { getCloudflareContext } = await import('@opennextjs/cloudflare')
+    const context = getCloudflareContext()
+    const ai = (context.env as { AI?: { run: (model: string, input: unknown) => Promise<unknown> } }).AI
+    if (ai) {
+      const output = await ai.run('@cf/cloudflare/clairic', {
+        state: 'Read ONLY data visibly printed on the front of this Thai national ID card. Do not infer or invent missing text.',
+        images: [image],
+        fields: THAI_ID_CLAIRIC_FIELDS,
+        reference_date: new Date().toISOString().slice(0, 10),
+      }) as { answers?: ClairicAnswers; truncated?: boolean }
+      if (output?.answers && !output.truncated) {
+        const fields = parseClairicThaiIdCard(output.answers, THAI_ADDRESS_DATA)
+        if (Object.values(fields).some(Boolean)) return Response.json({ ok: true, provider: 'clairic', fields })
+      }
+    }
+  } catch {
+    // Do not log identity-card contents, images or provider output.
+    console.warn('[ocr/id-card] Cloudflare AI unavailable; falling back to existing OCR')
+  }
+
+  if (!ocrSpaceConfigured()) return Response.json({ ok: false, reason: 'NOT_CONFIGURED' }, { status: 503 })
   if (!takeUnit()) return Response.json({ ok: false, reason: 'QUOTA_REACHED' }, { status: 429 })
 
   try {
