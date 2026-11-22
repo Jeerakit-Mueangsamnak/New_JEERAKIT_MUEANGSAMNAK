@@ -11,7 +11,8 @@ import {
 export type ClairicAnswer = { value?: unknown; confidence?: unknown; p_null?: unknown }
 export type ClairicAnswers = Record<string, ClairicAnswer | undefined>
 
-const MIN_CONFIDENCE = 0.85
+// Clairic Thai extraction can report ~0.60 for correct text; autofill still requires owner review.
+const MIN_CONFIDENCE = 0.55
 const MAX_NULL_PROBABILITY = 0.2
 const PREFIXES = new Set(['นาย', 'นาง', 'นางสาว', 'เด็กชาย', 'เด็กหญิง', 'ด.ช.', 'ด.ญ.', 'น.ส.'])
 
