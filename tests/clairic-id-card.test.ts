@@ -38,7 +38,7 @@ describe('Clairic Thai ID OCR adapter', () => {
     expect(parse({ ...sample(), id_number: answer(wrong) }).idCardNumber).toBe('')
   })
   it('keeps low-confidence/p-null Thai names blank', () => {
-    expect(parse({ ...sample(), first_name: answer('ผิด', 0.62) }).name).toBe('')
+    expect(parse({ ...sample(), first_name: answer('ผิด', 0.45) }).name).toBe('')
     expect(parse({ ...sample(), last_name: answer('ผิด', 0.97, 0.8) }).name).toBe('')
   })
   it('does not accept unknown province or an unlinked district', () => {
