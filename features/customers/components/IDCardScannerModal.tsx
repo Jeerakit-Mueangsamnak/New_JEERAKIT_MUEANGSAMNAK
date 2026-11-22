@@ -158,20 +158,23 @@ export function IDCardScannerModal({ isOpen, onClose, onScanComplete }: IDCardSc
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
 
     const croppedCanvas = document.createElement('canvas')
-    croppedCanvas.width = 856
-    croppedCanvas.height = 540
+    // Preserve Thai glyph details for OCR (old 856x540 was too small).
+    const cropWidth = 1600
+    const cropHeight = 1009
+    croppedCanvas.width = cropWidth
+    croppedCanvas.height = cropHeight
     const croppedCtx = croppedCanvas.getContext('2d')
     const quad = cardQuadRef.current
     if (quad && croppedCtx) {
       const frame = { data: ctx.getImageData(0, 0, canvas.width, canvas.height).data, width: canvas.width, height: canvas.height }
-      croppedCtx.putImageData(new ImageData(warpQuad(frame, quad, 856, 540), 856, 540), 0, 0)
+      croppedCtx.putImageData(new ImageData(warpQuad(frame, quad, cropWidth, cropHeight), cropWidth, cropHeight), 0, 0)
     } else {
       const { x: startX, y: startY, width: cardWidth, height: cardHeight } = cropRectForGuide(
         canvas,
         video.getBoundingClientRect(),
         guideRef.current?.getBoundingClientRect() ?? null
       )
-      croppedCtx?.drawImage(canvas, startX, startY, cardWidth, cardHeight, 0, 0, 856, 540)
+      croppedCtx?.drawImage(canvas, startX, startY, cardWidth, cardHeight, 0, 0, cropWidth, cropHeight)
     }
 
     scanInFlightRef.current = true
