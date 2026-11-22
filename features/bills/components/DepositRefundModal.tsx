@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React, { useEffect, useState } from 'react'
 import { WalletCards } from 'lucide-react'
@@ -75,7 +75,7 @@ export function DepositModal({ isOpen, bill, onClose, onSaved }: DepositModalPro
         </div>
       </AppModalBody>
       <AppModalFooter>
-        <button type="button" onClick={onClose} className={`${COMMAND_BUTTON_SIZE_CLASSES} border`}>ปิด</button>
+        <button type="button" onClick={onClose} className={`${COMMAND_BUTTON_SIZE_CLASSES} border ${BUTTON_FUNCTION_COLOURS.cancel}`}>ปิด</button>
         {changed && (
           <button type="button" disabled={isSaving} onClick={() => void handleSave()} className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-amber-500 text-slate-900 disabled:opacity-50`}>
             {isSaving ? 'กำลังบันทึก…' : 'บันทึกการแก้ไข'}

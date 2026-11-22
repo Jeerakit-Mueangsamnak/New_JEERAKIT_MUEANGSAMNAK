@@ -11,6 +11,9 @@ export const dynamic = 'force-dynamic'
 
 const CODE = /^LINK-[A-HJ-NP-Z2-9]{10}$/
 const MESSAGES: Record<string, string> = {
+  SUSPENDED: 'สิทธิ์การใช้งานนี้ถูกระงับ กรุณาติดต่อเจ้าของร้าน',
+  RATE_LIMITED: 'ส่งคำขอถี่เกินไป กรุณารอสักครู่แล้วลองใหม่',
+  DUPLICATE: 'รับคำขอนี้แล้ว กรุณารอสักครู่',
   LINKED_STAFF: 'ผูก LINE กับบัญชีพนักงานเรียบร้อย',
   LINKED_DRIVER: 'ผูก LINE กับรายชื่อคนขับเรียบร้อย',
   LINKED_CUSTOMER: 'ผูก LINE กับร้านเรียบร้อย คุณจะได้รับแจ้งเตือนทาง LINE นี้',
@@ -41,7 +44,7 @@ export async function POST(request: Request): Promise<Response> {
       isFriend: typeof body.isFriend === 'boolean' ? body.isFriend : null,
     })
     const ok = r.result.startsWith('LINKED_')
-    return Response.json({ ok, result: r.result, kind: r.kind ?? null, message: MESSAGES[r.result] ?? 'ผูก LINE ไม่สำเร็จ' }, { status: ok ? 200 : 409 })
+    return Response.json({ ok, result: r.result, kind: r.kind ?? null, message: MESSAGES[r.result] ?? 'ผูก LINE ไม่สำเร็จ' }, { status: ok ? 200 : r.result === 'SUSPENDED' ? 403 : r.result === 'RATE_LIMITED' || r.result === 'DUPLICATE' ? 429 : 409 })
   } catch {
     return Response.json({ ok: false, message: 'ผูก LINE ไม่สำเร็จ กรุณาลองใหม่' }, { status: 500 })
   }

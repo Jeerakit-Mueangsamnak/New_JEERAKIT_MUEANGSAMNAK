@@ -21,6 +21,7 @@ import {
   type BusinessSettings,
   type DocumentNumberingSettings,
   type DocumentType,
+  type LineRegisterSettings,
   type NotificationSettings,
   type SettingsSection,
   type SystemConfig,
@@ -65,6 +66,29 @@ const PAYMENT_RECEIVING_KEYS = ['bankName', 'bankAccountName', 'bankAccountNumbe
 
 function obj(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
+}
+
+/** Only the listed keys, only real booleans (a switch that was never set stays unset: the server default applies). */
+function pickBooleans<K extends string>(source: Record<string, unknown>, keys: readonly K[]): Partial<Record<K, boolean>> {
+  return Object.fromEntries(keys.filter((k) => typeof source[k] === 'boolean').map((k) => [k, source[k]])) as Partial<Record<K, boolean>>
+}
+
+/** policies.line.register as the screen holds it: the three switches and the address parts that must be filled. */
+function parseLineRegister(source: Record<string, unknown>): LineRegisterSettings {
+  const required = Object.fromEntries(Object.entries(obj(source.required)).filter(([, on]) => typeof on === 'boolean')) as Record<string, boolean>
+  const privacy = typeof source.privacy === 'string' && source.privacy.trim() !== '' ? source.privacy : undefined
+  return {
+    ...pickBooleans(source, ['notifyOwner', 'notifyApproved', 'notifyRejected'] as const),
+    ...(Object.keys(required).length > 0 ? { required } : {}),
+    ...(privacy ? { privacy } : {}),
+  }
+}
+
+/** What goes back to policies.line.register: a blank privacy text is dropped (the server refuses an empty one). */
+function serializeLineRegister(r: LineRegisterSettings): LineRegisterSettings {
+  const { privacy, ...rest } = r
+  const text = privacy?.trim()
+  return text ? { ...rest, privacy: text } : rest
 }
 
 function str(...values: unknown[]): string {
@@ -159,7 +183,7 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
   ) as unknown as NotificationSettings
 
   const reorder = num(pol.default_reorder_point) ?? num(legacy.productStock?.defaultMinimumStock)
-  const { notify: lineNotify, templates: lineTemplates, ...lineOther } = obj(pol.line)
+  const { notify: lineNotify, templates: lineTemplates, friend: lineFriend, catalog: lineCatalog, register: lineRegister, ...lineOther } = obj(pol.line)
 
   return {
     timezone: row.timezone || d.timezone,
@@ -193,6 +217,9 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
     line: {
       notify: Object.fromEntries(Object.entries(obj(lineNotify)).filter(([, on]) => on === true)) as Record<string, boolean>,
       templates: Object.fromEntries(Object.entries(obj(lineTemplates)).filter(([, t]) => typeof t === 'string')) as Record<string, string>,
+      friend: pickBooleans(obj(lineFriend), ['welcome', 'notifyOwner']),
+      catalog: pickBooleans(obj(lineCatalog), ['showPrice']),
+      register: parseLineRegister(obj(lineRegister)),
       other: lineOther,
     },
   }
@@ -317,6 +344,9 @@ export function sectionPatch(section: SettingsSection, cfg: SystemConfig): Recor
         policies: {
           line: {
             ...l.other,
+            ...(Object.keys(l.friend).length > 0 ? { friend: l.friend } : {}),
+            ...(Object.keys(l.catalog).length > 0 ? { catalog: l.catalog } : {}),
+            ...(Object.keys(serializeLineRegister(l.register)).length > 0 ? { register: serializeLineRegister(l.register) } : {}),
             notify: Object.fromEntries(sortedEntries(l.notify).filter(([, on]) => on === true)),
             templates: Object.fromEntries(
               sortedEntries(l.templates)

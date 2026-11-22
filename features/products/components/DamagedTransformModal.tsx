@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
@@ -260,7 +260,7 @@ export function DamagedTransformModal({
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className={`${COMMAND_BUTTON_SIZE_CLASSES} text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-slate-200 dark:border-slate-700 cursor-pointer`}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} transition-colors border cursor-pointer ${BUTTON_FUNCTION_COLOURS.cancel}`}
             >
               ยกเลิก
             </button>

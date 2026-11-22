@@ -335,11 +335,74 @@ describe('ที่อยู่ลูกค้ายาว + วันที่�
 describe('แบบฟอร์มทุกใบตอนพิมพ์ (owner 2026-11-11)', () => {
   const render = (html: string) => renderDocumentTemplate(html, {}, 'BL-1', '', '', {}, { items: [] }, undefined, 20)
 
-  it('no background colour; a thin filled line prints black (owner 2026-11-12)', () => {
-    const out = render('<div style="background-color:rgb(238, 243, 248)">a</div><div style="background:#fffbeb">b</div><div style="background-color:rgb(23, 43, 75); height:1px"></div>')
+  it('no background colour; a thin filled line prints as one standard 1px black line (owner 2026-11-12, 2026-11-20)', () => {
+    const out = render('<div style="background-color:rgb(238, 243, 248)">a</div><div style="background:#fffbeb">b</div><div style="background-color:rgb(23, 43, 75); height:1px"></div><div style="width:743px; height:0.375px; background-color:rgb(23, 43, 75)"></div>')
     expect(out).not.toMatch(/rgb\(238, 243, 248\)|#fffbeb|rgb\(23, 43, 75\)/)
     expect(out.match(/transparent/g)).toHaveLength(2)
-    expect(out).toMatch(/background-color:\s*#000; height:\s*1px/)
+    // The 0.375px bar under the shop details (lost in print) and a 1px bar both become the table lines' 1px line
+    expect(out.match(/height:\s*0px;\s*border-top:\s*1px solid #000/g)).toHaveLength(2)
+    expect(out).not.toMatch(/0\.375px|background-color:\s*#000/)
+  })
+
+  it('dotted / dashed underlines print as one plain line (owner 2026-11-20)', () => {
+    const out = render('<span style="border-bottom-width:1px; border-bottom-style:dotted; border-bottom-color:rgb(114, 128, 153)">{{customer.name}}</span><div style="border-top:1px dashed #333">x</div>')
+    expect(out).not.toMatch(/dotted|dashed/)
+    expect(out).toMatch(/border-bottom-style:\s*solid/)
+    expect(out).toMatch(/border-top:\s*1px solid #000/)
+  })
+
+  it('an underlined detail keeps its text line with the line just under it; the amount in words is never cut (owner 2026-11-20)', () => {
+    const out = render(
+      '<span style="display:block; height:17px; border-bottom-width:1px; border-bottom-style:dotted; overflow-x:hidden; overflow-y:hidden">{{customer.tax_id}}</span>' +
+      '<span style="display:block; height:15px; white-space:nowrap; overflow:hidden">{{bill.total_payable_text}}</span>'
+    )
+    // An empty detail still has a text line (invisible character), so it stays level with its label
+    expect(out).toMatch(/height:18px; line-height:17px">​<\/span>/)
+    // The amount in words keeps its box (level with the form's text beside it) and is not cut
+    expect(out).toMatch(/height:15px; white-space:nowrap; overflow:visible/)
+  })
+
+  it('a long address still carries on to the line below the underlined ที่อยู่ (owner 2026-11-11, 2026-11-20)', () => {
+    const out = renderDocumentTemplate(
+      '<div><span style="width:60px; height:17px; border-bottom-width:1px; border-bottom-style:dotted; font-size:12px">{{customer.address}}</span></div><div><span></span><span style="height:17px; border-bottom-width:1px; border-bottom-style:dotted"></span></div>',
+      { address: '123/45 หมู่ 6 ต.ป่าเซ่า อ.เมืองอุตรดิตถ์ จ.อุตรดิตถ์ 53000' }, 'BL-1', '', '', {}, { items: [] }
+    )
+    expect(out).toMatch(/จ\.อุตรดิตถ์ 53000<\/span>\s*$|53000<\/span><\/div>$/)
+  })
+
+  it('totals and the amount in words keep their right edge and are as wide as the VAT row needs; หมายเหตุ takes the room (owner 2026-11-20)', () => {
+    const cell = (w: string, field: string) => `<div style="display:flex; width:${w}px; padding-right:6.04724px; padding-left:6.04724px; border-bottom-width:1px; border-bottom-style:solid">${field}</div>`
+    const out = render(
+      '<div style="display:grid; width:755.891px; column-gap:7.55906px; grid-template-columns:418.922px 329.422px">' +
+        '<div style="width:450.141px; border-top-width:1px; border-top-style:solid; translate:0px 1.66299px">หมายเหตุ</div>' +
+        '<div style="display:grid; width:298.953px; border-top-width:1px; border-top-style:solid; translate:30.2362px 1.92756px; grid-template-columns:170.078px 126.984px">' +
+          cell('170.078', 'ยอดรวมทั้งหมด') + cell('126.984', '<span>{{bill.subtotal}}</span>') +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex; width:298.953px; border-top-width:1px; border-top-style:solid; translate:457.323px 2.77953px"><span>{{bill.total_payable_text}}</span></div>'
+    )
+    // Columns: 130 + 12.09 + 8 and 80 + 12.09 + 8; the boxes lose the 46.87px they do not need on the left
+    expect(out).toMatch(/width:252\.08px;[^"]*translate:77\.1092px 1\.92756px; grid-template-columns:150\.0945px 100\.0945px/)
+    expect(out).toMatch(/width:150\.0945px[^>]*>ยอดรวมทั้งหมด/)
+    expect(out).toMatch(/width:252\.08px;[^"]*translate:504\.196px 2\.77953px/)
+    // หมายเหตุ up to the row's gap before the totals: 418.922 + 77.1092
+    expect(out).toMatch(/width:496\.03px; border-top/)
+  })
+
+  it('a nudge under 1px on a lined box is dropped so its line meets the next one (owner 2026-11-20)', () => {
+    const out = render('<div style="width:170px; border-right-width:1px; border-right-style:solid; translate:-0.793701px">a</div><div style="border-top-width:1px; border-top-style:solid; translate:-1.09606px 969.902px">b</div>')
+    expect(out).toMatch(/translate:0px[;"]/)
+    expect(out).toMatch(/translate:-1\.09606px 969\.902px/)
+  })
+
+  it('the logo drawn in the form fills its frame (not held to the frame width); the shop detail lines stay centred when wider than their box (owner 2026-11-20)', () => {
+    const out = render(
+      '<img style="display:block; width:268.344px; height:130.766px; object-fit:contain" src="https://example.com/logo.png" alt="โลโก้บริษัท">' +
+      '<div style="text-align:center; width:476px; overflow-x:hidden; overflow-y:hidden"><h1><span style="white-space:pre; display:inline-block; width:472px">ชื่อร้าน</span></h1></div>'
+    )
+    expect(out).toMatch(/width:257\.61px; height:125\.535px; object-fit:contain; max-width:none; max-height:none/)
+    expect(out).toMatch(/overflow:visible/)
+    expect(out).toMatch(/display:inline-flex; justify-content:center/)
   })
 
   it('ลำดับ on a later page shows the whole number (21, not "2") in a box drawn for one digit', () => {
@@ -351,7 +414,8 @@ describe('แบบฟอร์มทุกใบตอนพิมพ์ (owner
 
   it('item field boxes take the height their line needs: the bottom of Thai text is not cut (owner 2026-11-19)', () => {
     const out = render('<table><tr><td style="height:22.5625px; overflow-y:hidden"><span style="display:block; width:274px; height:14px; min-height:14px; max-height:14px; overflow:hidden; text-overflow:ellipsis">{{items.1.name}}</span></td></tr></table>')
-    expect(out).toMatch(/width:274px; min-height:14px; overflow:hidden; text-overflow:ellipsis; height:auto">/)
+    // ...and sit 1px lower, like the VAT row's text (owner 2026-11-20)
+    expect(out).toMatch(/width:274px; min-height:14px; overflow:hidden; text-overflow:ellipsis; height:auto; display:block; position:relative; top:1px">/)
     expect(out).not.toMatch(/(?:^|[;"\s])(?:max-)?height:\s*14px/)
     // The row keeps its height
     expect(out).toMatch(/<td style="height:22\.5625px/)

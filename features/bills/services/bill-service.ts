@@ -644,6 +644,110 @@ export async function createContinuation(opts: {
   return res.child_bill.id
 }
 
+export interface QuickCloseResult {
+  bill: FullBill | null
+  closed: boolean
+  deliveredQty: number
+  returnedQty: number
+  returnNo: string | null
+  depositUsed: number
+  cashReceived: number
+  receiptNo: string | null
+  overpaidBack: number
+  depositBack: number
+}
+
+/**
+ * ปิดบิลด่วน (owner 2026-11-20): whatever the bill still has open, it is settled with the normal server steps,
+ * one after another, and the bill closes itself at the end (the server's own close rule):
+ * 1. goods not delivered yet → delivered today (the day the button is pressed);
+ * 2. every piece still with the customer → back today, in normal condition;
+ * 3. a deposit agreed but never received is dropped (not collected and handed back);
+ * 4. the deposit held pays what the bill owes, the rest is received in cash today;
+ * 5. paid more than the bill comes to (returned early) → given back; the deposit left → given back in cash.
+ * Every step reads the bill as it is now, so pressing it again after a failure only does what is still open.
+ */
+export async function quickCloseBill(billId: string, today: string): Promise<QuickCloseResult> {
+  const opKey = newIdempotencyKey()
+  const round = (n: number) => Math.round(n * 100) / 100
+  let bill = await fetchBillByIdFromSupabase(billId)
+  if (!bill) throw new Error('ไม่พบบิลนี้ กรุณารีเฟรชแล้วลองใหม่')
+  const result: QuickCloseResult = {
+    bill, closed: false, deliveredQty: 0, returnedQty: 0, returnNo: null,
+    depositUsed: 0, cashReceived: 0, receiptNo: null, overpaidBack: 0, depositBack: 0,
+  }
+
+  const undelivered = bill.items.filter((i) => (i.remainingQty ?? 0) > 0)
+  if (undelivered.length > 0) {
+    bill = (await deliverBill(
+      billId,
+      undelivered.map((i) => ({ lineId: i.rentalBillItemId, quantity: i.remainingQty ?? 0 })),
+      today,
+      'ปิดบิลด่วน'
+    )) ?? bill
+    result.deliveredQty = undelivered.reduce((sum, i) => sum + (i.remainingQty ?? 0), 0)
+  }
+
+  const out = bill.items.filter((i) => i.outstandingQty > 0)
+  if (out.length > 0) {
+    const back = await processReturn({
+      billId,
+      returnedDay: today,
+      opKey,
+      note: 'ปิดบิลด่วน',
+      items: out.map((i) => ({
+        lineId: i.rentalBillItemId,
+        productName: i.productName,
+        normalQty: i.outstandingQty,
+        damagedQty: 0,
+        lostQty: 0,
+        damageFeePerUnit: 0,
+        lossFeePerUnit: 0,
+      })),
+    })
+    bill = back.bill ?? bill
+    result.returnNo = back.returnNo
+    result.returnedQty = out.reduce((sum, i) => sum + i.outstandingQty, 0)
+  }
+
+  if ((bill.depositOutstanding ?? 0) > 0) {
+    const held = round(bill.heldDepositAmount || 0)
+    const note = [bill.depositNote, `ปิดบิลด่วน: ไม่เก็บมัดจำที่ยังไม่ได้รับ ${round(bill.depositOutstanding ?? 0)} บาท (${today})`].filter(Boolean).join(' | ')
+    await addDepositOnce(billId, held, note, `${opKey}:dep-drop`)
+    bill = (await refreshAfterChange(billId)) ?? bill
+  }
+
+  const useDeposit = round(Math.min(bill.heldDepositAmount || 0, Math.max(0, bill.outstandingAmount)))
+  if (useDeposit > 0) {
+    const paid = await applyDepositToBill(billId, useDeposit, today, `${opKey}:dep-use`)
+    bill = paid.bill ?? bill
+    result.depositUsed = paid.totalAmount ?? useDeposit
+  }
+
+  const cash = round(Math.max(0, bill.outstandingAmount))
+  if (cash > 0) {
+    const paid = await receivePayment(billId, [{ method: 'CASH', amount: cash }], today, `${opKey}:pay`)
+    bill = paid.bill ?? bill
+    result.cashReceived = paid.totalAmount ?? cash
+    result.receiptNo = paid.receiptNo
+  }
+
+  const overpaid = await refundOverpayment(billId, opKey)
+  bill = overpaid.bill ?? bill
+  result.overpaidBack = overpaid.amount
+
+  const depositLeft = round(bill.heldDepositAmount || 0)
+  if (depositLeft > 0) {
+    bill = (await refundDeposit(billId, depositLeft, 'CASH', `${opKey}:dep-back`)) ?? bill
+    result.depositBack = depositLeft
+  }
+
+  bill = (await refreshAfterChange(billId)) ?? bill
+  result.bill = bill
+  result.closed = bill.rentalStatus === 'CLOSED'
+  return result
+}
+
 async function refreshAfterChange(billId: string): Promise<FullBill | null> {
   // A command on one bill re-reads only that bill into the cache (owner standard 2026-11-12), not
   // the whole list. Money moves with bill commands (payment, refund, void ...): only this bill's

@@ -9,8 +9,7 @@ import {
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
   TAB_BUTTON_INACTIVE_CLASSES,
-  TAB_BAR_SURFACE_CLASSES,
-} from '@/components/common/ActionButton'
+  TAB_BAR_SURFACE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React, { useState, useMemo, useEffect } from 'react'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
@@ -21,7 +20,6 @@ import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { NumericInput } from '@/components/common/NumericInput'
 import { CustomDatePicker, getLocalDateString } from '@/components/common/CustomDatePicker'
 import { useToast } from '@/components/common/Toast'
-import { logger } from '@/lib/utils/logger'
 import { useFinanceRows } from '@/features/finance/hooks/useFinanceRows'
 import {
   addManualTransaction,
@@ -393,7 +391,7 @@ export default function StatementPage() {
             <button
               type="button"
               onClick={handleExportExcel}
-              className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center transition-colors cursor-pointer shadow-xs whitespace-nowrap`}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} border flex items-center transition-colors cursor-pointer shadow-xs whitespace-nowrap ${BUTTON_FUNCTION_COLOURS.export}`}
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
               <span>Excel</span>
@@ -536,7 +534,7 @@ export default function StatementPage() {
                         setCategoryManageType(manualType)
                         setModalView('MANAGE_CATEGORIES')
                       }}
-                      className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center border border-slate-200 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors shadow-xs shrink-0 cursor-pointer`}
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center border transition-colors shadow-xs shrink-0 cursor-pointer ${BUTTON_FUNCTION_COLOURS.edit}`}
                       title="จัดการรายการด่วน"
                     >
                       <Settings className="w-4 h-4" />
@@ -586,7 +584,7 @@ export default function StatementPage() {
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer flex items-center justify-center`}
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} border cursor-pointer flex items-center justify-center ${BUTTON_FUNCTION_COLOURS.cancel}`}
                 >
                   ยกเลิก
                 </button>
@@ -616,7 +614,7 @@ export default function StatementPage() {
                 <button
                   type="button"
                   onClick={() => setModalView('FORM')}
-                  className={`${COMMAND_BUTTON_SIZE_CLASSES} hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors flex items-center cursor-pointer border border-slate-200 dark:border-slate-700`}
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} transition-colors flex items-center cursor-pointer border ${BUTTON_FUNCTION_COLOURS.cancel}`}
                   title="กลับสู่ฟอร์ม"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />

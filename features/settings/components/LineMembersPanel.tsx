@@ -149,7 +149,7 @@ export function LineMembersPanel({ tabs }: { tabs?: ReactNode }) {
   const unlinkButton = (rowKey: string, contact: Contact, name: string) => (
     <button
       type="button"
-      disabled={busyId === rowKey}
+      disabled={user?.role !== 'OWNER' || busyId === rowKey}
       onClick={() => void unlink(rowKey, contact, name)}
       className={`${BTN} text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 inline-flex items-center gap-1`}
     >

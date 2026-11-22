@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 import { formSchemaWithNotes } from '@/features/documents/utils/form-notes'
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -612,7 +612,7 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
                         <button
                           type="button"
                           onClick={() => updateDraft(previewDraft.id, { items: [...previewDraft.items, { productId: '', productName: '', quantity: 1, unit: '', normalPrice: 0, damageFee: 0 }] })}
-                          className={`${COMMAND_BUTTON_SIZE_CLASSES} text-blue-600 dark:text-blue-400 hover:underline`}
+                          className={`${COMMAND_BUTTON_SIZE_CLASSES} hover:underline ${BUTTON_FUNCTION_COLOURS.save}`}
                         >
                           + เพิ่มรายการ
                         </button>
@@ -644,7 +644,7 @@ export function CustomerDocumentsWorkspace({ business, header }: CustomerDocumen
                     <button
                       type="button"
                       onClick={() => draftFileInputRef.current?.click()}
-                      className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full border border-dashed border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 flex items-center justify-center hover:bg-white dark:hover:bg-slate-700`}
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full border border-dashed flex items-center justify-center ${BUTTON_FUNCTION_COLOURS.open}`}
                     >
                       <Upload className="w-4 h-4" />
                       <span className="truncate">{previewDraft.file ? `เปลี่ยนรูป · ${previewDraft.file.name}` : 'เลือกรูป / ถ่ายรูปเอกสาร'}</span>

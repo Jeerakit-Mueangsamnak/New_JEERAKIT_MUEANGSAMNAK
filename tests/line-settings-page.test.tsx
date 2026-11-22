@@ -98,23 +98,45 @@ describe('ตั้งค่า LINE in คนใน LINE', () => {
 describe('policies.line in the settings model', () => {
   it('reads notify / templates and keeps the keys this screen does not edit', () => {
     const cfg = rowToConfig(row({ line: { linkMaxFailures: 5, notify: { PAYMENT_DUE: true, LOW_STOCK: false }, templates: { TEST: 'ทดสอบ {ชื่อร้าน}' } } }))
-    expect(cfg.line).toEqual({ notify: { PAYMENT_DUE: true }, templates: { TEST: 'ทดสอบ {ชื่อร้าน}' }, other: { linkMaxFailures: 5 } })
+    expect(cfg.line).toEqual({ notify: { PAYMENT_DUE: true }, friend: {}, catalog: {}, register: {}, templates: { TEST: 'ทดสอบ {ชื่อร้าน}' }, other: { linkMaxFailures: 5 } })
     expect(sectionPatch('line', cfg)).toEqual({
       policies: { line: { linkMaxFailures: 5, notify: { PAYMENT_DUE: true }, templates: { TEST: 'ทดสอบ {ชื่อร้าน}' } } },
     })
   })
 
   it('sends only switched-on types and non-empty texts, in a stable order', () => {
-    const cfg = { ...DEFAULT_SYSTEM_CONFIG, line: { notify: { RENTAL_OVERDUE: true, APPOINTMENT_DUE: true, LOW_STOCK: false }, templates: { TASK_NEW: '  ', TASK_DONE: ' เสร็จ {เรื่อง} ' }, other: {} } }
+    const cfg = { ...DEFAULT_SYSTEM_CONFIG, line: { notify: { RENTAL_OVERDUE: true, APPOINTMENT_DUE: true, LOW_STOCK: false }, friend: {}, catalog: {}, register: {}, templates: { TASK_NEW: '  ', TASK_DONE: ' เสร็จ {เรื่อง} ' }, other: {} } }
     expect(JSON.stringify(sectionPatch('line', cfg))).toBe(
       JSON.stringify({ policies: { line: { notify: { APPOINTMENT_DUE: true, RENTAL_OVERDUE: true }, templates: { TASK_DONE: 'เสร็จ {เรื่อง}' } } } }),
     )
   })
 
+  it('friend and register switches round-trip: only real booleans are kept, nothing is invented', () => {
+    const cfg = rowToConfig(
+      row({ line: { friend: { welcome: false, notifyOwner: true, junk: 1 }, register: { notifyApproved: false, required: { province: true, postcode: false, shoe: 'x' } }, notify: {}, templates: {} } }),
+    )
+    expect(cfg.line.friend).toEqual({ welcome: false, notifyOwner: true })
+    expect(cfg.line.register).toEqual({ notifyApproved: false, required: { province: true, postcode: false } })
+    expect(sectionPatch('line', cfg)).toEqual({
+      policies: { line: { friend: { welcome: false, notifyOwner: true }, register: { notifyApproved: false, required: { province: true, postcode: false } }, notify: {}, templates: {} } },
+    })
+    // a shop that never touched them sends neither key: the server defaults apply
+    expect(JSON.stringify(sectionPatch('line', rowToConfig(row({ line: {} }))))).toBe(JSON.stringify({ policies: { line: { notify: {}, templates: {} } } }))
+  })
+
+  it('the screen refuses what the database refuses: unknown friend / register keys and non-boolean switches', () => {
+    const bad = (line: Record<string, unknown>) => validateSection('line', { ...DEFAULT_SYSTEM_CONFIG, line: { ...DEFAULT_SYSTEM_CONFIG.line, ...line } } as never)
+    expect(bad({ friend: { welcome: true, notifyOwner: false } })).toBeNull()
+    expect(bad({ friend: { hello: true } })).not.toBeNull()
+    expect(bad({ register: { required: { province: true } } })).toBeNull()
+    expect(bad({ register: { required: { shoe: true } } })).not.toBeNull()
+    expect(bad({ register: { notifyOwner: 'yes' } })).not.toBeNull()
+  })
+
   it('refuses a text that uses a placeholder its message does not have', () => {
-    const cfg = { ...DEFAULT_SYSTEM_CONFIG, line: { notify: {}, templates: { TASK_NEW: 'งาน {ชื่อลูกค้า}' }, other: {} } }
+    const cfg = { ...DEFAULT_SYSTEM_CONFIG, line: { notify: {}, friend: {}, catalog: {}, register: {}, templates: { TASK_NEW: 'งาน {ชื่อลูกค้า}' }, other: {} } }
     expect(validateSection('line', cfg)).toMatch(/ตัวแปร/)
-    const ok = { ...DEFAULT_SYSTEM_CONFIG, line: { notify: {}, templates: { TASK_NEW: 'งานจาก {ผู้สั่ง}: {เรื่อง}' }, other: {} } }
+    const ok = { ...DEFAULT_SYSTEM_CONFIG, line: { notify: {}, friend: {}, catalog: {}, register: {}, templates: { TASK_NEW: 'งานจาก {ผู้สั่ง}: {เรื่อง}' }, other: {} } }
     expect(validateSection('line', ok)).toBeNull()
   })
 })

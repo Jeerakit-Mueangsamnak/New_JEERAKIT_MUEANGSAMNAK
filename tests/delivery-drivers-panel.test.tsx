@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react'
+vi.mock('@/features/auth/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'owner-fixture', role: 'OWNER' } }) }))
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { DeliveryDriversPanel } from '@/features/settings/components/DeliveryDriversPanel'

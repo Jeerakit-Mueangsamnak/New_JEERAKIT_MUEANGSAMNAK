@@ -41,7 +41,7 @@ SELECT t.err('LF-INVITE', 'an already linked member cannot be invited again', 'o
 
 SELECT t.set('lf_cust', t.ok('LF-INVITE', 'owner adds a customer', 'owner',
     $q$select public.customer_create('{"name":"มานี ใจดี","phone":"081-234-5678","address":"กทม"}'::jsonb)$q$) ->> 'id');
-SELECT t.set('lf_cust_code', t.ok('LF-INVITE', 'staff invites the customer', 'owner',
+SELECT t.set('lf_cust_code', t.ok('LF-INVITE', 'owner invites the customer', 'owner',
     format($q$select public.line_invite_create('CUSTOMER', %L)$q$, t.v('lf_cust'))) ->> 'code');
 SELECT t.check('LF-INVITE', 'a customer must type a phone',
     public.line_liff_bind('U' || repeat('b', 31) || '1', 'Manee', t.v('lf_cust_code'), 'มานี', '', NULL, true) ->> 'result' = 'PHONE_REQUIRED');
@@ -96,6 +96,14 @@ SELECT t.set('lf_apt', (t.ok('LF-REMIND', 'owner books the customer for tomorrow
     jsonb_build_object('appointment_type', 'DELIVERY', 'title', 'ส่งชุดโต๊ะ', 'customer_id', %L,
                        'start_datetime', (now() + interval '1 day')::text, 'end_datetime', (now() + interval '1 day 1 hour')::text))$q$,
     t.v('lf_cust'))) -> 'appointment' ->> 'id'));
+-- A bound account still awaiting owner review cannot receive private reminders.
+SELECT t.check('LF-REMIND','unreviewed customer has no automatic reminder candidate',
+ NOT EXISTS(SELECT 1 FROM public.line_customer_reminders_due()r WHERE r.source_id=t.v('lf_apt')::uuid));
+SELECT t.check('LF-REMIND','unreviewed private reminder cannot enter the queue',
+ public.line_outbox_enqueue_server(t.v('lf_cust_contact')::uuid,'APPOINTMENT',t.v('lf_apt')::uuid,NULL,
+ 'CUSTOMER_APPOINTMENT','[{"type":"text","text":"private fixture"}]','unreviewed-reminder-fixture')->>'skipped'='CONTACT_NOT_LINKED');
+SELECT t.ok('LF-REMIND','owner verifies customer before private reminders','owner',
+ format($q$select public.line_contact_review_ok(%L::uuid)$q$,t.v('lf_cust_contact')));
 SELECT t.set('lf_due', (SELECT row_to_json(r)::text FROM public.line_customer_reminders_due() r WHERE r.source_id = t.v('lf_apt')::uuid));
 SELECT t.check('LF-REMIND', 'the scheduled appointment reminder is due for the linked customer',
     t.v('lf_due')::jsonb ->> 'rule' = 'APPOINTMENT_DUE' AND t.v('lf_due')::jsonb ->> 'contact_id' = t.v('lf_cust_contact'), t.v('lf_due'));

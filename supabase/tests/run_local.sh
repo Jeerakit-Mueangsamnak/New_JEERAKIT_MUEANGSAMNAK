@@ -2,7 +2,8 @@
 # Fresh-database test of the Supabase SQL on a THROWAWAY local container only.
 # Never touches Supabase Cloud: no CLI, no remote URL, cloud env vars are cleared.
 #
-#   bash supabase/tests/run_local.sh            # build + all tests
+#   bash supabase/tests/run_local.sh            # build + all tests (stops if default container exists)
+#   LINE_SQL_CONTAINER=line-sql-check-1 LINE_SQL_PORT=127.0.0.1:54433 bash supabase/tests/run_local.sh
 #   BASELINE=path/to/file.sql bash supabase/tests/run_local.sh
 #
 # Builds:  auth-only/01_auth_profiles.sql → baseline/00_baseline.sql → seed/products_43.sql
@@ -11,8 +12,8 @@ set -euo pipefail
 unset SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_PROJECT_REF DATABASE_URL SUPABASE_DB_URL || true
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-NAME="pos-baseline-db"            # throwaway; never the rental-pos stack
-PORT="127.0.0.1:54432"
+NAME="${LINE_SQL_CONTAINER:-pos-baseline-db}" # must be a new, throwaway test container
+PORT="${LINE_SQL_PORT:-127.0.0.1:54432}"
 IMAGE="public.ecr.aws/supabase/postgres:17.6.1.155"
 BASELINE="${BASELINE:-$ROOT/supabase/baseline/00_baseline.sql}"
 
@@ -24,16 +25,10 @@ LABEL="pos.test-kit=run_local"   # marks the container as this script's own
 HOST="$(docker context inspect --format '{{.Endpoints.docker.Host}}')"
 case "$HOST" in npipe://*|unix://*) ;; *) echo "STOP: docker context is not local ($HOST)"; exit 1 ;; esac
 
-# Remove an old container only when it carries this kit's label. Image or port alone is not
-# proof: anything else with the same name is left alone and the run stops.
+# Never reset or replace any existing container, even one carrying this test kit's label.
 if docker container inspect "$NAME" >/dev/null 2>&1; then
-  OWN_LABEL="$(docker container inspect -f '{{index .Config.Labels "pos.test-kit"}}' "$NAME")"
-  if [ "$OWN_LABEL" = "run_local" ]; then
-    docker rm -f -v "$NAME" >/dev/null   # -v: only its own anonymous data volume, never named ones
-  else
-    echo "STOP: a container named $NAME exists without label $LABEL. Not removed; remove or rename it yourself."
-    exit 1
-  fi
+  echo "STOP: container $NAME already exists. It will not be reset or replaced; choose a new LINE_SQL_CONTAINER."
+  exit 1
 fi
 # Kept after the run for inspection; its data lives only in its own anonymous volume.
 docker run -d --name "$NAME" --label "$LABEL" -e POSTGRES_PASSWORD=postgres -p "$PORT:5432" "$IMAGE" >/dev/null
@@ -75,11 +70,35 @@ P -c "drop extension plpgsql_check" >/dev/null
 
 echo "== tests"
 # 00_* creates the owner, then the real product seed loads, then the rule tests run.
-for f in "$ROOT"/supabase/tests/sql/00_*.sql; do P < "$f" >/dev/null; done
+for f in "$ROOT"/supabase/tests/sql/00_*.sql; do
+  [ -e "$f" ] || continue
+  echo "   $(basename "$f")"
+  if ! P < "$f" >/dev/null; then
+    echo "FAIL: $(basename "$f")" >&2
+    exit 1
+  fi
+  P -F ' | ' -c "select 'checks=' || count(*) || ' pass=' || count(*) filter (where pass) || ' fail=' || count(*) filter (where not pass) from t.results;"
+done
+echo "   seed/products_43.sql"
 P < "$ROOT/supabase/seed/products_43.sql" >/dev/null
+run_test_file() {
+  local f="$1" before counts pass fail
+  echo "   $(basename "$f")"
+  before="$(P -c "select coalesce(max(seq), 0) from t.results")"
+  if ! P < "$f" >/dev/null; then
+    echo "FAIL: $(basename "$f")" >&2
+    exit 1
+  fi
+  counts="$(P -c "select count(*) filter (where pass) || '|' || count(*) filter (where not pass) from t.results where seq > $before")"
+  IFS='|' read -r pass fail <<< "$counts"
+  echo "      checks=$((pass + fail)) pass=$pass fail=$fail"
+  if [ "$fail" -gt 0 ]; then
+    P -F ' | ' -c "select seq, grp, name, detail from t.results where seq > $before and not pass order by seq;"
+  fi
+}
 for f in "$ROOT"/supabase/tests/sql/*.sql; do
   case "$(basename "$f")" in 00_*|9*_*) continue ;; esac   # 9*_ = checks that run after the races
-  P < "$f" >/dev/null
+  run_test_file "$f"
 done
 echo "== concurrent document numbers (2 connections x 50)"
 P -c "select t.set('conc_before', coalesce((select last_no from public.document_sequences where doc_type = 'INVENTORY_COUNT' and period_key = '20311231'), 0)::text)" >/dev/null
@@ -122,7 +141,7 @@ P -c "select t.check('K6', 'same fee pressed twice at once: one charge of 7',
         (select count(*) = 1 from public.charges where bill_id = t.v('mo')::uuid and amount = 7 and status = 'CONFIRMED'))" >/dev/null
 for f in "$ROOT"/supabase/tests/sql/9*_*.sql; do
   [ -e "$f" ] || continue
-  P < "$f" >/dev/null
+  run_test_file "$f"
 done
 P -F ' | ' -c "select grp, count(*) filter (where pass), count(*) filter (where not pass) from t.results group by grp order by min(seq);"
 echo "== failures"

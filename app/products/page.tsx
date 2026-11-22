@@ -43,8 +43,7 @@ import {
   COMMAND_BUTTON_SIZE_CLASSES,
   SEARCH_INPUT_CLASSES,
   SEARCH_ICON_CLASSES,
-  TABLE_TOOLBAR_CLASSES,
-} from '@/components/common/ActionButton'
+  TABLE_TOOLBAR_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 import { Product, Unit, RentalType } from '@/lib/types/rental-pos'
 import { AppModal, AppModalBody } from '@/components/common/AppModal'
 import { useDataActions } from '@/components/common/useDataActions'
@@ -955,7 +954,7 @@ function ProductsContent() {
                         ))}
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        <ActionButton variant="neutral" icon={<Edit />} onClick={() => startInlineEdit(selectedProduct)}>
+                        <ActionButton variant="edit" icon={<Edit />} onClick={() => startInlineEdit(selectedProduct)}>
                           แก้ไขสินค้า
                         </ActionButton>
                         <button
@@ -966,7 +965,7 @@ function ProductsContent() {
                           }}
                           aria-label="ปิดหน้าต่าง"
                           title="ปิดหน้าต่าง"
-                          className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer`}
+                          className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center shrink-0 transition-colors cursor-pointer ${BUTTON_FUNCTION_COLOURS.cancel}`}
                         >
                           <X className="w-4 h-4" />
                         </button>
@@ -989,7 +988,7 @@ function ProductsContent() {
                         }}
                         aria-label="ปิดหน้าต่าง"
                         title="ปิดหน้าต่าง"
-                        className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer`}
+                        className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center shrink-0 transition-colors cursor-pointer ${BUTTON_FUNCTION_COLOURS.cancel}`}
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -1166,7 +1165,7 @@ function ProductsContent() {
                       <button
                         type="button"
                         onClick={() => setIsEditingInline(false)}
-                        className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer`}
+                        className={`${COMMAND_BUTTON_SIZE_CLASSES} border transition-colors cursor-pointer ${BUTTON_FUNCTION_COLOURS.cancel}`}
                       >
                         ยกเลิก
                       </button>
@@ -1274,12 +1273,13 @@ function ProductsContent() {
                                 ]}
                               />
                             </div>
-                            <ActionButton variant="neutral" icon={<RotateCcw />} onClick={() => { setHolderSearch(''); setHolderStatus('ALL'); setHolderStartFrom(''); setHolderDueTo('') }}>
+                            <ActionButton variant="clear" icon={<RotateCcw />} onClick={() => { setHolderSearch(''); setHolderStatus('ALL'); setHolderStartFrom(''); setHolderDueTo('') }}>
                               ล้างตัวกรอง
                             </ActionButton>
                             <ActionButton
                               onClick={() => exportBillRows(productHolders, 'holders')}
-                              className="ml-auto !bg-emerald-700 hover:!bg-emerald-700 !text-white !border-transparent"
+                              variant="export"
+                              className="ml-auto"
                               icon={<Download />}
                             >
                               ส่งออก
@@ -1397,12 +1397,13 @@ function ProductsContent() {
                               ]}
                             />
                           </div>
-                          <ActionButton variant="neutral" icon={<RotateCcw />} onClick={() => { setHistorySearch(''); setHistoryStatus('ALL'); setHistoryFrom(''); setHistoryTo('') }}>
+                          <ActionButton variant="clear" icon={<RotateCcw />} onClick={() => { setHistorySearch(''); setHistoryStatus('ALL'); setHistoryFrom(''); setHistoryTo('') }}>
                             ล้างตัวกรอง
                           </ActionButton>
                           <ActionButton
                             onClick={() => exportBillRows(productHistory, 'history')}
-                            className="ml-auto !bg-emerald-700 hover:!bg-emerald-700 !text-white !border-transparent"
+                            variant="export"
+                              className="ml-auto"
                             icon={<Download />}
                           >
                             ส่งออก

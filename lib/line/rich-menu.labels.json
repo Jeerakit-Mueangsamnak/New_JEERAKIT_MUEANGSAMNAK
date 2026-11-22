@@ -1,0 +1,55 @@
+{
+  "_doc": "One source for the four chat menus (owner 2026-11-21): the names on the buttons and the grid. lib/line/rich-menu.ts turns it into what LINE needs; scripts/generate-rich-menu-images.mjs draws the picture from the same file, so the picture and the buttons can never disagree. Only buttons whose function exists are listed: customer 'my rentals / return dates / my documents' and staff / driver 'my jobs / report a problem / history' are not built yet (phase 5) and so are not here.",
+  "menus": [
+    {
+      "kind": "GENERAL",
+      "label": "บุคคลทั่วไป",
+      "cols": 3,
+      "rows": 2,
+      "colour": "#047857",
+      "items": [
+        { "id": "catalog", "label": "ดูรายการสินค้า" },
+        { "id": "price", "label": "สอบถามราคา" },
+        { "id": "preorder", "label": "สอบถามสั่งสินค้าล่วงหน้า" },
+        { "id": "register", "label": "ลงทะเบียน / ผูกบัญชี" },
+        { "id": "contact", "label": "ติดต่อร้าน" },
+        { "id": "info", "label": "ข้อมูลร้านและเวลาทำการ" }
+      ]
+    },
+    {
+      "kind": "CUSTOMER",
+      "label": "ลูกค้า",
+      "cols": 2,
+      "rows": 2,
+      "colour": "#1d4ed8",
+      "items": [
+        { "id": "catalog", "label": "ดูรายการสินค้า" },
+        { "id": "price", "label": "สอบถามราคา" },
+        { "id": "contact", "label": "ติดต่อร้าน" },
+        { "id": "info", "label": "ข้อมูลร้านและเวลาทำการ" }
+      ]
+    },
+    {
+      "kind": "STAFF",
+      "label": "พนักงาน",
+      "cols": 2,
+      "rows": 1,
+      "colour": "#6d28d9",
+      "items": [
+        { "id": "contact", "label": "ติดต่อร้าน" },
+        { "id": "info", "label": "ข้อมูลร้านและเวลาทำการ" }
+      ]
+    },
+    {
+      "kind": "DRIVER",
+      "label": "คนขับรถ",
+      "cols": 2,
+      "rows": 1,
+      "colour": "#b45309",
+      "items": [
+        { "id": "contact", "label": "ติดต่อร้าน" },
+        { "id": "info", "label": "ข้อมูลร้านและเวลาทำการ" }
+      ]
+    }
+  ]
+}

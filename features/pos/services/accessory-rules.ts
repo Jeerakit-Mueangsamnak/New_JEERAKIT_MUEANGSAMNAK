@@ -15,6 +15,11 @@ export const NUT_LIST_ITEM = 'น็อต'
 export const SCAFFOLD_LIST_ITEM = 'อุปกรณ์นั่งร้าน'
 /** The หมวด whose รายการ holds each window's products (owner 2026-11-12: nuts in แบบเสา). */
 export const ACCESSORY_CATEGORY_OF = { NUT: 'แบบเสา', SCAFFOLD: 'อื่นๆ' } as const
+/**
+ * Nuts are also found in หมวด อื่นๆ › รายการ "น็อต", where the shop's nuts still sit (owner 2026-11-20: the nut card
+ * was missing because of that), so moving them is not needed.
+ */
+const NUT_CATEGORIES = [ACCESSORY_CATEGORY_OF.NUT, ACCESSORY_CATEGORY_OF.SCAFFOLD]
 
 /** Column section → nut length (inches). */
 export const NUT_SECTIONS = [
@@ -65,7 +70,7 @@ export function accessoryHostCategory(window: AccessoryWindow, categoryNames: re
 export function accessoryWindowFor(product: Pick<Product, 'category' | 'listItem'>): AccessoryWindow | null {
   const category = squash(product.category)
   const item = squash(product.listItem)
-  if (category === squash(ACCESSORY_CATEGORY_OF.NUT) && item === squash(NUT_LIST_ITEM)) return 'NUT'
+  if (item === squash(NUT_LIST_ITEM) && NUT_CATEGORIES.some((c) => squash(c) === category)) return 'NUT'
   if (category === squash(ACCESSORY_CATEGORY_OF.SCAFFOLD) && item === squash(SCAFFOLD_LIST_ITEM)) return 'SCAFFOLD'
   return null
 }

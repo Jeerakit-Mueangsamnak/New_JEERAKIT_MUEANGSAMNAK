@@ -62,6 +62,15 @@ describe('outbox: idempotency, retry, mock provider', () => {
     provider = new MockLineProvider()
   })
 
+  it('a recipient suspended after claiming is cancelled without a provider call or SENT result', async () => {
+    store.enqueue('revoked-after-claim')
+    const canSend = vi.fn(async (id: string) => { store.rows.get(id)!.status = 'CANCELLED'; return false })
+    const result = await processOutbox({ store: { claim: store.claim.bind(store), complete: store.complete.bind(store), canSend }, provider })
+    expect(result).toMatchObject({ claimed: 1, cancelled: 1, sent: 0 })
+    expect(provider.pushed).toHaveLength(0)
+    expect(store.rows.get('d1')!.status).toBe('CANCELLED')
+  })
+
   it('a double click (same idempotency key) is queued once and sent once', async () => {
     expect(store.enqueue('U:user1:click-0001').duplicate).toBe(false)
     expect(store.enqueue('U:user1:click-0001').duplicate).toBe(true)

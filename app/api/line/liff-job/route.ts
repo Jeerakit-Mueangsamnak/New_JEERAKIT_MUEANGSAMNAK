@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const STAGE = /^[A-Z_]{2,20}$/
 const MESSAGES: Record<string, string> = {
+  SUSPENDED: 'สิทธิ์การใช้งานนี้ถูกระงับ กรุณาติดต่อเจ้าของร้าน',
   NOT_ASSIGNEE: 'งานนี้ไม่ได้ส่งถึง LINE นี้',
   NOT_FOUND: 'ไม่พบงานนี้',
   INVALID_STATE: 'งานนี้ถูกยกเลิกหรือเปลี่ยนคนขับแล้ว',

@@ -101,7 +101,11 @@ html {
   touch-action: manipulation;
 }
 
+/* iPad / iPhone from the Home Screen icon (viewport-fit=cover): the page ran under the clock / battery bar, the
+   header looked covered (owner 2026-11-20, iPad Air 11). The page starts below that bar, which shows the page's
+   own background; 0 everywhere else. */
 body {
+  padding-top: env(safe-area-inset-top, 0px);
   color: var(--foreground);
   background: var(--background);
   font-family: var(--font-prompt), Arial, Helvetica, sans-serif;

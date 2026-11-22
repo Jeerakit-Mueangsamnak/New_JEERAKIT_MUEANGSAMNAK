@@ -4,8 +4,7 @@ import {
   TAB_BAR_SURFACE_CLASSES,
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
-  TAB_BUTTON_INACTIVE_CLASSES,
-} from '@/components/common/ActionButton'
+  TAB_BUTTON_INACTIVE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 import { formSchemaWithNotes } from '@/features/documents/utils/form-notes'
 
 import React, { useEffect, useMemo, useState } from 'react'
@@ -484,7 +483,7 @@ export function TemplateLibraryPanel({ mode, onModeChange, business, header }: T
                     type="button"
                     onClick={handleClearUpload}
                     disabled={!uploadedFile || isSaving}
-                    className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 flex-1 flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed`}
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} flex-1 flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed ${BUTTON_FUNCTION_COLOURS.clear}`}
                   >
                     <RotateCcw className="w-4 h-4" />
                     <span>ล้างเทมเพลต</span>
