@@ -17,6 +17,8 @@ export type NotificationType =
   | 'JOB_STEP'
   | 'JOB_ACCEPT_LATE'
   | 'LINE_LINKED'
+  | 'LINE_FRIEND_NEW'
+  | 'LINE_REGISTER_PENDING'
   | 'OTHER'
 export type NotificationStatus = 'UNREAD' | 'READ' | 'HANDLED' | 'DISMISSED'
 
@@ -40,7 +42,7 @@ export interface ActionableNotification {
 
 const KNOWN: ReadonlySet<string> = new Set([
   'RENTAL_DUE_SOON', 'RENTAL_OVERDUE', 'DELIVERY_DUE', 'PAYMENT_DUE', 'LOW_STOCK', 'APPOINTMENT_DUE',
-  'JOB_STEP', 'JOB_ACCEPT_LATE', 'LINE_LINKED',
+  'JOB_STEP', 'JOB_ACCEPT_LATE', 'LINE_LINKED', 'LINE_FRIEND_NEW', 'LINE_REGISTER_PENDING',
 ])
 
 let _cachedNotifications: ActionableNotification[] | null = null

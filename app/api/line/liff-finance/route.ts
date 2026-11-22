@@ -9,6 +9,7 @@ export const dynamic = 'force-dynamic'
 
 const CHANNELS = ['CASH', 'TRANSFER', 'QR', 'OTHER']
 const MESSAGES: Record<string, string> = {
+  SUSPENDED: 'สิทธิ์การใช้งานนี้ถูกระงับ กรุณาติดต่อเจ้าของร้าน',
   NOT_OWNER: 'ฟอร์มนี้ใช้ได้เฉพาะ LINE ของเจ้าของร้านที่ผูกกับระบบแล้ว',
   INVALID_INPUT: 'ข้อมูลไม่ถูกต้อง กรุณาตรวจหมวด จำนวนเงิน และช่องทาง',
 }
@@ -36,7 +37,7 @@ export async function POST(request: Request): Promise<Response> {
       return fail('INVALID_INPUT', 400)
     }
     const r = await store.financeEntry(lineUserId, { kind, category, amount: Math.round(amount * 100) / 100, channel, note })
-    if (r.result !== 'OK') return fail(r.result, r.result === 'NOT_OWNER' ? 403 : 400)
+    if (r.result !== 'OK') return fail(r.result, r.result === 'NOT_OWNER' || r.result === 'SUSPENDED' ? 403 : 400)
     return Response.json({ ok: true, docNo: r.doc_no ?? '', amount: r.amount ?? amount, message: 'บันทึกเข้าการเงินแล้ว' })
   } catch {
     return Response.json({ ok: false, message: 'บันทึกไม่สำเร็จ กรุณาลองใหม่' }, { status: 500 })

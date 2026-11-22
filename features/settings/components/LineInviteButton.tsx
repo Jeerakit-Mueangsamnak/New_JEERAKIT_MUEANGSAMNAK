@@ -9,6 +9,7 @@ import { useToast } from '@/components/common/Toast'
 import { confirmLineContactReview, createLineInviteLink, type LineInviteResult } from '@/app/actions/line'
 import { SETTINGS_HELPER, SETTINGS_INPUT_MONO, SETTINGS_LABEL } from '@/features/settings/components/settings-ui'
 import { type LineInviteKind } from '@/lib/line/config'
+import { useAuth } from '@/features/auth/contexts/AuthContext'
 
 /**
  * Settings › LINE: one invite flow for staff, drivers and customers. The link opens the LIFF
@@ -19,6 +20,7 @@ import { type LineInviteKind } from '@/lib/line/config'
 const KIND_LABEL: Record<LineInviteKind, string> = { STAFF: 'พนักงาน', DRIVER: 'คนขับ', CUSTOMER: 'ลูกค้า' }
 
 export function LineInviteButton({ kind, target, name, disabled }: { kind: LineInviteKind; target: string; name: string; disabled?: boolean }) {
+  const { user } = useAuth()
   const { showToast } = useToast()
   const [busy, setBusy] = useState(false)
   const [invite, setInvite] = useState<(LineInviteResult & { qr: string | null }) | null>(null)
@@ -50,7 +52,7 @@ export function LineInviteButton({ kind, target, name, disabled }: { kind: LineI
 
   return (
     <>
-      <ActionButton variant="primary" icon={<Send />} disabled={disabled || busy} onClick={() => void open()}>
+      <ActionButton variant="primary" icon={<Send />} disabled={user?.role !== 'OWNER' || disabled || busy} onClick={() => void open()}>
         ส่งลิงก์ผูก LINE
       </ActionButton>
       <AppModal isOpen={Boolean(invite)} onClose={() => setInvite(null)} size="sm">
@@ -65,7 +67,7 @@ export function LineInviteButton({ kind, target, name, disabled }: { kind: LineI
                   <label className={SETTINGS_LABEL}>ลิงก์ (ส่งเข้า LINE ส่วนตัวของ{KIND_LABEL[kind]})</label>
                   <div className="flex gap-2">
                     <input readOnly value={invite.url} className={SETTINGS_INPUT_MONO} />
-                    <ActionButton variant="outline" icon={<Copy />} onClick={() => void copy(invite.url!, 'ส่งลิงก์นี้ให้ทาง LINE')}>
+                    <ActionButton variant="share" icon={<Copy />} onClick={() => void copy(invite.url!, 'ส่งลิงก์นี้ให้ทาง LINE')}>
                       คัดลอก
                     </ActionButton>
                   </div>
@@ -93,7 +95,7 @@ export function LineInviteButton({ kind, target, name, disabled }: { kind: LineI
                   {invite.code}
                 </span>
               </span>
-              <ActionButton variant="ghost" icon={<Copy />} onClick={() => void copy(invite.code, 'ส่งรหัสนี้ในแชต LINE ร้าน')} aria-label="คัดลอกรหัส" />
+              <ActionButton variant="share" icon={<Copy />} onClick={() => void copy(invite.code, 'ส่งรหัสนี้ในแชต LINE ร้าน')} aria-label="คัดลอกรหัส" />
             </div>
             <p className={SETTINGS_HELPER}>
               ใช้ได้ครั้งเดียว · หมดอายุ{' '}
@@ -117,6 +119,7 @@ export interface LineReviewContact {
 }
 
 export function LineContactInfo({ contact, onChanged }: { contact: LineReviewContact; onChanged: () => void }) {
+  const { user } = useAuth()
   const { showToast } = useToast()
   const [busy, setBusy] = useState(false)
   const typed = [contact.typed_name, contact.typed_phone, contact.line_handle && `ID ${contact.line_handle}`].filter(Boolean).join(' · ')
@@ -144,7 +147,7 @@ export function LineContactInfo({ contact, onChanged }: { contact: LineReviewCon
           <span className="inline-flex items-center gap-1 h-6 px-2 rounded-lg text-[11px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
             <ShieldAlert className="w-3.5 h-3.5" /> ข้อมูลไม่ตรง ให้ตรวจ
           </span>
-          <ActionButton variant="outline" icon={<CheckCircle2 />} disabled={busy} onClick={() => void confirm()}>
+          <ActionButton variant="primary" icon={<CheckCircle2 />} disabled={user?.role !== 'OWNER' || busy} onClick={() => void confirm()}>
             ตรวจแล้ว ถูกคน
           </ActionButton>
         </>

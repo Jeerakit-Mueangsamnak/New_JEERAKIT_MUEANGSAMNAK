@@ -67,7 +67,7 @@ describe('Settings › LINE › เพิ่มข้อมูล', () => {
     // own row: issue my own code; owner 2026-10-26 — any member may invite or unlink another member
     expect(within(row('ตารางพนักงาน LINE', 'ฉันเอง')).getByRole('button', { name: 'ออกรหัสของฉัน' })).toBeDefined()
     expect(within(row('ตารางพนักงาน LINE', 'พนักงาน X')).queryByRole('button', { name: 'ออกรหัสของฉัน' })).toBeNull()
-    expect(within(row('ตารางพนักงาน LINE', 'เจ้าของ')).getByRole('button', { name: /ยกเลิกการเชื่อม/ })).toBeDefined()
+    expect((within(row('ตารางพนักงาน LINE', 'เจ้าของ')).getByRole('button', { name: /ยกเลิกการเชื่อม/ }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('ออกรหัสของตัวเองแล้วแสดงรหัสในแถวนั้น', async () => {

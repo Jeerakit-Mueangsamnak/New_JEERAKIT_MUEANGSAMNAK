@@ -1,5 +1,5 @@
 'use client'
-import { ActionButton, COMMAND_BUTTON_SIZE_CLASSES, TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
+import { ActionButton, COMMAND_BUTTON_SIZE_CLASSES, TABLE_TOOLBAR_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 /**
  * Settings › LINE: the driver list (ทะเบียนคนขับ). Drivers are not app users; each gets a code
@@ -18,6 +18,7 @@ import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { useDataActions } from '@/components/common/useDataActions'
 import { createClient } from '@/lib/supabase/client'
+import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { DbError } from '@/lib/db/rpc'
 import { fetchAppointmentsFromSupabase } from '@/features/appointments/services/appointment-storage'
 import { createDriverLineLinkCode, unlinkLineContact } from '@/app/actions/line'
@@ -52,6 +53,7 @@ const PILL = 'inline-flex items-center h-5 px-2 rounded-full text-[10px] font-bo
 
 /** `tabs`: the page tab bar, shown first in the toolbar row before the add-driver fields. */
 export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
+  const { user } = useAuth()
   const { showToast } = useToast()
   const confirm = useConfirm()
   const { confirmSuspend, deleteOrSuspend } = useDataActions()
@@ -161,9 +163,9 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
           <LineContactInfo contact={contact} onChanged={() => void loadContacts()} />
           <button
             type="button"
-            disabled={lineBusy === d.id}
+            disabled={user?.role !== 'OWNER' || lineBusy === d.id}
             onClick={() => void unlink(d, contact)}
-            className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer`}
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center cursor-pointer ${BUTTON_FUNCTION_COLOURS.remove}`}
           >
             <Link2Off className="w-3.5 h-3.5" /> ยกเลิกการผูก
           </button>
@@ -173,9 +175,9 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
     return d.active && lineReady ? (
       <button
         type="button"
-        disabled={lineBusy === d.id}
+        disabled={user?.role !== 'OWNER' || lineBusy === d.id}
         onClick={() => void issueCode(d.id)}
-        className={`${COMMAND_BUTTON_SIZE_CLASSES} text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer disabled:opacity-50`}
+        className={`${COMMAND_BUTTON_SIZE_CLASSES} cursor-pointer disabled:opacity-50 ${BUTTON_FUNCTION_COLOURS.share}`}
       >
         สร้างลิงก์
       </button>
@@ -354,7 +356,7 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
                       setName(d.name)
                       setPhone(d.phone || '')
                     }}
-                    className={`${COMMAND_BUTTON_SIZE_CLASSES} text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 cursor-pointer`}
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} cursor-pointer ${BUTTON_FUNCTION_COLOURS.edit}`}
                   >
                     แก้ไข
                   </button>
@@ -362,7 +364,7 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
                     type="button"
                     disabled={saving}
                     onClick={() => void toggleActive(d)}
-                    className={`${COMMAND_BUTTON_SIZE_CLASSES} text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer`}
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} cursor-pointer ${BUTTON_FUNCTION_COLOURS[d.active ? 'clear' : 'save']}`}
                   >
                     {d.active ? 'ระงับ' : 'เปิดใช้งาน'}
                   </button>
@@ -370,7 +372,7 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
                     type="button"
                     disabled={saving}
                     onClick={() => void removeDriver(d)}
-                    className={`${COMMAND_BUTTON_SIZE_CLASSES} text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer`}
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} cursor-pointer ${BUTTON_FUNCTION_COLOURS.remove}`}
                   >
                     ลบ
                   </button>
@@ -398,7 +400,7 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
             {linkCode.oaUrl ? (
               <div className="flex gap-2">
                 <input readOnly value={linkCode.oaUrl} aria-label="ลิงก์ผูก LINE" className="flex-1 min-w-0 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono text-[11px] text-slate-700 dark:text-slate-300" />
-                <ActionButton variant="outline" icon={<Copy />} onClick={() => void copyLink(linkCode.oaUrl as string)}>
+                <ActionButton variant="share" icon={<Copy />} onClick={() => void copyLink(linkCode.oaUrl as string)}>
                   คัดลอกลิงก์
                 </ActionButton>
               </div>
@@ -416,7 +418,7 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
                 'ลิงก์หมดอายุแล้ว'
               )}
             </p>
-            <ActionButton variant="outline" icon={<RefreshCw />} disabled={lineBusy === linkDriver.id} onClick={() => void issueCode(linkDriver.id)}>
+            <ActionButton variant="share" icon={<RefreshCw />} disabled={lineBusy === linkDriver.id} onClick={() => void issueCode(linkDriver.id)}>
               สร้างลิงก์ใหม่
             </ActionButton>
           </AppModalBody>

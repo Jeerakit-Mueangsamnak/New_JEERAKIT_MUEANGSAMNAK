@@ -4,13 +4,13 @@ import {
   TAB_BAR_SURFACE_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
   TAB_BUTTON_BASE_CLASSES,
-  TAB_BUTTON_INACTIVE_CLASSES,
-} from '@/components/common/ActionButton'
+  TAB_BUTTON_INACTIVE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React, { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Clock, Copy, CreditCard, Link2, Link2Off, MessageSquare, Send, ShieldAlert, ShieldCheck, Sparkles, WalletCards } from 'lucide-react'
 import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
 import { useToast } from '@/components/common/Toast'
+import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { CustomerLineLinkDialog } from '@/features/customers/components/CustomerLineLinkButton'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
@@ -139,6 +139,8 @@ const presets: Array<{
 ]
 
 export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalProps) {
+  const { user } = useAuth()
+  const isOwner = user?.role === 'OWNER'
   const { showToast } = useToast()
   const [presetType, setPresetType] = useState<LineTextPreset>('UPCOMING')
   const [mode, setMode] = useState<LineMessageMode>('TEXT')
@@ -344,7 +346,7 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
             type="button"
             role="tab"
             aria-selected={false}
-            disabled={!canLink}
+            disabled={!isOwner || !canLink}
             title={recipient?.state === 'LINKED' ? 'ลูกค้าผูก LINE แล้ว' : recipient?.customer_id ? undefined : 'บิลนี้ไม่มีข้อมูลลูกค้า'}
             onClick={() => void startLink()}
             className={`${TAB_BUTTON_BASE_CLASSES} min-w-0 [&_svg]:w-3.5 [&_svg]:h-3.5 ${TAB_BUTTON_INACTIVE_CLASSES} disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -365,7 +367,7 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
             </span>
             <button
               type="button"
-              disabled={checking}
+              disabled={!isOwner || checking}
               onClick={() => void confirmLink()}
               className={`${COMMAND_BUTTON_SIZE_CLASSES} flex items-center bg-emerald-700 hover:bg-emerald-800 text-white disabled:opacity-50`}
             >
@@ -374,9 +376,9 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
             </button>
             <button
               type="button"
-              disabled={checking}
+              disabled={!isOwner || checking}
               onClick={() => void undoLink()}
-              className={`${COMMAND_BUTTON_SIZE_CLASSES} flex items-center border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-50`}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} flex items-center border disabled:opacity-50 ${BUTTON_FUNCTION_COLOURS.remove}`}
             >
               <Link2Off />
               ยกเลิกการผูก
@@ -414,7 +416,7 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
                       key={t.id}
                       type="button"
                       onClick={() => pickTemplate(t.text)}
-                      className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800`}
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} border ${BUTTON_FUNCTION_COLOURS.open}`}
                     >
                       {t.name}
                     </button>
@@ -439,7 +441,7 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
             <div className="space-y-1.5">
               <div className="flex justify-between items-center">
                 <label className="font-bold text-slate-700 dark:text-slate-300">{mode === 'FLEX' ? 'ข้อความใต้หัวการ์ด (ไม่ใส่ก็ได้)' : 'ข้อความที่จะส่ง'}</label>
-                <button type="button" onClick={handleCopy} className={`${COMMAND_BUTTON_SIZE_CLASSES} text-blue-600 dark:text-blue-400 hover:underline flex items-center`}>
+                <button type="button" onClick={handleCopy} className={`${COMMAND_BUTTON_SIZE_CLASSES} hover:underline flex items-center ${BUTTON_FUNCTION_COLOURS.share}`}>
                   <Copy className="w-3 h-3" /><span>{copied ? 'คัดลอกแล้ว' : 'คัดลอกข้อความ'}</span>
                 </button>
               </div>
@@ -471,8 +473,8 @@ export function LineNotifyModal({ isOpen, onClose, billData }: LineNotifyModalPr
       </AppModalBody>
 
       <AppModalFooter>
-        <button type="button" onClick={onClose} className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800`}>ยกเลิก</button>
-        <button type="button" onClick={() => copyText(copyableText, 'นำไปวางในแชต LINE ของลูกค้าได้เลย')} className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950 flex items-center`}>
+        <button type="button" onClick={onClose} className={`${COMMAND_BUTTON_SIZE_CLASSES} border ${BUTTON_FUNCTION_COLOURS.cancel}`}>ยกเลิก</button>
+        <button type="button" onClick={() => copyText(copyableText, 'นำไปวางในแชต LINE ของลูกค้าได้เลย')} className={`${COMMAND_BUTTON_SIZE_CLASSES} border flex items-center ${BUTTON_FUNCTION_COLOURS.share}`}>
           <Copy className="w-4 h-4" />คัดลอกไปส่งเอง
         </button>
         <button type="button" onClick={handleSendLine} disabled={sending || !canSend || (mode === 'TEXT' && !outgoingText.trim())} title={canSend ? undefined : waitsForCheck ? 'การผูก LINE ยังรอร้านตรวจ' : 'ลูกค้ายังไม่ได้ผูก LINE กับร้าน'} className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white shadow-lg shadow-emerald-500/30 flex items-center transition-all`}>

@@ -1,7 +1,7 @@
 'use client'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, Camera, CheckCircle2, Loader2, MapPin, Phone, X } from 'lucide-react'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 import { SETTINGS_INPUT, SETTINGS_LABEL } from '@/features/settings/components/settings-ui'
 import { postLiff, useLiff } from '@/lib/line/use-liff'
 import { JOB_PHOTO_LIMIT } from '@/lib/line/job-photos'
@@ -209,7 +209,7 @@ export default function LiffJobPage() {
                 ))}
               </div>
               {photos.length < JOB_PHOTO_LIMIT && (
-                <button type="button" onClick={() => fileRef.current?.click()} className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full !h-11 flex items-center gap-2 border border-slate-300 dark:border-slate-600 justify-center`}>
+                <button type="button" onClick={() => fileRef.current?.click()} className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full !h-11 flex items-center gap-2 border justify-center ${BUTTON_FUNCTION_COLOURS.open}`}>
                   <Camera className="w-4 h-4" /> ถ่าย / เลือกรูป ({photos.length}/{JOB_PHOTO_LIMIT})
                 </button>
               )}
@@ -224,7 +224,7 @@ export default function LiffJobPage() {
         {notice && <p className="text-xs font-bold text-center text-slate-700 dark:text-slate-200">{notice}</p>}
 
         {job.task.status === 'DONE' && opened.phase === 'ready' && opened.liff.isInClient() && (
-          <button type="button" onClick={() => opened.liff.closeWindow()} className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full !h-11 flex items-center gap-2 border border-slate-300 dark:border-slate-600 justify-center`}>
+          <button type="button" onClick={() => opened.liff.closeWindow()} className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full !h-11 flex items-center gap-2 border justify-center ${BUTTON_FUNCTION_COLOURS.cancel}`}>
             ปิดหน้านี้
           </button>
         )}

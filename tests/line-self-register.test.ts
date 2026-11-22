@@ -8,7 +8,7 @@ import { lineOaAddFriendUrl } from '@/lib/line/oa-link'
 import { handleLineWebhook, type SelfRegisterResult, type WebhookStore } from '@/lib/line/webhook'
 import { type LineMessage } from '@/lib/line/types'
 
-/** Self-registration in the OA chat (owner rule 2026-10-31). */
+/** Friends and what they type in the OA chat (owner 2026-10-31, changed 2026-11-21: a stranger only files a request). */
 
 const SECRET = '0123456789abcdef0123456789abcdef'
 const NEW_FRIEND = 'U' + 'a'.repeat(32)
@@ -42,17 +42,29 @@ describe('lineOaAddFriendUrl', () => {
 function textEvent(id: string, user: string, text: string) {
   return { type: 'message', webhookEventId: id, timestamp: 1791475200000, replyToken: `rt-${id}`, source: { type: 'user', userId: user }, message: { type: 'text', id: `m-${id}`, text } }
 }
-function followEvent(id: string, user: string) {
-  return { type: 'follow', webhookEventId: id, timestamp: 1791475200000, replyToken: `rt-${id}`, source: { type: 'user', userId: user } }
+function followEvent(id: string, user: string, isUnblocked?: boolean) {
+  return {
+    type: 'follow',
+    webhookEventId: id,
+    timestamp: 1791475200000,
+    replyToken: `rt-${id}`,
+    source: { type: 'user', userId: user },
+    ...(isUnblocked === undefined ? {} : { follow: { isUnblocked } }),
+  }
 }
 
-function store(register: (name: string, phone: string) => SelfRegisterResult) {
+function store(register: (name: string, phone: string) => SelfRegisterResult, sendWelcome = true) {
   const s: WebhookStore = {
     recordEvent: vi.fn(async (e) => ({ duplicate: false, contactId: 'c', status: e.lineUserId === LINKED ? ('LINKED' as const) : ('UNLINKED' as const) })),
     consumeLinkCode: vi.fn(async () => ({ result: 'INVALID' as const })),
     taskPostback: vi.fn(async () => ({ result: 'NOT_FOUND' as const })),
     taskStep: vi.fn(async () => ({ result: 'NOT_FOUND' as const })),
-    followContact: vi.fn(async (user) => ({ status: user === LINKED ? ('LINKED' as const) : ('UNLINKED' as const), register_status: 'WAITING' })),
+    // the database decides the welcome: never for a linked friend, never for an unblock, off when the owner switched it off
+    followContact: vi.fn(async (user, _name, _picture, isUnblock) => ({
+      status: user === LINKED ? ('LINKED' as const) : ('UNLINKED' as const),
+      register_status: 'WAITING',
+      send_welcome: sendWelcome && user !== LINKED && !isUnblock,
+    })),
     selfRegister: vi.fn(async (_u, name, phone) => register(name, phone)),
   }
   return s
@@ -65,15 +77,25 @@ async function call(events: unknown[], s: WebhookStore, provider = new MockLineP
 }
 const replies = (p: MockLineProvider) => p.replied.map((r) => (r.messages[0] as Extract<LineMessage, { type: 'text' }>).text)
 
-describe('webhook: follow and self-registration', () => {
-  it('follow: keeps the profile name and replies (free reply token) with the welcome asking for name + phone', async () => {
+describe('webhook: follow and what a stranger types', () => {
+  it('follow: keeps the profile name and picture, tells the database it is not an unblock, and sends the welcome (free reply token)', async () => {
     const provider = new MockLineProvider()
-    provider.profile = vi.fn(async () => ({ displayName: 'Ton_rider' }))
+    provider.profile = vi.fn(async () => ({ displayName: 'Ton_rider', pictureUrl: 'https://profile.line-scdn.net/abc' }))
     const s = store(() => ({ result: 'INVALID' }))
     await call([followEvent('f1', NEW_FRIEND)], s, provider)
-    expect(s.followContact).toHaveBeenCalledWith(NEW_FRIEND, 'Ton_rider')
+    expect(s.followContact).toHaveBeenCalledWith(NEW_FRIEND, 'Ton_rider', 'https://profile.line-scdn.net/abc', false)
     expect(provider.pushed).toHaveLength(0)
-    expect(replies(provider)).toEqual(['ขอบคุณที่เพิ่มเพื่อนร้านเอ\nพิมพ์ชื่อ-นามสกุลและเบอร์โทร เพื่อรับบิลและแจ้งเตือนวันคืนทาง LINE\nเช่น สมชาย ใจดี 0812345678'])
+    expect(replies(provider)).toHaveLength(1)
+    expect(replies(provider)[0]).toContain('ยินดีต้อนรับสู่ร้านจีรกิตติ์')
+    // a stranger is not asked to type name + phone any more: the menu and the registration come later
+    expect(replies(provider)[0]).not.toContain('0812345678')
+  })
+
+  it('follow without a profile still records the friend and welcomes', async () => {
+    const s = store(() => ({ result: 'INVALID' }))
+    const provider = await call([followEvent('f1b', NEW_FRIEND)], s)
+    expect(s.followContact).toHaveBeenCalledWith(NEW_FRIEND, null, null, false)
+    expect(replies(provider)).toHaveLength(1)
   })
 
   it('follow from an already linked LINE gets no welcome', async () => {
@@ -83,21 +105,32 @@ describe('webhook: follow and self-registration', () => {
     expect(provider.replied).toHaveLength(0)
   })
 
-  it('name + phone in one message: linked (new or known customer) -> success reply with the name', async () => {
-    const s = store((name) => ({ result: 'LINKED_CUSTOMER', name, created: true }))
+  it('an unblock is passed to the database as an unblock and gets no welcome', async () => {
+    const s = store(() => ({ result: 'INVALID' }))
+    const provider = await call([followEvent('f3', NEW_FRIEND, true)], s)
+    expect(s.followContact).toHaveBeenCalledWith(NEW_FRIEND, null, null, true)
+    expect(provider.replied).toHaveLength(0)
+  })
+
+  it('welcome switched off by the owner (policies.line.friend.welcome): the friend is kept, nothing is sent', async () => {
+    const s = store(() => ({ result: 'INVALID' }), false)
+    const provider = await call([followEvent('f4', NEW_FRIEND)], s)
+    expect(s.followContact).toHaveBeenCalled()
+    expect(provider.replied).toHaveLength(0)
+  })
+
+  it('name + phone in one message only files a request: the reply says the shop checks first, never "linked"', async () => {
+    const s = store(() => ({ result: 'PENDING' }))
     const provider = await call([textEvent('t1', NEW_FRIEND, 'สมชาย ใจดี 081-234-5678')], s)
     expect(s.selfRegister).toHaveBeenCalledWith(NEW_FRIEND, 'สมชาย ใจดี', '0812345678')
-    expect(replies(provider)).toEqual(['ผูก LINE กับบัญชี สมชาย ใจดี ที่ ร้านเอ เรียบร้อยแล้ว คุณจะได้รับแจ้งเตือนทาง LINE นี้'])
+    expect(replies(provider)).toEqual(['ได้รับคำขอลงทะเบียนแล้ว ร้านจะตรวจสอบข้อมูลก่อน และแจ้งผลทาง LINE นี้'])
   })
 
-  it('a phone already linked to another LINE is never replaced: reply says the shop will contact them', async () => {
-    const provider = await call([textEvent('t2', NEW_FRIEND, 'สมหญิง 0811111111')], store(() => ({ result: 'PHONE_TAKEN' })))
-    expect(replies(provider)).toEqual(['เบอร์นี้ผูกกับ LINE อื่นไว้แล้ว ร้านจะติดต่อกลับทาง LINE นี้'])
-  })
-
-  it('a phone of several customers stays pending for the shop', async () => {
-    const provider = await call([textEvent('t3', NEW_FRIEND, 'มานพ 0822222222')], store(() => ({ result: 'DUPLICATE' })))
-    expect(replies(provider)).toEqual(['ได้รับชื่อและเบอร์โทรแล้ว ร้านจะตรวจข้อมูลและติดต่อกลับทาง LINE นี้'])
+  it('the answer never tells whether a phone is known: whatever the database holds, the stranger sees the same text or nothing', async () => {
+    for (const result of ['PHONE_TAKEN', 'DUPLICATE', 'LINKED_CUSTOMER'] as const) {
+      const provider = await call([textEvent(`t2-${result}`, NEW_FRIEND, 'สมหญิง 0811111111')], store(() => ({ result })))
+      expect(replies(provider)).toEqual([])
+    }
   })
 
   it('missing name or phone: asks again with the example, nothing sent to the database', async () => {
@@ -123,6 +156,35 @@ describe('webhook: follow and self-registration', () => {
   })
 })
 
+describe('migration 20261122125619 (shape): a stranger only files a request', () => {
+  const SQL = readFileSync(join(process.cwd(), 'supabase/migrations/20261122125619_line_register_review_v1.sql'), 'utf8')
+  const apply = SQL.slice(SQL.indexOf('CREATE OR REPLACE FUNCTION public._line_register_apply'), SQL.indexOf('-- 5. FOLLOW'))
+
+  it('the stranger path (p_actor NULL) never inserts a customer and never sets LINKED', () => {
+    expect(apply).not.toMatch(/INSERT INTO public\.customers/)
+    expect(apply).not.toMatch(/status = 'LINKED'\s*,/)
+    expect(apply).toContain("register_status = 'PENDING'")
+    expect(apply).toContain('RETURN public._line_register_link(p_contact_id, p_name, p_phone, p_actor);')
+  })
+
+  it('the helper functions and the follow are not open to the app roles', () => {
+    expect(SQL).toMatch(/REVOKE ALL ON FUNCTION public\._line_register_link\(uuid, text, text, uuid\) FROM PUBLIC, anon, authenticated, service_role;/)
+    expect(SQL).toMatch(/REVOKE ALL ON FUNCTION public\._line_register_apply\(uuid, text, text, uuid\) FROM PUBLIC, anon, authenticated, service_role;/)
+    expect(SQL).toMatch(/GRANT EXECUTE ON FUNCTION public\.line_contact_follow\(text, text, text, boolean\) TO service_role;/)
+    expect(SQL).toContain('PERFORM public._line_require_server();')
+  })
+
+  it('the new columns are readable by the shop but line_user_id is still not granted', () => {
+    expect(SQL).toContain('GRANT SELECT (picture_url, followed_at, register_note, register_payload) ON public.line_contacts TO authenticated;')
+    expect(SQL).not.toMatch(/GRANT SELECT[^;]*line_user_id/)
+  })
+
+  it('the owner switches policies.line.friend are checked in the database like on the screen', () => {
+    expect(SQL).toContain("ELSIF v_key = 'friend' THEN")
+    expect(SQL).toContain("ARRAY['welcome', 'notifyOwner']")
+  })
+})
+
 describe('migration 20261031090000 (shape)', () => {
   const SQL = readFileSync(join(process.cwd(), 'supabase/migrations/20261031090000_line_self_register_v1.sql'), 'utf8')
 
@@ -133,7 +195,7 @@ describe('migration 20261031090000 (shape)', () => {
     expect(SQL).toContain('PERFORM public._line_require_server();')
   })
 
-  it('never replaces an existing link and never guesses between duplicate customers', () => {
+  it('never replaces an existing link and never guesses between duplicate customers (the shop\'s own typing keeps this rule)', () => {
     expect(SQL).toMatch(/x\.customer_id = v_cust AND x\.status = 'LINKED'\) THEN\s+UPDATE public\.line_contacts SET register_status = 'PHONE_TAKEN'/)
     expect(SQL).toMatch(/cardinality\(v_ids\), 0\) > 1 THEN\s+UPDATE public\.line_contacts SET register_status = 'DUPLICATE'/)
   })

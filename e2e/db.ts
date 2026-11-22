@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process';
 
 // Read-only checks against the LOCAL Supabase database container (never Cloud).
-const DB_CONTAINER = 'supabase_db_rental-pos';
+const DB_CONTAINER = process.env.LINE_E2E_DB_CONTAINER || 'supabase_db_rental-pos';
+if (process.env.LINE_E2E_DB_CONTAINER && !/^supabase_db_line-hardening-\d{8}$/.test(DB_CONTAINER)) throw new Error('Expected isolated LINE Local database');
 
 /** Runs one SQL query and returns rows as arrays of strings (psql unaligned, `|`-separated). */
 export function sql(query: string): string[][] {

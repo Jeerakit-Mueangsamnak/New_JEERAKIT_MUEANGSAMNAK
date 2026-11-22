@@ -3,7 +3,7 @@
  * <site>/liff; LINE adds the path after the LIFF id: https://liff.line.me/<id>/bind → <site>/liff/bind.
  * No LIFF id = no link (the screens say the form is not set up yet).
  */
-export type LiffForm = 'bind' | 'job' | 'finance'
+export type LiffForm = 'bind' | 'job' | 'finance' | 'register'
 
 export function liffUrl(form: LiffForm, params: Record<string, string> = {}, liffId: string | undefined = process.env.NEXT_PUBLIC_LIFF_ID): string | null {
   const id = (liffId || '').trim()

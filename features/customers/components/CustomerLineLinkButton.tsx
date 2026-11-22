@@ -8,6 +8,7 @@ import { AppModal, AppModalBody, AppModalHeader } from '@/components/common/AppM
 import { useToast } from '@/components/common/Toast'
 import { createClient } from '@/lib/supabase/client'
 import { createCustomerLineLinkCode } from '@/app/actions/line'
+import { useAuth } from '@/features/auth/contexts/AuthContext'
 
 /**
  * "สร้างลิงก์ผูก LINE": the customer's own single-use code as a QR (scan at the counter) and a link
@@ -43,6 +44,8 @@ export function CustomerLineLinkDialog({
   onClose: () => void
 }) {
   const { showToast } = useToast()
+  const { user } = useAuth()
+  const isOwner = user?.role === 'OWNER'
   const [issued, setIssued] = useState<Issued | null>(null)
   const [busy, setBusy] = useState(false)
   const [now, setNow] = useState(() => Date.now())
@@ -51,7 +54,7 @@ export function CustomerLineLinkDialog({
   onCloseRef.current = onClose
 
   const issue = useCallback(async () => {
-    if (!customerId) return
+    if (!customerId || !isOwner) return
     setBusy(true)
     try {
       const r = await createCustomerLineLinkCode(customerId)
@@ -66,7 +69,7 @@ export function CustomerLineLinkDialog({
     } finally {
       setBusy(false)
     }
-  }, [customerId, showToast])
+  }, [customerId, isOwner, showToast])
 
   useEffect(() => {
     if (open) void issue()
@@ -90,7 +93,7 @@ export function CustomerLineLinkDialog({
 
   const left = issued ? issued.expiresAt - now : 0
   return (
-    <AppModal isOpen={open && Boolean(issued)} onClose={onClose} size="sm">
+    <AppModal isOpen={isOwner && open && Boolean(issued)} onClose={onClose} size="sm">
       <AppModalHeader title={`ลิงก์ผูก LINE · คุณ${customerName}`} icon={<MessageCircle />} onClose={onClose} />
       {issued && (
         <AppModalBody className="space-y-3 text-xs">
@@ -104,7 +107,7 @@ export function CustomerLineLinkDialog({
               </p>
               <div className="flex gap-2">
                 <input readOnly value={issued.oaUrl} aria-label="ลิงก์ผูก LINE" className="flex-1 min-w-0 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono text-[11px] text-slate-700 dark:text-slate-300" />
-                <ActionButton variant="outline" icon={<Copy />} onClick={() => void copy(issued.oaUrl as string, 'ส่งให้ลูกค้าทางช่องทางที่ติดต่อกันอยู่')}>
+                <ActionButton variant="share" icon={<Copy />} onClick={() => void copy(issued.oaUrl as string, 'ส่งให้ลูกค้าทางช่องทางที่ติดต่อกันอยู่')}>
                   คัดลอกลิงก์
                 </ActionButton>
               </div>
@@ -123,7 +126,7 @@ export function CustomerLineLinkDialog({
               'ลิงก์นี้หมดอายุแล้ว กดสร้างลิงก์ใหม่'
             )}
           </p>
-          <ActionButton variant="outline" icon={<RefreshCw />} disabled={busy} onClick={() => void issue()}>
+          <ActionButton variant="share" icon={<RefreshCw />} disabled={busy} onClick={() => void issue()}>
             สร้างลิงก์ใหม่
           </ActionButton>
         </AppModalBody>
@@ -134,6 +137,7 @@ export function CustomerLineLinkDialog({
 
 /** Customer page: the สร้างลิงก์ผูก LINE button (or "ผูก LINE แล้ว" once linked). */
 export function CustomerLineLinkButton({ customerId, customerName }: { customerId?: string; customerName: string }) {
+  const { user } = useAuth()
   const [linkedName, setLinkedName] = useState<string | null | undefined>(undefined)
   const [open, setOpen] = useState(false)
 
@@ -175,7 +179,7 @@ export function CustomerLineLinkButton({ customerId, customerName }: { customerI
     <>
       <button
         type="button"
-        disabled={!customerId || open}
+        disabled={user?.role !== 'OWNER' || !customerId || open}
         onClick={() => setOpen(true)}
         className={`${BTN} border-emerald-700 ${
           !customerId || open ? 'opacity-40 cursor-not-allowed bg-emerald-700 text-white' : 'bg-emerald-700 hover:bg-emerald-800 text-white cursor-pointer'

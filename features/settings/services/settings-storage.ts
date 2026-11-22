@@ -187,9 +187,28 @@ export interface NotificationSettings {
  * LINE (store_settings.policies.line, checked again on the server by trg_store_settings_line_policy).
  * The OA credentials are NOT here: they live in Vault (app/actions/system-secrets.ts).
  */
+/** policies.line.register: what the registration form must ask, and who is told (owner 2026-11-21). A missing key = the default. */
+export interface LineRegisterSettings {
+  /** Tell the owner when a request waits (default on) */
+  notifyOwner?: boolean
+  /** Tell the person when the shop approved / rejected (default on) */
+  notifyApproved?: boolean
+  notifyRejected?: boolean
+  /** Address parts the form must have (province, district, subdistrict, address, postcode) */
+  required?: Record<string, boolean>
+  /** The purpose / privacy text shown before the form is sent (the shop's own words; a built-in line when empty) */
+  privacy?: string
+}
+
 export interface LineSettings {
   /** In-app notice type (notifications.event_type) → also send it to staff LINE. Off unless true. */
   notify: Record<string, boolean>
+  /** policies.line.friend: the welcome text (default on) and the "new friend" notice to the owner (default off) */
+  friend: { welcome?: boolean; notifyOwner?: boolean }
+  /** policies.line.catalog: show the price in the product list in LINE (default off) */
+  catalog: { showPrice?: boolean }
+  /** policies.line.register */
+  register: LineRegisterSettings
   /** Template key → the OWNER's own text; a missing key uses the built-in text. */
   templates: Record<string, string>
   /** Other policies.line keys (link limits) — not edited here, kept as they are on save. */
@@ -292,7 +311,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     appointmentReminder: { enabled: true, daysBefore: 3 },
   },
   // LINE notices are off until the OWNER switches a type on (spec F4).
-  line: { notify: {}, templates: {}, other: {} },
+  line: { notify: {}, friend: {}, catalog: {}, register: {}, templates: {}, other: {} },
   documentNotes: {},
   documentServices: {},
   lineBillCards: [],
