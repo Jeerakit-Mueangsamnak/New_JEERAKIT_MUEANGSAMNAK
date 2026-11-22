@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OCR บัตรประชาชน — กรอกข้อมูลอัตโนมัติ</title>
+<style>
+  :root { --line:#e5e7eb; --muted:#6b7280; --ok:#059669; --warn:#d97706; --bad:#dc2626; --brand:#f6821f; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans Thai", sans-serif;
+         background:#f9fafb; color:#111827; }
+  header { background:#fff; border-bottom:1px solid var(--line); padding:16px 20px; }
+  h1 { font-size:18px; margin:0; }
+  .sub { color:var(--muted); font-size:13px; margin-top:4px; }
+  main { max-width:880px; margin:0 auto; padding:20px; display:grid; gap:16px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .card h2 { font-size:15px; margin:0 0 12px; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:640px){ .row { grid-template-columns:1fr; } }
+  label { display:block; font-size:13px; color:#374151; margin-bottom:4px; }
+  input[type=text], input[type=date], select, textarea {
+    width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:8px;
+    font-size:14px; font-family:inherit; background:#fff;
+  }
+  input:focus, select:focus, textarea:focus { outline:2px solid #fde3c8; border-color:var(--brand); }
+  .field { position:relative; }
+  .conf { font-size:11px; margin-top:3px; }
+  .conf.high { color:var(--ok); } .conf.mid { color:var(--warn); } .conf.low { color:var(--bad); }
+  .badge { display:inline-block; font-size:11px; padding:1px 6px; border-radius:999px; background:#f3f4f6; color:var(--muted); }
+  .badge.warn { background:#fef3c7; color:#92400e; }
+  .badge.bad { background:#fee2e2; color:#991b1b; }
+  .badge.ok { background:#d1fae5; color:#065f46; }
+  button { font-family:inherit; font-size:14px; padding:10px 16px; border-radius:8px; border:1px solid var(--line);
+           background:#fff; cursor:pointer; }
+  button.primary { background:var(--brand); border-color:var(--brand); color:#fff; font-weight:600; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  #preview { max-width:100%; border-radius:10px; border:1px solid var(--line); display:none; }
+  .status { font-size:13px; color:var(--muted); }
+  .status.err { color:var(--bad); }
+  .status.ok { color:var(--ok); }
+  .consent { display:flex; gap:8px; align-items:flex-start; font-size:13px; color:#374151; }
+  .consent input { margin-top:3px; }
+  .hidden { display:none; }
+  .evidence { font-size:12px; color:var(--muted); word-break:break-all; }
+</style>
+</head>
+<body>
+<header>
+  <h1>OCR หน้าบัตรประชาชน → กรอกฟอร์มอัตโนมัติ</h1>
+  <div class="sub">ถ่ายหรืออัปโหลดรูปบัตร ระบบจะอ่านข้อมูลและเก็บรูปไว้เป็นหลักฐาน (พร้อม SHA-256)</div>
+</header>
+
+<main>
+  <!-- 1. capture -->
+  <section class="card">
+    <h2>1) ถ่าย / อัปโหลดรูปหน้าบัตร</h2>
+    <div class="actions">
+      <input id="file" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" />
+      <button id="btnExtract" class="primary" disabled>อ่านข้อมูลจากบัตร</button>
+    </div>
+    <p class="status" id="status">ยังไม่ได้เลือกรูป</p>
+    <img id="preview" alt="ตัวอย่างรูปบัตร" />
+  </section>
+
+  <!-- 2. form -->
+  <section class="card">
+    <h2>2) ตรวจสอบและแก้ไขข้อมูล</h2>
+    <form id="form" autocomplete="off">
+      <div class="row">
+        <div class="field">
+          <label for="id_number">เลขประจำตัวประชาชน</label>
+          <input id="id_number" name="id_number" inputmode="numeric" maxlength="17" />
+          <div class="conf" data-conf="id_number"></div>
+        </div>
+        <div class="field">
+          <label for="prefix">คำนำหน้า</label>
+          <input id="prefix" name="prefix" />
+          <div class="conf" data-conf="prefix"></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="first_name">ชื่อ</label>
+          <input id="first_name" name="first_name" />
+          <div class="conf" data-conf="first_name"></div>
+        </div>
+        <div class="field">
+          <label for="last_name">นามสกุล</label>
+          <input id="last_name" name="last_name" />
+          <div class="conf" data-conf="last_name"></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="first_name_en">ชื่อ (อังกฤษ)</label>
+          <input id="first_name_en" name="first_name_en" />
+          <div class="conf" data-conf="first_name_en"></div>
+        </div>
+        <div class="field">
+          <label for="last_name_en">นามสกุล (อังกฤษ)</label>
+          <input id="last_name_en" name="last_name_en" />
+          <div class="conf" data-conf="last_name_en"></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="birth_date">วันเกิด</label>
+          <input id="birth_date" name="birth_date" type="date" />
+          <div class="conf" data-conf="birth_date"></div>
+        </div>
+        <div class="field">
+          <label for="gender">เพศ</label>
+          <select id="gender" name="gender">
+            <option value="">—</option>
+            <option value="male">ชาย</option>
+            <option value="female">หญิง</option>
+            <option value="unknown">ไม่ระบุ</option>
+          </select>
+          <div class="conf" data-conf="gender"></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="religion">ศาสนา</label>
+          <input id="religion" name="religion" />
+          <div class="conf" data-conf="religion"></div>
+        </div>
+        <div class="field">
+          <label for="expiry_date">วันหมดอายุ</label>
+          <input id="expiry_date" name="expiry_date" type="date" />
+          <div class="conf" data-conf="expiry_date"></div>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top:12px">
+        <label for="address">ที่อยู่</label>
+        <textarea id="address" name="address" rows="3"></textarea>
+        <div class="conf" data-conf="address"></div>
+      </div>
+
+      <div class="field" style="margin-top:12px">
+        <label for="issue_date">วันออกบัตร</label>
+        <input id="issue_date" name="issue_date" type="date" />
+        <div class="conf" data-conf="issue_date"></div>
+      </div>
+    </form>
+  </section>
+
+  <!-- 3. save -->
+  <section class="card">
+    <h2>3) ยืนยันและเก็บหลักฐาน</h2>
+    <label class="consent">
+      <input type="checkbox" id="consent" />
+      <span>ข้าพเจ้ายินยอมให้เก็บสำเนาบัตรประชาชนและข้อมูลที่อ่านได้ เพื่อใช้เป็นหลักฐานตามที่กำหนด</span>
+    </label>
+    <div class="actions" style="margin-top:12px">
+      <button id="btnSave" class="primary" disabled>ยืนยันและบันทึก</button>
+      <span class="status" id="saveStatus"></span>
+    </div>
+    <p class="evidence" id="evidenceInfo"></p>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const MAX_EDGE = 1600;          // ย่อรูปก่อนส่ง — ลดขนาดให้ต่ำกว่า 4 MiB และอ่านง่ายขึ้น
+const MAX_BYTES = 4 * 1024 * 1024;
+
+let selectedFile = null;
+let lastResult = null;
+
+$("file").addEventListener("change", async (e) => {
+  const f = e.target.files?.[0];
+  if (!f) return;
+  setStatus("กำลังเตรียมรูป…");
+  try {
+    selectedFile = await downscale(f);
+    $("preview").src = URL.createObjectURL(selectedFile);
+    $("preview").style.display = "block";
+    $("btnExtract").disabled = false;
+    setStatus(`พร้อมอ่าน · ${(selectedFile.size / 1024).toFixed(0)} KB`);
+  } catch (err) {
+    setStatus("เตรียมรูปไม่สำเร็จ: " + err.message, "err");
+  }
+});
+
+$("btnExtract").addEventListener("click", async () => {
+  if (!selectedFile) return;
+  $("btnExtract").disabled = true;
+  setStatus("กำลังอ่านข้อมูลจากบัตร…");
+  try {
+    const fd = new FormData();
+    fd.append("image", selectedFile, selectedFile.name || "id-card.jpg");
+    const res = await fetch("/api/extract", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "extract_failed");
+
+    lastResult = data;
+    fillForm(data.fields, data.confidences);
+    $("evidenceInfo").textContent =
+      `หลักฐาน: ${data.evidence.key} · SHA-256 ${data.evidence.sha256.slice(0, 16)}… · ${(data.evidence.bytes/1024).toFixed(0)} KB`;
+
+    const c = data.checks;
+    if (c.needs_review) {
+      setStatus("อ่านได้แล้ว แต่มีบางช่องที่ต้องตรวจสอบซ้ำ (ดูสีความมั่นใจ)", "err");
+    } else {
+      setStatus("อ่านข้อมูลสำเร็จ — ตรวจสอบแล้วกดยืนยัน", "ok");
+    }
+    $("btnSave").disabled = false;
+  } catch (err) {
+    setStatus("อ่านไม่สำเร็จ: " + err.message, "err");
+    $("btnExtract").disabled = false;
+  }
+});
+
+$("consent").addEventListener("change", (e) => {
+  $("btnSave").disabled = !(e.target.checked && lastResult);
+});
+
+$("btnSave").addEventListener("click", async () => {
+  if (!lastResult) return;
+  $("btnSave").disabled = true;
+  $("saveStatus").textContent = "กำลังบันทึก…";
+  try {
+    const fields = Object.fromEntries(new FormData($("form")).entries());
+    const res = await fetch("/api/records", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        fields,
+        evidence: lastResult.evidence,
+        raw: lastResult.fields,
+        min_confidence: lastResult.checks.min_confidence,
+        needs_review: lastResult.checks.needs_review,
+        consent: $("consent").checked,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "save_failed");
+    $("saveStatus").textContent = `บันทึกแล้ว · record ${data.id}`;
+    $("saveStatus").className = "status ok";
+  } catch (err) {
+    $("saveStatus").textContent = "บันทึกไม่สำเร็จ: " + err.message;
+    $("saveStatus").className = "status err";
+    $("btnSave").disabled = false;
+  }
+});
+
+function fillForm(fields, confidences) {
+  for (const [name, value] of Object.entries(fields)) {
+    const el = $("form").elements[name];
+    if (!el) continue;
+    el.value = value == null ? "" : String(value);
+    const confEl = document.querySelector(`[data-conf="${name}"]`);
+    const c = confidences?.[name];
+    if (confEl) {
+      if (typeof c !== "number") { confEl.textContent = ""; continue; }
+      const pct = (c * 100).toFixed(1) + "%";
+      confEl.textContent = "ความมั่นใจ " + pct;
+      confEl.className = "conf " + (c >= 0.9 ? "high" : c >= 0.7 ? "mid" : "low");
+    }
+  }
+  // เตือน checksum เลขบัตร
+  const idEl = $("id_number");
+  const confEl = document.querySelector('[data-conf="id_number"]');
+  if (idEl.value && !validThaiId(idEl.value)) {
+    confEl.innerHTML = '<span class="badge bad">checksum ไม่ผ่าน — ตรวจเลข 13 หลัก</span>';
+  }
+}
+
+function validThaiId(id) {
+  const d = String(id).replace(/\D/g, "");
+  if (d.length !== 13) return false;
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += Number(d[i]) * (13 - i);
+  return (11 - (sum % 11)) % 10 === Number(d[12]);
+}
+
+/** ย่อรูปด้วย canvas เพื่อลดขนาดและทำให้ OCR แม่นขึ้น */
+async function downscale(file) {
+  if (!file.type.startsWith("image/")) throw new Error("ไฟล์ไม่ใช่รูปภาพ");
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+  const w = Math.round(bitmap.width * scale);
+  const h = Math.round(bitmap.height * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, w, h);
+
+  let quality = 0.9;
+  let blob = await toBlob(canvas, quality);
+  while (blob.size > MAX_BYTES && quality > 0.5) {
+    quality -= 0.1;
+    blob = await toBlob(canvas, quality);
+  }
+  if (blob.size > MAX_BYTES) throw new Error("รูปใหญ่เกิน 4 MB แม้ย่อแล้ว");
+  return new File([blob], "id-card.jpg", { type: "image/jpeg" });
+}
+
+function toBlob(canvas, quality) {
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+}
+
+function setStatus(msg, kind) {
+  const el = $("status");
+  el.textContent = msg;
+  el.className = "status" + (kind ? " " + kind : "");
+}
+</script>
+</body>
+</html>

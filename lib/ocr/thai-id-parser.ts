@@ -150,7 +150,7 @@ function afterPrefix(text: string, prefixes: string): string {
   return m ? m[1] : ''
 }
 
-function extractAddress(text: string, addressData: ThaiProvince[]) {
+export function extractAddress(text: string, addressData: ThaiProvince[]) {
   const result = { houseNo: '', moo: '', soi: '', road: '', subDistrict: '', district: '', province: '' }
   if (!text) return result
 

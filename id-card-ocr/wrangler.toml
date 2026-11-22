@@ -1,0 +1,31 @@
+name = "id-card-ocr"
+main = "src/index.js"
+compatibility_date = "2026-11-22"
+
+# --- Static frontend (form + camera capture) ---
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+# --- Workers AI (Clairic extraction model, vision) ---
+[ai]
+binding = "AI"
+
+# --- Evidence storage (เปิดใช้งาน R2 บน Cloudflare Dashboard ก่อนเปิดใช้งานส่วนนี้) ---
+# [[r2_buckets]]
+# binding = "EVIDENCE"
+# bucket_name = "id-evidence"
+
+# --- Records / audit trail ---
+[[d1_databases]]
+binding = "DB"
+database_name = "id-ocr"
+database_id = "5723b29d-197e-4d03-8c3e-21a2b8452f57"
+
+[observability]
+enabled = true
+
+[vars]
+MIN_CONFIDENCE = "0.85"
+EVIDENCE_RETENTION_DAYS = "365"
