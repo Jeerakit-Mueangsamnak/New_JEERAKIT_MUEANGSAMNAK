@@ -36,29 +36,58 @@ export async function scanIdCardPhoto(imageDataUrl: string, onProgress?: (percen
 }
 
 /**
- * Reads the front of a Thai ID card. OCR.space through our server first (app/api/ocr/id-card —
- * the key stays there); if it is not set up, out of free quota or fails, Tesseract (Thai +
- * English) in the browser reads it instead. Both give OCR lines to the same parser, so the result
- * holds only values it could prove from the text (see thai-id-parser.ts).
+ * Read the front of a Thai ID card: Cloudflare Clairic structured extraction,
+ * OCR.space text extraction, then browser Tesseract (Thai + English).
+ * Every extracted field is validated before autofill; untrusted data stays blank.
  */
 export async function readThaiIdCard(imageDataUrl: string, onProgress?: (percent: number) => void): Promise<ParsedThaiIdCard> {
-  const [{ THAI_ADDRESS_DATA }, lines] = await Promise.all([
+  const [{ THAI_ADDRESS_DATA }, response] = await Promise.all([
     import('@/lib/thai-address-data'),
-    readWithServer(imageDataUrl).then((serverLines) => serverLines ?? readWithTesseract(imageDataUrl, onProgress)),
+    readWithServer(imageDataUrl),
   ])
+  if (response?.fields) {
+    // Structured fields have already passed checks on the server. Fill gaps with
+    // the existing local OCR only when required; never overwrite a trusted value.
+    const structured = response.fields
+    if (structured.name && structured.idCardNumber && structured.province && structured.district && structured.subDistrict) return structured
+    try {
+      const fallback = parseThaiIdCardLines(await readWithTesseract(imageDataUrl, onProgress), THAI_ADDRESS_DATA)
+      const filled = { ...structured }
+      // Never combine a district or sub-district from one province with a
+      // different OCR result's province/district.
+      for (const key of Object.keys(filled) as (keyof ParsedThaiIdCard)[]) {
+        if (key === 'province' || key === 'district' || key === 'subDistrict') continue
+        if (!filled[key]) filled[key] = fallback[key]
+      }
+      if (!filled.province && fallback.province) filled.province = fallback.province
+      if (!filled.district && filled.province === fallback.province && fallback.district) filled.district = fallback.district
+      if (!filled.subDistrict && filled.province === fallback.province && filled.district === fallback.district) {
+        filled.subDistrict = fallback.subDistrict
+      }
+      return filled
+    } catch {
+      return structured
+    }
+  }
+  const lines = response?.lines ?? await readWithTesseract(imageDataUrl, onProgress)
   return parseThaiIdCardLines(lines, THAI_ADDRESS_DATA)
 }
 
-/** null = use the fallback (not configured, quota reached, network or OCR error). */
-async function readWithServer(imageDataUrl: string): Promise<OcrLine[] | null> {
+/** null = use browser Tesseract fallback (Cloudflare AI and OCR.space unavailable). */
+async function readWithServer(imageDataUrl: string): Promise<{ fields?: ParsedThaiIdCard; lines?: OcrLine[] } | null> {
   try {
     const res = await fetch('/api/ocr/id-card', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image: await shrinkForUpload(imageDataUrl) }),
     })
-    const body = (await res.json().catch(() => null)) as { ok?: boolean; lines?: OcrLine[]; reason?: string } | null
-    if (res.ok && body?.ok && Array.isArray(body.lines)) return body.lines
+    const body = (await res.json().catch(() => null)) as {
+      ok?: boolean; fields?: ParsedThaiIdCard; lines?: OcrLine[]; reason?: string
+    } | null
+    if (res.ok && body?.ok) {
+      if (body.fields && typeof body.fields === 'object') return { fields: body.fields }
+      if (Array.isArray(body.lines)) return { lines: body.lines }
+    }
     logger.warn('Server OCR unavailable, using Tesseract:', body?.reason ?? res.status)
   } catch (err) {
     logger.warn('Server OCR request failed, using Tesseract:', err)
