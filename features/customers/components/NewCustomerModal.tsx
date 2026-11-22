@@ -2,7 +2,7 @@
 import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { User, Check, Camera, ShieldCheck, CheckCircle2, AlertTriangle, Trash2, Upload, RefreshCw } from 'lucide-react'
+import { User, Check, Camera, CheckCircle2, AlertTriangle, Trash2, Upload, RefreshCw } from 'lucide-react'
 import { Customer } from '@/lib/types/rental-pos'
 import type { ThaiProvince } from '@/lib/thai-address-data'
 import { IDCardScannerModal, ExtractedIDCardData } from './IDCardScannerModal'
@@ -19,20 +19,6 @@ interface NewCustomerModalProps {
   /** Resolve false to keep the form open (save failed / cancelled). */
   onSave: (customer: Customer, reason?: string) => Promise<boolean | void> | boolean | void
   editingCustomer?: Customer | null
-}
-
-const OCR_FIELD_LABELS: Record<ParsedThaiIdField, string> = {
-  name: 'ชื่อ-นามสกุล',
-  idCardNumber: 'เลขบัตร',
-  birthDate: 'วันเกิด',
-  idCardExpiry: 'วันหมดอายุบัตร',
-  houseNo: 'บ้านเลขที่',
-  moo: 'หมู่',
-  soi: 'ซอย',
-  road: 'ถนน',
-  subDistrict: 'ตำบล',
-  district: 'อำเภอ',
-  province: 'จังหวัด',
 }
 
 export function NewCustomerModal({
@@ -68,14 +54,7 @@ export function NewCustomerModal({
   const [birthDate, setBirthDate] = useState('')
   const [idCardImageUrl, setIdCardImageUrl] = useState('')
   const [uploadedFileName, setUploadedFileName] = useState('')
-  // Fields the ID card OCR filled in this session: highlighted, and the user must confirm them before saving.
-  const [ocrFilled, setOcrFilled] = useState<ParsedThaiIdField[]>([])
-  const [ocrMissing, setOcrMissing] = useState<ParsedThaiIdField[]>([])
-  // Read but not provable (name, house no …): shown for the user to accept one by one, never filled by itself.
-  const [ocrSuggestions, setOcrSuggestions] = useState<Partial<Record<ParsedThaiIdField, string>>>({})
   const [ocrFailed, setOcrFailed] = useState(false)
-  const [ocrReviewed, setOcrReviewed] = useState(false)
-  const [ocrReviewError, setOcrReviewError] = useState(false)
   const [isScannerOpen, setIsScannerOpen] = useState(false)
   // "อัปโหลดรูปบัตร": opens the photo library / file picker of this device, then the same OCR as the camera.
   const photoInputRef = useRef<HTMLInputElement | null>(null)
@@ -85,12 +64,7 @@ export function NewCustomerModal({
   const lastPhotoTapRef = useRef(0)
 
   useEffect(() => {
-    setOcrFilled([])
-    setOcrMissing([])
-    setOcrSuggestions({})
     setOcrFailed(false)
-    setOcrReviewed(false)
-    setOcrReviewError(false)
     setPhotoError('')
     setIsPhotoPreviewOpen(false)
     if (editingCustomer) {
@@ -241,30 +215,20 @@ export function NewCustomerModal({
     subDistrict: { current: selectedSubDistrict, set: setSelectedSubDistrict },
   }
 
-  // OCR (owner 2026-10-31): everything the card was read for goes straight into its EMPTY field,
-  // highlighted for review (the user ticks the check before saving). A field the user already typed
-  // is never overwritten: a different card value is offered there to put in by hand. The address
-  // chain is filled only as a whole, when province / district / sub-district are all empty.
-  // Anything the card could not be read for stays empty.
+  // OCR: everything the card was read for goes straight into its empty field.
+  // A field the user already typed is not overwritten. The address chain is filled
+  // only when province / district / sub-district are all empty.
   const handleScanComplete = (scannedData: ExtractedIDCardData) => {
-    const filled: ParsedThaiIdField[] = []
-    const missing: ParsedThaiIdField[] = []
-    const suggestions: Partial<Record<ParsedThaiIdField, string>> = {}
     const addressEmpty = !selectedProvince && !selectedDistrict && !selectedSubDistrict
     for (const [key, target] of Object.entries(ocrSetters) as [ParsedThaiIdField, { current: string; set: (v: string) => void }][]) {
       const value = scannedData[key]
-      if (!value) {
-        missing.push(key)
-      } else if (['province', 'district', 'subDistrict'].includes(key)) {
+      if (!value) continue
+      if (['province', 'district', 'subDistrict'].includes(key)) {
         if (addressEmpty) {
           target.set(value)
-          filled.push(key)
         }
       } else if (!target.current.trim()) {
         target.set(value)
-        filled.push(key)
-      } else if (target.current.trim() !== value) {
-        suggestions[key] = value
       }
     }
 
@@ -273,30 +237,8 @@ export function NewCustomerModal({
       setUploadedFileName('รูปจากการสแกนบัตร')
     }
     setOcrFailed(Boolean(scannedData.ocrFailed))
-    setOcrFilled((prev) => Array.from(new Set([...prev, ...filled])))
-    setOcrMissing(scannedData.ocrFailed ? [] : missing)
-    setOcrSuggestions(suggestions)
-    setOcrReviewed(false)
-    setOcrReviewError(false)
     setIsScannerOpen(false)
   }
-
-  const acceptOcrSuggestion = (key: ParsedThaiIdField) => {
-    const value = ocrSuggestions[key]
-    if (!value) return
-    ocrSetters[key]?.set(value)
-    setOcrFilled((prev) => Array.from(new Set([...prev, key])))
-    setOcrSuggestions((prev) => {
-      const next = { ...prev }
-      delete next[key]
-      return next
-    })
-    setOcrReviewed(false)
-  }
-
-  /** Amber ring on a field the OCR filled, until the user confirms the review. */
-  const ocrRing = (...keys: ParsedThaiIdField[]) =>
-    !ocrReviewed && keys.some((k) => ocrFilled.includes(k)) ? ' ring-2 ring-amber-400 border-amber-400' : ''
 
   // Handle ID Card Input formatting
   const handleIdCardNumberChange = (value: string) => {
@@ -317,10 +259,6 @@ export function NewCustomerModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim() || isSubmitting) return
-    if (ocrFilled.length > 0 && !ocrReviewed) {
-      setOcrReviewError(true)
-      return
-    }
 
     const fullHouseAddress = [
       houseNo && `เลขที่ ${houseNo}`,
@@ -424,49 +362,6 @@ export function NewCustomerModal({
                 <span>อ่านข้อมูลจากบัตรไม่สำเร็จ แนบรูปบัตรไว้แล้ว กรุณากรอกข้อมูลเอง</span>
               </div>
             )}
-            {!ocrFailed && (ocrFilled.length > 0 || ocrMissing.length > 0 || Object.keys(ocrSuggestions).length > 0) && (
-              <div role="status" aria-label="ผลการอ่านบัตร" className="p-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 rounded-xl text-amber-900 dark:text-amber-200 text-xs space-y-1">
-                <p className="font-extrabold flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 shrink-0" />
-                  {ocrFilled.length > 0 ? 'อ่านจากบัตรได้บางส่วน — ช่องกรอบสีเหลืองมาจากการอ่านบัตร กรุณาตรวจให้ตรงกับบัตรจริง' : 'อ่านข้อมูลจากบัตรไม่ได้ กรุณากรอกเอง'}
-                </p>
-                {ocrFilled.length > 0 && <p>อ่านได้: {ocrFilled.map((k) => OCR_FIELD_LABELS[k]).join(', ')}</p>}
-                {Object.keys(ocrSuggestions).length > 0 && (
-                  <div className="space-y-1">
-                    <p className="font-bold">ช่องนี้มีข้อมูลที่กรอกไว้แล้ว แต่อ่านจากบัตรได้ไม่ตรงกัน — กดใส่ถ้าต้องการใช้ค่าจากบัตร:</p>
-                    {(Object.entries(ocrSuggestions) as [ParsedThaiIdField, string][]).map(([key, suggested]) => (
-                      <div key={key} className="flex items-center gap-2">
-                        <span>{OCR_FIELD_LABELS[key]}: <span className="font-mono font-bold">{suggested}</span></span>
-                        <button
-                          type="button"
-                          onClick={() => acceptOcrSuggestion(key)}
-                          className={`${COMMAND_BUTTON_SIZE_CLASSES} border ${BUTTON_FUNCTION_COLOURS.save}`}
-                        >
-                          ใส่ในช่อง{OCR_FIELD_LABELS[key]}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {ocrMissing.length > 0 && <p>อ่านไม่ได้ (เว้นว่างไว้): {ocrMissing.map((k) => OCR_FIELD_LABELS[k]).join(', ')}</p>}
-                {ocrFilled.length > 0 && (
-                  <label className="flex items-center gap-1.5 font-bold pt-0.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={ocrReviewed}
-                      onChange={(e) => {
-                        setOcrReviewed(e.target.checked)
-                        setOcrReviewError(false)
-                      }}
-                    />
-                    <span>ฉันตรวจข้อมูลที่อ่านจากบัตรแล้ว ถูกต้องตรงกับบัตรจริง</span>
-                  </label>
-                )}
-                {ocrReviewError && (
-                  <p role="alert" className="font-bold text-red-700 dark:text-red-400">กรุณาตรวจข้อมูลที่อ่านจากบัตรแล้วติ๊กยืนยันก่อนบันทึก</p>
-                )}
-              </div>
-            )}
 
             {/* Customer details, 4 columns (owner 2026-10-31):
                 ชื่อ (2) | เลขบัตรประชาชน/เลขผู้เสียภาษี (2)
@@ -484,7 +379,7 @@ export function NewCustomerModal({
                   aria-label="ชื่อลูกค้า / ชื่อบริษัท"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className={`w-full px-3 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500${ocrRing('name')}`}
+                  className="w-full px-3 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
               </div>
@@ -512,7 +407,7 @@ export function NewCustomerModal({
                   aria-label="เลขบัตรประชาชน / เลขผู้เสียภาษี"
                   value={idCardNumber}
                   onChange={(e) => handleIdCardNumberChange(e.target.value)}
-                  className={`w-full px-3 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500${ocrRing('idCardNumber')}`}
+                  className="w-full px-3 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
@@ -525,7 +420,7 @@ export function NewCustomerModal({
                   aria-label="บ้านเลขที่"
                   value={houseNo}
                   onChange={(e) => setHouseNo(e.target.value)}
-                  className={`w-full px-3 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500${ocrRing('houseNo')}`}
+                  className="w-full px-3 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
@@ -537,7 +432,7 @@ export function NewCustomerModal({
                   aria-label="หมู่"
                   value={moo}
                   onChange={(e) => setMoo(e.target.value)}
-                  className={`w-full px-3 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500${ocrRing('moo')}`}
+                  className="w-full px-3 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
@@ -549,7 +444,7 @@ export function NewCustomerModal({
                   aria-label="ซอย"
                   value={soi}
                   onChange={(e) => setSoi(e.target.value)}
-                  className={`w-full px-3 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500${ocrRing('soi')}`}
+                  className="w-full px-3 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
@@ -561,12 +456,12 @@ export function NewCustomerModal({
                   aria-label="ถนน"
                   value={road}
                   onChange={(e) => setRoad(e.target.value)}
-                  className={`w-full px-3 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500${ocrRing('road')}`}
+                  className="w-full px-3 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
               {/* จังหวัด → อำเภอ → ตำบล are still picked in that order: each list follows the one above it */}
-              <div className={`min-w-0 rounded-xl${ocrRing('subDistrict')}`}>
+              <div className="min-w-0 rounded-xl">
                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
                   ตำบล / แขวง
                 </label>
@@ -583,7 +478,7 @@ export function NewCustomerModal({
                   }))}
                 />
               </div>
-              <div className={`min-w-0 rounded-xl${ocrRing('district')}`}>
+              <div className="min-w-0 rounded-xl">
                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
                   อำเภอ / เขต
                 </label>
@@ -596,7 +491,7 @@ export function NewCustomerModal({
                   options={availableDistricts.map((d) => ({ value: d, label: d }))}
                 />
               </div>
-              <div className={`min-w-0 rounded-xl${ocrRing('province')}`}>
+              <div className="min-w-0 rounded-xl">
                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">
                   จังหวัด
                 </label>

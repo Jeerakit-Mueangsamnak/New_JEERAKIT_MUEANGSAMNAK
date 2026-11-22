@@ -8,7 +8,7 @@ import { sql } from './db';
 // but it must never put a wrong value in a field. Accuracy per field is written to
 // test-results/ocr-accuracy.json (or OCR_REPORT_DIR) — these are synthetic cards, not real ones.
 test.describe.configure({ mode: 'serial' });
-test.beforeEach(({}, info) => {
+test.beforeEach(({ }, info) => {
   test.skip(info.project.name !== 'chromium', 'writes customers: Chromium only');
 });
 
@@ -150,10 +150,9 @@ for (const variant of VARIANTS) {
     const image = await cardImage(page, variant);
     // "อัปโหลดรูปบัตร" (top of the window) opens the device file picker: hand the file to its input.
     await page.getByLabel('อัปโหลดรูปบัตรประชาชน').setInputFiles({ name: `card-${variant}.jpg`, mimeType: 'image/jpeg', buffer: image });
-    const status = page.getByRole('status', { name: 'ผลการอ่านบัตร' });
-    await expect(status).toBeVisible({ timeout: 200000 });
+    await expect(page.getByText(`📄 card-${variant}.jpg`)).toBeVisible({ timeout: 200000 });
 
-    const result: Record<string, string> = { status: (await status.innerText()).replace(/\s+/g, ' ') };
+    const result: Record<string, string> = {};
     const wrong: string[] = [];
     for (const [label, truth] of Object.entries(TRUTH)) {
       const got = await field(page, label).inputValue();
@@ -175,24 +174,19 @@ for (const variant of VARIANTS) {
   });
 }
 
-test('OCR แล้วต้องติ๊กตรวจก่อนบันทึก จากนั้นบันทึกได้และแก้ไขได้', async ({ page }) => {
+test('OCR แล้วบันทึกได้ทันทีและแก้ไขได้', async ({ page }) => {
   test.setTimeout(240000);
   const phone = '09' + String(Date.now()).slice(-8);
   await openNewCustomer(page);
   const image = await cardImage(page, 'clear');
   await page.getByLabel('อัปโหลดรูปบัตรประชาชน').setInputFiles({ name: 'card.jpg', mimeType: 'image/jpeg', buffer: image });
-  await expect(page.getByRole('status', { name: 'ผลการอ่านบัตร' })).toBeVisible({ timeout: 200000 });
-  const review = page.getByRole('checkbox', { name: /ฉันตรวจข้อมูลที่อ่านจากบัตรแล้ว/ });
-  test.skip(!(await review.isVisible()), 'OCR read nothing on this machine — see the accuracy report');
+  await expect(page.getByText('📄 card.jpg')).toBeVisible({ timeout: 200000 });
 
   // Make the record unique and complete what the card cannot give.
   const name = `${await field(page, 'ชื่อลูกค้า / ชื่อบริษัท').inputValue() || 'ลูกค้า OCR'} ${phone.slice(-4)}`;
   await field(page, 'ชื่อลูกค้า / ชื่อบริษัท').fill(name);
   await field(page, 'เบอร์โทรศัพท์หลัก').fill(phone);
   if (!(await field(page, 'บ้านเลขที่').inputValue())) await field(page, 'บ้านเลขที่').fill('99/1');
-  await page.getByRole('button', { name: 'บันทึกข้อมูลลูกค้า' }).click();
-  await expect(page.getByRole('alert').filter({ hasText: 'ติ๊กยืนยัน' })).toBeVisible();
-  await review.check();
   await page.getByRole('button', { name: 'บันทึกข้อมูลลูกค้า' }).click();
   await expect(page.getByText('เพิ่มลูกค้าใหม่สำเร็จ')).toBeVisible({ timeout: 20000 });
   const [row] = sql(`select contact_details->>'postalCode', contact_details->>'idCardNumber' from public.customers where phone = '${phone}'`);

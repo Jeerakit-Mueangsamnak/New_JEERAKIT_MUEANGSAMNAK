@@ -70,30 +70,20 @@ describe('เพิ่มลูกค้าใหม่: ช่องว่า�
     await openForm()
     fireEvent.change(screen.getByLabelText('ชื่อลูกค้า / ชื่อบริษัท'), { target: { value: 'ชื่อที่พิมพ์เอง' } })
     await runScan({ name: 'นาย ทดสอบ ระบบดี', idCardNumber: '1-1017-00203-45-1', houseNo: '99/1' })
-    // The typed name stays; the card's name is offered to put in by hand.
+    // The typed name stays; empty fields are filled from the card.
     expect(value('ชื่อลูกค้า / ชื่อบริษัท')).toBe('ชื่อที่พิมพ์เอง')
     expect(value('เลขบัตรประชาชน / เลขผู้เสียภาษี')).toBe('1-1017-00203-45-1')
     expect(value('บ้านเลขที่')).toBe('99/1')
     expect(value('หมู่')).toBe('')
     expect(value('รหัสไปรษณีย์')).toBe('')
-    const status = screen.getByRole('status', { name: 'ผลการอ่านบัตร' }).textContent || ''
-    expect(status).toContain('อ่านได้: เลขบัตร, บ้านเลขที่')
-    expect(status).toContain('ชื่อ-นามสกุล: นาย ทดสอบ ระบบดี')
-    expect(status).toContain('อ่านไม่ได้ (เว้นว่างไว้)')
   })
 
-  it('ช่องว่าง: ชื่อและที่อยู่ที่อ่านได้ถูกกรอกให้เลย และต้องติ๊กตรวจก่อนบันทึก', async () => {
+  it('ช่องว่าง: ชื่อและที่อยู่ที่อ่านได้ถูกกรอกให้เลย และบันทึกได้ทันที', async () => {
     const { onSave } = await openForm()
     await runScan({ name: 'นาย ทดสอบ ระบบดี', houseNo: '99/1' })
     expect(value('ชื่อลูกค้า / ชื่อบริษัท')).toBe('นาย ทดสอบ ระบบดี')
     expect(value('บ้านเลขที่')).toBe('99/1')
-    expect(screen.queryByRole('button', { name: /^ใส่ในช่อง/ })).toBeNull()
     fireEvent.change(screen.getByLabelText('เบอร์โทรศัพท์หลัก'), { target: { value: '0812345678' } })
-    await submit()
-    expect(onSave).not.toHaveBeenCalled()
-    expect(screen.getByRole('alert').textContent).toContain('ติ๊กยืนยัน')
-
-    fireEvent.click(screen.getByRole('checkbox', { name: /ฉันตรวจข้อมูลที่อ่านจากบัตรแล้ว/ }))
     await submit()
     expect(onSave).toHaveBeenCalledTimes(1)
     const saved = (onSave.mock.calls[0] as unknown as [Customer])[0]
@@ -101,19 +91,16 @@ describe('เพิ่มลูกค้าใหม่: ช่องว่า�
     expect(saved.moo).toBeUndefined()
   })
 
-  it('ช่องที่พิมพ์ไว้แล้วค่าไม่ตรงกับบัตร: เก็บค่าที่พิมพ์ไว้ และกดใส่ค่าจากบัตรเองได้', async () => {
+  it('ช่องที่พิมพ์ไว้แล้วค่าไม่ตรงกับบัตร: เก็บค่าที่พิมพ์ไว้ ไม่ทับค่าเดิม', async () => {
     const { onSave } = await openForm()
     fireEvent.change(screen.getByLabelText('ชื่อลูกค้า / ชื่อบริษัท'), { target: { value: 'ลูกค้า ง' } })
     fireEvent.change(screen.getByLabelText('บ้านเลขที่'), { target: { value: '7' } })
     await runScan({ houseNo: '99/1', moo: '5' })
     expect(value('บ้านเลขที่')).toBe('7')
     expect(value('หมู่')).toBe('5')
-    fireEvent.click(screen.getByRole('button', { name: 'ใส่ในช่องบ้านเลขที่' }))
-    expect(value('บ้านเลขที่')).toBe('99/1')
-    fireEvent.click(screen.getByRole('checkbox', { name: /ฉันตรวจข้อมูลที่อ่านจากบัตรแล้ว/ }))
     await submit()
     const saved = (onSave.mock.calls[0] as unknown as [Customer])[0]
-    expect(saved).toMatchObject({ houseNo: '99/1', moo: '5' })
+    expect(saved).toMatchObject({ houseNo: '7', moo: '5' })
   })
 
   it('ลบค่าที่ OCR เติมออก: ช่องนั้นว่างและบันทึกเป็นค่าว่าง ไม่เติมกลับ', async () => {
@@ -122,7 +109,6 @@ describe('เพิ่มลูกค้าใหม่: ช่องว่า�
     fireEvent.change(screen.getByLabelText('ชื่อลูกค้า / ชื่อบริษัท'), { target: { value: 'ลูกค้า จ' } })
     fireEvent.change(screen.getByLabelText('เลขบัตรประชาชน / เลขผู้เสียภาษี'), { target: { value: '' } })
     expect(value('เลขบัตรประชาชน / เลขผู้เสียภาษี')).toBe('')
-    fireEvent.click(screen.getByRole('checkbox', { name: /ฉันตรวจข้อมูลที่อ่านจากบัตรแล้ว/ }))
     await submit()
     const saved = (onSave.mock.calls[0] as unknown as [Customer])[0]
     expect(saved.idCardNumber).toBe('')
