@@ -146,34 +146,89 @@ function addressText(lines: OcrLine[]): string {
 }
 
 function afterPrefix(text: string, prefixes: string): string {
-  const m = text.match(new RegExp(`(?:^|\\s)(?:${prefixes})\\s*([ก-๙0-9]+)`))
-  return m ? m[1] : ''
+  // ตัดเงื่อนไขเว้นวรรคด้านหน้าออก เพื่อให้จับคำที่พิมพ์ติดกันได้ (เช่น "ต.บางพลีอ.บางพลีจ.สมุทรปราการ")
+  // ใช้ Lookahead (?=...) เพื่อหยุดอ่านเมื่อเจอคำนำหน้าถัดไปหรือเว้นวรรค
+  const regex = new RegExp(`(?:${prefixes})\\s*([ก-๙]+?)(?=\\s|ต\\.|ตำบล|แขวง|อ\\.|อำเภอ|เขต|จ\\.|จังหวัด|$)`)
+  const m = text.match(regex)
+  return m ? m[1].trim() : ''
 }
 
 export function extractAddress(text: string, addressData: ThaiProvince[]) {
   const result = { houseNo: '', moo: '', soi: '', road: '', subDistrict: '', district: '', province: '' }
   if (!text) return result
 
-  const house = text.match(/^(\d{1,5}(?:\/\d{1,4})?)(?=\s|$)/)
+  const clean = text.replace(/^\s*ที่อยู่\s*/, '').trim()
+
+  const house = clean.match(/^(\d{1,5}(?:\/\d{1,4})?)(?=\s|$)/)
   if (house) result.houseNo = house[1]
-  const moo = text.match(/(?:หมู่ที่|หมู่|ม\.)\s*(\d{1,3})(?=\s|$)/)
+  const moo = clean.match(/(?:หมู่ที่|หมู่|ม\.)\s*(\d{1,3})(?=\s|[ก-๙]|$)/)
   if (moo) result.moo = moo[1]
-  const soi = text.match(/(?:ซอย|ซ\.)\s*([ก-๙0-9/]+(?:\s\d+)?)/)
+  const soi = clean.match(/(?:ซอย|ซ\.)\s*([ก-๙0-9/]+(?:\s\d+)?)/)
   if (soi) result.soi = soi[1]
-  const road = text.match(/(?:ถนน|ถ\.)\s*([ก-๙0-9]+)/)
+  const road = clean.match(/(?:ถนน|ถ\.)\s*([ก-๙0-9]+)/)
   if (road) result.road = road[1]
 
-  const provinceName = text.includes('กรุงเทพมหานคร') ? 'กรุงเทพมหานคร' : afterPrefix(text, 'จังหวัด|จ\\.')
-  const province = addressData.find((p) => p.name === provinceName)
-  if (!province) return result // cannot check district / sub-district without a known province
+  // 1. ค้นหาจังหวัด (จากคำนำหน้า จังหวัด / จ.)
+  let provinceName = clean.includes('กรุงเทพมหานคร')
+    ? 'กรุงเทพมหานคร'
+    : afterPrefix(clean, 'จังหวัด|จ\\.')
+
+  let province = addressData.find((p) => p.name === provinceName)
+
+  // Fallback 1: กรณี AI ไม่ส่งคำว่า "จ." ให้ค้นหาชื่อจังหวัดที่ปรากฏอยู่ในข้อความ (เรียงจากชื่อยาวไปสั้นกันคำซ้อน)
+  if (!province) {
+    const sortedProvinces = [...addressData].sort((a, b) => b.name.length - a.name.length)
+    province = sortedProvinces.find((p) => clean.includes(p.name))
+  }
+
+  // ถ้ายังไม่เจอจังหวัด ให้หยุดทำงาน
+  if (!province) return result
   result.province = province.name
 
-  const district = province.districts.find((d) => d.name === afterPrefix(text, 'อำเภอ|อ\\.|เขต'))
+  // 2. ค้นหาอำเภอ / เขต
+  let districtName = afterPrefix(clean, 'อำเภอ|อ\\.|เขต')
+  let district = undefined
+
+  if (districtName) {
+    // แก้ปัญหา "อ.เมือง" -> แปลงเป็น "เมือง" + ชื่อจังหวัด (เช่น "เมืองสมุทรปราการ", "เมืองนนทบุรี")
+    if (districtName === 'เมือง') {
+      districtName = `เมือง${province.name}`
+    }
+    district = province.districts.find(
+      (d) => d.name === districtName || d.name === `เมือง${districtName}`
+    )
+  }
+
+  // Fallback 2: กรณี AI ไม่ส่งคำว่า "อ." หรือ "เขต" ให้ค้นหาชื่ออำเภอในจังหวัดนั้นจากข้อความตรงๆ
+  if (!district) {
+    const sortedDistricts = [...province.districts].sort((a, b) => b.name.length - a.name.length)
+    district = sortedDistricts.find((d) => {
+      const shortName = d.name.replace(/^เมือง/, '')
+      return clean.includes(d.name) || (d.name.startsWith('เมือง') && (clean.includes(`อ.${shortName}`) || clean.includes(`อำเภอ${shortName}`)))
+    })
+  }
+
   if (!district) return result
   result.district = district.name
 
-  const sub = district.subDistricts.find((s) => s.name === afterPrefix(text, 'ตำบล|ต\\.|แขวง'))
-  if (sub) result.subDistrict = sub.name
+  // 3. ค้นหาตำบล / แขวง
+  const subdistrictName = afterPrefix(clean, 'ตำบล|ต\\.|แขวง')
+  let subdistrict = undefined
+
+  if (subdistrictName) {
+    subdistrict = district.subDistricts.find((s) => s.name === subdistrictName)
+  }
+
+  // Fallback 3: กรณี AI ไม่ส่งคำว่า "ต." หรือ "แขวง" ให้ค้นหาชื่อตำบลในอำเภอนั้นจากข้อความตรงๆ
+  if (!subdistrict) {
+    const sortedSubdistricts = [...district.subDistricts].sort((a, b) => b.name.length - a.name.length)
+    subdistrict = sortedSubdistricts.find((s) => clean.includes(s.name))
+  }
+
+  if (subdistrict) {
+    result.subDistrict = subdistrict.name
+  }
+
   return result
 }
 
