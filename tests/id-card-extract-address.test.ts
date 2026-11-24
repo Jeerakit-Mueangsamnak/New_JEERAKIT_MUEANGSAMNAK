@@ -34,11 +34,11 @@ describe('extractAddress: แยกที่อยู่ภาษาไทยจ
     expect(res.moo).toBe('1')
   })
 
-  it('แยกที่อยู่ที่ไม่มีคำนำหน้า ต. อ. จ. (Fallback ค้นหาชื่อตรงๆ) ได้ถูกต้อง', () => {
+  it('ไม่เดาอำเภอหรือตำบลจากชื่อที่เป็นส่วนหนึ่งของข้อความโดยไม่มีคำกำกับ', () => {
     const res = extractAddress('12 หมู่ 3 บางพลีใหญ่ บางพลี สมุทรปราการ', THAI_ADDRESS_DATA)
     expect(res.province).toBe('สมุทรปราการ')
-    expect(res.district).toBe('บางพลี')
-    expect(res.subDistrict).toBe('บางพลีใหญ่')
+    expect(res.district).toBe('')
+    expect(res.subDistrict).toBe('')
     expect(res.houseNo).toBe('12')
     expect(res.moo).toBe('3')
   })

@@ -10,19 +10,14 @@ import { CartItem, saveActiveCart } from '@/features/pos/services/cart-storage'
 import { Customer, Product } from '@/lib/types/rental-pos'
 
 const mocks = vi.hoisted(() => ({
-  saveDraft: vi.fn(async () => 'bill-9'),
-  confirm: vi.fn(async () => ({ id: 'bill-9', billNo: 'BL-2026-000009', grandTotal: 1000, items: [] })),
-  fetchBill: vi.fn(async () => ({ id: 'bill-9', grandTotal: 1000 })),
+  issue: vi.fn(async () => ({ id: 'bill-9', billNo: 'BL-2026-000009', grandTotal: 1000, items: [] }) as any),
   print: vi.fn(),
 }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 vi.mock('@/features/auth/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'tester', fullName: 'Tester' } }) }))
 vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: vi.fn() }) }))
 vi.mock('@/features/bills/services/bill-service', () => ({
-  saveBillDraft: mocks.saveDraft, confirmBill: mocks.confirm, deliverBill: vi.fn(async () => null),
-}))
-vi.mock('@/features/bills/services/bill-storage', () => ({
-  fetchBillByIdFromSupabase: mocks.fetchBill, fetchBillsFromSupabase: vi.fn(async () => []), loadBillById: () => undefined,
+  issueBill: mocks.issue, deliverBill: vi.fn(async () => null),
 }))
 vi.mock('@/features/settings/api/settings-repository', () => ({
   fetchSharedSystemConfig: vi.fn(async () => null),
@@ -99,5 +94,15 @@ describe('P1-B1 the document printed after saving is the saved bill', () => {
     expect(forms[0].pages[0]).toContain('BL-2026-000009')
     expect(forms[0].pages[0]).toContain('ร้านทดสอบ')
     expect(ticked).toEqual(['ใบส่งของ/ใบเสร็จรับเงิน'])
+  })
+
+  it('บันทึกยืนยันบิลเหมือนออกบิล แต่ไม่เปิดหน้าต่างเลือกเอกสาร', async () => {
+    render(<ConfirmDialogProvider><SystemSettingsProvider><CheckoutPage /></SystemSettingsProvider></ConfirmDialogProvider>)
+    fireEvent.click(screen.getByRole('button', { name: 'เงินสด' }))
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }))
+
+    await waitFor(() => expect(mocks.issue).toHaveBeenCalledOnce())
+    expect(screen.queryByRole('button', { name: 'พิมพ์เอกสาร' })).toBeNull()
+    expect(await doc()).toMatchObject({ billNo: 'BL-2026-000009', items: 1, total: 1000 })
   })
 })

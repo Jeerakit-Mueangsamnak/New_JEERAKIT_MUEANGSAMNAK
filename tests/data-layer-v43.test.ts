@@ -159,6 +159,14 @@ describe('bill rows → bill screen (server numbers only)', () => {
     expect(b).toMatchObject({ customerName: 'สมชาย (วันออกบิล)', customerPhone: '089', customerAddress: 'บางนา' })
     expect(b.items[0]).toMatchObject({ productCode: 'NR-OLD', productName: 'นั่งร้าน (ชื่อเดิม)', unit: 'ชุดเดิม' })
   })
+
+  it('a confirmed bill keeps and displays both phone numbers from its customer snapshot', () => {
+    const b = mapBill({
+      ...baseBill,
+      customer_snapshot: { name: 'สมชาย', phone: '0811111111', phone2: '0822222222', address: 'บางนา', tax_id: '0123456789012' },
+    } as never, [], ctx)
+    expect(b).toMatchObject({ customerPhone: '0811111111, 0822222222', customerTaxId: '0123456789012' })
+  })
 })
 
 describe('product rows → product screen (stock from the ledger balances)', () => {

@@ -250,8 +250,3 @@ export function countClosedBills(): Promise<number> {
 export function countCancelledBills(): Promise<number> {
   return countBillsWithStatus(['CANCELLED', 'VOID'])
 }
-
-/** A DRAFT (no number, no stock, no money) can be deleted for real (bill_draft_delete). */
-export function canHardDeleteBill(bill: FullBill | RentalBill): boolean {
-  return bill.rentalStatus === 'DRAFT' && (bill.paidAmount || 0) <= 0
-}

@@ -10,10 +10,9 @@ import { DEFAULT_SYSTEM_CONFIG, loadSystemSettings, setCachedSystemSettings } fr
 import { CartItem, loadActiveCart, saveActiveCart } from '@/features/pos/services/cart-storage'
 
 const mocks = vi.hoisted(() => ({
-  saveDraft: vi.fn(async (_input: { lines: unknown[]; vatEnabled?: boolean; vatMode?: string | null }) => 'bill-1'),
-  confirm: vi.fn(async () => ({ id: 'bill-1', billNo: 'BL-07102569-001', items: [] })),
+  issue: vi.fn(async (_input: { lines: unknown[]; vatEnabled?: boolean; vatMode?: string | null }, _payment: unknown) =>
+    ({ id: 'bill-1', billNo: 'BL-07102569-001', items: [] }) as any),
   deliver: vi.fn(async () => null),
-  fetchBill: vi.fn(async () => ({ id: 'bill-1', grandTotal: 107 })),
   saveSection: vi.fn(),
   toast: vi.fn(),
   push: vi.fn(),
@@ -22,10 +21,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
 vi.mock('@/features/auth/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'tester', fullName: 'Tester', role: 'USER' } }) }))
 vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: mocks.toast }) }))
 vi.mock('@/features/bills/services/bill-service', () => ({
-  saveBillDraft: mocks.saveDraft, confirmBill: mocks.confirm, deliverBill: mocks.deliver,
-}))
-vi.mock('@/features/bills/services/bill-storage', () => ({
-  fetchBillByIdFromSupabase: mocks.fetchBill, fetchBillsFromSupabase: vi.fn(async () => []), loadBillById: () => undefined,
+  issueBill: mocks.issue, deliverBill: mocks.deliver,
 }))
 // Shop settings are written only through this — the POS must never call it.
 vi.mock('@/features/settings/api/settings-repository', () => ({ saveSettingsSection: mocks.saveSection }))
@@ -101,8 +97,8 @@ describe('VAT is chosen per bill with รวม VAT / ไม่รวม VAT, no
     expect(screen.getByText('ภาษีมูลค่าเพิ่ม 7% (รวมในราคาแล้ว)')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'เงินสด' }))
     fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
-    await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledOnce())
-    expect(mocks.saveDraft.mock.calls[0][0]).toMatchObject({ vatEnabled: true, vatMode: 'INCLUSIVE' })
+    await waitFor(() => expect(mocks.issue).toHaveBeenCalledOnce())
+    expect(mocks.issue.mock.calls[0][0]).toMatchObject({ vatEnabled: true, vatMode: 'INCLUSIVE' })
   })
 
   it('pressing the chosen button again cancels VAT; the other button switches the mode', async () => {
@@ -145,18 +141,21 @@ describe('VAT is chosen per bill with รวม VAT / ไม่รวม VAT, no
     expect((await screen.findByTestId('preview-tax')).textContent).toBe(on ? '7' : '0')
     fireEvent.click(screen.getByRole('button', { name: 'เงินสด' }))
     fireEvent.click(screen.getByRole('button', { name: 'ออกบิล' }))
-    await waitFor(() => expect(mocks.confirm).toHaveBeenCalledOnce())
-    expect(mocks.saveDraft.mock.calls[0][0]).toMatchObject({ vatEnabled: on, vatMode: on ? 'EXCLUSIVE' : null })
-    expect(mocks.confirm).toHaveBeenCalledWith('bill-1', [expect.objectContaining({ method: 'CASH', amount: 107 })])
+    await waitFor(() => expect(mocks.issue).toHaveBeenCalledOnce())
+    expect(mocks.issue.mock.calls[0][0]).toMatchObject({ vatEnabled: on, vatMode: on ? 'EXCLUSIVE' : null })
+    // One method for the exact amount: the server pays its own total
+    expect(mocks.issue.mock.calls[0][1]).toMatchObject({ payExact: true, tenders: [expect.objectContaining({ method: 'CASH' })] })
     expect(mocks.saveSection).not.toHaveBeenCalled()
   })
 
-  it('an old cart without a VAT choice is a bill with VAT off', async () => {
+  it('an old cart without a VAT choice confirms a bill with VAT off', async () => {
     mountCheckout(undefined)
     expect((await screen.findByTestId('preview-tax')).textContent).toBe('0')
-    fireEvent.click(screen.getByRole('button', { name: 'บันทึกแบบร่าง' }))
-    await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledOnce())
-    expect(mocks.saveDraft.mock.calls[0][0]).toMatchObject({ vatEnabled: false, vatMode: null })
+    expect(screen.queryByRole('button', { name: 'บันทึกแบบร่าง' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'เงินสด' }))
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }))
+    await waitFor(() => expect(mocks.issue).toHaveBeenCalledOnce())
+    expect(mocks.issue.mock.calls[0][0]).toMatchObject({ vatEnabled: false, vatMode: null })
     expect(screen.queryByRole('button', { name: 'ยกเลิก' })).toBeNull()
   })
 

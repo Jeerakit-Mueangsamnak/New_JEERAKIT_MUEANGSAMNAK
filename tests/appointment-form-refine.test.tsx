@@ -108,7 +108,7 @@ describe('ฟอร์มนัดหมาย (ข้อ 1–7)', () => {
 
   it('ชื่อประเภทเดิมของงานเก่ายังอ่านกลับมาได้ (ข้อมูลเดิมไม่หาย)', async () => {
     const apt = {
-      id: 'x', title: 'งาน', customerName: 'ก', date: '2026-10-10', startTime: '09:00', endTime: '10:00', status: 'SCHEDULED',
+      id: 'x', title: 'งาน', customerName: 'ก', date: '2026-10-10', startTime: '09:00', status: 'SCHEDULED',
       type: 'GENERAL', appointmentTypeId: 'custom-1', appointmentTypeLabel: 'นัดติดตั้งหน้างาน',
       items: [{ id: 'prod-1', name: 'ขาตั้งนั่งร้าน 1.7 ม.', quantity: 20, unit: 'ต้น' }],
     } as Appointment
@@ -127,7 +127,7 @@ describe('ฟอร์มนัดหมาย (ข้อ 1–7)', () => {
     expect(back.items).toEqual(apt.items)
   })
 
-  it('เวลา: กดเลือกชั่วโมง/นาทีได้, พิมพ์เองได้ (24 ชม.), และเวลาสิ้นสุดต้องไม่ก่อนเวลาเริ่ม', async () => {
+  it('ฟอร์มนัดหมายใช้เวลาเริ่มเพียงช่องเดียว และไม่มีช่องเวลาสิ้นสุด', async () => {
     const onSubmit = renderForm()
     const start = screen.getByLabelText('เวลาเริ่ม', { selector: 'input' }) as HTMLInputElement
     fireEvent.click(start)
@@ -136,20 +136,14 @@ describe('ฟอร์มนัดหมาย (ข้อ 1–7)', () => {
     fireEvent.click(within(within(picker).getByRole('group', { name: 'นาที' })).getByRole('button', { name: '30' }))
     expect(start.value).toBe('14:30')
     expect(screen.queryByRole('dialog', { name: 'เวลาเริ่ม' })).toBeNull()
-
-    const end = screen.getByLabelText('เวลาสิ้นสุด', { selector: 'input' }) as HTMLInputElement
-    fireEvent.change(end, { target: { value: '930' } })
-    fireEvent.blur(end)
-    expect(end.value).toBe('09:30')
-    fireEvent.change(end, { target: { value: '25:00' } })
-    fireEvent.blur(end)
-    expect(end.value).toBe('09:30') // invalid typing is not kept
+    expect(screen.queryByLabelText('เวลาสิ้นสุด')).toBeNull()
 
     pickCustomer()
     typeTitle('ส่งสินค้า')
     save()
-    await waitFor(() => expect(mockToast).toHaveBeenCalledWith('เวลาสิ้นสุดต้องไม่ก่อนเวลาเริ่ม', undefined, 'ERROR'))
-    expect(onSubmit).not.toHaveBeenCalled()
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ startTime: '14:30' })
+    expect(onSubmit.mock.calls[0][0].endTime).toBeUndefined()
     expect(normalizeTime('7.05')).toBe('07:05')
   })
 
@@ -174,6 +168,10 @@ describe('ฟอร์มนัดหมาย (ข้อ 1–7)', () => {
     expect(mockToast).toHaveBeenCalledWith('มีสินค้านี้ในรายการแล้ว', expect.any(String), 'INFO')
 
     fireEvent.change(screen.getByLabelText('จำนวน ขาตั้งนั่งร้าน 1.7 ม.'), { target: { value: '50' } })
+    // Product quantities are whole units; decimal input is rejected.
+    fireEvent.change(screen.getByLabelText('จำนวน ขาตั้งนั่งร้าน 1.7 ม.'), { target: { value: '50.5' } })
+    expect((screen.getByLabelText('จำนวน ขาตั้งนั่งร้าน 1.7 ม.') as HTMLInputElement).value).toBe('50')
+    fireEvent.change(screen.getByLabelText('จำนวน ขาตั้งนั่งร้าน 1.7 ม.'), { target: { value: '50' } })
     fireEvent.change(screen.getByLabelText('จำนวน แผ่นแบบเหล็ก'), { target: { value: '0' } })
     pickCustomer()
     typeTitle('ส่งสินค้า')
@@ -191,7 +189,7 @@ describe('ฟอร์มนัดหมาย (ข้อ 1–7)', () => {
   it('แก้ไข: ฟอร์มเดียวกับเพิ่มงาน แสดงข้อมูลเดิมครบ และบันทึกชื่องานที่แก้ได้', async () => {
     const initial: Appointment = {
       id: 'apt-1', title: 'ส่งนั่งร้าน 100 ชุด', type: 'DELIVERY', customerName: 'บริษัท ทดสอบ จำกัด', customerId: 'cust-1',
-      date: '2026-10-10', startTime: '09:00', endTime: '10:00', status: 'SCHEDULED', location: 'ไซต์งานบางนา',
+      date: '2026-10-10', startTime: '09:00', status: 'SCHEDULED', location: 'ไซต์งานบางนา',
       items: [{ id: 'prod-2', name: 'แผ่นแบบเหล็ก', quantity: 12, unit: 'แผ่น' }],
     }
     const onSubmit = renderForm({ initial })

@@ -74,7 +74,6 @@ const appointment = (overrides: Partial<Appointment>): Appointment => ({
   type: 'DELIVERY',
   date: '2026-10-15',
   startTime: '10:00',
-  endTime: '11:00',
   status: 'SCHEDULED',
   ...overrides,
 })

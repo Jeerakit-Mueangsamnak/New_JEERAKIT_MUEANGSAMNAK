@@ -55,7 +55,7 @@ export function getRentalStatusPresentation(status: RentalListStatus, overdueDay
     case 'DRAFT':
       return { label: 'แบบร่าง', className: 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-300' }
     case 'CONFIRMED':
-      return { label: 'ยืนยันแล้ว', className: 'bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300' }
+      return { label: '', className: '' }
     case 'RENTING':
       return { label: 'กำลังเช่า', className: 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' }
     case 'EXTENDED':

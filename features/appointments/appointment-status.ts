@@ -52,8 +52,9 @@ export const isAppointmentClosed = (status: AppointmentStatus) =>
 /**
  * Status shown for a job (no one picks it by hand). Finished jobs keep their saved end status
  * (COMPLETED / CANCELLED / NO_SHOW). An open job is "in progress" once it was dispatched to a
- * driver; before that it follows the clock: before the start time, between start and end, after
- * the end. Nothing here is saved: the server status of an open job is left as it is.
+ * driver; before that it follows the start time: waiting before the appointment, due at the
+ * appointment time, overdue afterward. Nothing here is saved: the server status of an open job
+ * is left as it is.
  */
 export type JobStatusKey = 'WAITING' | 'DUE' | 'OVERDUE' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW'
 
@@ -72,14 +73,16 @@ export const isDispatched = (apt: { events?: { stage: string; status: string }[]
   currentRunEvents(apt.events).some((e) => e.stage.toUpperCase() === 'DISPATCH' && e.status === 'DONE')
 
 export function jobStatusOf(
-  apt: { status: AppointmentStatus; date: string; startTime: string; endTime?: string; events?: { stage: string; status: string }[] },
+  apt: { status: AppointmentStatus; date: string; startTime: string; events?: { stage: string; status: string }[] },
   now: Date = new Date()
 ): JobStatusKey {
   if (apt.status === 'COMPLETED' || apt.status === 'CANCELLED' || apt.status === 'NO_SHOW') return apt.status
   if (isDispatched(apt)) return 'IN_PROGRESS'
   const start = new Date(`${apt.date}T${apt.startTime || '00:00'}:00`)
-  const endRaw = new Date(`${apt.date}T${apt.endTime || apt.startTime || '00:00'}:00`)
-  const end = endRaw < start ? start : endRaw
   if (Number.isNaN(start.getTime()) || now < start) return 'WAITING'
-  return now <= end ? 'DUE' : 'OVERDUE'
+  // Appointments no longer expose an end time, but persistence retains a one-hour
+  // internal interval for legacy calendar and overlap consumers. Keep the job DUE
+  // for that same interval instead of marking it overdue one second after its start.
+  const dueUntil = new Date(start.getTime() + 60 * 60 * 1000)
+  return now <= dueUntil ? 'DUE' : 'OVERDUE'
 }

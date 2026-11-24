@@ -36,7 +36,6 @@ export interface BillLineInput {
 }
 
 export interface BillDraftInput {
-  billId?: string | null
   customerId?: string | null
   /** A typed customer name with no customer record (POS ลูกค้าทั่วไป, owner 2026-11-16); ignored when customerId is set. */
   guestName?: string | null
@@ -127,12 +126,12 @@ function linePayload(l: BillLineInput) {
   return base
 }
 
-// ─── draft / confirm ─────────────────────────────────────────────────────────
+// ─── issue a bill ────────────────────────────────────────────────────────────
 
-/** Saves (creates or replaces) a DRAFT bill; returns its id. Price/discount overrides ask PIN + reason. */
-export async function saveBillDraft(input: BillDraftInput): Promise<string> {
+/** The bill as the server's bill_save_draft step reads it (bill_issue sends it on). */
+function billDataPayload(input: BillDraftInput): Record<string, unknown> {
   const guestName = input.customerId ? '' : (input.guestName ?? '').trim()
-  const data: Record<string, unknown> = {
+  return {
     customer_id: input.customerId || null,
     // Sent only when there is one, so bills with a saved customer look exactly as before.
     ...(guestName ? { guest_name: guestName } : {}),
@@ -149,17 +148,45 @@ export async function saveBillDraft(input: BillDraftInput): Promise<string> {
     due_date: input.dueDate || null,
     lines: input.lines.map(linePayload),
   }
-  const saved = await withPinIfRequired(
+}
+
+export interface IssueBillPayment {
+  /** Money taken, in the order it was taken (cash / QR …). */
+  tenders: TenderInput[]
+  /** One method paying the exact amount: it pays whatever the server's total is. */
+  payExact?: boolean
+  /** ค้างชำระ: what was taken is kept, the rest stays owed. Otherwise the money must cover the server's total. */
+  allowShort?: boolean
+}
+
+/**
+ * ออกบิล in one step (owner 2026-11-24: no draft bills): the server saves the bill, sets its document date, cuts the
+ * money to its own total and confirms it (bill number, stock, payment) in one transaction. Any refusal leaves nothing
+ * behind. Price/discount overrides ask PIN + reason.
+ */
+export async function issueBill(input: BillDraftInput, payment: IssueBillPayment): Promise<FullBill | null> {
+  const data = billDataPayload(input)
+  const tenders = tendersPayload(payment.tenders)
+  // One key for this click: a retry after the PIN window is the same request.
+  const key = newIdempotencyKey()
+  const result = await withPinIfRequired(
     { action: 'PRICE_OVERRIDE', title: 'ยืนยันราคา/ส่วนลดพิเศษ', detail: 'มีการแก้ราคาหรือให้ส่วนลดเกินที่ร้านตั้งไว้', askReason: true },
     (token, reason) =>
-      rpc<{ id: string }>('bill_save_draft', {
-        p_bill_id: input.billId || null,
+      rpc<{ bill?: { id?: string } }>('bill_issue', {
         p_data: reason ? { ...data, override_reason: reason } : data,
+        p_idempotency_key: key,
+        p_tenders: tenders.length ? tenders : null,
+        p_pay_exact: Boolean(payment.payExact),
+        p_allow_short: Boolean(payment.allowShort),
+        p_document_date: input.documentDate ? input.documentDate.slice(0, 10) : null,
         p_pin_token: token,
       })
   )
-  if (input.documentDate) await setBillDocumentDate(saved.id, input.documentDate)
-  return saved.id
+  const billId = result?.bill?.id
+  // Confirming reserves the goods: the stock figures on screen follow at once. The bill is already saved,
+  // so a failed stock read only leaves the older figures until the next refresh.
+  await syncStockFromSupabase().catch((err: unknown) => console.error('Stock refresh after issuing a bill failed:', err))
+  return billId ? refreshAfterChange(billId) : null
 }
 
 /**
@@ -182,19 +209,6 @@ export async function setBillCustomer(billId: string, customerId: string | null,
   })
 }
 
-/** DRAFT → CONFIRMED: bill number, stock allocation, optional payment at the counter. */
-export async function confirmBill(billId: string, tenders: TenderInput[] = []): Promise<FullBill | null> {
-  const payload = tendersPayload(tenders)
-  await rpc('bill_confirm', {
-    p_bill_id: billId,
-    p_idempotency_key: newIdempotencyKey(),
-    p_tenders: payload.length ? payload : null,
-  })
-  // Confirming reserves the goods: the stock figures on screen follow at once. The bill is already saved,
-  // so a failed stock read only leaves the older figures until the next refresh.
-  await syncStockFromSupabase().catch((err: unknown) => console.error('Stock refresh after confirm failed:', err))
-  return refreshAfterChange(billId)
-}
 // ─── money ───────────────────────────────────────────────────────────────────
 
 export async function receivePayment(
@@ -524,12 +538,6 @@ async function addIncidentCharge(
 
 // ─── cancel / void / correct / continue ─────────────────────────────────────
 
-/** A draft bill (no number, no stock, no money) is deleted for real; a member deletes only their own drafts. */
-export async function deleteDraftBill(billId: string): Promise<void> {
-  await rpc('bill_draft_delete', { p_bill_id: billId })
-  await refreshAfterChange(billId)
-}
-
 /** CONFIRMED (nothing paid/delivered): cancel. Reason required; a member only their own bill of today. */
 export async function cancelBill(billId: string, reason: string): Promise<FullBill | null> {
   await withPinIfRequired({ action: 'BILL_CANCEL', title: 'ยืนยันยกเลิกบิล' }, (token) =>
@@ -553,7 +561,7 @@ export async function voidBill(billId: string, reason: string): Promise<FullBill
 
 /**
  * "ยกเลิกบิล" button on a confirmed bill: an untouched bill is cancelled; once money or goods
- * moved, the bill is voided instead, which undoes all of it. Drafts: deleteDraftBill.
+ * moved, the bill is voided instead, which undoes all of it.
  */
 export async function cancelOrVoidBill(bill: Pick<FullBill, 'id' | 'serverStatus'>, reason: string): Promise<FullBill | null> {
   if (bill.serverStatus === 'CONFIRMED') {

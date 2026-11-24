@@ -128,7 +128,7 @@ export async function dispatchToDriver(apt: Appointment, driver: DeliveryDriver,
   }
   const withdrawNote = withdrawNoteOf(withdrawn, 'พนักงานคนเดิม').note
   const dispatch = [...(saved.events ?? [])].reverse().find((e) => e.stage.toUpperCase() === 'DISPATCH')
-  const when = `${saved.date} ${saved.startTime}${saved.endTime ? `-${saved.endTime}` : ''}`
+  const when = `${saved.date} ${saved.startTime}`
   const items = (saved.items ?? []).map((i) => `${i.name} ${i.quantity}${i.unit ? ` ${i.unit}` : ''}`).join(', ')
   const detail = [when, saved.location, items].filter(Boolean).join(' · ')
   let line: Awaited<ReturnType<typeof sendDispatchToDriver>>

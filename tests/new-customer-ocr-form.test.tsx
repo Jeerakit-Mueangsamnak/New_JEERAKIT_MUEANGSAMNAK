@@ -91,6 +91,19 @@ describe('เพิ่มลูกค้าใหม่: ช่องว่า�
     expect(saved.moo).toBeUndefined()
   })
 
+  it('OCR เติมพื้นที่ครบและเติมรหัสไปรษณีย์จากตำบลที่ตรงกับฐานข้อมูล', async () => {
+    await openForm()
+    await runScan({
+      province: 'สมุทรปราการ',
+      district: 'บางพลี',
+      subDistrict: 'บางพลีใหญ่',
+    })
+    expect(screen.getByRole('button', { name: 'จังหวัด' }).textContent).toContain('สมุทรปราการ')
+    expect(screen.getByRole('button', { name: 'อำเภอ / เขต' }).textContent).toContain('บางพลี')
+    expect(screen.getByRole('button', { name: 'ตำบล / แขวง' }).textContent).toContain('บางพลีใหญ่')
+    expect(value('รหัสไปรษณีย์')).toBe('10540')
+  })
+
   it('ช่องที่พิมพ์ไว้แล้วค่าไม่ตรงกับบัตร: เก็บค่าที่พิมพ์ไว้ ไม่ทับค่าเดิม', async () => {
     const { onSave } = await openForm()
     fireEvent.change(screen.getByLabelText('ชื่อลูกค้า / ชื่อบริษัท'), { target: { value: 'ลูกค้า ง' } })

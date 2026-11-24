@@ -28,11 +28,14 @@ const makeItem = (overrides: Partial<FullBillItem> = {}): FullBillItem => ({
 
 describe('bill list status presentation', () => {
   it.each([
-    ['CONFIRMED', 'ยืนยันแล้ว'],
     ['RETURNED', 'คืนครบแล้ว'],
     ['VOID', 'โมฆะ'],
   ] as const)('shows the %s rental status accurately', (status, label) => {
     expect(getRentalStatusPresentation(status).label).toBe(label)
+  })
+
+  it('does not show a rental-status badge for a confirmed bill', () => {
+    expect(getRentalStatusPresentation('CONFIRMED').label).toBe('')
   })
 
   it('shows returned payment states separately from unpaid bills', () => {

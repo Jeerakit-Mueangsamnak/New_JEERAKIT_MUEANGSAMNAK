@@ -60,7 +60,6 @@ export function AppointmentDispatchModal({
   const [selectedLineIds, setSelectedLineIds] = useState<string[]>([])
   const [scheduledDate, setScheduledDate] = useState('')
   const [scheduledStart, setScheduledStart] = useState('')
-  const [scheduledEnd, setScheduledEnd] = useState('')
   const [createdAppointment, setCreatedAppointment] = useState<Appointment | null>(null)
 
   useEffect(() => {
@@ -103,15 +102,14 @@ export function AppointmentDispatchModal({
   }
 
   const createBillAppointment = async (
-    schedule: { date: string; startTime: string; endTime: string }
+    schedule: { date: string; startTime: string }
   ): Promise<{ appointment: Appointment; appointments: Appointment[] }> => {
     if (!sourceBill || !workType) throw new Error('กรุณาเลือกประเภทงาน')
     const selected = eligibleItems.filter((item) => selectedLineIds.includes(item.rentalBillItemId))
     if (selected.length === 0) throw new Error('กรุณาเลือกรายการสินค้าอย่างน้อย 1 รายการ')
 
-    const { date, startTime, endTime } = schedule
-    if (!date || !startTime || !endTime) throw new Error('กรุณากำหนดวันและเวลาให้ครบ')
-    if (endTime <= startTime) throw new Error('เวลาสิ้นสุดต้องหลังเวลาเริ่ม')
+    const { date, startTime } = schedule
+    if (!date || !startTime) throw new Error('กรุณากำหนดวันและเวลาให้ครบ')
 
     const title = `${workType === 'RETURN' ? 'รับคืนสินค้า' : 'ส่งสินค้า'} ${sourceBill.billNo}`
     const items = selected.map((item) => ({
@@ -133,7 +131,6 @@ export function AppointmentDispatchModal({
       location: sourceBill.siteName || sourceBill.customerAddress || '',
       date,
       startTime,
-      endTime,
       status: 'SCHEDULED',
       items,
     })
@@ -146,7 +143,6 @@ export function AppointmentDispatchModal({
       const created = await createBillAppointment({
         date: scheduledDate,
         startTime: scheduledStart,
-        endTime: scheduledEnd,
       })
       setCreatedAppointment(created.appointment)
       onAppointmentsChanged?.(created.appointments)
@@ -172,11 +168,9 @@ export function AppointmentDispatchModal({
       if (!target && sourceBill) {
         const now = new Date()
         const quickStart = shopDateTime(now)
-        const quickEnd = shopDateTime(new Date(now.getTime() + 60 * 60 * 1000))
         const created = await createBillAppointment({
           date: quickStart.date,
           startTime: quickStart.time,
-          endTime: quickEnd.date === quickStart.date ? quickEnd.time : '23:59',
         })
         target = created.appointment
         setCreatedAppointment(created.appointment)
@@ -217,14 +211,13 @@ export function AppointmentDispatchModal({
           // A job from a bill shows the date / time being chosen below until it is saved
           date={summaryJob ? summaryJob.date : scheduledDate}
           startTime={summaryJob ? summaryJob.startTime : scheduledStart}
-          endTime={summaryJob ? summaryJob.endTime : scheduledEnd}
         />
 
         {sourceBill && !createdAppointment && (
           <>
             <div className="space-y-1.5">
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">วันและเวลานัดหมาย</label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <label className="min-w-0 text-[11px] text-slate-600 dark:text-slate-300">วันที่
                   <CustomDatePicker
                     value={parseLocalDate(scheduledDate)}
@@ -235,9 +228,6 @@ export function AppointmentDispatchModal({
                 </label>
                 <label className="min-w-0 text-[11px] text-slate-600 dark:text-slate-300">เริ่ม
                   <TimeField label="เวลาเริ่มงาน" value={scheduledStart} onChange={setScheduledStart} />
-                </label>
-                <label className="min-w-0 text-[11px] text-slate-600 dark:text-slate-300">สิ้นสุด
-                  <TimeField label="เวลาสิ้นสุดงาน" value={scheduledEnd} onChange={setScheduledEnd} />
                 </label>
               </div>
             </div>
@@ -301,7 +291,7 @@ export function AppointmentDispatchModal({
         {sourceBill && !createdAppointment && (
           <button
             type="button"
-            disabled={isSubmitting || !scheduledDate || !scheduledStart || !scheduledEnd || !workType || selectedLineIds.length === 0}
+            disabled={isSubmitting || !scheduledDate || !scheduledStart || !workType || selectedLineIds.length === 0}
             onClick={() => void handleCreateAppointment()}
             className={`${COMMAND_BUTTON_SIZE_CLASSES} border cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${BUTTON_FUNCTION_COLOURS.open}`}
           >

@@ -199,15 +199,9 @@ export function extractAddress(text: string, addressData: ThaiProvince[]) {
     )
   }
 
-  // Fallback 2: กรณี AI ไม่ส่งคำว่า "อ." หรือ "เขต" ให้ค้นหาชื่ออำเภอในจังหวัดนั้นจากข้อความตรงๆ
-  if (!district) {
-    const sortedDistricts = [...province.districts].sort((a, b) => b.name.length - a.name.length)
-    district = sortedDistricts.find((d) => {
-      const shortName = d.name.replace(/^เมือง/, '')
-      return clean.includes(d.name) || (d.name.startsWith('เมือง') && (clean.includes(`อ.${shortName}`) || clean.includes(`อำเภอ${shortName}`)))
-    })
-  }
-
+  // Do not infer a district from arbitrary substrings: a subdistrict such as "บางพลีใหญ่"
+  // contains the district name "บางพลี" and can otherwise make a wrong province/district
+  // combination appear valid. Only the explicit อำเภอ / อ. / เขต field is authoritative.
   if (!district) return result
   result.district = district.name
 
@@ -219,12 +213,8 @@ export function extractAddress(text: string, addressData: ThaiProvince[]) {
     subdistrict = district.subDistricts.find((s) => s.name === subdistrictName)
   }
 
-  // Fallback 3: กรณี AI ไม่ส่งคำว่า "ต." หรือ "แขวง" ให้ค้นหาชื่อตำบลในอำเภอนั้นจากข้อความตรงๆ
-  if (!subdistrict) {
-    const sortedSubdistricts = [...district.subDistricts].sort((a, b) => b.name.length - a.name.length)
-    subdistrict = sortedSubdistricts.find((s) => clean.includes(s.name))
-  }
-
+  // As with districts, require an explicit ต. / ตำบล / แขวง label rather than matching
+  // a place name wherever it happens to occur in the address text.
   if (subdistrict) {
     result.subDistrict = subdistrict.name
   }

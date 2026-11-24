@@ -5,6 +5,9 @@ import { loadUnits } from '@/lib/unit-storage'
 import { loadSystemSettings } from '@/features/settings/services/settings-storage'
 import type { FullBill, FullBillItem, BillChargeRecord, BillPaymentAllocation, BillPaymentRecord, BillRefundRecord } from '@/lib/types/rental-return'
 import type { RentalStatus } from '@/lib/types/rental-pos'
+import { getCustomersByIds } from '@/features/customers/services/customer-storage'
+import type { CustomerDisplay } from '@/features/customers/services/customer-display'
+import { customerDisplayPhones } from '@/features/customers/services/customer-display'
 
 /**
  * Bill reads (Master v4.3.1 §12–§21) on the v4.3 schema: bills + bill_lines + deliveries +
@@ -111,7 +114,6 @@ interface ProductLite {
   id: string; sku: string; name: string; default_damage_fee: number; default_loss_fee: number; unit_id: string
   is_rent_chargeable: boolean
 }
-interface CustomerLite { id: string; name: string; phone: string; address: string }
 
 /** Bill header columns the screens use (= BillRow), not the whole row. */
 const BILL_COLUMNS =
@@ -196,7 +198,7 @@ export function mapBill(
   ctx: {
     products: Map<string, ProductLite>
     units: Map<string, string>
-    customers: Map<string, CustomerLite>
+    customers: Map<string, CustomerDisplay>
     payments: BillPaymentRecord[]
     refunds: BillRefundRecord[]
     charges: BillChargeRecord[]
@@ -205,6 +207,7 @@ export function mapBill(
 ): FullBill {
   // A confirmed bill shows the customer as on its confirm day; a draft shows today's details.
   const customer = b.customer_snapshot ?? (b.customer_id ? ctx.customers.get(b.customer_id) : undefined)
+  const customerTaxId = customer && 'taxId' in customer ? customer.taxId : customer && 'tax_id' in customer ? customer.tax_id : undefined
   // A line taken off on แก้ไขบิล stays in the database as history only (removed_at): not shown, printed or counted.
   const sorted = lines.filter((l) => l.removed_at == null).sort((x, y) => x.line_no - y.line_no)
   const rental = sorted.filter((l) => l.line_mode === 'RENTAL')
@@ -265,8 +268,9 @@ export function mapBill(
     billDate,
     documentDate: b.document_date ? toDate(b.document_date) : undefined,
     customerName: customer?.name || 'ลูกค้าทั่วไป',
-    customerPhone: customer?.phone || '',
+    customerPhone: customerDisplayPhones(customer),
     customerAddress: customer?.address,
+    customerTaxId: customerTaxId || undefined,
     siteName: siteNameFromNote(b.note),
     rentalStartDate: starts.length ? toDate(starts.sort()[0]) : billDate,
     scheduledReturnDate: ends.length ? toDate(ends.sort()[ends.length - 1]) : billDate,
@@ -403,7 +407,8 @@ function searchPattern(search: string): string | null {
 function billsQuery(supabase: ReturnType<typeof createClient>, query: BillQuery, ids?: string[]): any {
   let q = supabase.from('bills').select(BILL_COLUMNS)
   if (ids) q = q.in('id', ids)
-  if (query.scope === 'OPEN') q = q.not('status', 'in', `(${FINISHED_BILL_STATUSES.join(',')})`)
+  // The shop has no draft bills (owner 2026-11-24): bill_issue saves and confirms in one step.
+  if (query.scope === 'OPEN') q = q.not('status', 'in', `(DRAFT,${FINISHED_BILL_STATUSES.join(',')})`)
   if (query.scope === 'HISTORY') q = q.in('status', [...FINISHED_BILL_STATUSES])
   if (query.customerId) q = q.eq('customer_id', query.customerId)
   if (query.from && LOCAL_DAY.test(query.from)) q = q.gte('created_at', localDayStart(query.from))
@@ -494,7 +499,7 @@ async function loadBills(query: BillQuery = {}): Promise<FullBill[]> {
       )
     ),
     linesRead.then((read) => productContext(supabase, read)),
-    readByIds(customerIds, (chunk) => selectRows<CustomerLite>(supabase.from('customers').select('id, name, phone, address').in('id', chunk))),
+    getCustomersByIds(customerIds).then((map) => [...map.values()]),
   ])
 
   const linesByBill = groupBy(lines, (l) => l.bill_id)
@@ -536,7 +541,7 @@ async function loadBills(query: BillQuery = {}): Promise<FullBill[]> {
   )
 }
 
-/** Bills still in work (draft, confirmed, active): the set every screen keeps loaded. */
+/** Bills still in work (confirmed, active): the set every screen keeps loaded. */
 export async function fetchBillsFromSupabase(): Promise<FullBill[]> {
   return loadBills({ scope: 'OPEN' })
 }

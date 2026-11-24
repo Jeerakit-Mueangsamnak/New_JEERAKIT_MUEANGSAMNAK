@@ -48,7 +48,6 @@ interface CartPanelProps {
   setCustomer?: React.Dispatch<React.SetStateAction<Customer | null>>
   quotationId?: string
   quotationNo?: string
-  draftBillId?: string
   /** Pencil icon on a cart line: reopen the quantity screen for that line. */
   onEditItem?: (item: CartItem) => void
   /** + รายการนอกร้าน: a line typed in at the counter (bills only). */
@@ -60,7 +59,7 @@ interface CartPanelProps {
   initialShippingAddress?: string
   initialRentalStartDate?: string
   initialRentalEndDate?: string
-  /** VAT ON/OFF of a loaded draft bill / quotation; a new cart starts with VAT off. */
+  /** VAT ON/OFF of a loaded quotation; a new cart starts with VAT off. */
   initialVatEnabled?: boolean
   /** รวม / ไม่รวม VAT chosen on the payment page; the cart only carries it back to the payment page. */
   initialVatMode?: 'INCLUSIVE' | 'EXCLUSIVE' | null
@@ -72,7 +71,7 @@ interface CartPanelProps {
   initialContactPhone?: string
   /** ประเภทเอกสาร picked before (restored when coming back from checkout). */
   initialDocumentType?: string
-  /** The dates were picked before (held cart) or come with the document (quotation / draft / appointment). */
+  /** The dates were picked before (held cart) or come with the document (quotation / appointment). */
   initialDatesPicked?: boolean
 }
 
@@ -87,7 +86,6 @@ export function CartPanel({
   setCustomer: setExternalCustomer,
   quotationId,
   quotationNo,
-  draftBillId,
   onEditItem,
   onAddCustomItem,
   initialDiscount,
@@ -297,7 +295,6 @@ export function CartPanel({
     grandTotal,
     quotationId: quotationId || undefined,
     quotationNo: quotationNo || undefined,
-    draftBillId: draftBillId || undefined,
     quotationMode: isQuotationMode || undefined,
     ownerId: user?.id,
   })
@@ -313,7 +310,7 @@ export function CartPanel({
     if (items.length > 0) saveActiveCart(latestCart.current())
     else if (keptItemCount.current > 0) clearActiveCart('BILL')
     keptItemCount.current = items.length
-  }, [isQuotationMode, items, customer, contactPhone, shippingAddress, headerRentalDate, headerReturnDate, documentType, documentDate, datesPicked, vat.mode, draftBillId, quotationId])
+  }, [isQuotationMode, items, customer, contactPhone, shippingAddress, headerRentalDate, headerReturnDate, documentType, documentDate, datesPicked, vat.mode, quotationId])
 
   const handleOpenAddCustomerModal = () => {
     setShowAddCustomerModal(true)

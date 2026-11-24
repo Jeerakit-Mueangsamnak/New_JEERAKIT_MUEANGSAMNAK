@@ -95,3 +95,23 @@ describe('CustomSelect allowCustom (ธนาคาร: เลือกจาก
     expect(screen.queryByRole('option', { name: /ใช้/ })).toBeNull()
   })
 })
+
+describe('CustomSelect live typed value', () => {
+  it('commits typed text immediately without showing a confirmation option', () => {
+    const onChange = vi.fn()
+    render(
+      <CustomSelect
+        ariaLabel="จังหวัด"
+        searchable
+        value=""
+        onChange={onChange}
+        onSearchTermChange={onChange}
+        options={[{ value: 'กรุงเทพมหานคร', label: 'กรุงเทพมหานคร' }]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'จังหวัด' }))
+    fireEvent.change(screen.getByPlaceholderText('พิมพ์ค้นหา...'), { target: { value: 'จังหวัดพิมพ์เอง' } })
+    expect(onChange).toHaveBeenLastCalledWith('จังหวัดพิมพ์เอง')
+    expect(screen.queryByRole('option', { name: /ใช้/ })).toBeNull()
+  })
+})

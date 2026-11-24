@@ -21,7 +21,6 @@ describe('data management standard: server answers', () => {
       'ระบบยังไม่ได้ติดตั้งคำสั่งลบนี้ในฐานข้อมูล'
     )
     expect(dbErrorMessage("BILL_VOID_OWNER_ONLY: another member's bill or a bill from another day")).toContain('เจ้าของร้าน')
-    expect(dbErrorMessage('BILL_DRAFT_NOT_YOURS')).toContain('บิลร่างที่ตัวเองสร้าง')
   })
 })
 

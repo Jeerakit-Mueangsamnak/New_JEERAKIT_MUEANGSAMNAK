@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/client'
-import { rpc, selectAllRows, isDbError } from '@/lib/db/rpc'
+import { rpc, selectAllRows, selectRows, readByIds, isDbError } from '@/lib/db/rpc'
 import type { Customer } from '@/lib/types/rental-pos'
+import type { CustomerDisplay } from '@/features/customers/services/customer-display'
 import { uploadCustomerImage, fetchCustomerDocuments, getDocumentFileUrl } from '@/features/documents/api/customer-document-repository'
 
 /**
@@ -104,6 +105,28 @@ export async function fetchCustomersFromSupabase(): Promise<Customer[]> {
   const supabase = createClient()
   const rows = await selectAllRows<CustomerRow>(() => supabase.from('customers').select('*').order('created_at', { ascending: false }))
   return rows.map(mapCustomerRow)
+}
+
+/**
+ * Resolve a set of customer references consistently: use the shared master-data cache first,
+ * then fetch only missing IDs and only display fields. The bounded IN query avoids per-bill reads.
+ */
+export async function fetchCustomerDisplaysByIds(ids: string[]): Promise<Map<string, CustomerDisplay>> {
+  const uniqueIds = [...new Set(ids.filter(Boolean))]
+  if (!uniqueIds.length) return new Map()
+  const supabase = createClient()
+  type CustomerDisplayRow = Pick<CustomerRow, 'id' | 'name' | 'phone' | 'address' | 'tax_id' | 'contact_details'>
+  const rows = await readByIds(uniqueIds, (chunk) => selectRows<CustomerDisplayRow>(
+    supabase.from('customers').select('id, name, phone, address, tax_id, contact_details').in('id', chunk)
+  ))
+  return new Map(rows.map((row) => [row.id, {
+    id: row.id,
+    name: row.name,
+    phone: row.phone || '',
+    phone2: row.contact_details?.phone2 || null,
+    address: row.address || '',
+    taxId: row.tax_id || null,
+  }]))
 }
 
 /**

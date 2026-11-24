@@ -9,6 +9,7 @@
  */
 
 import { Customer, Product, QuotationStatus } from '@/lib/types/rental-pos'
+import { customerDisplayPhones } from '@/features/customers/services/customer-display'
 
 export type CartKind = 'BILL' | 'QUOTATION'
 const STORAGE_KEYS: Record<CartKind, string> = { BILL: 'pos_active_cart', QUOTATION: 'pos_quotation_cart' }
@@ -18,8 +19,7 @@ export const CART_CHANGED_EVENT = 'pos_cart_changed'
 /** Contact phone the cart starts with and the issued bill prints: both of the customer's numbers when
  *  a second one is saved (cart + bill only, owner 2026-11-08; other screens keep the main number). */
 export function customerContactPhones(customer?: Pick<Customer, 'phone' | 'phone2'> | null): string {
-  const phones = [customer?.phone, customer?.phone2].map((p) => (p || '').trim()).filter(Boolean)
-  return [...new Set(phones)].join(', ')
+  return customerDisplayPhones(customer)
 }
 
 export interface CartItem {
@@ -126,7 +126,6 @@ export interface ActiveCartData {
   remark?: string
   quotationId?: string
   quotationNo?: string
-  draftBillId?: string
   /** This cart is a quotation being made (POS quotation mode → สรุปใบเสนอราคา), not a bill. */
   quotationMode?: boolean
   /** The quotation being revised (quotation mode only); absent for a new one or a copy. */

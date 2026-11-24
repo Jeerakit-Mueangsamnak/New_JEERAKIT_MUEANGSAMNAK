@@ -8,7 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import { isDbError, readByIds, rpc, selectRows, selectAllRows } from '@/lib/db/rpc'
 import { loadSystemSettings } from '@/features/settings/services/settings-storage'
 import type { Appointment, AppointmentStatus, AppointmentType } from '@/lib/types/rental-pos'
-import { loadCustomers } from '@/features/customers/services/customer-storage'
+import { getCustomersByIds } from '@/features/customers/services/customer-storage'
 import { loadBills } from '@/features/bills/services/bill-storage'
 
 let _cachedAppointments: Appointment[] | null = null
@@ -65,6 +65,7 @@ export interface AppointmentRow {
   description: string | null
   start_datetime: string
   end_datetime: string
+  reminder_before_minutes?: number | null
   location: string | null
   contact_name: string | null
   contact_phone: string | null
@@ -159,7 +160,6 @@ export function shopLocalDateTimeToIso(date: string, time: string, timeZone: str
 
 export function dbAppointmentToDomain(row: AppointmentRow, lookups?: { customers?: Map<string, string>; bills?: Map<string, string> }): Appointment {
   const start = localParts(row.start_datetime)
-  const end = localParts(row.end_datetime)
   return {
     id: row.id,
     customerId: row.customer_id || undefined,
@@ -171,7 +171,7 @@ export function dbAppointmentToDomain(row: AppointmentRow, lookups?: { customers
     appointmentTypeLabel: row.work_order?.type?.label || undefined,
     date: start.date,
     startTime: start.time,
-    endTime: end.time,
+    reminderBeforeMinutes: row.reminder_before_minutes ?? null,
     location: row.location || '',
     contactPerson: row.contact_name || undefined,
     billId: row.bill_id || undefined,
@@ -196,8 +196,9 @@ function startEnd(apt: Appointment): { start: string; end: string } {
   const timezone = loadSystemSettings().timezone || 'Asia/Bangkok'
   const date = apt.date || localParts(new Date().toISOString()).date
   const start = shopLocalDateTimeToIso(date, apt.startTime || '09:00', timezone)
-  let end = shopLocalDateTimeToIso(date, apt.endTime || apt.startTime || '10:00', timezone)
-  if (Date.parse(end) < Date.parse(start)) end = start
+  // The database still requires an end boundary; appointments are modeled as a start instant only.
+  // Keep a one-hour internal interval for legacy overlap checks and calendar consumers.
+  const end = new Date(Date.parse(start) + 60 * 60 * 1000).toISOString()
   return { start, end }
 }
 
@@ -215,6 +216,7 @@ function editableFields(apt: Appointment): Record<string, unknown> {
     contact_phone: apt.phone || null,
     assigned_user_id: isUuid(apt.assigneeId) ? apt.assigneeId : null,
     priority: apt.priority || 'NORMAL',
+    reminder_before_minutes: apt.reminderBeforeMinutes ?? null,
     work_order: {
       items: apt.items ?? [],
       events: apt.events ?? [],
@@ -234,15 +236,16 @@ export async function fetchAppointmentsFromSupabase(force = false): Promise<Appo
   const supabase = createClient()
   const rows = await selectAllRows<AppointmentRow>(() => supabase.from('appointments').select('*').order('start_datetime', { ascending: true }))
   // Customer names and bill numbers from the caches already loaded; only ids not there are read
-  const customers = new Map(loadCustomers().map((c) => [c.id, c.customerName]))
+  const customers = new Map<string, string>()
   const bills = new Map(loadBills().filter((b) => b.billNo).map((b) => [b.id, b.billNo]))
-  const missingCustomers = rows.map((r) => r.customer_id).filter((id): id is string => Boolean(id) && !customers.has(id as string))
+  const customerIds = rows.map((r) => r.customer_id).filter((id): id is string => Boolean(id))
+  const missingCustomers = [...new Set(customerIds)]
   const missingBills = rows.map((r) => r.bill_id).filter((id): id is string => Boolean(id) && !bills.has(id as string))
   const [moreCustomers, moreBills] = await Promise.all([
-    readByIds(missingCustomers, (chunk) => selectRows<{ id: string; name: string }>(supabase.from('customers').select('id, name').in('id', chunk))),
+    getCustomersByIds(missingCustomers),
     readByIds(missingBills, (chunk) => selectRows<{ id: string; bill_no: string | null }>(supabase.from('bills').select('id, bill_no').in('id', chunk))),
   ])
-  for (const c of moreCustomers) customers.set(c.id, c.name)
+  for (const c of moreCustomers.values()) customers.set(c.id, c.name)
   for (const b of moreBills) if (b.bill_no) bills.set(b.id, b.bill_no)
   _cachedAppointments = rows.map((r) => dbAppointmentToDomain(r, { customers, bills }))
   _lastAt = Date.now()

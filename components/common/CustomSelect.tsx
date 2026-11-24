@@ -36,6 +36,8 @@ interface CustomSelectProps {
    * ใช้ "…"), and a value outside the options is shown as it is. Off by default.
    */
   allowCustom?: boolean
+  /** Called as the user types in the searchable list, before choosing an option. */
+  onSearchTermChange?: (value: string) => void
   /**
    * How the chosen option is marked in the open list: 'check' (default) shows a tick at its end;
    * 'border' drops the tick and gives the option a green border instead, for narrow fields.
@@ -59,6 +61,7 @@ export function CustomSelect({
   ariaLabel,
   onRemoveOption,
   allowCustom = false,
+  onSearchTermChange,
   selectedMark = 'check',
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
@@ -76,9 +79,9 @@ export function CustomSelect({
     offset: 4,
   })
 
-  // Find selected option (a typed value outside the list is shown as it is when allowCustom)
+  // A live-typed value or allowCustom value outside the options is shown as entered.
   const selectedOption = options.find((opt) => String(opt.value) === String(value))
-    ?? (allowCustom && String(value ?? '').trim() ? { value, label: String(value) } : undefined)
+    ?? ((allowCustom || onSearchTermChange) && String(value ?? '').trim() ? { value, label: String(value) } : undefined)
 
   // Close on click outside (Mouse & Touch/iPad)
   useClickOutside([triggerRef, popoverRef], () => setIsOpen(false), isOpen)
@@ -110,7 +113,7 @@ export function CustomSelect({
     : options
   // allowCustom: the typed text itself comes first unless an option already has exactly that text
   const customOption: SelectOption | null =
-    allowCustom && searchable && typed && !options.some((o) => String(o.value) === typed || o.label === typed)
+    allowCustom && !onSearchTermChange && searchable && typed && !options.some((o) => String(o.value) === typed || o.label === typed)
       ? { value: typed, label: `ใช้ "${typed}"` }
       : null
   const filteredOptions = customOption ? [customOption, ...matchingOptions] : matchingOptions
@@ -231,7 +234,11 @@ export function CustomSelect({
                     autoFocus
                     type="search"
                     value={searchTerm}
-                    onChange={(event) => setSearchTerm(event.target.value)}
+                    onChange={(event) => {
+                      const next = event.target.value
+                      setSearchTerm(next)
+                      onSearchTermChange?.(next)
+                    }}
                     onKeyDown={handleListKeys}
                     placeholder="พิมพ์ค้นหา..."
                     className="w-full pl-7 pr-2 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs outline-none focus:ring-2 focus:ring-emerald-500"

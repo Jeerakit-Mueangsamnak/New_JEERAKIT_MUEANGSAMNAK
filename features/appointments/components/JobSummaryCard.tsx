@@ -13,7 +13,6 @@ export interface JobSummaryCardProps {
   location?: string | null
   date?: string | null
   startTime?: string | null
-  endTime?: string | null
   /** A bill: the return due date (circle-arrow icon) takes the place of the time (owner 2026-11-11). */
   returnDate?: string | null
   className?: string
@@ -33,13 +32,12 @@ export function JobSummaryCard({
   location,
   date,
   startTime,
-  endTime,
   returnDate,
   className = '',
   'data-testid': testId,
 }: JobSummaryCardProps) {
   const row = 'flex items-start gap-1.5 min-w-0'
-  const time = startTime ? `${startTime}${endTime ? ` - ${endTime}` : ''} น.` : '-'
+  const time = startTime ? `${startTime} น.` : '-'
   return (
     <div
       data-testid={testId}

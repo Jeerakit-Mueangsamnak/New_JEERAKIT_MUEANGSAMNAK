@@ -88,7 +88,6 @@ const appointment: Appointment = {
   location: 'สถานที่จัดงาน',
   date: '2026-10-10',
   startTime: '09:00',
-  endTime: '10:00',
   type: 'DELIVERY',
   status: 'SCHEDULED',
   items: [{ id: product.id, name: product.name, quantity: 2, unit: 'ตัว' }],
@@ -198,7 +197,6 @@ describe('Appointment and bill work-order integration', () => {
       items: [{ id: product.id, quantity: 3 }],
       date: '2026-10-16',
       startTime: '10:55',
-      endTime: '11:55',
     })
     await waitFor(() => expect(mocks.dispatch).toHaveBeenCalledWith(
       created,
@@ -218,9 +216,6 @@ describe('Appointment and bill work-order integration', () => {
     const startTime = screen.getByLabelText('เวลาเริ่มงาน')
     fireEvent.change(startTime, { target: { value: '13:00' } })
     fireEvent.blur(startTime)
-    const endTime = screen.getByLabelText('เวลาสิ้นสุดงาน')
-    fireEvent.change(endTime, { target: { value: '14:30' } })
-    fireEvent.blur(endTime)
     fireEvent.click(screen.getByRole('button', { name: 'รับคืน' }))
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: 'นัดหมาย' }))
@@ -230,7 +225,6 @@ describe('Appointment and bill work-order integration', () => {
       type: 'RETURN',
       date: '2026-11-15',
       startTime: '13:00',
-      endTime: '14:30',
       items: [{ id: product.id, quantity: 5 }],
     })
     expect(mocks.dispatch).not.toHaveBeenCalled()

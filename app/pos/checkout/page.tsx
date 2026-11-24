@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { BillTemplateData } from '@/features/documents/utils/rental-bill-print'
 import { A4FitPreview } from '@/features/pos/components/A4FitPreview'
-import { FileText, Printer } from 'lucide-react'
+import { Printer, Save } from 'lucide-react'
 import { StepNavButton } from '@/components/common/ActionButton'
 import { PaymentMethodSelector, type PaymentMethodType } from '@/features/pos/components/payment/PaymentMethodSelector'
 import { PaymentDynamicContent } from '@/features/pos/components/payment/PaymentDynamicContent'
@@ -15,7 +15,6 @@ import { useToast } from '@/components/common/Toast'
 import { useNotice } from '@/components/common/ConfirmDialogProvider'
 import { PAYMENT_NOT_CHOSEN_NOTICE } from '@/features/pos/hooks/useCashConfirmation'
 import { useSplitPayment } from '@/features/pos/hooks/useSplitPayment'
-import { allocateTenders } from '@/features/pos/services/split-payment'
 import { QrPaymentDialog } from '@/features/pos/components/payment/QrPaymentDialog'
 import { PostSavePrintModal } from '@/components/common/PostSavePrintModal'
 import { getLocalDateString } from '@/components/common/CustomDatePicker'
@@ -29,8 +28,7 @@ import {
   cartLineUnitPriceForServer,
   customerContactPhones,
 } from '@/features/pos/services/cart-storage'
-import { saveBillDraft, confirmBill, deliverBill, type BillDraftInput, type BillLineInput } from '@/features/bills/services/bill-service'
-import { fetchBillByIdFromSupabase, fetchBillsFromSupabase, loadBillById } from '@/features/bills/services/bill-storage'
+import { issueBill, deliverBill, type BillDraftInput, type BillLineInput } from '@/features/bills/services/bill-service'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { calculateBillTotals } from '@/lib/calculation-service'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
@@ -94,10 +92,6 @@ export default function CheckoutPage() {
   const [contactPhone, setContactPhone] = useState<string>('')
   const cartLoadedRef = useRef(false)
   const [quotationId, setQuotationId] = useState<string | null>(null)
-  const [draftBillId, setDraftBillId] = useState<string | null>(null)
-  // Draft this page already saved on the server but has not confirmed yet (e.g. confirm failed):
-  // a retry must update it, not create another one.
-  const savedDraftIdRef = useRef<string | null>(null)
   // Goods leave with the customer now (default) — or later / in parts from the bills screen.
   const [deliverNow, setDeliverNow] = useState<boolean>(true)
   // VAT of this bill, chosen here with the two buttons รวม VAT / ไม่รวม VAT (owner 2026-11-04):
@@ -123,7 +117,6 @@ export default function CheckoutPage() {
       if (cart.headerRentalDate) setHeaderRentalDate(new Date(cart.headerRentalDate))
       if (cart.headerReturnDate) setHeaderReturnDate(new Date(cart.headerReturnDate))
       if (cart.quotationId) setQuotationId(cart.quotationId)
-      if (cart.draftBillId) setDraftBillId(cart.draftBillId)
       loadVat(cart.vatMode, cart.vatEnabled)
     }
     cartLoadedRef.current = true
@@ -227,7 +220,7 @@ export default function CheckoutPage() {
     customerAddress: customer?.address,
     customerPhone: contactPhone.trim() || customerContactPhones(customer) || undefined,
     customerTaxId: customer?.taxId,
-    billNo: `BILL-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-DRAFT`,
+    billNo: 'รอสร้างเลขเอกสาร',
     billDate: safeFormatDateStr(billDate),
     headerRentalDate: safeFormatDateStr(headerRentalDate),
     headerReturnDate: safeFormatDateStr(headerReturnDate),
@@ -335,9 +328,6 @@ export default function CheckoutPage() {
       .join('\n')
 
     return {
-      billId:
-        savedDraftIdRef.current ??
-        (draftBillId && loadBillById(draftBillId)?.rentalStatus === 'DRAFT' ? draftBillId : null),
       customerId: customer?.id || null,
       // A typed name with no customer record stays on the bill only (owner 2026-11-16)
       guestName: customer && !customer.id ? customer.customerName : null,
@@ -377,46 +367,29 @@ export default function CheckoutPage() {
     return true
   }
 
-  type SettleResult =
-    | { ok: true; confirmed: Awaited<ReturnType<typeof confirmBill>>; billId: string; total: number }
-    | { ok: false; message: string }
-
-  /** Draft → server total re-check → confirm. Returns the confirmed bill or the reason it stopped. */
-  const saveAndConfirmBill = async (
-    selectedPaymentMethod: PaymentMethodType,
-    isUnpaid: boolean
-  ): Promise<SettleResult> => {
-    const billId = await saveBillDraft(buildDraftInput())
-    savedDraftIdRef.current = billId
-    const draft = await fetchBillByIdFromSupabase(billId)
-    const total = draft?.grandTotal ?? grandTotal
-    const totalWithDeposit = total + depositToCollect
+  /**
+   * One server step (owner 2026-11-24: no draft bills): save + confirm together; a refusal saves nothing.
+   * The server cuts the money to its own total (bill + deposit), methods in the order taken, then
+   * ค่าสินค้าขาย → ค่าขนส่ง → มัดจำ → ค่าเช่า, the rest owed (owner 2026-11-11).
+   */
+  const issueThisBill = (selectedPaymentMethod: PaymentMethodType, isUnpaid: boolean) => {
     // One method for the exact amount (QR Code, or an empty cash box) pays whatever the server's total is
-    const exact = !pay.part && (selectedPaymentMethod !== 'CASH' || receivedCashInput === '')
-    // Otherwise the server's total can differ from the screen's; the money typed in must still cover it
-    if (!isUnpaid && !exact && pay.totals.collected + 0.005 < totalWithDeposit) {
-      return {
-        ok: false,
-        message: `ยอดสุทธิจากระบบ (รวมมัดจำ) ${totalWithDeposit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} มากกว่าเงินที่รับมา — บิลบันทึกเป็นแบบร่างไว้แล้ว`,
-      }
-    }
-    // All the money taken (bill + deposit), methods in the order taken; the server cuts it
-    // ค่าสินค้าขาย → ค่าขนส่ง → มัดจำ → ค่าเช่า and keeps the rest owed (owner 2026-11-11).
-    // ค้างชำระ after cash confirmed for part of the amount sends that cash only.
-    const tenders = exact
-      ? [{ method: selectedPaymentMethod, amount: totalWithDeposit }]
-      : allocateTenders(pay.totals.tenders, totalWithDeposit)[0]
-    const send = isUnpaid ? (pay.part ? tenders : []) : totalWithDeposit <= 0 ? [] : tenders
-    const confirmed = await confirmBill(
-      billId,
-      send.map((t) => ({ ...t, reference: t.method === 'CASH' ? undefined : bankRef || undefined }))
-    )
-    savedDraftIdRef.current = null
-    return { ok: true, confirmed, billId, total }
+    const exact = !isUnpaid && !pay.part && (selectedPaymentMethod !== 'CASH' || receivedCashInput === '')
+    // ค้างชำระ after cash confirmed for part of the amount sends that cash only
+    const taken = exact
+      ? [{ method: selectedPaymentMethod, amount: amountToCollect }]
+      : isUnpaid && !pay.part
+        ? []
+        : pay.totals.tenders
+    return issueBill(buildDraftInput(), {
+      tenders: taken.map((t) => ({ ...t, reference: t.method === 'CASH' ? undefined : bankRef || undefined })),
+      payExact: exact,
+      allowShort: isUnpaid,
+    })
   }
 
   /** Stock moves only with a real delivery (Master §11.3); failures do not undo the bill. */
-  const deliverIfNeeded = async (billId: string, confirmed: Awaited<ReturnType<typeof confirmBill>>) => {
+  const deliverIfNeeded = async (billId: string, confirmed: Awaited<ReturnType<typeof issueBill>>) => {
     if (!deliverNow || !confirmed) return
     const lines = confirmed.items
       .filter((it) => (it.remainingQty ?? 0) > 0)
@@ -429,7 +402,7 @@ export default function CheckoutPage() {
     }
   }
 
-  const handleConfirmBill = async () => {
+  const handleConfirmBill = async (showDocumentPicker = true) => {
     const selectedPaymentMethod = paymentMethod
     if (!selectedPaymentMethod) {
       await notice(PAYMENT_NOT_CHOSEN_NOTICE)
@@ -446,17 +419,11 @@ export default function CheckoutPage() {
       const allItemsAreSale = items.length > 0 && items.every((it) => isSaleCartItem(it))
       const isUnpaid = selectedPaymentMethod === 'UNPAID'
 
-      const settled = await saveAndConfirmBill(selectedPaymentMethod, isUnpaid)
-      if (!settled.ok) {
-        showToast('ยอดเงินที่รับไม่พอ', settled.message, 'ERROR')
-        return
-      }
-
-      const { confirmed, billId, total } = settled
-      await deliverIfNeeded(billId, confirmed)
+      const confirmed = await issueThisBill(selectedPaymentMethod, isUnpaid)
+      if (confirmed) await deliverIfNeeded(confirmed.id, confirmed)
 
       const billNo = confirmed?.billNo || ''
-      const savedTotal = confirmed?.grandTotal ?? total
+      const savedTotal = confirmed?.grandTotal ?? grandTotal
       setSavedPrintData({
         ...billData,
         billNo,
@@ -470,7 +437,12 @@ export default function CheckoutPage() {
       const billTitle = allItemsAreSale ? 'บันทึกการขายสำเร็จ' : 'บันทึกบิลเช่าสำเร็จ'
 
       showToast(billTitle, `เลขที่บิล: ${billNo}`, 'SUCCESS')
-      setPostSavePrintModal({ isOpen: true, title: billTitle })
+      if (showDocumentPicker) {
+        setPostSavePrintModal({ isOpen: true, title: billTitle })
+      } else {
+        // Same save/confirm/delivery flow as ออกบิล; this button only skips document selection.
+        leaveAfterSave()
+      }
     } catch (err: unknown) {
       if (isPinCancelled(err)) return
       showToast('เกิดข้อผิดพลาดในการบันทึกบิล', errorMessage(err) || 'โปรดตรวจสอบข้อมูลอีกครั้ง', 'ERROR')
@@ -479,39 +451,10 @@ export default function CheckoutPage() {
     }
   }
 
-  const handleSaveDraft = async () => {
-    if (items.length === 0) {
-      showToast('ไม่สามารถบันทึกแบบร่างได้', 'ไม่มีรายการสินค้าในตะกร้า', 'ERROR')
-      return
-    }
-
-    try {
-      validateCartCustomer(items, customer)
-    } catch {
-      router.push(`${backToPosHref}&customerRequired=1`)
-      return
-    }
-
-    try {
-      setIsSubmitting(true)
-      await saveBillDraft(buildDraftInput())
-      await fetchBillsFromSupabase(true)
-      clearCart()
-      showToast('บันทึกแบบร่างสำเร็จ', 'บันทึกแบบร่างบิลเรียบร้อยแล้ว (ยังไม่ตัดสต็อก ยังไม่มีเลขบิล)', 'SUCCESS')
-      router.push('/bills?status=DRAFT')
-    } catch (err: unknown) {
-      if (isPinCancelled(err)) return
-      showToast('เกิดข้อผิดพลาดในการบันทึกแบบร่าง', errorMessage(err) || 'โปรดตรวจสอบข้อมูลอีกครั้ง', 'ERROR')
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
   // Back to the cart without losing it: the POS reloads the cart saved before checkout
-  // (and keeps the quotation / draft this bill comes from).
+  // (and keeps the quotation this bill comes from).
   const backToPosParams = new URLSearchParams({ resume: '1' })
   if (quotationId) backToPosParams.set('quotationId', quotationId)
-  if (draftBillId) backToPosParams.set('draftBillId', draftBillId)
   const backToPosHref = `/pos?${backToPosParams.toString()}`
 
   // The bill on the left: the shop form picked in ประเภทเอกสาร (else the main bill form).
@@ -579,23 +522,23 @@ export default function CheckoutPage() {
 
               <button
                 type="button"
-                onClick={handleSaveDraft}
+                onClick={() => handleConfirmBill(false)}
                 disabled={isSubmitting}
-                className="min-w-0 whitespace-nowrap rounded-xl border-2 border-slate-200 bg-white px-3 py-2.5 hover:bg-slate-50 active:scale-[0.99] text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700/50 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
+                className="min-w-0 whitespace-nowrap rounded-xl border-2 border-emerald-700 bg-white px-3 py-2.5 hover:bg-emerald-50 active:scale-[0.99] text-emerald-800 dark:border-emerald-600 dark:bg-slate-800 dark:text-emerald-300 dark:hover:bg-emerald-950/40 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
               >
-                <FileText className="w-4 h-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
-                <span className="truncate">บันทึกแบบร่าง</span>
+                <Save className="w-4 h-4 shrink-0" />
+                <span className="truncate">บันทึก</span>
               </button>
 
               <button
                 type="button"
-                onClick={handleConfirmBill}
+                onClick={() => handleConfirmBill()}
                 disabled={isSubmitting}
                 className="min-w-0 whitespace-nowrap rounded-xl bg-emerald-700 px-3 py-2.5 hover:bg-emerald-800 active:scale-[0.99] text-white font-black text-xs sm:text-sm md:text-base flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer"
               >
                 <Printer className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
                 <span className="truncate">
-                  {isSubmitting ? 'กำลังบันทึกบิล...' : draftBillId ? 'ออกบิลจากแบบร่าง' : 'ออกบิล'}
+                  {isSubmitting ? 'กำลังบันทึกบิล...' : 'ออกบิล'}
                 </span>
               </button>
             </div>

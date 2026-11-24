@@ -163,6 +163,8 @@ export interface FullBill {
   customerName: string
   customerPhone: string
   customerAddress?: string
+  /** Customer tax ID snapshot/current display value for the bill form. */
+  customerTaxId?: string
   siteName?: string
   rentalStartDate: string
   scheduledReturnDate: string

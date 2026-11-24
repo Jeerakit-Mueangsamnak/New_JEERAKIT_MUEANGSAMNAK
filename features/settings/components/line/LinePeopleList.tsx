@@ -20,7 +20,7 @@ const PillView = ({ pill }: { pill: Pill }) => <span className={`${PILL} ${PILL_
  * Every list of คนใน LINE that is not staff / drivers is this component with a different `view`.
  * `tabs` = the page menu, drawn first in the toolbar row like the other LINE pages.
  */
-export function LinePeopleList({ view, tabs, isOwner, onChanged }: { view: LinePeopleView; tabs: ReactNode; isOwner: boolean; onChanged: () => void }) {
+export function LinePeopleList({ view, tabs, isOwner, onChanged, actions }: { view: LinePeopleView; tabs: ReactNode; isOwner: boolean; onChanged: () => void; actions?: ReactNode }) {
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
   const [offset, setOffset] = useState(0)
@@ -78,6 +78,7 @@ export function LinePeopleList({ view, tabs, isOwner, onChanged }: { view: LineP
     <div className="flex-1 min-h-0 flex flex-col">
       <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-col sm:flex-row items-stretch sm:items-center`}>
         {tabs}
+        {actions && <div className="flex flex-wrap items-center gap-2 sm:ml-auto">{actions}</div>}
         <div className="relative flex-1 min-w-0">
           <Search className={SEARCH_ICON_CLASSES} />
           <input

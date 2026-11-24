@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileCheck,
+  Save,
 } from 'lucide-react'
 import { getLocalDateString } from '@/components/common/CustomDatePicker'
 import { NumericInput } from '@/components/common/NumericInput'
@@ -772,7 +773,8 @@ export function BillActionView({
   const netCash = payableNow - overpaid + depositDelta
   const depositAfter = Math.round((depositLeft + depositDelta) * 100) / 100
 
-  const handleFinalCloseAndConfirmReturn = async () => {
+  // บันทึก = the same save as ออกบิล, without the print window: straight back to the bill list (owner 2026-11-24).
+  const handleFinalCloseAndConfirmReturn = async (showDocumentPicker = true) => {
     if (!activeBill) return
     if (pay.blocker) {
       await notice(pay.blocker)
@@ -897,7 +899,7 @@ export function BillActionView({
           'SUCCESS'
         )
         setDepositAction('NONE')
-        if (canPay) {
+        if (canPay && showDocumentPicker) {
           setSavedReturnInfo({ receiptNo, paidAmount: paid, depositApplied: fromDeposit, depositLeft: depositAfter })
           setPostSavePrintModal({ isOpen: true, title: 'บันทึกรับชำระเงินสำเร็จ' })
         } else {
@@ -1088,7 +1090,12 @@ export function BillActionView({
         depositApplied: depositPaid,
         depositLeft: depositAfter,
       })
-      setPostSavePrintModal({ isOpen: true, title: returnedItems.length > 0 ? 'บันทึกรับคืนสินค้าสำเร็จ' : 'บันทึกเช่าต่อสำเร็จ' })
+      if (showDocumentPicker) {
+        setPostSavePrintModal({ isOpen: true, title: returnedItems.length > 0 ? 'บันทึกรับคืนสินค้าสำเร็จ' : 'บันทึกเช่าต่อสำเร็จ' })
+      } else {
+        setPrintChoices({ forms: [], ticked: [] })
+        onClose()
+      }
     } catch (err: any) {
       // The steps run one after another: reload so the screen shows what was already saved and a
       // retry cannot receive the same goods twice.
@@ -1400,6 +1407,20 @@ export function BillActionView({
                     {/* 5. Action Buttons Bar: same look and behaviour as the buttons of the POS payment page */}
                     <div className="flex shrink-0 items-center gap-1.5 sm:gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
                       <StepNavButton direction="back" onClick={handleBackStep} className="flex-1 min-w-0" />
+
+                      {/* บันทึก: same save as ออกบิล, no print window (as on the POS payment page) */}
+                      <button
+                        type="button"
+                        disabled={
+                          isSubmitting ||
+                          (paymentChannel !== 'UNPAID' && payableNow > 0 && userCollectedAmount <= 0)
+                        }
+                        onClick={() => handleFinalCloseAndConfirmReturn(false)}
+                        className={`${COMMAND_BUTTON_SIZE_CLASSES} flex-1 min-w-0 border-2 border-emerald-700 bg-white hover:bg-emerald-50 active:scale-[0.99] text-emerald-800 dark:border-emerald-600 dark:bg-slate-800 dark:text-emerald-300 dark:hover:bg-emerald-950/40 flex items-center justify-center transition-all disabled:opacity-50 cursor-pointer`}
+                      >
+                        <Save className="w-4 h-4 shrink-0" />
+                        <span className="truncate">บันทึก</span>
+                      </button>
 
                       <button
                         type="button"

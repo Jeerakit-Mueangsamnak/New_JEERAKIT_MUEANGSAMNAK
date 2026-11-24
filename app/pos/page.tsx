@@ -39,14 +39,12 @@ import {
   mapQuotationToPos,
   quotationStatusView,
 } from '@/features/quotations/services/quotation-storage'
-import { loadBillById } from '@/features/bills/services/bill-storage'
 
 function POSContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const isQuotationMode = searchParams.get('mode') === 'quotation'
   const quotationId = searchParams.get('quotationId')
-  const draftBillId = searchParams.get('draftBillId')
   const appointmentId = searchParams.get('appointmentId')
   // Back from the checkout page: put the cart saved before checkout back on screen.
   const resumeCheckout = searchParams.get('resume') === '1'
@@ -74,7 +72,7 @@ function POSContent() {
     shippingFee?: number
     depositAmount?: number
     vatEnabled?: boolean
-    /** รวม / ไม่รวม VAT of a draft bill or of the cart being resumed from the payment page. */
+    /** รวม / ไม่รวม VAT of the cart being resumed from the payment page. */
     vatMode?: 'INCLUSIVE' | 'EXCLUSIVE' | null
     shippingAddress?: string
     contactPhone?: string
@@ -85,8 +83,8 @@ function POSContent() {
     datesPicked?: boolean
   }>({})
   const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null)
-  // Draft / quotation a held cart belongs to (the URL no longer carries them after switching menus).
-  const [heldDocIds, setHeldDocIds] = useState<{ draftBillId?: string; quotationId?: string }>({})
+  // Quotation a held cart belongs to (the URL no longer carries them after switching menus).
+  const [heldDocIds, setHeldDocIds] = useState<{ quotationId?: string }>({})
   const { user } = useAuth()
 
   // Edit / copy: load the quotation (also after a page reload, when the list cache is empty).
@@ -139,11 +137,11 @@ function POSContent() {
     setCustomersList(custs)
 
     // Back from checkout, or a plain visit while a cart is held (header cart icon): put the cart back.
-    const plainVisit = !isQuotationMode && !appointmentId && !quotationId && !draftBillId
+    const plainVisit = !isQuotationMode && !appointmentId && !quotationId
     if (resumeCheckout || plainVisit) {
       const saved = resumeCheckout ? loadActiveCart(isQuotationMode ? 'QUOTATION' : 'BILL') : loadHeldCart(user?.id)
       if (saved && saved.items?.length > 0) {
-        setHeldDocIds({ draftBillId: saved.draftBillId, quotationId: saved.quotationId })
+        setHeldDocIds({ quotationId: saved.quotationId })
         setSelectedCustomer(saved.customer)
         setCartItems(saved.items)
         setQuotationValues({
@@ -276,126 +274,9 @@ function POSContent() {
         }
       })()
       return () => { active = false }
-    } else if (draftBillId) {
-      const draftBill = loadBillById(draftBillId)
-      if (draftBill && draftBill.rentalStatus === 'DRAFT') {
-        const productsById = new Map(prods.map((product) => [product.id, product]))
-        const invalidItemNames: string[] = []
-        const draftProducts: Product[] = []
-        draftBill.items.forEach((item) => {
-          // รายการนอกร้าน has no product: it comes back as a typed-in line below
-          if (!item.productId) {
-            draftProducts.push(undefined as unknown as Product)
-            return
-          }
-          const product = productsById.get(item.productId)
-          if (!product || product.status !== 'ACTIVE' || !Number.isFinite(item.quantity) || item.quantity <= 0) {
-            invalidItemNames.push(item.productName)
-            return
-          }
-          try {
-            validateProductMode(product, item.rentalType === 'SALE' ? 'SALE' : 'RENT')
-            draftProducts.push(product)
-          } catch (error) {
-            invalidItemNames.push(`${item.productName} (${error instanceof Error ? error.message : 'ประเภทสินค้าไม่ถูกต้อง'})`)
-          }
-        })
-        if (invalidItemNames.length > 0) {
-          showToast(
-            'โหลดแบบร่างไม่ได้',
-            `สินค้าไม่พร้อมทำรายการหรือจำนวนไม่ถูกต้อง: ${invalidItemNames.join(', ')}`,
-            'ERROR'
-          )
-          return
-        }
-
-        const cust = custs.find((c) => c.id === draftBill.customerId) || {
-          id: draftBill.customerId || 'draft-customer',
-          customerName: draftBill.customerName,
-          phone: draftBill.customerPhone,
-          address: draftBill.customerAddress,
-        }
-        setSelectedCustomer(cust)
-
-        const convertedItems: CartItem[] = draftBill.items.map((item, idx) => {
-          if (!item.productId) {
-            const rentalType: CartItem['rentalType'] =
-              item.rentalType === 'SALE' ? 'SALE' : item.rentalType === 'DAILY' ? 'DAILY' : 'NORMAL'
-            return customCartItem(
-              {
-                name: item.productName,
-                unit: item.unit || '',
-                quantity: item.quantity,
-                unitPrice: item.dailyRate,
-                count: item.usageCount || 1,
-                rentalType,
-              },
-              `cart-${Date.now()}-${idx}`,
-            )
-          }
-          const matchedProd = draftProducts[idx]
-          const isSale = item.rentalType === 'SALE'
-          const rentalType: CartItem['rentalType'] =
-            item.rentalType === 'SALE' ? 'SALE' : item.rentalType === 'DAILY' ? 'DAILY' : 'NORMAL'
-          const baseProduct: Product = {
-            ...matchedProd,
-            normalPrice: item.dailyRate,
-            dailyPrice: item.dailyRate,
-            rentPrice: isSale ? matchedProd.rentPrice : item.dailyRate,
-            salePrice: isSale ? item.dailyRate : matchedProd.salePrice,
-          }
-
-          return {
-            id: `cart-${Date.now()}-${idx}`,
-            product: baseProduct,
-            productId: item.productId,
-            productName: item.productName,
-            itemType: isSale ? 'SALE' : 'RENT',
-            unitName: item.unit || matchedProd.unit || 'ชิ้น',
-            calculationType: matchedProd.calculationType,
-            calculationLabel: matchedProd.calculationLabel,
-            rentalType,
-            quantity: item.quantity,
-            unitPrice: item.dailyRate,
-            // baseProduct carries the draft's price, so keep the product's own price to detect the override
-            listUnitPrice: cartLineListPrice({
-              product: matchedProd,
-              rentalType,
-              itemType: isSale ? 'SALE' : 'RENT',
-            }),
-            usageCount: item.usageCount || 1,
-            billableDays: item.usageCount || 1,
-            dailyStartDate: item.rentalStartDate,
-            dailyEndDate: item.scheduledReturnDate,
-            lineTotal: Number(item.lineTotal !== undefined ? item.lineTotal : ((item.quantity || 0) * (item.dailyRate || 0))),
-          }
-        })
-
-        setCartItems(convertedItems)
-        setQuotationValues({
-          discount: draftBill.discountAmount || 0,
-          shippingFee: draftBill.shippingFee || 0,
-          depositAmount: draftBill.heldDepositAmount || draftBill.paidDepositAmount || 0,
-          vatEnabled: Boolean(draftBill.vatMode) || (draftBill.taxAmount ?? 0) > 0,
-          vatMode: draftBill.vatMode ?? null,
-          // Never the customer's address (owner 2026-11-07): only the place saved with the bill.
-          shippingAddress: draftBill.siteName || '',
-          rentalStartDate: draftBill.rentalStartDate,
-          rentalEndDate: draftBill.scheduledReturnDate,
-        })
-        if (draftBill.quotationNo) {
-          setLoadedQuotationNo(draftBill.quotationNo)
-        }
-
-        showToast('โหลดแบบร่างสำเร็จ', `โหลดข้อมูลจากแบบร่าง ${draftBill.billNo} เรียบร้อยแล้ว`, 'SUCCESS')
-      } else if (draftBill) {
-        showToast('บิลไม่ใช่แบบร่าง', `บิล ${draftBill.billNo} ไม่ได้อยู่ในสถานะแบบร่าง (สถานะปัจจุบัน: ${draftBill.rentalStatus})`, 'ERROR')
-      } else {
-        showToast('ไม่พบแบบร่าง', `ไม่พบแบบร่างที่มีรหัส ${draftBillId}`, 'ERROR')
-      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loads once per entry; user/mode are fixed for it
-  }, [resumeCheckout, appointmentId, quotationId, draftBillId, router, showToast])
+  }, [resumeCheckout, appointmentId, quotationId, router, showToast])
 
   // The held cart was cleared from the header icon (X) while this page is open: empty the screen too.
   useEffect(() => {
@@ -705,7 +586,6 @@ function POSContent() {
             isQuotationMode={isQuotationMode}
             quotationId={quotationId || heldDocIds.quotationId || undefined}
             quotationNo={loadedQuotationNo ?? editingQuotation?.quotationNo}
-            draftBillId={draftBillId || heldDocIds.draftBillId || undefined}
             onEditItem={setEditingCartItem}
             onAddCustomItem={() => setCustomItemOpen(true)}
             initialDiscount={quotationValues.discount}
@@ -721,7 +601,7 @@ function POSContent() {
             initialCustomerAttention={searchParams.get('customerRequired') === '1'}
             initialContactPhone={quotationValues.contactPhone}
             initialDocumentType={quotationValues.documentType}
-            // A held cart says whether its dates were picked; a quotation / draft / appointment brings its own dates
+            // A held cart says whether its dates were picked; a quotation / appointment brings its own dates
             initialDatesPicked={
               quotationValues.datesPicked ?? (quotationValues.rentalStartDate || quotationValues.documentDate ? true : undefined)
             }

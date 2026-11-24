@@ -10,10 +10,14 @@ vi.mock('@/lib/db/pin-confirm', async (orig) => ({
   ...(await orig<typeof import('@/lib/db/pin-confirm')>()),
   withPinIfRequired: (_opts: unknown, run: (token: null, reason: null) => unknown) => run(null, null),
 }))
+vi.mock('@/features/products/services/product-storage', async (orig) => ({
+  ...(await orig<typeof import('@/features/products/services/product-storage')>()),
+  syncStockFromSupabase: async () => undefined,
+}))
 
 import { customCartItem, cartLineUnitPriceForServer, validateCartCustomer } from '@/features/pos/services/cart-storage'
 import { CustomItemModal } from '@/features/pos/components/CustomItemModal'
-import { saveBillDraft } from '@/features/bills/services/bill-service'
+import { issueBill } from '@/features/bills/services/bill-service'
 
 afterEach(cleanup)
 
@@ -70,16 +74,17 @@ describe('รายการนอกร้าน window', () => {
   })
 })
 
-describe('bill draft with a typed-in line', () => {
+describe('bill with a typed-in line', () => {
   it('sends no product id, its own name and unit, and its price', async () => {
-    db.rpc.mockResolvedValueOnce({ id: 'bill-1' })
-    await saveBillDraft({
+    db.rpc.mockResolvedValueOnce({ bill: {} })
+    await issueBill({
       customerId: 'c1',
       lines: [
         { productId: null, productName: 'ค้ำยันเหล็ก', unitName: 'ต้น', mode: 'RENTAL', quantity: 20, unitPrice: 5, calc: 'PER_PERIOD', periods: 3, startAt: '2026-11-11T00:00:00.000Z', endAt: '2026-11-14T00:00:00.000Z' },
         { productId: 'p1', mode: 'SALE', quantity: 1 },
       ],
-    } as Parameters<typeof saveBillDraft>[0])
+    } as Parameters<typeof issueBill>[0], { tenders: [] })
+    expect(db.rpc.mock.calls[0][0]).toBe('bill_issue')
     const sent = db.rpc.mock.calls[0][1].p_data.lines
     expect(sent[0]).toMatchObject({ product_id: null, product_name: 'ค้ำยันเหล็ก', unit_name: 'ต้น', unit_price: 5, period_count: 3, line_mode: 'RENTAL' })
     expect(sent[1]).toMatchObject({ product_id: 'p1' })

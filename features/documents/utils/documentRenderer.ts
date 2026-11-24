@@ -2,6 +2,7 @@ import { CustomerSnapshot, CustomerDocumentItem } from '@/lib/types/document'
 import { BusinessSettings } from '@/lib/types/rental-pos'
 import { escapeDocumentHtml, sanitizeDocumentHtml } from '@/features/documents/utils/document-html'
 import { applyDocumentInk } from '@/features/documents/utils/document-ink'
+import { formatCustomerTaxId } from '@/features/customers/services/customer-display'
 
 export interface BillRenderSnapshot {
   billNo?: string
@@ -697,7 +698,7 @@ export function renderDocumentTemplate(
   replace(/\{\{\s*customer\.phone\s*\}\}/g, cust.phone || '')
   replace(/\{\{\s*customer\.email\s*\}\}/g, cust.email || '')
   replace(/\{\{\s*customer\.address\s*\}\}/g, cust.address || '')
-  replace(/\{\{\s*customer\.tax_id\s*\}\}/g, cust.taxId || '')
+  replace(/\{\{\s*customer\.tax_id\s*\}\}/g, formatCustomerTaxId(cust.taxId))
   replace(/\{\{\s*customer\.id_card\s*\}\}/g, cust.idCardNumber || '')
   replace(/\{\{\s*customer\.id_card_expire\s*\}\}/g, cust.idCardExpiry || '')
 

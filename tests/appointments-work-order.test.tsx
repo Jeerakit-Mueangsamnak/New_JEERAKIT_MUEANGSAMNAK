@@ -96,7 +96,7 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
 
   it('หน้านัดหมายไม่มีแท็บหลักซ้ำ (งานวันนี้/พรุ่งนี้/ทั้งหมด) และเปิดได้ทีละแผงเดียว', async () => {
     saveAppointments([
-      { id: 'apt-0', title: 'งาน X', customerName: 'ก', date: '2026-09-25', startTime: '09:00', endTime: '10:00', type: 'DELIVERY', status: 'SCHEDULED' },
+      { id: 'apt-0', title: 'งาน X', customerName: 'ก', date: '2026-09-25', startTime: '09:00', type: 'DELIVERY', status: 'SCHEDULED' },
     ])
     render(<AppointmentsPage />)
     await screen.findByText('งาน X')
@@ -111,19 +111,21 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
   })
 
   it('สถานะงานคำนวณเอง: ยังไม่สั่งงานตามเวลา / สั่งงานแล้ว = กำลังดำเนินการ / ยกเลิกคงสถานะสิ้นสุด', async () => {
-    const at = (date: string, startTime: string, endTime: string) => ({ date, startTime, endTime, status: 'SCHEDULED' as const })
+    const at = (date: string, startTime: string) => ({ date, startTime, status: 'SCHEDULED' as const })
     const now = new Date('2026-10-10T10:30:00')
-    expect(jobStatusOf(at('2026-10-10', '11:00', '12:00'), now)).toBe('WAITING')
-    expect(jobStatusOf(at('2026-10-10', '10:00', '11:00'), now)).toBe('DUE')
-    expect(jobStatusOf(at('2026-10-10', '09:00', '10:00'), now)).toBe('OVERDUE')
-    expect(jobStatusOf({ ...at('2026-10-10', '09:00', '10:00'), events: [{ stage: 'DISPATCH', status: 'DONE' }] }, now)).toBe('IN_PROGRESS')
-    expect(jobStatusOf({ ...at('2026-10-10', '11:00', '12:00'), status: 'CANCELLED', events: [{ stage: 'DISPATCH', status: 'DONE' }] }, now)).toBe('CANCELLED')
-    expect(jobStatusOf({ ...at('2026-10-10', '11:00', '12:00'), status: 'COMPLETED' }, now)).toBe('COMPLETED')
+    expect(jobStatusOf(at('2026-10-10', '11:00'), now)).toBe('WAITING')
+    expect(jobStatusOf(at('2026-10-10', '10:30'), now)).toBe('DUE')
+    expect(jobStatusOf(at('2026-10-10', '10:00'), now)).toBe('DUE')
+    expect(jobStatusOf(at('2026-10-10', '09:31'), now)).toBe('DUE')
+    expect(jobStatusOf(at('2026-10-10', '09:00'), now)).toBe('OVERDUE')
+    expect(jobStatusOf({ ...at('2026-10-10', '09:00'), events: [{ stage: 'DISPATCH', status: 'DONE' }] }, now)).toBe('IN_PROGRESS')
+    expect(jobStatusOf({ ...at('2026-10-10', '11:00'), status: 'CANCELLED', events: [{ stage: 'DISPATCH', status: 'DONE' }] }, now)).toBe('CANCELLED')
+    expect(jobStatusOf({ ...at('2026-10-10', '11:00'), status: 'COMPLETED' }, now)).toBe('COMPLETED')
 
     saveAppointments([
-      { id: 'apt-s1', title: 'งานเลยเวลา', customerName: 'ก', date: '2026-09-25', startTime: '09:00', endTime: '10:00', type: 'DELIVERY', status: 'CONFIRMED' },
-      { id: 'apt-s2', title: 'งานสั่งแล้ว', customerName: 'ก', date: '2026-09-25', startTime: '11:00', endTime: '12:00', type: 'DELIVERY', status: 'SCHEDULED', events: [{ id: 'd', stage: 'DISPATCH', status: 'DONE' }] },
-      { id: 'apt-s3', title: 'งานยกเลิก', customerName: 'ก', date: '2026-09-25', startTime: '13:00', endTime: '14:00', type: 'DELIVERY', status: 'CANCELLED' },
+      { id: 'apt-s1', title: 'งานเลยเวลา', customerName: 'ก', date: '2026-09-25', startTime: '09:00', type: 'DELIVERY', status: 'CONFIRMED' },
+      { id: 'apt-s2', title: 'งานสั่งแล้ว', customerName: 'ก', date: '2026-09-25', startTime: '11:00', type: 'DELIVERY', status: 'SCHEDULED', events: [{ id: 'd', stage: 'DISPATCH', status: 'DONE' }] },
+      { id: 'apt-s3', title: 'งานยกเลิก', customerName: 'ก', date: '2026-09-25', startTime: '13:00', type: 'DELIVERY', status: 'CANCELLED' },
     ])
     render(<AppointmentsPage />)
     const rowOf = async (title: string) => (await screen.findByText(title)).closest('tr')!
@@ -135,10 +137,10 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
 
   it('UI: การ์ดสรุปเรียงใหม่ สีตามการ์ด, เลยกำหนดนับเฉพาะงานเลยกำหนดจริง, กำหนดการรูปแบบไทย, หัวตารางขั้นตอน', async () => {
     saveAppointments([
-      { id: 'k1', title: 'เลยเวลาไม่สั่งงาน', customerName: 'ก', date: '2026-09-25', startTime: '09:00', endTime: '10:00', type: 'DELIVERY', status: 'SCHEDULED' },
-      { id: 'k2', title: 'เลยเวลาแต่สั่งงานแล้ว', customerName: 'ก', date: '2026-09-25', startTime: '11:00', endTime: '12:00', type: 'DELIVERY', status: 'SCHEDULED', events: [{ id: 'd', stage: 'DISPATCH', status: 'DONE' }] },
-      { id: 'k3', title: 'เลยเวลาแต่เสร็จแล้ว', customerName: 'ก', date: '2026-09-25', startTime: '13:00', endTime: '14:00', type: 'DELIVERY', status: 'COMPLETED' },
-      { id: 'k4', title: 'งานอนาคต', customerName: 'ก', date: '2099-01-01', startTime: '09:00', endTime: '10:00', type: 'DELIVERY', status: 'SCHEDULED' },
+      { id: 'k1', title: 'เลยเวลาไม่สั่งงาน', customerName: 'ก', date: '2026-09-25', startTime: '09:00', type: 'DELIVERY', status: 'SCHEDULED' },
+      { id: 'k2', title: 'เลยเวลาแต่สั่งงานแล้ว', customerName: 'ก', date: '2026-09-25', startTime: '11:00', type: 'DELIVERY', status: 'SCHEDULED', events: [{ id: 'd', stage: 'DISPATCH', status: 'DONE' }] },
+      { id: 'k3', title: 'เลยเวลาแต่เสร็จแล้ว', customerName: 'ก', date: '2026-09-25', startTime: '13:00', type: 'DELIVERY', status: 'COMPLETED' },
+      { id: 'k4', title: 'งานอนาคต', customerName: 'ก', date: '2099-01-01', startTime: '09:00', type: 'DELIVERY', status: 'SCHEDULED' },
     ])
     render(<AppointmentsPage />)
     await screen.findByText('เลยเวลาไม่สั่งงาน')
@@ -162,7 +164,7 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
 
     const panel = await openJob('เลยเวลาไม่สั่งงาน')
     expect(within(panel).getByTestId('job-date').textContent).toBe('25/09/2569')
-    expect(within(panel).getByTestId('job-time').textContent).toBe('09:00 - 10:00 น.')
+    expect(within(panel).getByTestId('job-time').textContent).toBe('09:00 น.')
     fireEvent.click(within(panel).getByRole('button', { name: 'สถานะ' }))
     expect(within(panel).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['ขั้นตอนงาน', 'เวลา', 'สถานะ'])
     expect(within(panel).getAllByText('ยังไม่มีข้อมูล').length).toBe(9)
@@ -171,11 +173,11 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
   it('รายละเอียดงาน: ชื่องาน/สถานะ, ลูกค้า, สถานที่จัดส่งของงานนี้, กำหนดการ, ตารางสินค้า และปุ่ม แก้ไข/ยกเลิกงาน/สั่งงาน', async () => {
     saveAppointments([
       {
-        id: 'apt-d1', title: 'ส่งสินค้า ไซต์ A', customerName: 'บริษัท ทดสอบ จำกัด', phone: '0811111111', date: '2026-09-25', startTime: '09:00', endTime: '10:00',
+        id: 'apt-d1', title: 'ส่งสินค้า ไซต์ A', customerName: 'บริษัท ทดสอบ จำกัด', phone: '0811111111', date: '2026-09-25', startTime: '09:00',
         type: 'DELIVERY', status: 'SCHEDULED', location: 'ไซต์งานบางนา', details: 'โทรก่อนเข้า',
         items: [{ id: 'p1', name: 'ขาตั้งนั่งร้าน', quantity: 20, unit: 'ต้น' }],
       },
-      { id: 'apt-d2', title: 'เก็บแบบ', customerName: 'คุณบี', date: '2026-09-25', startTime: '11:00', endTime: '12:00', type: 'DELIVERY', status: 'SCHEDULED', details: 'เก็บแบบเหล็ก 30 แผ่น' },
+      { id: 'apt-d2', title: 'เก็บแบบ', customerName: 'คุณบี', date: '2026-09-25', startTime: '11:00', type: 'DELIVERY', status: 'SCHEDULED', details: 'เก็บแบบเหล็ก 30 แผ่น' },
     ])
     render(<AppointmentsPage />)
     let panel = await openJob('ส่งสินค้า ไซต์ A')
@@ -204,7 +206,6 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
       customerName: 'บริษัท กสทช.',
       date: '2026-09-25',
       startTime: '09:00',
-      endTime: '11:00',
       type: 'DELIVERY',
       status: 'SCHEDULED',
     }
@@ -221,7 +222,7 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
     expect(within(dialog).queryByText(/LINE Notify/)).toBeNull()
     // Summary box: name, phone, site, then date | time
     expect(within(dialog).getByTestId('job-date').textContent).toBe('25/09/2569')
-    expect(within(dialog).getByTestId('job-time').textContent).toBe('09:00 - 11:00 น.')
+    expect(within(dialog).getByTestId('job-time').textContent).toBe('09:00 น.')
 
     const modalDispatchBtn = within(dialog).getByRole('button', { name: /สั่งงาน \(ยังไม่มีข้อมูลพนักงาน\)/ }) as HTMLButtonElement
     expect(modalDispatchBtn.disabled).toBe(true)
@@ -243,7 +244,6 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
         customerName: 'บริษัท ทีโอที จำกัด',
         date: '2026-09-25',
         startTime: '13:00',
-        endTime: '15:00',
         type: 'RETURN',
         status: 'SCHEDULED',
         events: [],
@@ -271,7 +271,6 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
         customerName: 'บริษัท พระราม 9 คอนสตรัคชั่น',
         date: '2026-09-25',
         startTime: '10:00',
-        endTime: '12:00',
         type: 'DELIVERY',
         status: 'IN_PROGRESS',
         events: [
@@ -314,7 +313,7 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
 
   it('นัดหมายเปิด POS เพื่อสร้างบิลพร้อมข้อมูลนัดหมาย โดยไม่สร้างบิลหรือ assignee/event ปลอมเอง', async () => {
     saveAppointments([
-      { id: 'apt-4', title: 'งานติดตั้งตลับเมตร D', customerName: 'คุณสมศักดิ์', date: '2026-09-25', startTime: '14:00', endTime: '15:00', type: 'DELIVERY', status: 'SCHEDULED' },
+      { id: 'apt-4', title: 'งานติดตั้งตลับเมตร D', customerName: 'คุณสมศักดิ์', date: '2026-09-25', startTime: '14:00', type: 'DELIVERY', status: 'SCHEDULED' },
     ])
     render(<AppointmentsPage />)
     await openJob('งานติดตั้งตลับเมตร D')
@@ -336,7 +335,6 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
         customerName: 'คุณสมศักดิ์',
         date: '2026-09-25',
         startTime: '14:00',
-        endTime: '15:00',
         type: 'DELIVERY',
         status: 'SCHEDULED',
         billId: 'bill-1',
@@ -353,7 +351,7 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
 
   it('รายละเอียด › ยกเลิกงาน: ยืนยันในแผงเดียวกันแล้วลบงานจริง งานหายจากรายการและแผงปิด', async () => {
     saveAppointments([
-      { id: 'apt-6', title: 'งาน E', customerName: 'ข', date: '2026-09-25', startTime: '09:00', endTime: '10:00', type: 'DELIVERY', status: 'SCHEDULED' },
+      { id: 'apt-6', title: 'งาน E', customerName: 'ข', date: '2026-09-25', startTime: '09:00', type: 'DELIVERY', status: 'SCHEDULED' },
     ])
     render(<AppointmentsPage />)
     const panel = await openJob('งาน E')
@@ -383,7 +381,6 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
         customerName: 'คุณมาลี',
         date: '2026-10-10',
         startTime: '09:00',
-        endTime: '10:00',
         type: 'DELIVERY',
         status: 'SCHEDULED',
       },
@@ -413,7 +410,7 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
     calendarDay.value = '2026-10-10'
     saveAppointments([
       {
-        id: 'apt-5', title: 'ส่งเต็นท์', customerName: 'คุณวิชัย', date: '2026-10-10', startTime: '13:00', endTime: '14:00', type: 'DELIVERY', status: 'SCHEDULED',
+        id: 'apt-5', title: 'ส่งเต็นท์', customerName: 'คุณวิชัย', date: '2026-10-10', startTime: '13:00', type: 'DELIVERY', status: 'SCHEDULED',
         events: [
           { id: 'e1', stage: 'DISPATCH', status: 'DONE', by: 'เจ้าของ', timestamp: '2026-10-10T05:00:00Z' },
           { id: 'e2', stage: 'ACCEPT', status: 'DONE', by: 'คนเก่า (LINE)', timestamp: '2026-10-10T05:01:00Z' },
@@ -435,7 +432,7 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
 
   it('สถานะ › ยกเลิกงาน: ถอนงานจากพนักงาน งานยังอยู่ กลับมาสั่งงานใหม่ได้ (ไม่ลบงาน)', async () => {
     saveAppointments([
-      { id: 'apt-7', title: 'งาน F', customerName: 'ค', date: '2026-09-25', startTime: '09:00', endTime: '10:00', type: 'DELIVERY', status: 'SCHEDULED', driverId: 'D001', driverName: 'สมชาย', events: [{ id: 'd', stage: 'DISPATCH', status: 'DONE' }] },
+      { id: 'apt-7', title: 'งาน F', customerName: 'ค', date: '2026-09-25', startTime: '09:00', type: 'DELIVERY', status: 'SCHEDULED', driverId: 'D001', driverName: 'สมชาย', events: [{ id: 'd', stage: 'DISPATCH', status: 'DONE' }] },
     ])
     render(<AppointmentsPage />)
     const panel = await openJob('งาน F', 'สถานะ')
@@ -463,7 +460,7 @@ describe('MASTER Appointment & Work Order Flow Tests', () => {
     calendarDay.value = '2026-10-10'
     saveAppointments([
       {
-        id: 'apt-c1', title: 'ส่งเก้าอี้', customerName: 'คุณดี', date: '2026-10-10', startTime: '13:00', endTime: '14:00', type: 'DELIVERY', status: 'SCHEDULED',
+        id: 'apt-c1', title: 'ส่งเก้าอี้', customerName: 'คุณดี', date: '2026-10-10', startTime: '13:00', type: 'DELIVERY', status: 'SCHEDULED',
         events: [{ id: 'e1', stage: 'DISPATCH', status: 'DONE', by: 'เจ้าของ' }],
       },
     ])

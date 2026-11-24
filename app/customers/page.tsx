@@ -7,6 +7,7 @@ import { loadQuotationPrintTemplate, printQuotationA4 } from '@/features/documen
 import { MAIN_BILL_FORM_MISSING, printSavedBill } from '@/features/documents/utils/rental-bill-print'
 import { fetchQuotationsForCustomer, quotationStatusView } from '@/features/quotations/services/quotation-storage'
 import type { Quotation } from '@/lib/types/rental-pos'
+import { formatCustomerTaxId } from '@/features/customers/services/customer-display'
 import type { FullBill } from '@/lib/types/rental-return'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { CustomerLineLinkButton } from '@/features/customers/components/CustomerLineLinkButton'
@@ -771,7 +772,7 @@ export default function CustomersPage() {
                           เลขประจำตัวผู้เสียภาษี
                         </label>
                         <div className="w-full px-2.5 h-[30px] py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 font-mono font-bold text-slate-800 dark:text-slate-200 text-xs truncate">
-                          {selectedCustomer?.taxId || '-'}
+                          {formatCustomerTaxId(selectedCustomer?.taxId) || '-'}
                         </div>
                       </div>
 
@@ -1526,7 +1527,7 @@ export default function CustomersPage() {
                             </span>
                           </div>
                           <p className="text-slate-600 dark:text-slate-400 text-[10px] font-mono mt-0.5">
-                            เลขประจำตัวผู้เสียภาษี: {selectedCustomer.taxId || 'ไม่ได้ระบุ'}
+                            เลขประจำตัวผู้เสียภาษี: {formatCustomerTaxId(selectedCustomer.taxId) || 'ไม่ได้ระบุ'}
                           </p>
                         </div>
                       </div>

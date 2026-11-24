@@ -172,13 +172,25 @@ export function NewCustomerModal({
     setPostalCode('')
   }
 
-  // Handle SubDistrict Change
+  // Typed address text is committed immediately; selecting an option uses the same handlers.
+  const handleProvinceTyping = (province: string) => {
+    setSelectedProvince(province)
+    setSelectedDistrict('')
+    setSelectedSubDistrict('')
+    setPostalCode('')
+  }
+
+  const handleDistrictTyping = (district: string) => {
+    setSelectedDistrict(district)
+    setSelectedSubDistrict('')
+    setPostalCode('')
+  }
+
+  // Handle SubDistrict Change or live typing.
   const handleSubDistrictChange = (subDist: string) => {
     setSelectedSubDistrict(subDist)
     const subMatch = currentDistrictData?.subDistricts.find((s) => s.name === subDist)
-    if (subMatch) {
-      setPostalCode(subMatch.postalCode)
-    }
+    setPostalCode(subMatch?.postalCode ?? '')
   }
 
   // File Upload Handler for ID Card Image
@@ -215,21 +227,26 @@ export function NewCustomerModal({
     subDistrict: { current: selectedSubDistrict, set: setSelectedSubDistrict },
   }
 
-  // OCR: everything the card was read for goes straight into its empty field.
-  // A field the user already typed is not overwritten. The address chain is filled
-  // only when province / district / sub-district are all empty.
+  // OCR fills each empty address field independently; values the user entered are preserved.
   const handleScanComplete = (scannedData: ExtractedIDCardData) => {
-    const addressEmpty = !selectedProvince && !selectedDistrict && !selectedSubDistrict
     for (const [key, target] of Object.entries(ocrSetters) as [ParsedThaiIdField, { current: string; set: (v: string) => void }][]) {
       const value = scannedData[key]
       if (!value) continue
       if (['province', 'district', 'subDistrict'].includes(key)) {
-        if (addressEmpty) {
-          target.set(value)
-        }
+        if (!target.current.trim()) target.set(value)
       } else if (!target.current.trim()) {
         target.set(value)
       }
+    }
+
+    const provinceName = selectedProvince || scannedData.province
+    const districtName = selectedDistrict || scannedData.district
+    const subDistrictName = selectedSubDistrict || scannedData.subDistrict
+    if (!postalCode && provinceName && districtName && subDistrictName) {
+      const province = thaiAddressData.find((item) => item.name === provinceName)
+      const district = province?.districts.find((item) => item.name === districtName)
+      const subDistrict = district?.subDistricts.find((item) => item.name === subDistrictName)
+      if (subDistrict) setPostalCode(subDistrict.postalCode)
     }
 
     if (scannedData.croppedImageDataUrl) {
@@ -471,6 +488,7 @@ export function NewCustomerModal({
                   placeholder="-- เลือกตำบล --"
                   value={selectedSubDistrict}
                   onChange={(val) => handleSubDistrictChange(String(val))}
+                  onSearchTermChange={handleSubDistrictChange}
                   options={availableSubDistricts.map((s) => ({
                     value: s.name,
                     label: s.name,
@@ -488,6 +506,7 @@ export function NewCustomerModal({
                   placeholder="-- เลือกอำเภอ --"
                   value={selectedDistrict}
                   onChange={(val) => handleDistrictChange(String(val))}
+                  onSearchTermChange={handleDistrictTyping}
                   options={availableDistricts.map((d) => ({ value: d, label: d }))}
                 />
               </div>
@@ -501,6 +520,7 @@ export function NewCustomerModal({
                   placeholder="-- เลือกจังหวัด --"
                   value={selectedProvince}
                   onChange={(val) => handleProvinceChange(String(val))}
+                  onSearchTermChange={handleProvinceTyping}
                   options={thaiProvinceOptions.map((p) => ({ value: p, label: p }))}
                 />
                 {isLoadingThaiAddresses && (

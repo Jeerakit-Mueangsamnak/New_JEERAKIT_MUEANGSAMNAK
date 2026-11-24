@@ -43,11 +43,11 @@ describe('bill-repository: which bills are read', () => {
     rowsFor = () => []
   })
 
-  it('open bills = every status except closed / cancelled / void, newest first', async () => {
+  it('open bills = every status except draft / closed / cancelled / void, newest first', async () => {
     const { fetchBillsFromSupabase } = await import('@/features/bills/api/bill-repository')
     await fetchBillsFromSupabase()
     const bills = calls.filter((c) => c.table === 'bills')
-    expect(bills.find((c) => c.method === 'not')?.args).toEqual(['status', 'in', '(CLOSED,CANCELLED,VOID)'])
+    expect(bills.find((c) => c.method === 'not')?.args).toEqual(['status', 'in', '(DRAFT,CLOSED,CANCELLED,VOID)'])
     expect(bills.find((c) => c.method === 'order')?.args).toEqual(['created_at', { ascending: false }])
     // Nothing is read for an empty list: no child-table query at all
     expect(calls.some((c) => c.table === 'bill_lines')).toBe(false)
@@ -75,6 +75,21 @@ describe('bill-repository: which bills are read', () => {
     const customerChunks = calls.filter((c) => c.table === 'customers' && c.method === 'in').map((c) => (c.args[1] as string[]).length)
     expect(customerChunks).toEqual([100, 50])
     expect(calls.some((c) => c.table === 'customers' && c.method === 'select' && !calls.some((d) => d.table === 'customers' && d.method === 'in'))).toBe(false)
+    expect(calls.find((c) => c.table === 'customers' && c.method === 'select')?.args[0]).toBe('id, name, phone, address, tax_id, contact_details')
+  })
+
+  it('a draft bill resolves the customer secondary phone through the shared display lookup', async () => {
+    rowsFor = (table) => {
+      if (table === 'bills') return [{ ...billRow('b1', 'ACTIVE'), customer_id: 'c1' }]
+      if (table === 'customers') return [{
+        id: 'c1', name: 'ลูกค้าทดสอบ', phone: '0811111111', phone2: '0822222222', address: 'บางนา', tax_id: null,
+        contact_details: { phone2: '0822222222' },
+      }]
+      return []
+    }
+    const { fetchBillsFromSupabase } = await import('@/features/bills/api/bill-repository')
+    const [bill] = await fetchBillsFromSupabase()
+    expect(bill.customerPhone).toBe('0811111111, 0822222222')
   })
 
   it('a long id list is split across several bill queries', async () => {

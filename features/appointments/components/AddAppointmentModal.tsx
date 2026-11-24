@@ -26,7 +26,7 @@ export const getInitialAppointmentFormData = (dateStr?: string): Partial<Appoint
   quotationNo: '',
   date: dateStr || getLocalDateString(),
   startTime: '09:00',
-  endTime: '10:00',
+  reminderBeforeMinutes: 15,
   location: '',
   phone: '',
   details: '',
@@ -58,7 +58,7 @@ const formFromAppointment = (apt: Appointment): Partial<Appointment> => ({
   quotationNo: apt.quotationNo || '',
   date: apt.date,
   startTime: apt.startTime,
-  endTime: apt.endTime,
+  reminderBeforeMinutes: apt.reminderBeforeMinutes ?? null,
   location: apt.location || '',
   phone: formatPhoneNumber(apt.phone),
   details: apt.details || '',
@@ -116,12 +116,8 @@ export function AppointmentForm({ initial, initialDate, customers = [], onSubmit
       showToast('กรุณาระบุชื่องาน', undefined, 'ERROR')
       return
     }
-    if (!formData.date || !formData.startTime || !formData.endTime) {
-      showToast('กรุณาระบุวันและเวลาให้ครบ', undefined, 'ERROR')
-      return
-    }
-    if (formData.endTime < formData.startTime) {
-      showToast('เวลาสิ้นสุดต้องไม่ก่อนเวลาเริ่ม', undefined, 'ERROR')
+    if (!formData.date || !formData.startTime) {
+      showToast('กรุณาระบุวันและเวลาเริ่มให้ครบ', undefined, 'ERROR')
       return
     }
     if (items.some((i) => !(Number(i.quantity) > 0))) {
@@ -231,8 +227,21 @@ export function AppointmentForm({ initial, initialDate, customers = [], onSubmit
             <TimeField label="เวลาเริ่ม" value={formData.startTime || ''} onChange={(t) => setFormData((prev) => ({ ...prev, startTime: t }))} />
           </div>
           <div>
-            <label className={LABEL}>เวลาสิ้นสุด</label>
-            <TimeField label="เวลาสิ้นสุด" value={formData.endTime || ''} onChange={(t) => setFormData((prev) => ({ ...prev, endTime: t }))} />
+            <label className={LABEL} htmlFor="apt-reminder">การแจ้งเตือน</label>
+            <select
+              id="apt-reminder"
+              aria-label="การแจ้งเตือน"
+              value={formData.reminderBeforeMinutes ?? ''}
+              onChange={(e) => setFormData((prev) => ({ ...prev, reminderBeforeMinutes: e.target.value === '' ? null : Number(e.target.value) }))}
+              className={INPUT}
+            >
+              <option value="">ใช้ค่าการแจ้งเตือนของระบบ</option>
+              <option value="5">5 นาทีก่อน</option>
+              <option value="15">15 นาทีก่อน</option>
+              <option value="30">30 นาทีก่อน</option>
+              <option value="60">1 ชั่วโมงก่อน</option>
+              <option value="1440">1 วันก่อน</option>
+            </select>
           </div>
         </div>
 
@@ -282,7 +291,8 @@ export function AppointmentForm({ initial, initialDate, customers = [], onSubmit
                       <div className="flex items-center gap-1">
                         <NumericInput
                           min={0}
-                          inputMode="decimal"
+                          allowDecimals={false}
+                          touchKeypad
                           aria-label={`จำนวน ${item.name}`}
                           value={Number.isFinite(item.quantity) ? item.quantity : ''}
                           onChange={(v) => setItemQty(item.id, v === '' ? NaN : v)}

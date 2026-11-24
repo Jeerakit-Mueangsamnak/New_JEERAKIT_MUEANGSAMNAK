@@ -351,6 +351,11 @@ describe('แบบฟอร์มทุกใบตอนพิมพ์ (owner
     expect(out).toMatch(/border-top:\s*1px solid #000/)
   })
 
+  it('customer tax ID is printed with standard grouping dashes', () => {
+    const out = renderDocumentTemplate('<span>{{customer.tax_id}}</span>', { taxId: '0000000000000' }, 'BL-1', '', '', {}, { items: [] })
+    expect(out).toContain('0-0000-00000-00-0')
+  })
+
   it('an underlined detail keeps its text line with the line just under it; the amount in words is never cut (owner 2026-11-20)', () => {
     const out = render(
       '<span style="display:block; height:17px; border-bottom-width:1px; border-bottom-style:dotted; overflow-x:hidden; overflow-y:hidden">{{customer.tax_id}}</span>' +

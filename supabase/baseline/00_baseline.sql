@@ -6079,12 +6079,18 @@ BEGIN
     END IF;
     IF COALESCE((v_n -> 'appointmentReminder' ->> 'enabled')::boolean, true) THEN
         FOR v_row IN
-            SELECT a.id, a.title, a.start_datetime
+            SELECT a.id, a.title, a.start_datetime, a.reminder_before_minutes
             FROM public.appointments a
             WHERE a.status IN ('DRAFT', 'SCHEDULED', 'CONFIRMED', 'RESCHEDULED')
               AND a.start_datetime >= now()
-              AND public._local_date(a.start_datetime) - v_today
-                  <= COALESCE((v_n -> 'appointmentReminder' ->> 'daysBefore')::integer, 3)
+              AND (
+                  (a.reminder_before_minutes IS NOT NULL
+                   AND a.start_datetime - make_interval(mins => a.reminder_before_minutes) <= now())
+                  OR
+                  (a.reminder_before_minutes IS NULL
+                   AND public._local_date(a.start_datetime) - v_today
+                       <= COALESCE((v_n -> 'appointmentReminder' ->> 'daysBefore')::integer, 3))
+              )
         LOOP
             PERFORM public._notify('APPOINTMENT_DUE:' || v_row.id, 'APPOINTMENT_DUE', 'INFO', NULL, 'appointments',
                 'APPOINTMENT', v_row.id, 'ใกล้ถึงนัดหมาย: ' || v_row.title,

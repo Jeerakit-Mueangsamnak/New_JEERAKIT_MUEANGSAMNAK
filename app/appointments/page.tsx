@@ -258,7 +258,14 @@ export default function AppointmentsPage() {
       id: apt.id,
       title: apt.title,
       start: `${apt.date}T${apt.startTime}:00`,
-      end: `${apt.date}T${apt.endTime}:00`,
+      // Calendar widgets require an end boundary; show a one-hour visual block without
+      // treating that generated boundary as appointment data or asking the user for it.
+      end: (() => {
+        const [year, month, day] = apt.date.split('-').map(Number)
+        const [hour, minute] = apt.startTime.split(':').map(Number)
+        const end = new Date(year, month - 1, day, hour, minute + 60)
+        return `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}T${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}:00`
+      })(),
       backgroundColor: color,
       borderColor: color,
     }
@@ -269,7 +276,7 @@ export default function AppointmentsPage() {
   // "ใกล้ถึงกำหนด" window = the shop's appointment notice days (ตั้งค่าระบบ › การแจ้งเตือนของร้าน).
   const nearDays = Math.max(0, Number(settings.notifications?.appointmentReminder?.daysBefore ?? 3))
   const todayTasksCount = appointments.filter(a => a.date === todayStr && !isAppointmentClosed(a.status)).length
-  // เลยกำหนด = open jobs past their end time and not dispatched (same rule as the job status)
+  // เลยกำหนด = open jobs past their start time and not dispatched (same rule as the job status)
   const overdueTasksCount = appointments.filter((a) => jobStatusOf(a) === 'OVERDUE').length
   const completedTasksCount = appointments.filter(a => a.status === 'COMPLETED').length
   const nearTasksCount = appointments.filter(a => {
@@ -337,7 +344,7 @@ export default function AppointmentsPage() {
                   <td className="px-2 whitespace-nowrap text-blue-700 dark:text-blue-300 font-semibold">
                     {currentStage(apt)?.label ?? <span className="text-slate-600 dark:text-slate-400 font-normal">ยังไม่สั่งงาน</span>}
                   </td>
-                  <td className="px-2 whitespace-nowrap font-mono">{apt.startTime} - {apt.endTime}</td>
+                  <td className="px-2 whitespace-nowrap font-mono">{apt.startTime} น.</td>
                   <td className="px-2 min-w-[110px]">
                     <div className="flex items-center gap-1.5">
                       <div className="flex-1 flex gap-0.5">
@@ -482,7 +489,6 @@ export default function AppointmentsPage() {
                       location={panelApt.location}
                       date={panelApt.date}
                       startTime={panelApt.startTime}
-                      endTime={panelApt.endTime}
                     />
                   )
                   const box = 'p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1'

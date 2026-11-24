@@ -45,7 +45,7 @@ const savedData = () => {
   return call?.[1] as { p_data: { work_order: { events: Array<{ id: string; stage: string }>; driver?: { id: string } } }; p_expected_updated_at?: string }
 }
 const screenCopy = (over: Partial<Appointment> = {}): Appointment => ({
-  id: ID, title: 'ส่งโต๊ะ · คุณมาลี', customerName: 'คุณมาลี', date: '2026-10-10', startTime: '09:00', endTime: '10:00',
+  id: ID, title: 'ส่งโต๊ะ · คุณมาลี', customerName: 'คุณมาลี', date: '2026-10-10', startTime: '09:00',
   type: 'DELIVERY', status: 'SCHEDULED', updatedAt: '2026-10-10T01:00:00.123456+00:00', ...over,
 })
 

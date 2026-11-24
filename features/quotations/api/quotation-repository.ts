@@ -3,7 +3,7 @@ import { readByIds, rpc, selectRows, selectAllRows } from '@/lib/db/rpc'
 import { withPinIfRequired } from '@/lib/db/pin-confirm'
 import type { Quotation, QuotationItem, QuotationStatus } from '@/lib/types/rental-pos'
 import type { CustomerSnapshot } from '@/features/bills/api/bill-repository'
-import { loadCustomers } from '@/features/customers/services/customer-storage'
+import { getCustomersByIds } from '@/features/customers/services/customer-storage'
 import { loadProducts } from '@/features/products/services/product-storage'
 import { loadUnits } from '@/lib/unit-storage'
 
@@ -70,9 +70,6 @@ type ProductLite = { id: string; name: string; unit_id: string; is_accessory: bo
  */
 async function quotationLookups(supabase: ReturnType<typeof createClient>, quotes: QuotationRow[], items: QuotationItemRow[]) {
   const customerMap = new Map<string, CustomerLite>()
-  for (const c of loadCustomers()) {
-    customerMap.set(c.id, { id: c.id, name: c.customerName, phone: c.phone, address: c.address || '', tax_id: c.taxId || null })
-  }
   const productMap = new Map<string, ProductLite>()
   for (const p of loadProducts()) {
     productMap.set(p.id, {
@@ -87,14 +84,12 @@ async function quotationLookups(supabase: ReturnType<typeof createClient>, quote
   const unitMap = new Map(loadUnits().map((u) => [u.id, u.name]))
 
   const [customers, products] = await Promise.all([
-    readByIds(quotes.map((q) => q.customer_id).filter((id) => id && !customerMap.has(id)), (chunk) =>
-      selectRows<CustomerLite>(supabase.from('customers').select('id, name, phone, address, tax_id').in('id', chunk))
-    ),
+    getCustomersByIds(quotes.map((q) => q.customer_id).filter((id): id is string => Boolean(id))).then((map) => [...map.values()]),
     readByIds(items.map((it) => it.product_id).filter((id) => id && !productMap.has(id)), (chunk) =>
       selectRows<ProductLite>(supabase.from('products').select('id, name, unit_id, is_accessory, is_rent_chargeable, requires_return').in('id', chunk))
     ),
   ])
-  for (const c of customers) customerMap.set(c.id, c)
+  for (const c of customers) customerMap.set(c.id, { id: c.id, name: c.name, phone: c.phone, address: c.address, tax_id: c.taxId || null })
   for (const p of products) productMap.set(p.id, p)
   const units = await readByIds([...productMap.values()].map((p) => p.unit_id).filter((id) => id && !unitMap.has(id)), (chunk) =>
     selectRows<{ id: string; name: string }>(supabase.from('units').select('id, name').in('id', chunk))

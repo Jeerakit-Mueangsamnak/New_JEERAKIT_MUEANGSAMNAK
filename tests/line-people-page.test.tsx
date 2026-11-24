@@ -162,14 +162,11 @@ describe('คนใน LINE', () => {
   })
   afterEach(cleanup)
 
-  it('opens on the overview: the numbers come from one small answer, the shop LINE ID and QR are on their card', async () => {
+  it('opens on pending customer requests and keeps the shop LINE ID and add-friend QR available', async () => {
     await showPage()
     expect(m.counts).toHaveBeenCalled()
-    expect(m.list).not.toHaveBeenCalled() // the overview downloads no list
-    const tiles = screen.getByTestId('line-overview')
-    expect(within(tiles).getByText('รอร้านตรวจสอบ').parentElement?.textContent).toContain('2')
-    // the summary card on top says the same
-    expect(screen.getAllByText('รอร้านตรวจสอบ', { selector: 'span.font-semibold' }).some((el) => el.parentElement?.textContent?.includes('2 คน'))).toBe(true)
+    expect(m.list).toHaveBeenCalledWith('PENDING', '', 0)
+    expect(screen.getByTestId('line-people-PENDING')).toBeTruthy()
     expect(screen.getByText('@myshop')).toBeTruthy()
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'QR เพิ่มเพื่อน' }))
@@ -179,6 +176,9 @@ describe('คนใน LINE', () => {
 
   it('a tile opens its list; a list shows four separate statuses and asks the database a page at a time', async () => {
     await showPage()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('tab', { name: 'ภาพรวม' }))
+    })
     await act(async () => {
       fireEvent.click(within(screen.getByTestId('line-overview')).getByRole('button', { name: /รอร้านตรวจสอบ/ }))
     })
@@ -207,7 +207,8 @@ describe('คนใน LINE', () => {
 
   it('the three pages and the owner-only menu items belong to the OWNER only', async () => {
     await showPage()
-    expect(screen.queryByRole('tablist', { name: 'เมนู LINE' })).toBeNull()
+    expect(screen.getByRole('tablist', { name: 'เมนู LINE' })).toBeTruthy()
+    expect(within(screen.getByRole('tablist', { name: 'เมนู LINE' })).queryAllByRole('tab')).toHaveLength(0)
     expect(screen.queryByRole('tab', { name: 'พนักงาน' })).toBeNull()
     expect(screen.queryByRole('tab', { name: 'จัดการรหัสเชิญ' })).toBeNull()
     expect(screen.queryByRole('tab', { name: 'ประวัติการตรวจสอบ' })).toBeNull()
@@ -216,7 +217,8 @@ describe('คนใน LINE', () => {
     await showPage()
     // the group tabs are drawn inside each page's own toolbar, so ask again after every move
     const groups = () => within(screen.getByRole('tablist', { name: 'เมนู LINE' }))
-    expect(groups().getAllByRole('tab').map((t) => t.textContent?.replace(/\d+$/, ''))).toEqual(['เพิ่มเพื่อนและจัดการบัญชี LINE', 'แก้ไขข้อความ', 'ตั้งค่า'])
+    expect(groups().getAllByRole('tab').map((t) => t.textContent?.replace(/\d+$/, ''))).toEqual(['ลูกค้า', 'แก้ไขข้อความ', 'ตั้งค่า'])
+    expect(within(screen.getByRole('tablist', { name: 'ลูกค้า' })).getByRole('tab', { name: 'รอยืนยัน' })).toBeTruthy()
     await act(async () => {
       fireEvent.click(groups().getByRole('tab', { name: /^ตั้งค่า/ }))
     })
@@ -233,7 +235,7 @@ describe('คนใน LINE', () => {
   it('owner suspension requires a reason, and repeated confirmation calls the action once', async () => {
     m.role = 'OWNER'
     await showPage()
-    await openPage('รอร้านตรวจสอบ')
+    await openPage('รอยืนยัน')
     await openPerson('line-people-PENDING', 'Jeab')
     fireEvent.click(screen.getByRole('button', { name: /^ระงับสิทธิ์$/ }))
     expect((screen.getByRole('button', { name: 'ยืนยันระงับสิทธิ์' }) as HTMLButtonElement).disabled).toBe(true)
@@ -252,7 +254,7 @@ describe('คนใน LINE', () => {
   it('a request shows what the shop needs to decide, and what the typed phone matched (never the stranger\'s view)', async () => {
     m.role = 'OWNER'
     await showPage()
-    await openPage('รอร้านตรวจสอบ')
+    await openPage('รอยืนยัน')
     await openPerson('line-people-PENDING', 'Jeab')
     expect(screen.getByText(/เบอร์ที่แจ้งตรงกับลูกค้า "สมหญิง ใจดี"/)).toBeTruthy()
     expect(screen.getByText('ยังไม่ระบุ', { selector: 'span' })).toBeTruthy() // no address was given
@@ -264,7 +266,7 @@ describe('คนใน LINE', () => {
     m.role = 'OWNER'
     m.approve.mockResolvedValue({ success: true, data: { result: 'LINKED_CUSTOMER', contact_id: C2, customer_id: CUST, created: true, name: 'สมหญิง ใจดี' } })
     await showPage()
-    await openPage('รอร้านตรวจสอบ')
+    await openPage('รอยืนยัน')
     await openPerson('line-people-PENDING', 'Jeab')
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'อนุมัติ' }))
@@ -288,7 +290,7 @@ describe('คนใน LINE', () => {
     m.role = 'OWNER'
     m.approve.mockResolvedValue({ success: true, data: { result: 'LINKED_CUSTOMER', contact_id: C2, customer_id: CUST, created: false, name: 'สมหญิง ใจดี' } })
     await showPage()
-    await openPage('รอร้านตรวจสอบ')
+    await openPage('รอยืนยัน')
     await openPerson('line-people-PENDING', 'Jeab')
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'อนุมัติ' }))
@@ -309,7 +311,7 @@ describe('คนใน LINE', () => {
     m.needInfo.mockResolvedValue({ success: true, data: { contact_id: C2 } })
     m.reject.mockResolvedValue({ success: true, data: { contact_id: C2 } })
     await showPage()
-    await openPage('รอร้านตรวจสอบ')
+    await openPage('รอยืนยัน')
     await openPerson('line-people-PENDING', 'Jeab')
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'ขอข้อมูลเพิ่ม' }))
@@ -324,7 +326,7 @@ describe('คนใน LINE', () => {
 
     cleanup()
     await showPage()
-    await openPage('รอร้านตรวจสอบ')
+    await openPage('รอยืนยัน')
     await openPerson('line-people-PENDING', 'Jeab')
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'ปฏิเสธ' }))
@@ -388,7 +390,7 @@ describe('คนใน LINE', () => {
   it('staff cannot approve, reject, bind or unlink a customer from the person dialog', async () => {
     m.role = 'USER'
     await showPage()
-    await openPage('รอร้านตรวจสอบ')
+    await openPage('รอยืนยัน')
     await openPerson('line-people-PENDING', 'Jeab')
     for (const name of ['อนุมัติ', 'ปฏิเสธ', 'ร้านกรอกให้', 'ยืนยันว่าถูกต้อง', 'ยกเลิกการผูกบัญชี']) {
       expect(screen.queryByRole('button', { name })).toBeNull()

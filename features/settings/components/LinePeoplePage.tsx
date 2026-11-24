@@ -47,11 +47,7 @@ import {
   TAB_BUTTON_ACTIVE_CLASSES,
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_INACTIVE_CLASSES,
-  TAB_CONTAINER_CLASSES,
-  TAB_SIDEBAR_BUTTON_CLASSES,
-  TAB_SIDEBAR_CLASSES,
   COMMAND_BUTTON_SIZE_CLASSES,
-  TABLE_TOOLBAR_CLASSES,
 } from '@/components/common/ActionButton'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { useToast } from '@/components/common/Toast'
@@ -67,6 +63,9 @@ import { LineRemindersPanel } from '@/features/settings/components/LineReminders
 import { LineDeliveryLogPanel } from '@/features/settings/components/LineDeliveryLogPanel'
 import { LinePeopleList } from '@/features/settings/components/line/LinePeopleList'
 import { LineOverviewPanel } from '@/features/settings/components/line/LineOverviewPanel'
+import { NewCustomerModal } from '@/features/customers/components/NewCustomerModal'
+import { useCreateCustomer } from '@/features/customers/hooks/useCreateCustomer'
+import type { Customer } from '@/lib/types/rental-pos'
 import { LineCodesPanel } from '@/features/settings/components/line/LineCodesPanel'
 import { LineAuditPanel } from '@/features/settings/components/line/LineAuditPanel'
 import { LineRichMenuSettings } from '@/features/settings/components/line/LineRichMenuSettings'
@@ -91,13 +90,13 @@ const LINE_GROUPS: ReadonlyArray<{
 }> = [
   {
     id: 'FRIENDS',
-    label: 'เพิ่มเพื่อนและจัดการบัญชี LINE',
+    label: 'ลูกค้า',
     icon: icon(UserPlus),
     views: [
+      { id: 'PENDING', label: 'รอยืนยัน', icon: icon(ClipboardList) },
       { id: 'OVERVIEW', label: 'ภาพรวม', icon: icon(LayoutDashboard) },
       { id: 'ALL', label: 'เพื่อนทั้งหมด', icon: icon(Users) },
       { id: 'UNREG', label: 'ยังไม่ลงทะเบียน', icon: icon(User) },
-      { id: 'PENDING', label: 'รอร้านตรวจสอบ', icon: icon(ClipboardList) },
       { id: 'NEEDINFO', label: 'รอข้อมูลเพิ่มเติม', icon: icon(HelpCircle) },
       { id: 'CUSTOMERS', label: 'ลูกค้า', icon: icon(Users), divider: true },
       { id: 'STAFF', label: 'พนักงาน', ownerOnly: true, icon: icon(UserCog) },
@@ -162,12 +161,12 @@ export function LinePeoplePage() {
   const { user } = useAuth()
   // everything but the people pages is the OWNER's (staff see คนใน LINE only)
   const isOwner = user?.role === 'OWNER'
-  const [tab, setTab] = useState<LineView>('OVERVIEW')
+  const [tab, setTab] = useState<LineView>('PENDING')
   // staff never see the OWNER's pages, even from a ?tab=settings link
   const view: LineView = isOwnerView(tab) && !isOwner ? 'OVERVIEW' : tab
   const group = groupOf(view)
   // each group opens on the page last used in it
-  const [lastView, setLastView] = useState<Record<LineGroup, LineView>>({ FRIENDS: 'OVERVIEW', MESSAGES: 'MSG_FRIEND', SETTINGS: 'CONNECTION' })
+  const [lastView, setLastView] = useState<Record<LineGroup, LineView>>({ FRIENDS: 'PENDING', MESSAGES: 'MSG_FRIEND', SETTINGS: 'CONNECTION' })
   const [draftView, setDraftView] = useState<LineSettingsView>('TEMPLATES')
   const [category, setCategory] = useState<LineTemplateCategory>('FRIEND')
   const open = (v: LineView) => {
@@ -179,6 +178,8 @@ export function LinePeoplePage() {
     if (c) setCategory(c)
   }
   const [qrOpen, setQrOpen] = useState(false)
+  const [newCustomerOpen, setNewCustomerOpen] = useState(false)
+  const createCustomer = useCreateCustomer()
   const [counts, setCounts] = useState<LinePeopleCounts | null>(null)
   const [oa, setOa] = useState<{ lineId: string | null; addFriendUrl: string | null; qr: string | null } | null>(null)
 
@@ -224,26 +225,24 @@ export function LinePeoplePage() {
     <span className="min-w-5 h-5 px-1.5 rounded-full grid place-items-center text-[10px] font-bold tabular-nums bg-amber-500 text-slate-900">{n}</span>
   )
   const tabClass = (on: boolean) => `${TAB_BUTTON_BASE_CLASSES} ${on ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`
-  // The group tabs (the OWNER sees the three pages; staff have the people pages only, so there is nothing to switch)
+  // Main LINE sections use a compact app-native sidebar; each section's pages stay in the workspace tab row.
   const tabBar = (
-    <div className="flex items-center gap-2 min-w-0 max-w-full overflow-x-auto no-scrollbar shrink-0">
+    <nav className="flex flex-row lg:flex-col items-stretch gap-1 min-w-0 max-w-full overflow-x-auto lg:overflow-x-visible no-scrollbar shrink-0" role="tablist" aria-label="เมนู LINE">
       {isOwner && (
-        <div className={TAB_CONTAINER_CLASSES} role="tablist" aria-label="เมนู LINE">
-          {LINE_GROUPS.map((g) => (
-            <button key={g.id} type="button" role="tab" aria-selected={group.id === g.id} onClick={() => open(lastView[g.id])} className={tabClass(group.id === g.id)}>
-              {g.icon}
-              {g.label}
-              {g.id === 'FRIENDS' && pending + needInfo > 0 && countBadge(pending + needInfo)}
-            </button>
-          ))}
-        </div>
+        LINE_GROUPS.map((g) => (
+          <button key={g.id} type="button" role="tab" aria-selected={group.id === g.id} onClick={() => open(lastView[g.id])} className={`${tabClass(group.id === g.id)} justify-start whitespace-nowrap lg:whitespace-normal lg:w-full`}>
+            {g.icon}
+            {g.label}
+            {g.id === 'FRIENDS' && pending + needInfo > 0 && countBadge(pending + needInfo)}
+          </button>
+        ))
       )}
-    </div>
+    </nav>
   )
-  /** The pages of the open group, in a bar on the left (the tab bar look standing up, icon before each name) */
+  /** Pages within the selected section use the same tab components as the rest of the app. */
   const sideBar = (
-    <aside className="shrink-0 w-44 p-2 border-r border-slate-200 dark:border-slate-700 overflow-y-auto">
-      <nav className={TAB_SIDEBAR_CLASSES} role="tablist" aria-orientation="vertical" aria-label={group.label}>
+    <div className="shrink-0 p-2 border-b border-slate-200 dark:border-slate-700 overflow-x-auto">
+      <nav className="flex min-w-max items-center gap-1" role="tablist" aria-label={group.label}>
         {group.views
           .filter((v) => isOwner || !v.ownerOnly)
           .map((v) => (
@@ -254,7 +253,7 @@ export function LinePeoplePage() {
                 role="tab"
                 aria-selected={view === v.id}
                 onClick={() => open(v.id)}
-                className={`${TAB_SIDEBAR_BUTTON_CLASSES} ${view === v.id ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
+                className={`${TAB_BUTTON_BASE_CLASSES} ${view === v.id ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
               >
                 {v.icon}
                 {v.label}
@@ -262,10 +261,8 @@ export function LinePeoplePage() {
             </Fragment>
           ))}
       </nav>
-    </aside>
+    </div>
   )
-  /** Pages without their own controls: the toolbar row holds the group tabs only */
-  const plainToolbar = <div className={`${TABLE_TOOLBAR_CLASSES} flex items-center`}>{tabBar}</div>
   const draft = draftViewOf(view)
 
   return (
@@ -295,19 +292,34 @@ export function LinePeoplePage() {
         {/* The work area: the pages of the open group on the left, the page on the right. Pages with controls of their
             own (the lists, พนักงาน, คนขับรถ, ส่งเตือนเอง, ประวัติการส่ง ...) draw the toolbar row themselves with the
             group tabs first; the others get a plain row. */}
-        {(view === 'CONNECTION' || view === 'OWN' || view === 'CARD' || draft !== null) && plainToolbar}
-        <div className="flex-1 min-h-0 flex">
-          {sideBar}
-          <div className="flex-1 min-h-0 min-w-0 flex flex-col">
-            {view === 'OVERVIEW' && <LineOverviewPanel tabs={tabBar} counts={counts} onOpen={(v) => open(v as LineView)} />}
-            {PEOPLE_LIST_VIEWS.includes(view) && <LinePeopleList view={view as LinePeopleView} tabs={tabBar} isOwner={isOwner} onChanged={() => void loadCounts()} />}
-            {view === 'STAFF' && <LineMembersPanel tabs={tabBar} />}
-            {view === 'DRIVERS' && <DeliveryDriversPanel tabs={tabBar} />}
-            {view === 'CODES' && <LineCodesPanel tabs={tabBar} />}
-            {view === 'AUDIT' && <LineAuditPanel tabs={tabBar} />}
-            {view === 'MENU' && <LineRichMenuSettings tabs={tabBar} />}
-            {view === 'MANUAL' && <LineRemindersPanel tabs={tabBar} />}
-            {view === 'HISTORY' && <LineDeliveryLogPanel tabs={tabBar} />}
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col lg:flex-row overflow-hidden">
+          <aside className="shrink-0 lg:w-52 lg:border-r border-b lg:border-b-0 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-2">
+            {tabBar}
+          </aside>
+          <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
+            {sideBar}
+            {view === 'OVERVIEW' && <LineOverviewPanel tabs={null} counts={counts} onOpen={(v) => open(v as LineView)} />}
+            {PEOPLE_LIST_VIEWS.includes(view) && (
+              <LinePeopleList
+                view={view as LinePeopleView}
+                tabs={null}
+                isOwner={isOwner}
+                onChanged={() => void loadCounts()}
+                actions={view === 'PENDING' && isOwner ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <ActionButton variant="primary" icon={<UserPlus />} onClick={() => setNewCustomerOpen(true)}>เพิ่มลูกค้า</ActionButton>
+                    <ActionButton variant="secondary" icon={<UserCog />} onClick={() => open('STAFF')}>พนักงานที่ผูก LINE</ActionButton>
+                  </div>
+                ) : undefined}
+              />
+            )}
+            {view === 'STAFF' && <LineMembersPanel tabs={null} />}
+            {view === 'DRIVERS' && <DeliveryDriversPanel tabs={null} />}
+            {view === 'CODES' && <LineCodesPanel tabs={null} />}
+            {view === 'AUDIT' && <LineAuditPanel tabs={null} />}
+            {view === 'MENU' && <LineRichMenuSettings tabs={null} />}
+            {view === 'MANUAL' && <LineRemindersPanel tabs={null} />}
+            {view === 'HISTORY' && <LineDeliveryLogPanel tabs={null} />}
             {view === 'CONNECTION' && <LineConnectionPanel />}
 
             {/* Kept mounted while hidden, so an unsaved setting, card or message survives a page switch */}
@@ -327,6 +339,20 @@ export function LinePeoplePage() {
       </div>
 
       {/* QR to add the shop LINE as a friend (adding a friend links nobody) */}
+      <NewCustomerModal
+        isOpen={newCustomerOpen}
+        onClose={() => setNewCustomerOpen(false)}
+        onSave={async (customer: Customer) => {
+          try {
+            await createCustomer(customer)
+            setNewCustomerOpen(false)
+            showToast('เพิ่มลูกค้าแล้ว', `บันทึก ${customer.customerName} เรียบร้อย`, 'SUCCESS')
+          } catch (error) {
+            showToast('เพิ่มลูกค้าไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาลองใหม่', 'ERROR')
+            return false
+          }
+        }}
+      />
       <AppModal isOpen={qrOpen} onClose={() => setQrOpen(false)} size="sm">
         <AppModalHeader onClose={() => setQrOpen(false)} icon={<QrCode className="w-5 h-5 text-emerald-700 dark:text-emerald-400" />}>
           <h3 className="font-extrabold text-base text-slate-900 dark:text-slate-100">QR เพิ่มเพื่อน LINE ร้าน</h3>

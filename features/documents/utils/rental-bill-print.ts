@@ -69,6 +69,7 @@ export function fullBillToTemplateData(bill: FullBill): BillTemplateData {
     customerName: bill.customerName,
     customerAddress: bill.customerAddress,
     customerPhone: bill.customerPhone,
+    customerTaxId: bill.customerTaxId,
     billNo: bill.billNo,
     // วันที่ออกเอกสาร picked at the POS / corrected in แก้ไขบิล; older bills fall back to the bill's own day
     billDate: bill.documentDate || bill.billDate,

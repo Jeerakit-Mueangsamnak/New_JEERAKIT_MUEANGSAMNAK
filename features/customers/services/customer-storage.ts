@@ -3,8 +3,10 @@
  * goes through the customer RPCs and the cache is refreshed from the database afterwards.
  */
 import { Customer } from '@/lib/types/rental-pos'
+import { customerDisplayFromCustomer, type CustomerDisplay } from '@/features/customers/services/customer-display'
 import {
   fetchCustomersFromSupabase,
+  fetchCustomerDisplaysByIds,
   saveCustomerToSupabase,
   setCustomerActive,
   deleteCustomerFromSupabase,
@@ -19,6 +21,18 @@ export function setCachedCustomers(customers: Customer[]) {
 export function loadCustomers(): Customer[] {
   if (typeof window === 'undefined') return _cachedCustomers || []
   return _cachedCustomers || []
+}
+
+/** Resolve only requested customer IDs; use master cache first and query missing IDs in one batch. */
+export async function getCustomersByIds(ids: string[]): Promise<Map<string, CustomerDisplay>> {
+  const wanted = new Set(ids.filter(Boolean))
+  const result = new Map(loadCustomers().filter((customer) => wanted.has(customer.id)).map((customer) => [customer.id, customerDisplayFromCustomer(customer)]))
+  const missing = [...wanted].filter((id) => !result.has(id))
+  if (missing.length) {
+    const fetched = await fetchCustomerDisplaysByIds(missing)
+    for (const [id, customer] of fetched) result.set(id, customer)
+  }
+  return result
 }
 export async function syncCustomersFromSupabase(): Promise<Customer[]> {
   _cachedCustomers = await fetchCustomersFromSupabase()

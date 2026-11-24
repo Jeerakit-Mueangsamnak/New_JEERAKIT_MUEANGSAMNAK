@@ -228,7 +228,8 @@ export interface Appointment {
   appointmentTypeLabel?: string
   date: string
   startTime: string
-  endTime: string
+  /** Minutes before start to raise an in-app reminder; null/undefined disables it. */
+  reminderBeforeMinutes?: number | null
   location?: string
   contactPerson?: string
   billId?: string
