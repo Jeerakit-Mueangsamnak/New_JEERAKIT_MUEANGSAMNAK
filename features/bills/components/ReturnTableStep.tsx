@@ -231,7 +231,6 @@ export function ReturnTableStep({
                         allowDecimals={false}
                         allowNegative={false}
                         placeholder=""
-                        touchKeypad
                         className={`${numberBox} ${
                           isCompleted
                             ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 cursor-not-allowed'
@@ -265,7 +264,6 @@ export function ReturnTableStep({
                         allowDecimals={false}
                         allowNegative={false}
                         placeholder=""
-                        touchKeypad
                         aria-label="รอบที่เพิ่ม"
                         className={`${numberBox} border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 focus:ring-blue-500`}
                       />

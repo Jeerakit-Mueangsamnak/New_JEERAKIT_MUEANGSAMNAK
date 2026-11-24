@@ -292,7 +292,6 @@ export function AppointmentForm({ initial, initialDate, customers = [], onSubmit
                         <NumericInput
                           min={0}
                           allowDecimals={false}
-                          touchKeypad
                           aria-label={`จำนวน ${item.name}`}
                           value={Number.isFinite(item.quantity) ? item.quantity : ''}
                           onChange={(v) => setItemQty(item.id, v === '' ? NaN : v)}

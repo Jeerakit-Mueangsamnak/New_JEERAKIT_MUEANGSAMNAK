@@ -602,7 +602,7 @@ export default function QuotationsPage() {
       </div>
 
       {selectedQuotationForConversion && (
-        <AppModal isOpen onClose={() => !isProcessing && closeActionModal()} closeOnBackdropClick={!isProcessing} size="lg">
+        <AppModal isOpen onClose={() => !isProcessing && closeActionModal()} size="lg">
             <AppModalHeader onClose={() => !isProcessing && closeActionModal()}>
               <div className="min-w-0">
                 <span className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400">{selectedQuotationForConversion.quotationNo}</span>
@@ -718,7 +718,7 @@ export default function QuotationsPage() {
 
       {/* Quotation Release Reservation Modal */}
       {quotationForRelease && (
-        <AppModal isOpen onClose={() => !isReleasing && handleCloseReleaseModal()} closeOnBackdropClick={!isReleasing} size="sm">
+        <AppModal isOpen onClose={() => !isReleasing && handleCloseReleaseModal()} size="sm">
             <AppModalHeader onClose={() => !isReleasing && handleCloseReleaseModal()}>
               <div className="min-w-0">
                 <span className="text-xs font-mono font-bold text-rose-700 dark:text-rose-400">

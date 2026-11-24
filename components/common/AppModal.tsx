@@ -13,7 +13,6 @@ export interface AppModalProps {
   children: React.ReactNode
   size?: AppModalSize
   isLoading?: boolean
-  closeOnBackdropClick?: boolean
   closeOnEsc?: boolean
   className?: string
   contentClassName?: string
@@ -59,7 +58,6 @@ export function AppModal({
   children,
   size = 'md',
   isLoading = false,
-  closeOnBackdropClick = true,
   closeOnEsc = true,
   className = '',
   contentClassName = '',
@@ -183,11 +181,7 @@ export function AppModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        onClick={(e) => {
-          if (closeOnBackdropClick && e.target === e.currentTarget) {
-            onClose()
-          }
-        }}
+        // A tap outside the window does not close it (owner 2026-11-24): only its own close / cancel buttons (and Esc).
         className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-2 sm:p-4 md:p-6 animate-in fade-in duration-200 ${className}`}
       >
         <div

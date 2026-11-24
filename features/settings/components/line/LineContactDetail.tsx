@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Ban, CheckCircle2, HelpCircle, MessageCircle, UserCheck, UserMinus } from 'lucide-react'
 import { ActionButton } from '@/components/common/ActionButton'
+import { NumericInput } from '@/components/common/NumericInput'
 import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
 import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
@@ -371,7 +372,7 @@ export function LineContactDetail({ person: p, isOwner, onClose, onChanged }: { 
             </select>
             {mode === 'suspend' && <>
               <label className="flex items-center gap-2"><input type="checkbox" checked={permanent} onChange={(e) => setPermanent(e.target.checked)} />ระงับถาวร</label>
-              {!permanent && <><label className={SETTINGS_LABEL} htmlFor="line-restriction-minutes">ระยะเวลา (นาที)</label><input id="line-restriction-minutes" className={SETTINGS_INPUT} type="number" min={1} max={525600} value={minutes} onChange={(e) => setMinutes(e.target.value)} /></>}
+              {!permanent && <><label className={SETTINGS_LABEL} htmlFor="line-restriction-minutes">ระยะเวลา (นาที)</label><NumericInput id="line-restriction-minutes" className={SETTINGS_INPUT} allowDecimals={false} min={1} max={525600} value={minutes} onChange={(v) => setMinutes(v === '' ? '' : String(v))} /></>}
             </>}
             <label className={SETTINGS_LABEL} htmlFor="line-restriction-reason">เหตุผล</label>
             <textarea id="line-restriction-reason" className={SETTINGS_INPUT} maxLength={500} value={text} onChange={(e) => setText(e.target.value)} />

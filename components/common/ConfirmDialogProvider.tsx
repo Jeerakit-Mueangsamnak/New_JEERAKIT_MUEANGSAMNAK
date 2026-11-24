@@ -107,9 +107,6 @@ export function ConfirmDialogProvider({ children }: { children: React.ReactNode 
           role="alertdialog"
           aria-modal="true"
           aria-labelledby="app-confirm-title"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) close(false)
-          }}
         >
           <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl p-5 space-y-4">
             <div className="flex items-start gap-3">

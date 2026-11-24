@@ -12,8 +12,6 @@ export interface NumericInputProps
   allowDecimals?: boolean
   defaultValueOnBlur?: number
   allowNegative?: boolean
-  /** On touch screens (iPad), type with the on-screen number pad above the box instead of the device keyboard. */
-  touchKeypad?: boolean
 }
 
 /** What the box shows for a value: nothing for empty or 0 (owner 2026-11-07: an unfilled box is blank, never a 0). */
@@ -30,8 +28,9 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
       allowDecimals = true,
       defaultValueOnBlur,
       allowNegative = false,
-      touchKeypad = false,
       onBlur,
+      onFocus,
+      onClick,
       onKeyDown,
       className = '',
       placeholder = '',
@@ -51,7 +50,9 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
       else if (ref) ref.current = el
     }
     const coarsePointer = useCoarsePointer()
-    const keypadEnabled = touchKeypad && coarsePointer
+    // Every number box on a touch screen (iPad) types with the on-screen number pad (owner 2026-11-24).
+    // The pad has no minus key, so a box that takes negative numbers keeps the device keyboard.
+    const keypadEnabled = coarsePointer && !allowNegative
     const [keypadOpen, setKeypadOpen] = useState(false)
     const pendingCaretRef = useRef<number | null>(null)
     // Bumped on every accepted keypad press so the caret is placed even when the text did not change
@@ -192,14 +193,17 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
 
     const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
       isFocusedRef.current = true
-      if (keypadEnabled) setKeypadOpen(true)
       // Auto-select text on focus so user can immediately type to replace without appending
       try {
         e.currentTarget.select()
       } catch {}
-      if (rest.onFocus) {
-        rest.onFocus(e)
-      }
+      onFocus?.(e)
+    }
+
+    // The pad opens only when the box itself is tapped (owner 2026-11-24), not when a window puts the focus in it.
+    const handleClick = (e: React.MouseEvent<HTMLInputElement>) => {
+      if (keypadEnabled) setKeypadOpen(true)
+      onClick?.(e)
     }
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -220,12 +224,13 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
         inputMode={keypadEnabled ? 'none' : allowDecimals ? 'decimal' : 'numeric'}
         value={rawText}
         onChange={handleChange}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-        onKeyDown={handleKeyDown}
         placeholder={placeholder}
         className={className}
         {...rest}
+        onFocus={handleFocus}
+        onClick={handleClick}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
       />
       {keypadEnabled && keypadOpen && (
         <NumericKeypadPopover
