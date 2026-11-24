@@ -12,6 +12,12 @@ import { formatThaiDate, reminderMessages, type CronShop, type ReminderRow } fro
 import { type LineInviteKind } from '@/lib/line/config'
 import { billDesignMessage, cardMessage } from '@/lib/line/flex'
 import { isLineCardColor, LINE_CARD_COLORS, LINE_CARD_LIMITS } from '@/lib/line/bill-card-design'
+import { SHOP_LINE_ID_COLUMN, SHOP_LINE_TEMPLATES_COLUMN } from '@/lib/line/policy'
+import { pngSize, richMenuBody, richMenuItems, richMenuLabel, richMenuSize, RICH_MENU_KINDS, validateRichMenuImage, type RichMenuKind } from '@/lib/line/rich-menu'
+
+/** store_settings read through SHOP_LINE_ID_COLUMN / SHOP_LINE_TEMPLATES_COLUMN (not the whole policies). */
+type ShopLineId = { line_id?: string | null }
+type ShopLineTemplates = { templates?: Record<string, string> | null }
 
 /**
  * LINE actions for screens. Every call runs with the signed-in user's own session, so the
@@ -36,6 +42,8 @@ const ERRORS: Array<[RegExp, string]> = [
   [/^CUSTOMER_INACTIVE/, 'ลูกค้ารายนี้ถูกปิดใช้งาน'],
   [/^LINE_CUSTOMER_ALREADY_LINKED/, 'ลูกค้ารายนี้ผูก LINE แล้ว'],
   [/^BILL_NOT_FOUND/, 'ไม่พบบิลนี้'],
+  [/^LINE_CONTACT_SUSPENDED/, 'LINE นี้ถูกระงับการใช้งานประเภทนี้ ให้เจ้าของตรวจสอบการระงับก่อน'],
+  [/^LINE_RESTRICTION_INVALID/, 'กรุณาเลือกประเภท ระบุเหตุผล และเวลาสิ้นสุดที่ถูกต้อง'],
   [/^LINE_CONTACT_NOT_LINKED/, 'ผู้รับยังไม่ได้ผูก LINE'],
   [/^LINE_CONTACT_UNREACHABLE/, 'ส่งไม่ถึงผู้รับ อาจบล็อกหรือลบ LINE ร้านแล้ว'],
   [/^LINE_CONTACT_NEEDS_REVIEW/, 'การผูก LINE ของลูกค้ายังรอร้านตรวจ กดยืนยันก่อนจึงจะส่งได้'],
@@ -60,6 +68,13 @@ const ERRORS: Array<[RegExp, string]> = [
   [/^LINE_CONTACT_NOT_PENDING/, 'รายชื่อนี้ไม่ได้รอร้านตรวจแล้ว กรุณารีเฟรช'],
   [/^LINE_CONTACT_UNKNOWN/, 'ไม่พบรายชื่อนี้ใน LINE ร้าน'],
   [/^LINE_REGISTER_NO_OWNER/, 'ยังไม่มีบัญชีเจ้าของร้านที่ใช้งานอยู่ จึงสร้างลูกค้าไม่ได้'],
+  [/^LINE_REGISTER_INVALID/, 'ใส่ชื่อและเบอร์โทร 10 หลัก (ขึ้นต้นด้วย 0) ให้ครบ'],
+  [/^LINE_CUSTOMER_PHONE_EXISTS/, 'เบอร์นี้มีในลูกค้าเดิมแล้ว ให้เลือก "เชื่อมกับลูกค้าเดิม" แทนการสร้างใหม่'],
+  [/^LINE_NOTE_REQUIRED/, 'กรุณาพิมพ์ข้อความที่ต้องการให้ผู้ลงทะเบียนตอบ'],
+  [/^LINE_VIEW_INVALID/, 'คำขอไม่สมบูรณ์ กรุณาลองใหม่'],
+  [/^LINE_CODE_NOT_OPEN/, 'รหัสนี้ใช้ไปแล้ว หมดอายุ หรือยกเลิกไปแล้ว'],
+  [/^LINE_CATALOG_INVALID/, 'คำขอไม่สมบูรณ์ กรุณาลองใหม่'],
+  [/^LINE_CATALOG_NOT_FOUND/, 'ไม่พบหมวดหมู่หรือสินค้านี้ (สินค้าที่ไม่มีหมวดหมู่แสดงใน LINE ไม่ได้)'],
   [/PGRST202|Could not find the function/, 'ระบบ LINE ยังไม่พร้อมในฐานข้อมูลนี้'],
 ]
 
@@ -95,8 +110,8 @@ export async function createCustomerLineLinkCode(customerId: string) {
   const r = await callRpc<{ code: string; expires_at: string }>('line_link_code_create_customer', { p_customer_id: customerId })
   if (!r.success || !r.data) return r as LineActionResult<never>
   const supabase = await createServerSupabase()
-  const { data: shop } = await supabase.from('store_settings').select('policies').eq('singleton', true).maybeSingle()
-  const lineId = (shop?.policies as { business_profile?: { lineId?: string } } | null)?.business_profile?.lineId
+  const { data: shop } = await supabase.from('store_settings').select(SHOP_LINE_ID_COLUMN).eq('singleton', true).maybeSingle()
+  const lineId = (shop as ShopLineId | null)?.line_id ?? undefined
   return {
     success: true,
     data: { code: r.data.code, expires_at: r.data.expires_at, oaUrl: lineOaMessageUrl(lineId, r.data.code) },
@@ -105,7 +120,7 @@ export async function createCustomerLineLinkCode(customerId: string) {
 
 export async function unlinkLineContact(contactId: string, reason?: string) {
   if (!UUID.test(contactId || '')) return bad('ไม่พบรายการ LINE นี้')
-  return callRpc('line_contact_unlink', { p_contact_id: contactId, p_reason: reason?.trim() || null })
+  return callRpc('line_contact_unlink', { p_contact_id: contactId, p_reason: reason?.trim() || 'เจ้าของร้านยกเลิกการผูก LINE' })
 }
 
 /**
@@ -295,10 +310,10 @@ export async function createLineTask(input: {
   if (!auth.user) return bad('กรุณาเข้าสู่ระบบ')
   const [{ data: me }, { data: shop }] = await Promise.all([
     supabase.from('profiles').select('display_name, username').eq('id', auth.user.id).maybeSingle(),
-    supabase.from('store_settings').select('policies').eq('singleton', true).maybeSingle(),
+    supabase.from('store_settings').select(SHOP_LINE_TEMPLATES_COLUMN).eq('singleton', true).maybeSingle(),
   ])
   // The text the OWNER saved in Settings › LINE (TASK_NEW) is the one sent
-  const templates = (shop?.policies as { line?: { templates?: Record<string, string> } } | null)?.line?.templates
+  const templates = (shop as ShopLineTemplates | null)?.templates ?? undefined
   // The buttons need the task id before the row exists: the database accepts a pre-made id.
   const taskId = crypto.randomUUID()
   let messages: LineMessage[]
@@ -333,8 +348,8 @@ export async function createDriverLineLinkCode(driverCode: string) {
   const r = await callRpc<{ code: string; expires_at: string }>('line_link_code_create_driver', { p_driver_code: driverCode })
   if (!r.success || !r.data) return r as LineActionResult<never>
   const supabase = await createServerSupabase()
-  const { data: shop } = await supabase.from('store_settings').select('policies').eq('singleton', true).maybeSingle()
-  const lineId = (shop?.policies as { business_profile?: { lineId?: string } } | null)?.business_profile?.lineId
+  const { data: shop } = await supabase.from('store_settings').select(SHOP_LINE_ID_COLUMN).eq('singleton', true).maybeSingle()
+  const lineId = (shop as ShopLineId | null)?.line_id ?? undefined
   return {
     success: true,
     data: { code: r.data.code, expires_at: r.data.expires_at, oaUrl: lineOaMessageUrl(lineId, r.data.code) },
@@ -372,14 +387,14 @@ export async function sendDispatchToDriver(input: {
   if (!auth.user) return bad('กรุณาเข้าสู่ระบบ')
   const [{ data: me }, { data: shop }, { data: apt }] = await Promise.all([
     supabase.from('profiles').select('display_name, username').eq('id', auth.user.id).maybeSingle(),
-    supabase.from('store_settings').select('policies').eq('singleton', true).maybeSingle(),
+    supabase.from('store_settings').select(SHOP_LINE_TEMPLATES_COLUMN).eq('singleton', true).maybeSingle(),
     supabase
       .from('appointments')
       .select('start_datetime, location, contact_name, contact_phone, description, customer:customers(name, phone, address)')
       .eq('id', input.appointmentId)
       .maybeSingle(),
   ])
-  const templates = (shop?.policies as { line?: { templates?: Record<string, string> } } | null)?.line?.templates
+  const templates = (shop as ShopLineTemplates | null)?.templates ?? undefined
   const customer = (Array.isArray(apt?.customer) ? apt?.customer[0] : apt?.customer) as
     | { name?: string; phone?: string; address?: string }
     | null
@@ -431,8 +446,8 @@ export interface WithdrawResult {
 /** The notice to a driver who loses the job (Settings › LINE texts when the OWNER changed them). */
 async function withdrawMessages(kind: 'WITHDRAWN' | 'CANCELLED', title: string, reason?: string): Promise<LineMessage[] | null> {
   const supabase = await createServerSupabase()
-  const { data: shop } = await supabase.from('store_settings').select('policies').eq('singleton', true).maybeSingle()
-  const templates = (shop?.policies as { line?: { templates?: Record<string, string> } } | null)?.line?.templates
+  const { data: shop } = await supabase.from('store_settings').select(SHOP_LINE_TEMPLATES_COLUMN).eq('singleton', true).maybeSingle()
+  const templates = (shop as ShopLineTemplates | null)?.templates ?? undefined
   const subject = (title ?? '').trim().slice(0, 200) || 'งาน'
   try {
     const messages =
@@ -547,8 +562,8 @@ export async function createLineInviteLink(kind: LineInviteKind, target: string)
   const r = await callRpc<{ code: string; expires_at: string }>('line_invite_create', { p_kind: kind, p_target: target })
   if (!r.success || !r.data) return r as LineActionResult<never>
   const supabase = await createServerSupabase()
-  const { data: shop } = await supabase.from('store_settings').select('company_name, policies').eq('singleton', true).maybeSingle()
-  const lineId = (shop?.policies as { business_profile?: { lineId?: string } } | null)?.business_profile?.lineId
+  const { data: shop } = await supabase.from('store_settings').select(`company_name, ${SHOP_LINE_ID_COLUMN}`).eq('singleton', true).maybeSingle()
+  const lineId = (shop as ShopLineId | null)?.line_id ?? undefined
   const url = liffUrl('bind', { t: r.data.code, k: kind })
   const shopName = (shop?.company_name as string | null)?.trim() || 'ร้าน'
   const shareText = url ? `${shopName}: กดลิงก์นี้เพื่อยืนยันตัวตนและผูก LINE (ใช้ได้ครั้งเดียว)\n${url}` : null
@@ -580,12 +595,16 @@ export async function getReminderCandidates() {
 
 async function cronShop(): Promise<CronShop> {
   const supabase = await createServerSupabase()
-  const { data } = await supabase.from('store_settings').select('company_name, phone, policies').eq('singleton', true).maybeSingle()
-  const policies = (data?.policies ?? {}) as { line?: { templates?: Record<string, unknown> }; business_profile?: { lineId?: string } }
+  const { data: row } = await supabase
+    .from('store_settings')
+    .select(`company_name, phone, ${SHOP_LINE_ID_COLUMN}, ${SHOP_LINE_TEMPLATES_COLUMN}`)
+    .eq('singleton', true)
+    .maybeSingle()
+  const data = row as ({ company_name?: string | null; phone?: string | null } & ShopLineId & ShopLineTemplates) | null
   return {
-    shopName: (data?.company_name as string | null)?.trim() || 'ร้าน',
-    templates: policies.line?.templates ?? {},
-    lineId: policies.business_profile?.lineId?.trim() || null,
+    shopName: data?.company_name?.trim() || 'ร้าน',
+    templates: data?.templates ?? {},
+    lineId: data?.line_id?.trim() || null,
     phone: (data?.phone as string | null)?.trim() || null,
   }
 }
@@ -653,17 +672,378 @@ export async function registerLineContactByShop(contactId: string, name: string,
   return callRpc<ShopRegisterResult>('line_contact_register_by_shop', { p_contact_id: contactId, p_name: n, p_phone: p })
 }
 
-/** "ไม่รับ": leaves the list; that LINE stays a friend of the shop but is linked to no one. */
+/** "ไม่รับ": leaves the list; that LINE stays a friend of the shop but is linked to no one. The person is told unless the owner switched that off. */
 export async function rejectLineContact(contactId: string, reason?: string) {
   if (!UUID.test(contactId || '')) return bad('ไม่พบรายชื่อนี้')
-  return callRpc<{ contact_id: string }>('line_contact_reject', { p_contact_id: contactId, p_reason: reason?.trim() || null })
+  const r = await callRpc<{ contact_id: string; notify?: boolean }>('line_contact_reject', { p_contact_id: contactId, p_reason: reason?.trim() || null })
+  if (r.success && r.data?.notify) await pushRegisterAnswer(contactId, 'REGISTER_REJECTED', {})
+  return r
+}
+
+// ── คนใน LINE: lists, checking a request, a word to one person (owner 2026-11-21) ──
+
+export type LinePeopleView = 'ALL' | 'UNREG' | 'PENDING' | 'NEEDINFO' | 'CUSTOMERS' | 'STAFF' | 'DRIVERS' | 'GENERAL' | 'REJECTED' | 'UNLINKED' | 'BLOCKED'
+const PEOPLE_VIEWS: readonly string[] = ['ALL', 'UNREG', 'PENDING', 'NEEDINFO', 'CUSTOMERS', 'STAFF', 'DRIVERS', 'GENERAL', 'REJECTED', 'UNLINKED', 'BLOCKED']
+export type LinePeopleCounts = Record<'all' | 'unreg' | 'pending' | 'needinfo' | 'customers' | 'staff' | 'drivers' | 'general' | 'rejected' | 'unlinked' | 'blocked', number>
+
+/** One person as a screen sees them. line_user_id is never part of it. */
+export interface LinePerson {
+  id: string
+  display_name: string | null
+  picture_url: string | null
+  status: 'UNLINKED' | 'LINKED'
+  followed: boolean
+  followed_at: string | null
+  created_at: string
+  last_event_at: string | null
+  register_status: string | null
+  register_note: string | null
+  register_payload: { match?: 'NONE' | 'ONE' | 'TAKEN' | 'MANY'; channel?: string; address?: Record<string, string>; submitted_at?: string; consent_at?: string } | null
+  register_customer_id: string | null
+  typed_name: string | null
+  typed_phone: string | null
+  needs_review: boolean
+  customer_id: string | null
+  customer_name: string | null
+  customer_phone: string | null
+  profile_id: string | null
+  profile_name: string | null
+  driver_code: string | null
+  linked_at: string | null
+  unlinked_at: string | null
+  unlink_reason: string | null
+  restriction_count?: number
+  self_registered: boolean
+}
+
+/** All counts in one small answer (no list is downloaded to count it). */
+export async function getLinePeopleCounts() {
+  return callRpc<LinePeopleCounts>('line_people_counts', {})
+}
+
+/** One page (25) of a list, searched by the database. */
+export async function listLinePeople(view: LinePeopleView, search: string, offset: number) {
+  if (!PEOPLE_VIEWS.includes(view)) return bad('คำขอไม่สมบูรณ์ กรุณาลองใหม่')
+  return callRpc<{ total: number; rows: LinePerson[] }>('line_people_list', {
+    p_view: view,
+    p_search: (search ?? '').trim().slice(0, 100) || null,
+    p_limit: 25,
+    p_offset: Math.max(0, Math.floor(Number(offset) || 0)),
+  })
+}
+
+/**
+ * The answer to a request, to that friend's own chat. Text only, from the owner's templates; a failed push
+ * never undoes the shop's decision (the row waits in the outbox and the history shows what happened).
+ */
+async function pushRegisterAnswer(contactId: string, templateKey: 'REGISTER_APPROVED' | 'REGISTER_REJECTED' | 'REGISTER_NEED_INFO', vars: Record<string, string>): Promise<void> {
+  try {
+    const shop = await cronShop()
+    const messages = [textMessage(templateKey, { ...vars, ชื่อร้าน: shop.shopName, เบอร์โทรร้าน: shop.phone || '-' }, shop.templates)]
+    const { createSupabaseLineStore } = await import('@/lib/line/supabase-store')
+    await createSupabaseLineStore().enqueueRegister({ contactId, templateKey, messages, dedupeKey: `${templateKey}:${contactId}:${Date.now()}` })
+    await runOutboxOnce(null)
+  } catch {
+    // the decision stands; the shop can write to the person from ติดต่อผ่าน LINE
+  }
+}
+
+/** "ขอข้อมูลเพิ่ม": the request stays open and the person is told what the shop needs. */
+export async function needInfoLineRegister(contactId: string, note: string) {
+  if (!UUID.test(contactId || '')) return bad('ไม่พบรายชื่อนี้')
+  const text = (note ?? '').trim().slice(0, 500)
+  if (!text) return bad('กรุณาพิมพ์ข้อความที่ต้องการให้ผู้ลงทะเบียนตอบ')
+  const r = await callRpc<{ contact_id: string; notify?: boolean }>('line_contact_register_need_info', { p_contact_id: contactId, p_note: text })
+  if (r.success && r.data?.notify) await pushRegisterAnswer(contactId, 'REGISTER_NEED_INFO', { ข้อความจากร้าน: text })
+  return r
+}
+
+export interface ApproveLineRegisterInput {
+  contactId: string
+  /** An existing customer the shop is sure about; leave out to make a new customer from the request */
+  customerId?: string
+  name?: string
+  phone?: string
+  address?: Record<string, string>
+}
+
+/** "อนุมัติ": links the request to a customer (new or existing) and tells the person (switch: policies.line.register.notifyApproved). */
+export async function approveLineRegister(input: ApproveLineRegisterInput) {
+  if (!input || !UUID.test(input.contactId || '')) return bad('ไม่พบรายชื่อนี้')
+  if (input.customerId !== undefined && !UUID.test(input.customerId)) return bad('ไม่พบลูกค้ารายนี้')
+  const phone = input.phone ? input.phone.replace(/\D/g, '') : undefined
+  if (!input.customerId && phone !== undefined && phone !== '' && !/^0\d{9}$/.test(phone)) return bad('เบอร์โทรต้องเป็น 10 หลัก ขึ้นต้นด้วย 0')
+  const address = input.address
+    ? Object.fromEntries(
+        Object.entries(input.address)
+          .filter(([k, v]) => ['address', 'subdistrict', 'district', 'province', 'postcode'].includes(k) && typeof v === 'string')
+          .map(([k, v]) => [k, v.trim().slice(0, 300)]),
+      )
+    : null
+  const r = await callRpc<{ result: 'LINKED_CUSTOMER'; contact_id: string; customer_id: string; created: boolean; name: string; notify?: boolean }>('line_contact_register_approve', {
+    p_contact_id: input.contactId,
+    p_customer_id: input.customerId ?? null,
+    p_name: input.customerId ? null : input.name?.trim() || null,
+    p_phone: input.customerId ? null : phone || null,
+    p_address: input.customerId ? null : address,
+  })
+  if (r.success && r.data?.notify) await pushRegisterAnswer(input.contactId, 'REGISTER_APPROVED', { ชื่อ: r.data.name || '-' })
+  return r
+}
+
+/** "ติดต่อผ่าน LINE": a plain text from the shop to one friend (not to someone who blocked the OA). */
+export async function sendLineContactMessage(
+  contactId: string,
+  text: string,
+  idempotencyKey: string,
+): Promise<LineActionResult<{ delivery_id: string | null; duplicate: boolean; status: string | null; mode: 'mock' | 'live' }>> {
+  if (!UUID.test(contactId || '')) return bad('ไม่พบรายชื่อนี้')
+  if (!KEY.test(idempotencyKey || '')) return bad('คำขอไม่สมบูรณ์ กรุณาลองใหม่')
+  const body = (text ?? '').trim()
+  if (!body || body.length > 1000) return bad('ข้อความต้องไม่ว่างและยาวไม่เกิน 1,000 ตัวอักษร')
+  const queued = await callRpc<{ delivery_id: string | null; duplicate: boolean }>('line_contact_message_send', {
+    p_contact_id: contactId,
+    p_text: body,
+    p_idempotency_key: idempotencyKey,
+  })
+  if (!queued.success || !queued.data) return { success: false, error: queued.error }
+  const status = queued.data.delivery_id ? await runOutboxOnce({ id: queued.data.delivery_id }) : null
+  return { success: true, data: { ...queued.data, status, mode: lineDeliveryMode() } }
+}
+
+export interface LineCodeRow {
+  id: string
+  purpose: string
+  driver_code: string | null
+  target: string | null
+  created_at: string
+  expires_at: string
+  used_at: string | null
+  revoked_at: string | null
+  state: 'OPEN' | 'USED' | 'REVOKED' | 'EXPIRED'
+  created_by: string | null
+}
+
+/** จัดการรหัสเชิญ (owner): the codes without their secret. */
+export async function listLineCodes() {
+  return callRpc<LineCodeRow[]>('line_codes_list', { p_limit: 50 })
+}
+
+export async function revokeLineCode(codeId: string) {
+  if (!UUID.test(codeId || '')) return bad('ไม่พบรหัสนี้')
+  return callRpc<{ code_id: string; revoked: boolean }>('line_link_code_revoke', { p_code_id: codeId })
+}
+
+export interface LineAuditRow {
+  id: string
+  created_at: string
+  action: string
+  entity_type: string
+  entity_id: string | null
+  result: string
+  reason: string | null
+  actor: string
+  detail: string
+}
+
+/** ประวัติการตรวจสอบ (owner): the LINE audit trail, newest first; one person's history when `entityId` is given. */
+export async function listLineAudit(offset: number, entityId?: string) {
+  if (entityId !== undefined && !UUID.test(entityId)) return bad('ไม่พบรายชื่อนี้')
+  return callRpc<LineAuditRow[]>('line_audit_list', { p_limit: 50, p_offset: Math.max(0, Math.floor(Number(offset) || 0)), p_entity: entityId ?? null })
 }
 
 /** The shop OA's LINE ID (Settings › กิจการ) and its add-friend link, for the QR on คนใน LINE. */
 export async function getLineOaInfo(): Promise<LineActionResult<{ lineId: string | null; addFriendUrl: string | null }>> {
   const supabase = await createServerSupabase()
-  const { data, error } = await supabase.from('store_settings').select('policies').eq('singleton', true).maybeSingle()
+  const { data, error } = await supabase.from('store_settings').select(SHOP_LINE_ID_COLUMN).eq('singleton', true).maybeSingle()
   if (error) return bad('โหลดข้อมูลร้านไม่สำเร็จ')
-  const lineId = (data?.policies as { business_profile?: { lineId?: string } } | null)?.business_profile?.lineId?.trim() || null
+  const lineId = (data as ShopLineId | null)?.line_id?.trim() || null
   return { success: true, data: { lineId, addFriendUrl: lineOaAddFriendUrl(lineId) } }
+}
+
+// ── รายการสินค้าใน LINE (owner 2026-11-21): the OWNER ticks what a person who added the OA may see ──
+
+export interface LineCatalogProduct {
+  id: string
+  name: string
+  active: boolean
+  line_listed: boolean
+  can_sell: boolean
+  can_rent: boolean
+  sale_price: number | null
+  rental_price: number | null
+  unit: string | null
+}
+export interface LineCatalogCategory {
+  id: string
+  name: string
+  active: boolean
+  line_listed: boolean
+  line_order: number
+  products: LineCatalogProduct[]
+}
+
+/** Every category with its products and what is ticked (the owner sees the prices already; no cost is sent). */
+export async function getLineCatalogAdmin() {
+  return callRpc<{ show_price: boolean; categories: LineCatalogCategory[] }>('line_catalog_admin', {})
+}
+
+/** Tick / untick one category (with its place in the list), one product, or every product of a category. */
+export async function setLineCatalog(kind: 'CATEGORY' | 'PRODUCT' | 'CATEGORY_PRODUCTS', id: string, listed: boolean, order?: number) {
+  if (!['CATEGORY', 'PRODUCT', 'CATEGORY_PRODUCTS'].includes(kind) || !UUID.test(id || '')) return bad('ไม่พบหมวดหมู่หรือสินค้านี้')
+  if (order !== undefined && (!Number.isInteger(order) || order < 0 || order > 9999)) return bad('ลำดับต้องเป็นเลข 0–9999')
+  return callRpc<{ kind: string; id: string; listed: boolean; rows: number }>('line_catalog_set', { p_kind: kind, p_id: id, p_listed: listed, p_order: order ?? null })
+}
+
+// ── เมนู LINE: the chat menus (owner 2026-11-21) ──────────────────────────────
+
+export interface RichMenuInfo {
+  kind: RichMenuKind
+  label: string
+  /** Followers who should have this menu / who LINE was told to show it to */
+  people: number
+  on_menu: number
+  published_at: string | null
+  items: string[]
+  /** The picture in /public, for the preview */
+  image: string
+}
+
+/** The four menus as the owner sees them. Nothing is published by looking. */
+export async function getRichMenuStatus(): Promise<LineActionResult<{ mode: 'mock' | 'live'; menus: RichMenuInfo[] }>> {
+  const r = await callRpc<Array<{ kind: RichMenuKind; published_at: string | null; people: number; on_menu: number }>>('line_rich_menu_status', {})
+  if (!r.success || !r.data) return { success: false, error: r.error }
+  const ctx = { phone: null, registerUrl: liffUrl('register') }
+  return {
+    success: true,
+    data: {
+      mode: lineDeliveryMode(),
+      menus: RICH_MENU_KINDS.map((kind) => {
+        const row = r.data?.find((x) => x.kind === kind)
+        return {
+          kind,
+          label: richMenuLabel(kind),
+          people: Number(row?.people ?? 0),
+          on_menu: Number(row?.on_menu ?? 0),
+          published_at: row?.published_at ?? null,
+          items: richMenuItems(kind, ctx).map((i) => i.label),
+          image: `/line/rich-menu/${kind}.png`,
+        }
+      }),
+    },
+  }
+}
+
+const MENU_MOCK = 'เซิร์ฟเวอร์ยังอยู่ในโหมดทดลอง ยังเผยแพร่หรือยกเลิกเมนูจริงไม่ได้ (ต้องตั้งเป็นโหมดส่งจริงก่อน)'
+
+/** Everything a publish / un-publish needs before it touches LINE; the OWNER check is the database's (line_rich_menu_status). */
+async function menuSetup(kind: RichMenuKind) {
+  if (!RICH_MENU_KINDS.includes(kind)) return { error: 'คำขอไม่สมบูรณ์ กรุณาลองใหม่' } as const
+  const guard = await callRpc('line_rich_menu_status', {})
+  if (!guard.success) return { error: guard.error } as const
+  if (lineDeliveryMode() !== 'live') return { error: MENU_MOCK } as const
+  const { createSupabaseLineStore } = await import('@/lib/line/supabase-store')
+  const store = createSupabaseLineStore()
+  const { accessToken } = await store.credentials()
+  if (!accessToken) return { error: 'ยังไม่ได้ตั้งค่าการเชื่อมต่อ LINE' } as const
+  const supabase = await createServerSupabase()
+  const { data: auth } = await supabase.auth.getUser()
+  return { store, provider: createLineProvider(accessToken), actor: auth.user?.id ?? null } as const
+}
+
+/**
+ * "เผยแพร่เมนู": creates the menu at LINE from the picture in /public, uploads it, makes GENERAL LINE's default menu,
+ * and keeps the id the database needs. Real LINE only (never in the trial mode); a step that fails undoes the menu it made.
+ */
+export async function publishRichMenu(kind: RichMenuKind): Promise<LineActionResult<{ kind: RichMenuKind }>> {
+  const setup = await menuSetup(kind)
+  if ('error' in setup) return bad(setup.error ?? 'ทำรายการไม่สำเร็จ')
+  const { store, provider, actor } = setup
+  const { createRichMenu, uploadRichMenuImage, setDefaultRichMenu } = provider
+  if (!createRichMenu || !uploadRichMenuImage || !setDefaultRichMenu) return bad(MENU_MOCK)
+
+  const site = (process.env.NEXT_PUBLIC_SITE_URL ?? '').replace(/\/+$/, '')
+  if (!/^https:\/\//.test(site)) return bad('ยังไม่ได้ตั้งที่อยู่เว็บ (NEXT_PUBLIC_SITE_URL) จึงอ่านรูปเมนูไม่ได้')
+  let bytes: Uint8Array
+  try {
+    const res = await fetch(`${site}/line/rich-menu/${kind}.png`, { cache: 'no-store' })
+    if (!res.ok) throw new Error(String(res.status))
+    bytes = new Uint8Array(await res.arrayBuffer())
+  } catch {
+    return bad('อ่านรูปเมนูไม่สำเร็จ กรุณาลองใหม่')
+  }
+  const size = pngSize(bytes)
+  const refused = size ? validateRichMenuImage({ ...size, bytes: bytes.byteLength, type: 'image/png' }) : 'รูปเมนูไม่ใช่ไฟล์ PNG'
+  if (refused) return bad(refused)
+  const want = richMenuSize(kind)
+  if (size && (size.width !== want.width || size.height !== want.height)) return bad('ขนาดรูปไม่ตรงกับช่องปุ่มของเมนู ให้สร้างรูปใหม่')
+
+  const shop = await cronShop()
+  const created = await createRichMenu.call(provider, richMenuBody(kind, { phone: shop.phone, registerUrl: liffUrl('register') }))
+  if (!created.ok || !created.richMenuId) return bad('LINE ไม่รับเมนูนี้ กรุณาตรวจการเชื่อมต่อ LINE แล้วลองใหม่')
+  const id = created.richMenuId
+  const undo = async () => {
+    await provider.deleteRichMenu?.(id).catch(() => undefined)
+  }
+  const up = await uploadRichMenuImage.call(provider, id, bytes, 'image/png')
+  if (!up.ok) {
+    await undo()
+    return bad('LINE ไม่รับรูปเมนู กรุณาลองใหม่')
+  }
+  if (kind === 'GENERAL') {
+    const def = await setDefaultRichMenu.call(provider, id)
+    if (!def.ok) {
+      await undo()
+      return bad('ตั้งเมนูนี้เป็นเมนูเริ่มต้นไม่สำเร็จ กรุณาลองใหม่')
+    }
+  }
+  let old: string | null
+  try {
+    old = await store.richMenuSave(kind, id, actor)
+  } catch {
+    await undo()
+    return bad('บันทึกเมนูไม่สำเร็จ กรุณาลองใหม่')
+  }
+  if (old && old !== id) await provider.deleteRichMenu?.(old).catch(() => undefined)
+  return { success: true, data: { kind } }
+}
+
+/** "ยกเลิกเผยแพร่": the menu is deleted at LINE and forgotten here; the people it was shown to fall back to the default. */
+export async function unpublishRichMenu(kind: RichMenuKind): Promise<LineActionResult<{ kind: RichMenuKind }>> {
+  const setup = await menuSetup(kind)
+  if ('error' in setup) return bad(setup.error ?? 'ทำรายการไม่สำเร็จ')
+  const { store, provider, actor } = setup
+  let old: string | null
+  try {
+    old = await store.richMenuClear(kind, actor)
+  } catch {
+    return bad('ยกเลิกเมนูไม่สำเร็จ กรุณาลองใหม่')
+  }
+  if (kind === 'GENERAL') await provider.cancelDefaultRichMenu?.().catch(() => undefined)
+  if (old) await provider.deleteRichMenu?.(old).catch(() => undefined)
+  return { success: true, data: { kind } }
+}
+
+export interface LineRestriction {
+  scope: import('@/lib/line/config').LineRestrictionScope
+  reason: string
+  created_at: string
+  created_by: string
+  until_at: string | null
+  source: 'OWNER' | 'ABUSE'
+  revoked_at: string | null
+  active: boolean
+}
+
+export async function listLineRestrictions(contactId: string) {
+  if (!UUID.test(contactId || '')) return bad('ไม่พบรายชื่อนี้')
+  return callRpc<LineRestriction[]>('line_contact_restrictions', { p_contact_id: contactId })
+}
+
+export async function setLineRestriction(contactId: string, scope: import('@/lib/line/config').LineRestrictionScope, until: string | null, reason: string, revoke = false) {
+  if (!UUID.test(contactId || '') || !['ALL', 'REGISTER', 'CATALOG', 'INQUIRY', 'WORK', 'MESSAGES'].includes(scope)) return bad('คำขอไม่สมบูรณ์')
+  const note = (reason ?? '').trim()
+  if (!note || note.length > 500) return bad('กรุณาระบุเหตุผลไม่เกิน 500 ตัวอักษร')
+  if (until !== null && (!Number.isFinite(Date.parse(until)) || Date.parse(until) <= Date.now())) return bad('เวลาสิ้นสุดต้องอยู่ในอนาคต')
+  return callRpc('line_contact_restriction_set', { p_contact_id: contactId, p_scope: scope, p_until: until, p_reason: note, p_revoke: revoke })
 }

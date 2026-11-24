@@ -1,18 +1,9 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES, StepNavButton } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, StepNavButton, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import React, { useEffect, useMemo, useState } from 'react'
-import {
-  CalendarPlus,
-  Edit3,
-  Trash2,
-  Calendar,
-  Package,
-  Save,
-  Clock,
-  DollarSign,
-} from 'lucide-react'
+import { CalendarPlus, Edit3, Trash2, Package, Save, DollarSign, UserPlus } from 'lucide-react'
 import { FullBill } from '@/lib/types/rental-return'
 import { useToast } from '@/components/common/Toast'
 import { CustomDatePicker, getLocalDateString, parseLocalDate } from '@/components/common/CustomDatePicker'
@@ -21,7 +12,14 @@ import { NumericInput } from '@/components/common/NumericInput'
 import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
 import { loadProducts } from '@/features/products/services/product-storage'
 import { loadCategories } from '@/lib/category-rules-storage'
-import { createContinuation, reviseBill, setBillDocumentDate, type BillRevision } from '@/features/bills/services/bill-service'
+import { correctBill, createContinuation, reviseBill, setBillCustomer, setBillDocumentDate, type BillRevision } from '@/features/bills/services/bill-service'
+import { CartDatesButton, CartDatesModal, CartDeliveryInput, CartPhoneInput } from '@/features/pos/components/CartDetailFields'
+import { CustomerUnifiedSelector } from '@/features/pos/components/CustomerUnifiedSelector'
+import { CustomItemModal, type CustomItemData } from '@/features/pos/components/CustomItemModal'
+import type { Customer } from '@/lib/types/rental-pos'
+import { NewCustomerModal } from '@/features/customers/components/NewCustomerModal'
+import { useCreateCustomer } from '@/features/customers/hooks/useCreateCustomer'
+import { isIdCardUploadError, loadCustomers, syncCustomersFromSupabase } from '@/features/customers/services/customer-storage'
 import { isPinCancelled } from '@/lib/db/pin-confirm'
 import { dbErrorMessage } from '@/lib/db/rpc'
 import { isNoChargeBillLine, isNoChargeRental } from '@/features/pos/services/accessory-rules'
@@ -53,6 +51,8 @@ interface EditableItem {
   unitName?: string
   /** Rental method "ไม่คิดเงิน": ราคา/หน่วย and รอบ print "-" and cannot be typed (owner 2026-11-09). */
   isNoCharge?: boolean
+  /** + รายการนอกร้าน: a typed-in line with no product (no stock), as in the POS cart. */
+  isCustom?: boolean
 }
 
 interface ProductOption {
@@ -87,7 +87,8 @@ type RevisionBill = Pick<FullBill, 'items' | 'rentalStartDate' | 'scheduledRetur
 type RevisionLine = Pick<
   EditableItem,
   'rentalBillItemId' | 'productId' | 'rentalType' | 'quantity' | 'unitPrice' | 'usageCount' | 'dailyStartDate' | 'dailyEndDate' | 'action'
->
+> &
+  Partial<Pick<EditableItem, 'productName' | 'unitName' | 'isCustom'>>
 type BillItem = FullBill['items'][number]
 
 // Table look shared with the return table (ReturnTableStep): tight centred cells, small number boxes and date buttons.
@@ -159,7 +160,7 @@ export function buildRevision(
     }
     const daily = item.rentalType === 'DAILY'
     lines.push({
-      product_id: item.productId,
+      ...(item.isCustom ? { product_id: null, product_name: item.productName ?? '', unit_name: item.unitName ?? null } : { product_id: item.productId }),
       line_mode: item.rentalType === 'SALE' ? 'SALE' : 'RENTAL',
       ordered_qty: item.quantity,
       unit_price: item.unitPrice,
@@ -176,6 +177,48 @@ export function buildRevision(
   return { billDiscountAmount: round2(Math.max(0, discountAmount - lineDiscounts)), feesTotal: round2(shippingFee), lines }
 }
 
+/**
+ * The POS keeps a bill's delivery place and contact phone in its note as "ส่งที่: …" and "โทร: …" lines
+ * (app/pos/checkout).
+ */
+export const DELIVERY_LABEL = 'ส่งที่'
+export const PHONE_LABEL = 'โทร'
+
+export function noteLineValue(note: string | null | undefined, label: string): string {
+  const line = (note || '').split('\n').find((l) => l.startsWith(`${label}:`))
+  return line ? line.slice(label.length + 1).trim() : ''
+}
+
+export function deliveryPlaceOfNote(note?: string | null): string {
+  return noteLineValue(note, DELIVERY_LABEL)
+}
+
+/** The note with its "label:" line set to `value` (added at the end if missing, dropped when empty); other lines stay. */
+export function noteWithLine(note: string | null | undefined, label: string, value: string): string {
+  const lines = (note || '').split('\n')
+  const at = lines.findIndex((line) => line.startsWith(`${label}:`))
+  const next = value.trim() ? `${label}: ${value.trim()}` : ''
+  if (at >= 0) lines.splice(at, 1, ...(next ? [next] : []))
+  else if (next) lines.push(next)
+  return lines.join('\n').trim()
+}
+
+export function noteWithDeliveryPlace(note: string | null | undefined, place: string): string {
+  return noteWithLine(note, DELIVERY_LABEL, place)
+}
+
+/**
+ * The customer picked in แก้ไขบิล (owner 2026-11-19): the bill's own name typed again keeps the bill's customer; a typed
+ * name that is exactly one saved customer's name is that customer; any other typed name is ลูกค้าทั่วไป (guest).
+ */
+export function resolveBillCustomer(picked: Customer, current: Customer, customers: Customer[]): Customer {
+  if (picked.id) return picked
+  const name = picked.customerName.trim().toLowerCase()
+  if (name === current.customerName.trim().toLowerCase()) return current
+  const same = customers.filter((c) => (c.customerName || '').trim().toLowerCase() === name)
+  return same.length === 1 ? same[0] : picked
+}
+
 export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionViewProps) {
   const { showToast } = useToast()
   const confirmDialog = useConfirm()
@@ -188,6 +231,27 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
   const [products, setProducts] = useState<ProductOption[]>([])
   const [categoryId, setCategoryId] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  // สถานที่จัดส่ง (owner 2026-11-19): the "ส่งที่:" line of the bill's note, as the POS saved it
+  const [deliveryPlace, setDeliveryPlace] = useState('')
+  // เบอร์โทรติดต่อ: the "โทร:" line of the note, as the POS saved it
+  const [contactPhone, setContactPhone] = useState('')
+  const [customItemOpen, setCustomItemOpen] = useState(false)
+  const [showDatePicker, setShowDatePicker] = useState(false)
+  // ลูกค้า (owner 2026-11-19): may be changed to another saved customer, or to a typed name (ลูกค้าทั่วไป)
+  const [customer, setCustomer] = useState<Customer | null>(null)
+  const [customers, setCustomers] = useState<Customer[]>(() => loadCustomers())
+  const [showAddCustomer, setShowAddCustomer] = useState(false)
+  const createCustomer = useCreateCustomer()
+
+  useEffect(() => {
+    let alive = true
+    void syncCustomersFromSupabase()
+      .then((list) => alive && setCustomers(list))
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
 
   // Initialize data from bill
   useEffect(() => {
@@ -197,6 +261,8 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
     setHeaderReturnDate(localDate(bill.scheduledReturnDate) || getLocalDateString(new Date()))
     setDiscountAmount(Number(bill.discountAmount || 0))
     setShippingFee(Number(bill.shippingFee || 0))
+    setDeliveryPlace(bill.siteName || deliveryPlaceOfNote(bill.remark))
+    setContactPhone(noteLineValue(bill.remark, PHONE_LABEL))
     setItems(
       bill.items.map((item) => ({
         rentalBillItemId: item.rentalBillItemId,
@@ -333,10 +399,97 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
     ])
   }
 
+  /** + รายการนอกร้าน (owner 2026-11-19): typed-in lines, the same window as the POS cart; dates follow the bill. */
+  const addCustomItems = (rows: CustomItemData[]) => {
+    const start = headerRentalDate || getLocalDateString(new Date())
+    const end = headerReturnDate || getLocalDateString(new Date())
+    setItems((prev) => [
+      ...prev,
+      ...rows.map((row) => {
+        const count = row.rentalType === 'SALE' ? 1 : Math.max(1, Math.floor(Number(row.count) || 1))
+        // A daily line counts both ends: N days = start … start + N - 1
+        const dailyEnd = new Date(`${start}T00:00:00`)
+        dailyEnd.setDate(dailyEnd.getDate() + count - 1)
+        return {
+          productId: '',
+          productName: row.name,
+          rentalType: row.rentalType,
+          quantity: row.quantity,
+          returnedQty: 0,
+          outstandingQty: row.rentalType === 'SALE' ? 0 : row.quantity,
+          unitPrice: row.unitPrice,
+          usageCount: row.rentalType === 'NORMAL' ? count : 1,
+          dailyStartDate: start,
+          dailyEndDate: row.rentalType === 'DAILY' ? getLocalDateString(dailyEnd) : end,
+          scheduledReturnDate: end,
+          action: 'ADD' as const,
+          addRounds: 0,
+          unitName: row.unit,
+          isCustom: true,
+        }
+      }),
+    ])
+    setCustomItemOpen(false)
+  }
+
+  // The bill's customer, shown as in the cart
+  const billCustomer: Customer = useMemo(
+    () => ({
+      id: bill.customerId || '',
+      customerName: bill.customerName,
+      phone: bill.customerPhone || '',
+      address: '',
+      taxId: '',
+      status: 'ACTIVE',
+    }),
+    [bill.customerId, bill.customerName, bill.customerPhone]
+  )
+  useEffect(() => setCustomer(billCustomer), [billCustomer])
+  // เช่าต่อ, credit bills and bills made by เช่าต่อ keep their customer (the server refuses the change too)
+  const customerLocked = mode === 'EXTENSION' || Boolean(bill.isCreditBill || bill.parentBillId)
+
+  const pickCustomer = (picked: Customer | null) => {
+    if (!picked) {
+      setCustomer(null)
+      return
+    }
+    if (picked.isSuspended) {
+      showToast('ลูกค้าถูกระงับสิทธิ์', `ลูกค้า ${picked.customerName} ถูกระงับสิทธิ์ ไม่สามารถทำรายการได้`, 'ERROR')
+      return
+    }
+    setCustomer(resolveBillCustomer(picked, billCustomer, customers))
+  }
+
+  const handleAddCustomer = async (newCustomer: Customer): Promise<boolean> => {
+    try {
+      // The server assigns the customer id; select the saved record, not the form copy (as the POS does).
+      const saved = await createCustomer(newCustomer)
+      setCustomers(loadCustomers())
+      setCustomer(saved)
+      showToast('เพิ่มลูกค้าสำเร็จ', `เพิ่มลูกค้า ${newCustomer.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
+      return true
+    } catch (err: unknown) {
+      if (isIdCardUploadError(err)) {
+        setCustomers(loadCustomers())
+        setCustomer(err.saved)
+        showToast('บันทึกข้อมูลลูกค้าแล้ว', err.message, 'INFO')
+        return true
+      }
+      const failure = err as { tag?: string; message?: string } | null
+      if (failure?.tag === 'DUPLICATE_CUSTOMER') return false
+      showToast('ไม่สามารถเพิ่มลูกค้าได้', failure?.message || 'เกิดข้อผิดพลาด', 'ERROR')
+      return false
+    }
+  }
+
   const handleSave = async () => {
     if (!bill) return
     if (!headerReturnDate) {
       showToast('กรุณาระบุวันกำหนดคืน', 'ไม่พบวันกำหนดคืนที่ต้องการบันทึก', 'ERROR')
+      return
+    }
+    if (headerRentalDate && headerReturnDate < headerRentalDate) {
+      showToast('ช่วงวันเช่าไม่ถูกต้อง', 'วันกำหนดคืนต้องไม่ก่อนวันเริ่มเช่า', 'ERROR')
       return
     }
 
@@ -414,12 +567,27 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           revision.lines.every((l) => l.line_id && Object.keys(l).length === 1) &&
           revision.billDiscountAmount === round2(Number(bill.billDiscountAmount || 0)) &&
           revision.feesTotal === round2(Number(bill.shippingFee || 0))
-        if (untouched && !dateChanged) {
-          showToast('ไม่มีการแก้ไข', 'ยังไม่ได้เปลี่ยนวันที่ สินค้า จำนวน ราคา ส่วนลด หรือค่าขนส่ง', 'INFO')
+        const placeChanged = deliveryPlace.trim() !== (bill.siteName || deliveryPlaceOfNote(bill.remark))
+        const phoneChanged = contactPhone.trim() !== noteLineValue(bill.remark, PHONE_LABEL)
+        if (!customer) {
+          showToast('กรุณาเลือกลูกค้า', 'เลือกลูกค้าในระบบ หรือพิมพ์ชื่อลูกค้าทั่วไป', 'ERROR')
           return
         }
+        const customerChanged =
+          customer.id !== billCustomer.id || (!customer.id && customer.customerName.trim() !== billCustomer.customerName.trim())
+        if (untouched && !dateChanged && !placeChanged && !phoneChanged && !customerChanged) {
+          showToast('ไม่มีการแก้ไข', 'ยังไม่ได้เปลี่ยนลูกค้า วันที่ สินค้า จำนวน ราคา ส่วนลด ค่าขนส่ง สถานที่จัดส่ง หรือเบอร์โทร', 'INFO')
+          return
+        }
+        // The customer first: a refused change (credit / เช่าต่อ bill) stops before anything else is saved
+        if (customerChanged) await setBillCustomer(bill.id, customer.id || null, customer.id ? null : customer.customerName)
         if (!untouched) await reviseBill(bill.id, revision)
         if (dateChanged) await setBillDocumentDate(bill.id, documentDate)
+        // The delivery place and contact phone are lines of the bill's note (bill_correct: PIN + audit, as any note fix)
+        if (placeChanged || phoneChanged) {
+          const note = noteWithLine(noteWithDeliveryPlace(bill.remark, deliveryPlace), PHONE_LABEL, contactPhone)
+          await correctBill(bill.id, { note: note || null }, 'แก้ไขสถานที่จัดส่ง / เบอร์โทรติดต่อ')
+        }
       }
 
       showToast(
@@ -441,7 +609,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
     // already gives the grey edge, so no second padding here. Title, fields, items, summary and buttons inside.
     <div className="flex flex-col min-h-0 h-full w-full overflow-hidden animate-in fade-in duration-150 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-slate-100">
       {/* 1. Title */}
-      <div className="border-b border-slate-200 dark:border-slate-700 px-3 py-2 flex items-center shrink-0">
+      <div className="border-b border-slate-200 dark:border-slate-700 px-3 py-2 flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <div
               className={`p-2 rounded-xl text-white shrink-0 ${
@@ -460,85 +628,18 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
               </p>
             </div>
           </div>
+          {/* + รายการนอกร้าน, as in the POS cart header (แก้ไขบิล only: เช่าต่อ carries the goods still out) */}
+          {mode !== 'EXTENSION' && (
+            <button
+              type="button"
+              onClick={() => setCustomItemOpen(true)}
+              className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 font-semibold transition-colors whitespace-nowrap shrink-0"
+            >
+              + รายการนอกร้าน
+            </button>
+          )}
       </div>
 
-        {/* 2. Dates & money fields: one row (5 fields on แก้ไขบิล, 4 on เช่าต่อ) */}
-        <div className="p-2 border-b border-slate-200 dark:border-slate-700 shrink-0">
-          <div className={`grid ${mode === 'EXTENSION' ? 'grid-cols-4' : 'grid-cols-5'} gap-1.5 sm:gap-2`}>
-            {/* วันที่ออกเอกสาร (owner 2026-11-17): fix a wrong day picked at the POS; not on เช่าต่อ (a new bill) */}
-            {mode !== 'EXTENSION' && (
-              <div className="space-y-1 min-w-0">
-                <label className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 truncate">
-                  <Calendar className="w-3 h-3 text-violet-600 dark:text-violet-400 shrink-0" />
-                  <span className="truncate">วันที่ออกเอกสาร</span>
-                </label>
-                <CustomDatePicker
-                  value={parseLocalDate(documentDate)}
-                  onChange={(val) => setDocumentDate(val ? getLocalDateString(val) : localDate(bill.documentDate || bill.billDate))}
-                  className="w-full text-xs"
-                />
-              </div>
-            )}
-
-            {/* Header Rental Date (Calendar Popover) */}
-            <div className="space-y-1 min-w-0">
-              <label className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 truncate">
-                <Calendar className="w-3 h-3 text-blue-600 dark:text-blue-400 shrink-0" />
-                <span className="truncate">วันที่เริ่มเช่า</span>
-              </label>
-              <CustomDatePicker
-                value={parseLocalDate(headerRentalDate)}
-                onChange={(val) => setHeaderRentalDate(val ? getLocalDateString(val) : '')}
-                className="w-full text-xs"
-              />
-            </div>
-
-            {/* Header Return Date (Calendar Popover) */}
-            <div className="space-y-1 min-w-0">
-              <label className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 truncate">
-                <Clock className="w-3 h-3 text-amber-700 dark:text-amber-400 shrink-0" />
-                <span className="truncate">กำหนดคืน</span>
-              </label>
-              <CustomDatePicker
-                value={parseLocalDate(headerReturnDate)}
-                onChange={(val) => setHeaderReturnDate(val ? getLocalDateString(val) : '')}
-                className="w-full text-xs"
-              />
-            </div>
-
-            {/* Discount Amount */}
-            <div className="space-y-1 min-w-0">
-              <label className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 truncate">
-                <DollarSign className="w-3 h-3 text-emerald-700 dark:text-emerald-400 shrink-0" />
-                <span className="truncate">ส่วนลด (บาท)</span>
-              </label>
-              <NumericInput
-                min={0}
-                allowDecimals={true}
-                value={discountAmount === 0 ? '' : discountAmount}
-                defaultValueOnBlur={0}
-                onChange={(val) => setDiscountAmount(val === '' ? 0 : Number(val))}
-                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-1 text-xs font-mono font-bold text-right focus:outline-none focus:ring-2 focus:ring-emerald-500 min-w-0"
-              />
-            </div>
-
-            {/* Shipping Fee */}
-            <div className="space-y-1 min-w-0">
-              <label className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 truncate">
-                <Package className="w-3 h-3 text-cyan-700 dark:text-cyan-400 shrink-0" />
-                <span className="truncate">ค่าขนส่ง (บาท)</span>
-              </label>
-              <NumericInput
-                min={0}
-                allowDecimals={true}
-                value={shippingFee === 0 ? '' : shippingFee}
-                defaultValueOnBlur={0}
-                onChange={(val) => setShippingFee(val === '' ? 0 : Number(val))}
-                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-1 text-xs font-mono font-bold text-right focus:outline-none focus:ring-2 focus:ring-emerald-500 min-w-0"
-              />
-            </div>
-          </div>
-        </div>
 
         {/* หมวดหมู่สินค้า / สินค้า (owner 2026-11-17: same dropdowns as the appointment form) */}
         <div className="p-2 border-b border-slate-200 dark:border-slate-700 shrink-0 grid grid-cols-2 gap-1.5 sm:gap-2">
@@ -598,6 +699,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
               <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
                 {items.map((item, index) => {
                   const isRemoved = item.action === 'REMOVE'
+                  const isTypedIn = Boolean(item.isCustom || !item.productId)
                   const isDaily = item.rentalType === 'DAILY'
                   const isNormal = item.rentalType === 'NORMAL'
 
@@ -666,13 +768,14 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
                       <td className={cell}>
                         <NumericInput
                           disabled={isRemoved}
-                          min={1}
-                          allowDecimals={false}
+                          min={isTypedIn ? 0 : 1}
+                          allowDecimals={isTypedIn}
                           value={item.quantity}
                           defaultValueOnBlur={1}
                           onChange={(val) => {
-                            if (val !== '') {
-                              updateItem(index, { quantity: Math.max(1, Number(val)) })
+                            // รายการนอกร้าน takes decimals (e.g. 50.30 เมตร, owner 2026-11-20); shop products stay whole
+                            if (val !== '' && (!isTypedIn || Number(val) > 0)) {
+                              updateItem(index, { quantity: isTypedIn ? Number(val) : Math.max(1, Number(val)) })
                             }
                           }}
                           className={`${numberBox} disabled:opacity-50`}
@@ -795,9 +898,76 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
             </table>
           </DataTableFrame>
 
-        {/* 4. Bottom: ย้อนกลับ on the left; the summary with ยกเลิก / บันทึก under it on the right */}
+        {/* 4. Bottom (owner 2026-11-19): the cart's input set on the left (ลูกค้า, สถานที่จัดส่ง, เบอร์โทร, dates, ส่วนลด, ค่าขนส่ง) with
+            ย้อนกลับ under it; the summary with ยกเลิก / บันทึก under it on the right */}
         <div className="shrink-0 border-t border-slate-200 dark:border-slate-700 p-2 flex flex-col sm:flex-row items-stretch sm:items-end justify-between gap-3">
-          <StepNavButton direction="back" onClick={onClose} className="self-start sm:self-end" />
+          <div className="w-full sm:w-80 flex flex-col gap-2">
+            {customerLocked ? (
+              <CustomerUnifiedSelector selectedCustomer={billCustomer} customers={[]} onSelectCustomer={() => {}} disabled />
+            ) : (
+              <CustomerUnifiedSelector selectedCustomer={customer} customers={customers} onSelectCustomer={pickCustomer} />
+            )}
+            {mode !== 'EXTENSION' && (
+              <>
+                <CartDeliveryInput value={deliveryPlace} onChange={setDeliveryPlace} />
+                {/* เบอร์โทรติดต่อ + เพิ่มลูกค้า in one row (the cart's ประเภทเอกสาร is not part of a bill) */}
+                <div className="flex items-center gap-1.5">
+                  <div className="flex-1 min-w-0">
+                    <CartPhoneInput value={contactPhone} onChange={setContactPhone} />
+                  </div>
+                  {!customerLocked && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAddCustomer(true)}
+                      className="px-2.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs flex items-center gap-1 shrink-0 shadow-sm transition-all whitespace-nowrap"
+                      title="เพิ่มลูกค้าใหม่"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>เพิ่มลูกค้า</span>
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+            <CartDatesButton
+              documentDate={parseLocalDate(documentDate)}
+              rentalDate={parseLocalDate(headerRentalDate)}
+              returnDate={parseLocalDate(headerReturnDate)}
+              withDocumentDate={mode !== 'EXTENSION'}
+              onClick={() => setShowDatePicker(true)}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1 min-w-0">
+                <label className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 truncate">
+                  <DollarSign className="w-3 h-3 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                  <span className="truncate">ส่วนลด (บาท)</span>
+                </label>
+                <NumericInput
+                  min={0}
+                  allowDecimals={true}
+                  value={discountAmount === 0 ? '' : discountAmount}
+                  defaultValueOnBlur={0}
+                  onChange={(val) => setDiscountAmount(val === '' ? 0 : Number(val))}
+                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-1 text-xs font-mono font-bold text-right focus:outline-none focus:ring-2 focus:ring-emerald-500 min-w-0"
+                />
+              </div>
+              <div className="space-y-1 min-w-0">
+                <label className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 truncate">
+                  <Package className="w-3 h-3 text-cyan-700 dark:text-cyan-400 shrink-0" />
+                  <span className="truncate">ค่าขนส่ง (บาท)</span>
+                </label>
+                <NumericInput
+                  min={0}
+                  allowDecimals={true}
+                  value={shippingFee === 0 ? '' : shippingFee}
+                  defaultValueOnBlur={0}
+                  onChange={(val) => setShippingFee(val === '' ? 0 : Number(val))}
+                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-1 text-xs font-mono font-bold text-right focus:outline-none focus:ring-2 focus:ring-emerald-500 min-w-0"
+                />
+              </div>
+            </div>
+            <StepNavButton direction="back" onClick={onClose} className="self-start" />
+          </div>
           <div className="w-full sm:w-80 flex flex-col gap-2">
           <div className="flex flex-col gap-2">
             <div className="space-y-1 text-xs">
@@ -810,13 +980,13 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
               <div className="flex justify-between text-slate-600 dark:text-slate-400">
                 <span>ส่วนลด:</span>
                 <span className="font-mono font-bold text-red-700 dark:text-red-400">
-                  -{(discountAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                  {(discountAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                 </span>
               </div>
               <div className="flex justify-between text-slate-600 dark:text-slate-400">
                 <span>ค่าขนส่ง:</span>
                 <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                  +{(shippingFee || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                  {(shippingFee || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                 </span>
               </div>
             </div>
@@ -855,7 +1025,7 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
             <button
               type="button"
               onClick={onClose}
-              className={`${COMMAND_BUTTON_SIZE_CLASSES} px-3 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer`}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} px-3 border transition-all cursor-pointer ${BUTTON_FUNCTION_COLOURS.cancel}`}
             >
               ยกเลิก
             </button>
@@ -875,6 +1045,23 @@ export function BillRevisionView({ bill, mode, onClose, onSaved }: BillRevisionV
           </div>
           </div>
         </div>
+
+      <NewCustomerModal isOpen={showAddCustomer} onClose={() => setShowAddCustomer(false)} onSave={handleAddCustomer} />
+
+      {customItemOpen && <CustomItemModal onAdd={addCustomItems} onClose={() => setCustomItemOpen(false)} submitLabel="เพิ่มลงบิล" />}
+
+      {/* The cart's step-by-step date window (shared with the POS cart) */}
+      <CartDatesModal
+        isOpen={showDatePicker}
+        onClose={() => setShowDatePicker(false)}
+        documentDate={parseLocalDate(documentDate)}
+        rentalDate={parseLocalDate(headerRentalDate)}
+        returnDate={parseLocalDate(headerReturnDate)}
+        withDocumentDate={mode !== 'EXTENSION'}
+        onDocumentDate={(d) => setDocumentDate(getLocalDateString(d))}
+        onRentalDate={(d) => setHeaderRentalDate(getLocalDateString(d))}
+        onReturnDate={(d) => setHeaderReturnDate(getLocalDateString(d))}
+      />
     </div>
   )
 }

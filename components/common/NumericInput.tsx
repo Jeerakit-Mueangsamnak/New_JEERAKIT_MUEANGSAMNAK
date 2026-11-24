@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import { NumericKeypadPopover, useCoarsePointer, type KeypadKey } from './NumericKeypadPopover'
 
 export interface NumericInputProps
   extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'min' | 'max'> {
@@ -11,6 +12,8 @@ export interface NumericInputProps
   allowDecimals?: boolean
   defaultValueOnBlur?: number
   allowNegative?: boolean
+  /** On touch screens (iPad), type with the on-screen number pad above the box instead of the device keyboard. */
+  touchKeypad?: boolean
 }
 
 /** What the box shows for a value: nothing for empty or 0 (owner 2026-11-07: an unfilled box is blank, never a 0). */
@@ -27,6 +30,7 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
       allowDecimals = true,
       defaultValueOnBlur,
       allowNegative = false,
+      touchKeypad = false,
       onBlur,
       onKeyDown,
       className = '',
@@ -40,6 +44,31 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
 
     const [rawText, setRawText] = useState<string>(initialText)
     const isFocusedRef = useRef(false)
+    const inputRef = useRef<HTMLInputElement | null>(null)
+    const setRefs = (el: HTMLInputElement | null) => {
+      inputRef.current = el
+      if (typeof ref === 'function') ref(el)
+      else if (ref) ref.current = el
+    }
+    const coarsePointer = useCoarsePointer()
+    const keypadEnabled = touchKeypad && coarsePointer
+    const [keypadOpen, setKeypadOpen] = useState(false)
+    const pendingCaretRef = useRef<number | null>(null)
+    // Bumped on every accepted keypad press so the caret is placed even when the text did not change
+    // (e.g. the box shows "1", focus selects it, and the user taps "1" again).
+    const [keypadPress, setKeypadPress] = useState(0)
+
+    // Put the caret back where the last keypad press left it (React resets it to the end).
+    useLayoutEffect(() => {
+      const caret = pendingCaretRef.current
+      if (caret === null) return
+      pendingCaretRef.current = null
+      try {
+        inputRef.current?.setSelectionRange(caret, caret)
+      } catch {
+        // The box may have lost focus or been removed before this ran; nothing to restore.
+      }
+    }, [rawText, keypadPress])
 
     // Synchronize external value changes ONLY when not focused (rawText is the single source of truth while typing)
     useEffect(() => {
@@ -52,21 +81,20 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
       }
     }, [value, isControlled])
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const val = e.target.value
-
+    /** Validates typed text; returns false when it was rejected. */
+    const applyText = (val: string): boolean => {
       // Allow empty string while typing
       if (val === '') {
         setRawText('')
         onChange('')
-        return
+        return true
       }
 
       // Allow typing single negative sign if negative is allowed
       if (allowNegative && val === '-') {
         setRawText('-')
         onChange('')
-        return
+        return true
       }
 
       // Regex validation based on decimal settings
@@ -79,7 +107,7 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
         : /^\d*$/
 
       if (!pattern.test(val)) {
-        return // reject non-matching characters
+        return false // reject non-matching characters
       }
 
       setRawText(val)
@@ -90,17 +118,49 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
         if (!isNaN(num)) {
           onChange(num)
         }
-        return
+        return true
       }
 
       const num = parseFloat(val)
       if (!isNaN(num)) {
         onChange(num)
       }
+      return true
+    }
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      applyText(e.target.value)
+    }
+
+    const handleKeypadKey = (key: KeypadKey) => {
+      const el = inputRef.current
+      const start = el?.selectionStart ?? rawText.length
+      const end = el?.selectionEnd ?? rawText.length
+      let next: string
+      let caret: number
+      if (key === 'backspace') {
+        if (start !== end) {
+          next = rawText.slice(0, start) + rawText.slice(end)
+          caret = start
+        } else if (start > 0) {
+          next = rawText.slice(0, start - 1) + rawText.slice(end)
+          caret = start - 1
+        } else {
+          return
+        }
+      } else {
+        next = rawText.slice(0, start) + key + rawText.slice(end)
+        caret = start + 1
+      }
+      if (applyText(next)) {
+        pendingCaretRef.current = caret
+        setKeypadPress((n) => n + 1)
+      }
     }
 
     const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
       isFocusedRef.current = false
+      setKeypadOpen(false)
 
       if (rawText === '' || rawText === '-') {
         if (defaultValueOnBlur !== undefined) {
@@ -132,6 +192,7 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
 
     const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
       isFocusedRef.current = true
+      if (keypadEnabled) setKeypadOpen(true)
       // Auto-select text on focus so user can immediately type to replace without appending
       try {
         e.currentTarget.select()
@@ -151,10 +212,12 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
     }
 
     return (
+      <>
       <input
-        ref={ref}
+        ref={setRefs}
         type="text"
-        inputMode={allowDecimals ? 'decimal' : 'numeric'}
+        // 'none' keeps the device keyboard closed; the on-screen pad below does the typing.
+        inputMode={keypadEnabled ? 'none' : allowDecimals ? 'decimal' : 'numeric'}
         value={rawText}
         onChange={handleChange}
         onFocus={handleFocus}
@@ -164,6 +227,15 @@ export const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps
         className={className}
         {...rest}
       />
+      {keypadEnabled && keypadOpen && (
+        <NumericKeypadPopover
+          anchorRef={inputRef}
+          allowDecimal={allowDecimals}
+          onKey={handleKeypadKey}
+          onDismiss={() => inputRef.current?.blur()}
+        />
+      )}
+      </>
     )
   }
 )

@@ -18,7 +18,13 @@ vi.mock('@/lib/supabase/server', () => ({
     rpc: db.rpc,
     auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) },
     from: () => {
-      const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: { policies: { business_profile: { lineId: '@myshop' } } } }) }
+      // PostgREST answers the aliased JSON path (SHOP_LINE_ID_COLUMN), not the whole policies column.
+      let columns = ''
+      const q = {
+        select: (c: string) => ((columns = c), q),
+        eq: () => q,
+        maybeSingle: async () => ({ data: columns.includes('line_id:policies->business_profile->>lineId') ? { line_id: '@myshop' } : {} }),
+      }
       return q
     },
   }),
@@ -219,8 +225,8 @@ describe('policies.line validation (TS and SQL agree)', () => {
   })
 
   it('SQL template placeholders match LINE_TEMPLATES exactly', () => {
-    // the newest definition counts (20261031090000 adds the self-registration texts)
-    const latest = readFileSync(join(process.cwd(), 'supabase/migrations/20261031090000_line_self_register_v1.sql'), 'utf8')
+    // the newest definition counts (20261122125629 adds the registration answers and the product list texts)
+    const latest = readFileSync(join(process.cwd(), 'supabase/migrations/20261122125629_line_people_registration_v1.sql'), 'utf8')
     const at = latest.indexOf('CREATE OR REPLACE FUNCTION public._line_template_vars(')
     const body = latest.slice(at, latest.indexOf('$$', latest.indexOf('$$', at) + 2) + 2)
     const sqlMap: Record<string, string[]> = {}
@@ -232,8 +238,8 @@ describe('policies.line validation (TS and SQL agree)', () => {
   })
 
   it('SQL integer ranges match LINE_POLICY_INT_RANGES exactly', () => {
-    // the newest definition counts (20261022090000 adds the schedule / invite options)
-    const latest = readFileSync(join(process.cwd(), 'supabase/migrations/20261022090000_line_full_v1.sql'), 'utf8')
+    // The effective policy now also validates the owner-configurable abuse limits.
+    const latest = readFileSync(join(process.cwd(), 'supabase/migrations/20261122125634_line_restrictions_abuse_catalog_v1.sql'), 'utf8')
     const at = latest.indexOf('CREATE OR REPLACE FUNCTION public._line_policy_check(')
     const json = latest.slice(at).match(/v_ints\s+jsonb := '([\s\S]*?)'(::jsonb)?;/)![1]
     expect(JSON.parse(json)).toEqual(LINE_POLICY_INT_RANGES)

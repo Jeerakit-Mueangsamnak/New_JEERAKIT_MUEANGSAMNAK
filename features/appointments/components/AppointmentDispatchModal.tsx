@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { Send } from 'lucide-react'
@@ -303,13 +303,13 @@ export function AppointmentDispatchModal({
             type="button"
             disabled={isSubmitting || !scheduledDate || !scheduledStart || !scheduledEnd || !workType || selectedLineIds.length === 0}
             onClick={() => void handleCreateAppointment()}
-            className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed`}
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} border cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${BUTTON_FUNCTION_COLOURS.open}`}
           >
             {isSubmitting ? 'กำลังบันทึก...' : 'นัดหมาย'}
           </button>
         )}
         {(appointment || createdAppointment) && (
-          <button type="button" onClick={onClose} className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer`}>
+          <button type="button" onClick={onClose} className={`${COMMAND_BUTTON_SIZE_CLASSES} border cursor-pointer ${BUTTON_FUNCTION_COLOURS.cancel}`}>
             ปิด
           </button>
         )}

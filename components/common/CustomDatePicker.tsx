@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React, { useState, useRef, useEffect } from 'react'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown, Check, X } from 'lucide-react'
@@ -313,7 +313,7 @@ export function CalendarPanel({
             <button
               type="button"
               onClick={handleClear}
-              className={`${COMMAND_BUTTON_SIZE_CLASSES} text-slate-600 dark:text-slate-400 hover:text-red-500 transition-colors cursor-pointer`}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} transition-colors cursor-pointer ${BUTTON_FUNCTION_COLOURS.clear}`}
             >
               ล้างข้อมูล
             </button>

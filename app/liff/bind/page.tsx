@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React, { useEffect, useState } from 'react'
 import { CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
@@ -146,7 +146,7 @@ export default function LineBindPage() {
               <CheckCircle2 className="w-5 h-5 shrink-0" /> {message}
             </p>
             {liff?.isInClient() && (
-              <button type="button" onClick={() => liff.closeWindow()} className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full border border-slate-300 dark:border-slate-700`}>
+              <button type="button" onClick={() => liff.closeWindow()} className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full border ${BUTTON_FUNCTION_COLOURS.cancel}`}>
                 ปิดหน้านี้
               </button>
             )}

@@ -116,7 +116,7 @@ export function LineDeliveryLogPanel({ tabs }: { tabs?: ReactNode }) {
             options={[{ value: 'ALL', label: 'ทุกสถานะ' }, ...Object.entries(LINE_DELIVERY_STATUS).map(([value, s]) => ({ value, label: s.label }))]}
           />
         </div>
-        <ActionButton variant="outline" className="ml-auto" icon={<Send />} disabled={busy === 'test'} onClick={() => void test()}>
+        <ActionButton variant="share" className="ml-auto" icon={<Send />} disabled={busy === 'test'} onClick={() => void test()}>
           ส่งข้อความทดสอบถึง LINE ของฉัน
         </ActionButton>
       </div>
@@ -149,7 +149,7 @@ export function LineDeliveryLogPanel({ tabs }: { tabs?: ReactNode }) {
                   <td className={`${TD} text-slate-600 dark:text-slate-400`}>{d.last_error_code ? (ERROR_TEXT[d.last_error_code] ?? d.last_error_code) : '-'}</td>
                   <td className={`${TD} text-right`}>
                     {['DEAD', 'FAILED', 'CANCELLED'].includes(d.status) && (
-                      <ActionButton variant="outline" icon={<RotateCcw />} disabled={busy === d.id} onClick={() => void retry(d)}>
+                      <ActionButton variant="share" icon={<RotateCcw />} disabled={busy === d.id} onClick={() => void retry(d)}>
                         ส่งใหม่
                       </ActionButton>
                     )}

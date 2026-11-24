@@ -277,7 +277,7 @@ export function ProductStockCountView({
               type="button"
               onClick={handleClearAll}
               disabled={isSubmitting}
-              variant="outline"
+              variant="clear"
               icon={<RotateCcw />}
               className=""
             >
@@ -289,7 +289,7 @@ export function ProductStockCountView({
             type="button"
             onClick={handlePrintTable}
             disabled={isSubmitting}
-            variant="outline"
+            variant="export"
             icon={<Printer />}
             className=""
           >
@@ -384,6 +384,7 @@ export function ProductStockCountView({
                         placeholder=""
                         min={0}
                         allowDecimals={false}
+                        touchKeypad
                         className="w-full max-w-[50px] mx-auto px-1 py-1 rounded-lg border border-emerald-300 dark:border-emerald-800 text-center font-extrabold text-xs bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 focus:outline-none focus:ring-1.5 focus:ring-emerald-400"
                       />
                     </td>
@@ -396,6 +397,7 @@ export function ProductStockCountView({
                         placeholder=""
                         min={0}
                         allowDecimals={false}
+                        touchKeypad
                         className="w-full max-w-[50px] mx-auto px-1 py-1 rounded-lg border border-red-300 dark:border-red-800 text-center font-extrabold text-xs bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400 focus:outline-none focus:ring-1.5 focus:ring-red-400"
                       />
                     </td>
@@ -408,6 +410,7 @@ export function ProductStockCountView({
                         placeholder=""
                         min={0}
                         allowDecimals={false}
+                        touchKeypad
                         className="w-full max-w-[50px] mx-auto px-1 py-1 rounded-lg border border-amber-300 dark:border-amber-800 text-center font-extrabold text-xs bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 focus:outline-none focus:ring-1.5 focus:ring-amber-400"
                       />
                     </td>
@@ -420,6 +423,7 @@ export function ProductStockCountView({
                         placeholder=""
                         min={0}
                         allowDecimals={false}
+                        touchKeypad
                         className="w-full max-w-[50px] mx-auto px-1 py-1 rounded-lg border border-purple-300 dark:border-purple-800 text-center font-extrabold text-xs bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 focus:outline-none focus:ring-1.5 focus:ring-purple-400"
                       />
                     </td>

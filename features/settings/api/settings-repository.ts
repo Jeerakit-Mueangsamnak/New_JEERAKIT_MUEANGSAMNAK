@@ -1,8 +1,10 @@
+import { isInlineImage, storedImageUrl } from '@/lib/storage/shop-images'
 import { createClient } from '@/lib/supabase/client'
 import { FORM_NOTE_LINES, FORM_SERVICE_LABELS } from '@/features/documents/utils/form-notes'
 import { parseLineCardDesigns } from '@/lib/line/bill-card-design'
 import { parseLineMessageTemplates } from '@/lib/line/message-templates'
 import { rpc } from '@/lib/db/rpc'
+import { readDeviceCache, writeDeviceCache, SETTINGS_ROW_CACHE_KEY as SETTINGS_ROW_KEY } from '@/lib/db/device-cache'
 import { setCachedPolicies, type Policies } from '@/lib/db/policies'
 import {
   activePaymentAccount,
@@ -19,6 +21,7 @@ import {
   type BusinessSettings,
   type DocumentNumberingSettings,
   type DocumentType,
+  type LineRegisterSettings,
   type NotificationSettings,
   type SettingsSection,
   type SystemConfig,
@@ -49,6 +52,8 @@ export interface StoreSettingsRow {
   vat_mode: string | null
   doc_number_formats: Record<string, { prefix?: string; digits?: number } | undefined> | null
   policies: Policies | null
+  /** Set by settings_update on every save; tells whether the copy on this device is still current. */
+  updated_at?: string | null
 }
 
 type LegacyAppConfig = {
@@ -61,6 +66,29 @@ const PAYMENT_RECEIVING_KEYS = ['bankName', 'bankAccountName', 'bankAccountNumbe
 
 function obj(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
+}
+
+/** Only the listed keys, only real booleans (a switch that was never set stays unset: the server default applies). */
+function pickBooleans<K extends string>(source: Record<string, unknown>, keys: readonly K[]): Partial<Record<K, boolean>> {
+  return Object.fromEntries(keys.filter((k) => typeof source[k] === 'boolean').map((k) => [k, source[k]])) as Partial<Record<K, boolean>>
+}
+
+/** policies.line.register as the screen holds it: the three switches and the address parts that must be filled. */
+function parseLineRegister(source: Record<string, unknown>): LineRegisterSettings {
+  const required = Object.fromEntries(Object.entries(obj(source.required)).filter(([, on]) => typeof on === 'boolean')) as Record<string, boolean>
+  const privacy = typeof source.privacy === 'string' && source.privacy.trim() !== '' ? source.privacy : undefined
+  return {
+    ...pickBooleans(source, ['notifyOwner', 'notifyApproved', 'notifyRejected'] as const),
+    ...(Object.keys(required).length > 0 ? { required } : {}),
+    ...(privacy ? { privacy } : {}),
+  }
+}
+
+/** What goes back to policies.line.register: a blank privacy text is dropped (the server refuses an empty one). */
+function serializeLineRegister(r: LineRegisterSettings): LineRegisterSettings {
+  const { privacy, ...rest } = r
+  const text = privacy?.trim()
+  return text ? { ...rest, privacy: text } : rest
 }
 
 function str(...values: unknown[]): string {
@@ -92,7 +120,8 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
     taxId: str(row.tax_id, oldBiz.taxId),
     address: str(row.address, oldBiz.address),
     phone: str(row.phone, oldBiz.phone),
-    logoDataUrl: str(row.logo_url, oldBiz.logoDataUrl),
+    // The logo lives only in logo_url (owner 2026-11-20): the copy the old screen kept in app_config is not read.
+    logoDataUrl: str(row.logo_url),
     email: str(profile.email, oldBiz.email),
     lineId: str(profile.lineId, oldBiz.lineId),
     authorizedPerson: str(profile.authorizedPerson, oldBiz.authorizedPerson),
@@ -154,7 +183,7 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
   ) as unknown as NotificationSettings
 
   const reorder = num(pol.default_reorder_point) ?? num(legacy.productStock?.defaultMinimumStock)
-  const { notify: lineNotify, templates: lineTemplates, ...lineOther } = obj(pol.line)
+  const { notify: lineNotify, templates: lineTemplates, friend: lineFriend, catalog: lineCatalog, register: lineRegister, ...lineOther } = obj(pol.line)
 
   return {
     timezone: row.timezone || d.timezone,
@@ -188,6 +217,9 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
     line: {
       notify: Object.fromEntries(Object.entries(obj(lineNotify)).filter(([, on]) => on === true)) as Record<string, boolean>,
       templates: Object.fromEntries(Object.entries(obj(lineTemplates)).filter(([, t]) => typeof t === 'string')) as Record<string, string>,
+      friend: pickBooleans(obj(lineFriend), ['welcome', 'notifyOwner']),
+      catalog: pickBooleans(obj(lineCatalog), ['showPrice']),
+      register: parseLineRegister(obj(lineRegister)),
       other: lineOther,
     },
   }
@@ -312,6 +344,9 @@ export function sectionPatch(section: SettingsSection, cfg: SystemConfig): Recor
         policies: {
           line: {
             ...l.other,
+            ...(Object.keys(l.friend).length > 0 ? { friend: l.friend } : {}),
+            ...(Object.keys(l.catalog).length > 0 ? { catalog: l.catalog } : {}),
+            ...(Object.keys(serializeLineRegister(l.register)).length > 0 ? { register: serializeLineRegister(l.register) } : {}),
             notify: Object.fromEntries(sortedEntries(l.notify).filter(([, on]) => on === true)),
             templates: Object.fromEntries(
               sortedEntries(l.templates)
@@ -325,12 +360,31 @@ export function sectionPatch(section: SettingsSection, cfg: SystemConfig): Recor
   }
 }
 
+/**
+ * The settings row is ~1.2 MB (logo and QR images) and is read on every app start and tab return
+ * (2026-11-19 speed). This device keeps the last row read; the full row is downloaded only when
+ * the server's updated_at differs (settings_update, the only writer, sets it on every save).
+ */
+function rememberSettingsRow(row: StoreSettingsRow): Promise<void> {
+  return row.updated_at ? writeDeviceCache(SETTINGS_ROW_KEY, row) : Promise.resolve()
+}
+
 /** Reads the shop settings row; null when signed out / not yet allowed. */
 export async function fetchSharedSystemConfig(): Promise<SystemConfig | null> {
   const supabase = createClient()
-  const { data, error } = await supabase.from('store_settings').select('*').maybeSingle()
-  if (error || !data) return null
-  const row = data as StoreSettingsRow
+  const saved = await readDeviceCache<StoreSettingsRow>(SETTINGS_ROW_KEY)
+  let row: StoreSettingsRow | null = null
+  if (saved?.updated_at) {
+    const { data, error } = await supabase.from('store_settings').select('updated_at').maybeSingle()
+    if (error || !data) return null
+    if ((data as { updated_at?: string | null }).updated_at === saved.updated_at) row = saved
+  }
+  if (!row) {
+    const { data, error } = await supabase.from('store_settings').select('*').maybeSingle()
+    if (error || !data) return null
+    row = data as StoreSettingsRow
+    await rememberSettingsRow(row)
+  }
   setCachedPolicies(row.policies)
   return rowToConfig(row)
 }
@@ -349,9 +403,31 @@ export const SECTION_REASON: Record<SettingsSection, string> = {
   lineMessageTemplates: 'แก้แม่แบบข้อความ LINE',
 }
 
+/**
+ * Logos picked on the screen arrive as pictures inside the text (data:image/…); they are uploaded to Storage
+ * first and the settings keep only their address (owner 2026-11-20: the row was ~1.2 MB, read on every start).
+ */
+async function withStoredLogos(section: SettingsSection, draft: SystemConfig): Promise<SystemConfig> {
+  if (section !== 'business') return draft
+  const b = draft.business
+  if (!isInlineImage(b.logoDataUrl) && !(b.shopProfiles ?? []).some((p) => isInlineImage(p.logoDataUrl))) return draft
+  return {
+    ...draft,
+    business: {
+      ...b,
+      logoDataUrl: await storedImageUrl('logo', b.logoDataUrl),
+      shopProfiles: b.shopProfiles
+        ? await Promise.all(b.shopProfiles.map(async (p) => ({ ...p, logoDataUrl: await storedImageUrl('logo', p.logoDataUrl) })))
+        : b.shopProfiles,
+    },
+  }
+}
+
 /** Saves ONE section (only its keys) and returns the whole config the server now holds. */
 export async function saveSettingsSection(section: SettingsSection, draft: SystemConfig): Promise<SystemConfig> {
-  const row = await rpc<StoreSettingsRow>('settings_update', { p_patch: sectionPatch(section, draft), p_reason: SECTION_REASON[section] })
+  const stored = await withStoredLogos(section, draft)
+  const row = await rpc<StoreSettingsRow>('settings_update', { p_patch: sectionPatch(section, stored), p_reason: SECTION_REASON[section] })
+  await rememberSettingsRow(row)
   setCachedPolicies(row.policies)
   return rowToConfig(row)
 }

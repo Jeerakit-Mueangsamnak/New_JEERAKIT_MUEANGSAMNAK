@@ -52,8 +52,8 @@ describe('finance statement: last 90 days, คงเหลือ carried from be
       : table === 'expense_entries' ? [{ id: 'e1', expense_no: 'EX1', category: 'OTHER', amount: 50, paid_method: 'CASH', note: null, status: 'POSTED', created_at: '2026-11-11T03:00:00Z' }]
       : table === 'bills' ? [{ id: 'b1', bill_no: 'BL-1', customer_id: 'c1' }]
       : []
-    const { fetchTransactionsFromSupabase, statementSince } = await import('@/features/finance/api/finance-repository')
-    const rows = await fetchTransactionsFromSupabase(90)
+    const { fetchStatementFromSupabase, statementSince } = await import('@/features/finance/api/finance-repository')
+    const { rows } = await fetchStatementFromSupabase(90)
     const since = statementSince(90)
     expect(db.calls.find((c) => c.table === 'payments' && c.method === 'gte')?.args).toEqual(['received_at', since])
     expect(db.calls.find((c) => c.table === 'refunds' && c.method === 'gte')?.args).toEqual(['paid_at', since])

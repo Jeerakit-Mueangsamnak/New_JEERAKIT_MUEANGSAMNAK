@@ -111,7 +111,7 @@ export function LineRemindersPanel({ tabs }: { tabs?: ReactNode }) {
                       : '-'}
                   </td>
                   <td className={`${TD} text-right`}>
-                    <ActionButton variant="outline" icon={<Send />} disabled={Boolean(busy)} onClick={() => void send([c])}>
+                    <ActionButton variant="share" icon={<Send />} disabled={Boolean(busy)} onClick={() => void send([c])}>
                       {busy === key ? 'กำลังส่ง…' : 'ส่งเตือน'}
                     </ActionButton>
                   </td>

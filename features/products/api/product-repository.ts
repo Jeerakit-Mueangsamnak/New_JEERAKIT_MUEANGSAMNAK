@@ -53,6 +53,31 @@ export function rentalTypeOf(p: Pick<ProductRow, 'calculation_type' | 'can_rent'
   return p.calculation_type === 'PER_DAY' ? 'DAILY' : 'NORMAL'
 }
 
+/** The stock figures of one product from its stock_balances per state (the only stock fields of a Product). */
+export function stockFields(b: Record<string, number>) {
+  const q = (state: string) => Number(b[state] ?? 0)
+  const available = q('AVAILABLE')
+  const reserved = q('RESERVED')
+  const rented = q('RENTED_OUT') + q('DELIVERY_PENDING') + q('RETURN_PENDING')
+  // Not usable yet: damaged, waiting for inspection, or in repair (one "ชำรุด" figure on every screen,
+  // so goods left in REPAIR / INSPECTION never drop out of sight).
+  const repair = q('REPAIR')
+  const damaged = q('DAMAGED') + q('INSPECTION') + repair
+  return {
+    // Owned and still in the business (excludes LOST / SOLD / WRITTEN_OFF / INACTIVE).
+    totalQuantity: available + reserved + rented + damaged,
+    availableQuantity: available,
+    rentedQuantity: rented,
+    damagedQuantity: damaged,
+    lostQuantity: q('LOST'),
+    reservedQuantity: reserved,
+    inRepairQuantity: repair,
+    maintenanceQuantity: repair,
+    stockStates: { ...b },
+    available_qty: available,
+  }
+}
+
 export function mapProductRow(
   p: ProductRow,
   lookups: {
@@ -62,18 +87,7 @@ export function mapProductRow(
     costs: Map<string, number>
   }
 ): Product {
-  const b = lookups.balances.get(p.id) || {}
-  const q = (state: string) => Number(b[state] ?? 0)
-  const available = q('AVAILABLE')
-  const reserved = q('RESERVED')
-  const rented = q('RENTED_OUT') + q('DELIVERY_PENDING') + q('RETURN_PENDING')
-  // Not usable yet: damaged, waiting for inspection, or in repair (one "ชำรุด" figure on every screen,
-  // so goods left in REPAIR / INSPECTION never drop out of sight).
-  const repair = q('REPAIR')
-  const damaged = q('DAMAGED') + q('INSPECTION') + repair
-  const lost = q('LOST')
-  // Owned and still in the business (excludes LOST / SOLD / WRITTEN_OFF / INACTIVE).
-  const total = available + reserved + rented + damaged
+  const stock = stockFields(lookups.balances.get(p.id) || {})
   const rentalType = rentalTypeOf(p)
   const rentPrice = p.can_rent ? Number(p.rental_price ?? 0) : null
   const salePrice = p.can_sell ? Number(p.sale_price ?? 0) : null
@@ -100,15 +114,15 @@ export function mapProductRow(
     defaultLossFee: Number(p.default_loss_fee ?? 0),
     defaultRepairFee: Number(p.default_damage_fee ?? 0),
     defaultReplacementFee: Number(p.default_loss_fee ?? 0),
-    totalQuantity: total,
-    availableQuantity: available,
-    rentedQuantity: rented,
-    damagedQuantity: damaged,
-    lostQuantity: lost,
-    reservedQuantity: reserved,
-    inRepairQuantity: repair,
-    maintenanceQuantity: repair,
-    stockStates: { ...b },
+    totalQuantity: stock.totalQuantity,
+    availableQuantity: stock.availableQuantity,
+    rentedQuantity: stock.rentedQuantity,
+    damagedQuantity: stock.damagedQuantity,
+    lostQuantity: stock.lostQuantity,
+    reservedQuantity: stock.reservedQuantity,
+    inRepairQuantity: stock.inRepairQuantity,
+    maintenanceQuantity: stock.maintenanceQuantity,
+    stockStates: stock.stockStates,
     minimumStock: Number(p.reorder_point ?? 0),
     status: p.active ? 'ACTIVE' : 'INACTIVE',
     calculationType: calcType,
@@ -126,7 +140,7 @@ export function mapProductRow(
     normal_price: rentPrice ?? salePrice ?? 0,
     daily_price: rentalType === 'DAILY' ? rentPrice ?? 0 : 0,
     sale_price: salePrice ?? undefined,
-    available_qty: available,
+    available_qty: stock.available_qty,
     minimum_quantity: Number(p.reorder_point ?? 0),
   }
 }
@@ -143,26 +157,46 @@ export async function fetchUnitsFromSupabase(): Promise<UnitRow[]> {
   return selectAllRows<UnitRow>(() => supabase.from('units').select('id, name, active, sort_order').order('sort_order').order('name'))
 }
 
-export async function fetchProductsFromSupabase(): Promise<Product[]> {
-  if (isPlaceholderConfig()) return []
-  const supabase = createClient()
-  const [rows, categories, units, balances, costs] = await Promise.all([
-    selectAllRows<ProductRow>(() => supabase.from('products').select('*').order('sku')),
-    fetchCategoriesFromSupabase(),
-    fetchUnitsFromSupabase(),
-    selectAllRows<{ product_id: string; stock_state: string; quantity: number }>(
-      () => supabase.from('stock_balances').select('product_id, stock_state, quantity'),
-      ['product_id', 'stock_state']
-    ),
-    // product_costs is readable by OWNER only (RLS); others simply see no cost.
-    supabase.from('product_costs').select('product_id, cost_price').then(({ data }) => data ?? []),
-  ])
+/** stock_balances of every product: product id → quantity per stock state. */
+export async function fetchStockBalancesFromSupabase(): Promise<Map<string, Record<string, number>>> {
   const balanceMap = new Map<string, Record<string, number>>()
+  if (isPlaceholderConfig()) return balanceMap
+  const supabase = createClient()
+  const balances = await selectAllRows<{ product_id: string; stock_state: string; quantity: number }>(
+    () => supabase.from('stock_balances').select('product_id, stock_state, quantity'),
+    ['product_id', 'stock_state']
+  )
   for (const r of balances) {
     const m = balanceMap.get(r.product_id) || {}
     m[r.stock_state] = Number(r.quantity)
     balanceMap.set(r.product_id, m)
   }
+  return balanceMap
+}
+
+/** The same products with their stock figures replaced by these balances (the rest of each product unchanged). */
+export function applyStockBalances(products: Product[], balances: Map<string, Record<string, number>>): Product[] {
+  return products.map((p) => ({ ...p, ...stockFields(balances.get(p.id) || {}) }))
+}
+
+/**
+ * Products with their category / unit names, stock and cost. `lists` hands in categories / units the
+ * caller is reading anyway (MasterDataProvider), so they are not read a second time.
+ */
+export async function fetchProductsFromSupabase(lists?: {
+  categories: Promise<CategoryRow[]>
+  units: Promise<UnitRow[]>
+}): Promise<Product[]> {
+  if (isPlaceholderConfig()) return []
+  const supabase = createClient()
+  const [rows, categories, units, balanceMap, costs] = await Promise.all([
+    selectAllRows<ProductRow>(() => supabase.from('products').select('*').order('sku')),
+    lists?.categories ?? fetchCategoriesFromSupabase(),
+    lists?.units ?? fetchUnitsFromSupabase(),
+    fetchStockBalancesFromSupabase(),
+    // product_costs is readable by OWNER only (RLS); others simply see no cost.
+    supabase.from('product_costs').select('product_id, cost_price').then(({ data }) => data ?? []),
+  ])
   const lookups = {
     categories: new Map(categories.map((c) => [c.id, c.name])),
     units: new Map(units.map((u) => [u.id, u.name])),

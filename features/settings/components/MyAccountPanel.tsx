@@ -25,7 +25,7 @@ import {
   TAB_CONTAINER_CLASSES,
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
-  TAB_BUTTON_INACTIVE_CLASSES, COMMAND_BUTTON_SIZE_CLASSES, TABLE_LINE_COLOUR_CLASSES } from '@/components/common/ActionButton'
+  TAB_BUTTON_INACTIVE_CLASSES, COMMAND_BUTTON_SIZE_CLASSES, TABLE_LINE_COLOUR_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 import { REF_BUTTON, REF_BUTTON_QUIET } from '@/features/settings/components/SettingsCards'
 import { SecuritySettings } from '@/features/auth/components/SecuritySettings'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
@@ -38,6 +38,7 @@ import { AUTO_LOCK_CHOICES_SECONDS } from '@/features/settings/services/settings
 import { SettingsRow, SettingsRowsCard, SettingsSwitch } from '@/features/settings/components/SettingsRows'
 import { autoLockLabel } from '@/features/settings/utils/settings-validation'
 import { dbErrorMessage } from '@/lib/db/rpc'
+import { removeShopImage, uploadShopImage } from '@/lib/storage/shop-images'
 
 /** ตั้งค่าส่วนตัว tabs (owner 2026-11-17): โปรไฟล์ของฉัน | การตั้งค่า (theme + auto-lock); personal notices are gone. */
 export type MyAccountTab = 'PROFILE' | 'SETTINGS'
@@ -49,7 +50,7 @@ const SECTION_TITLE_CLASSES = SETTINGS_SECTION_TITLE
 const SECTION_FLAT_CLASSES = 'space-y-3'
 const SECTION_FLAT_TITLE_CLASSES = `text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2 pb-1.5 border-b ${TABLE_LINE_COLOUR_CLASSES}`
 
-/** Shrinks a picked image to a small square JPEG (stored in profiles.avatar_url). */
+/** Shrinks a picked image to a small square JPEG (uploaded to Storage; profiles.avatar_url keeps its address). */
 async function toAvatarDataUrl(file: File, size = 256): Promise<string> {
   const url = URL.createObjectURL(file)
   try {
@@ -164,7 +165,12 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
     try {
       if (!file.type.startsWith('image/')) throw new Error('รองรับเฉพาะไฟล์รูปภาพ')
       if (file.size > 5 * 1024 * 1024) throw new Error('ไฟล์ต้องไม่เกิน 5 MB')
-      await updateOwnProfile({ avatar_url: await toAvatarDataUrl(file) })
+      if (!user?.id) throw new Error('ยังไม่ได้เข้าสู่ระบบ')
+      const previous = user.avatarUrl
+      // The picture goes to Storage (owner 2026-11-20); the profile keeps only its address.
+      const url = await uploadShopImage(`avatars/${user.id}`, await toAvatarDataUrl(file))
+      await updateOwnProfile({ avatar_url: url })
+      if (previous && previous !== url) void removeShopImage(previous)
       showToast('อัปเดตรูปโปรไฟล์แล้ว', '', 'SUCCESS')
     } catch (err) {
       showToast('อัปเดตรูปโปรไฟล์ไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
@@ -176,7 +182,9 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
   const handleRemoveAvatar = async () => {
     if (!(await confirm({ title: 'ลบรูปโปรไฟล์?', message: 'ระบบจะแสดงตัวอักษรย่อแทนรูป', danger: true, confirmLabel: 'ลบรูป' }))) return
     try {
+      const previous = user?.avatarUrl
       await updateOwnProfile({ avatar_url: null })
+      void removeShopImage(previous)
       showToast('ลบรูปโปรไฟล์แล้ว', '', 'INFO')
     } catch (err) {
       showToast('ลบรูปโปรไฟล์ไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
@@ -389,7 +397,7 @@ export function MyAccountPanel({ initialTab = 'PROFILE', embedded = false }: { i
                           <button
                             type="button"
                             onClick={handleRemoveAvatar}
-                            className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 flex items-center`}
+                            className={`${COMMAND_BUTTON_SIZE_CLASSES} border flex items-center ${BUTTON_FUNCTION_COLOURS.remove}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>ลบรูป</span>

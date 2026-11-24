@@ -4,6 +4,20 @@ import { stageLabel } from '../work-order-stages'
 import { logger } from '../utils/logger'
 import { LINE_USER_ID_PATTERN, type LineMessage, type LineProvider } from './types'
 import { parseRegisterText } from './register'
+import {
+  categoriesMessages,
+  contactReply,
+  inquiryReply,
+  itemsMessages,
+  mainMenuMessages,
+  parseCatalogPostback,
+  registerHowtoReply,
+  shopInfoReply,
+  type CatalogAction,
+  type CatalogCategory,
+  type CatalogContext,
+  type CatalogPage,
+} from './catalog'
 
 /**
  * Webhook handling (spec F2/F3/F6). Order: signature on the raw body -> parse -> per event
@@ -13,7 +27,15 @@ import { parseRegisterText } from './register'
 
 export type EventKind = 'TEXT' | 'IMAGE' | 'POSTBACK' | 'FOLLOW' | 'UNFOLLOW' | 'OTHER'
 
+export type LineInteractionScope = 'GENERAL' | 'REGISTER' | 'CATALOG' | 'INQUIRY' | 'WORK'
+export interface InteractionDecision {
+  allowed: boolean
+  result: 'OK' | 'DUPLICATE' | 'RATE_LIMITED' | 'SUSPENDED' | 'UNKNOWN'
+  catalog_revision?: string
+}
+
 export interface RecordedEvent {
+  replyAllowed?: boolean
   duplicate: boolean
   contactId?: string
   status?: 'UNLINKED' | 'LINKED'
@@ -21,10 +43,10 @@ export interface RecordedEvent {
 
 export type LinkResult =
   | { result: 'LINKED_STAFF' | 'LINKED_CUSTOMER' | 'LINKED_DRIVER'; name?: string }
-  | { result: 'INVALID' | 'EXPIRED' | 'LOCKED' | 'ALREADY_LINKED' | 'TARGET_TAKEN' }
+  | { result: 'INVALID' | 'EXPIRED' | 'LOCKED' | 'ALREADY_LINKED' | 'TARGET_TAKEN' | 'DUPLICATE' | 'RATE_LIMITED' | 'SUSPENDED' | 'UNKNOWN' }
 
 export type TaskPostbackResult = {
-  result: 'ACCEPTED' | 'DONE' | 'ALREADY' | 'NOT_ASSIGNEE' | 'INVALID_STATE' | 'NOT_FOUND'
+  result: 'ACCEPTED' | 'DONE' | 'ALREADY' | 'NOT_ASSIGNEE' | 'INVALID_STATE' | 'NOT_FOUND' | 'SUSPENDED'
   title?: string
   /** Driver jobs: the step the driver records next (null = all driver steps done) */
   next_stage?: string | null
@@ -34,7 +56,7 @@ export type TaskPostbackResult = {
 
 /** One job step pressed by the driver (line_task_step). */
 export type TaskStepResult = {
-  result: 'STEP_DONE' | 'ALREADY' | 'OUT_OF_ORDER' | 'NOT_ACCEPTED' | 'NOT_ASSIGNEE' | 'INVALID_STATE' | 'NOT_FOUND' | 'INVALID_INPUT'
+  result: 'STEP_DONE' | 'ALREADY' | 'OUT_OF_ORDER' | 'NOT_ACCEPTED' | 'NOT_ASSIGNEE' | 'INVALID_STATE' | 'NOT_FOUND' | 'INVALID_INPUT' | 'SUSPENDED'
   stage?: string
   next_stage?: string | null
   title?: string
@@ -44,20 +66,34 @@ export type TaskStepResult = {
 /** Name + phone typed by an unlinked contact (line_self_register). */
 export type SelfRegisterResult =
   | { result: 'LINKED_CUSTOMER'; name?: string; created?: boolean }
-  | { result: 'PHONE_TAKEN' | 'DUPLICATE' | 'INVALID' | 'ALREADY_LINKED' | 'REJECTED' }
+  | { result: 'PENDING' | 'PHONE_TAKEN' | 'DUPLICATE' | 'INVALID' | 'ALREADY_LINKED' | 'REJECTED' | 'RATE_LIMITED' | 'SUSPENDED'; duplicate?: boolean }
 
 export interface WebhookStore {
+  checkInteraction?(lineUserId: string, scope: LineInteractionScope, key: string): Promise<InteractionDecision>
   recordEvent(e: { eventId: string; lineUserId: string; kind: EventKind; text: string | null; lineMessageId: string | null; eventAt: Date }): Promise<RecordedEvent>
   consumeLinkCode(lineUserId: string, code: string): Promise<LinkResult>
   taskPostback(lineUserId: string, taskId: string, action: 'ACCEPT' | 'DONE'): Promise<TaskPostbackResult>
   /** extra = the job form's note and photo paths (the chat buttons send none). */
   taskStep(lineUserId: string, taskId: string, stage: string, extra?: { note: string | null; photos: string[] }): Promise<TaskStepResult>
-  /** After a FOLLOW: keep the display name; an unlinked friend waits for the shop (line_contact_follow). */
-  followContact?(lineUserId: string, displayName: string | null): Promise<{ status: 'UNLINKED' | 'LINKED'; register_status: string | null }>
+  /**
+   * After a FOLLOW (line_contact_follow): keeps the display name, picture and the time added; an unlinked friend
+   * waits for the shop. `send_welcome` is decided in the database (policies.line.friend.welcome, never for a friend
+   * already linked or for an unblock).
+   */
+  followContact?(
+    lineUserId: string,
+    displayName: string | null,
+    pictureUrl: string | null,
+    isUnblock: boolean,
+  ): Promise<{ status: 'UNLINKED' | 'LINKED'; register_status: string | null; is_new?: boolean; send_welcome: boolean }>
   /** Self-registration in the chat (line_self_register). */
   selfRegister?(lineUserId: string, name: string, phone: string): Promise<SelfRegisterResult>
   /** After a recorded driver step: tell the shop, and the customer when that step is on. */
   jobProgress?(taskId: string, stage: string, stageLabel: string): Promise<void>
+  /** The product list anyone may see (only what the owner ticked): categories, one page of a category, one product. */
+  catalogCategories?(): Promise<CatalogCategory[]>
+  catalogItems?(categoryId: string, page: number): Promise<CatalogPage | null>
+  catalogItem?(productId: string): Promise<{ id: string; name: string } | null>
 }
 
 export interface WebhookDeps {
@@ -67,6 +103,12 @@ export interface WebhookDeps {
   store: WebhookStore
   provider: LineProvider
   shopName: string
+  /** For the contact / shop-info answers of the chat menu */
+  shopPhone?: string | null
+  /** The registration form link; without it the "ลงทะเบียน" button explains the typed way */
+  registerUrl?: string | null
+  /** After a FOLLOW is recorded (live LINE only): the chat menu that person should see */
+  afterFollow?: (lineUserId: string) => Promise<void>
   templates?: TemplateOverrides
 }
 
@@ -87,6 +129,8 @@ export interface ParsedEvent {
   postbackData: string | null
   replyToken: string | null
   eventAt: Date
+  /** follow.isUnblocked: the friend unblocked the OA (true) instead of adding it (false) */
+  isUnblocked: boolean
 }
 
 /** Narrows an unknown value to a plain object without trusting its contents. */
@@ -143,6 +187,7 @@ export function parseEvent(raw: unknown): ParsedEvent | null {
     postbackData,
     replyToken: asString(e.replyToken),
     eventAt: new Date(e.timestamp),
+    isUnblocked: e.type === 'follow' && asObject(e.follow)?.isUnblocked === true,
   }
 }
 
@@ -161,36 +206,38 @@ export function parseTaskPostback(data: string | null): TaskPostback | null {
 }
 
 /**
- * Self-registration in the 1:1 chat (owner rule 2026-10-31): FOLLOW -> welcome asking for name
- * and phone; a text from an unlinked friend that is not a link code -> the database applies the
- * rule (new phone = new customer, a known phone without LINE = that customer, a phone that
- * already has a LINE or several customers = stays pending for the shop). Replies only.
+ * FOLLOW (owner 2026-11-21): the friend is kept as a person nobody has confirmed yet (name, picture, time added);
+ * the database says whether to send the welcome text. A text from an unlinked friend that is not a link code
+ * only files a request (PENDING) for the shop to check: no customer is created, no LINE is linked and the
+ * answer never tells whether that phone is known. Replies only.
  */
 export async function handleFollowEvent(ev: ParsedEvent, deps: Pick<WebhookDeps, 'store' | 'provider' | 'shopName'>, repliers: Pick<WebhookRepliers, 'reply'>): Promise<void> {
   if (!deps.store.followContact) return
   let name: string | null = null
+  let pictureUrl: string | null = null
   try {
-    name = (await deps.provider.profile?.(ev.lineUserId))?.displayName ?? null
+    const profile = await deps.provider.profile?.(ev.lineUserId)
+    name = profile?.displayName ?? null
+    pictureUrl = profile?.pictureUrl ?? null
   } catch {
-    // the name is a nicety for the shop's list; the welcome still goes out
+    // name and picture are a nicety for the shop's list; the welcome still goes out
   }
-  const r = await deps.store.followContact(ev.lineUserId, name)
-  if (r.status !== 'LINKED') await repliers.reply(ev.replyToken, 'REGISTER_WELCOME', { ชื่อร้าน: deps.shopName })
+  const r = await deps.store.followContact(ev.lineUserId, name, pictureUrl, ev.isUnblocked)
+  if (r.send_welcome) await repliers.reply(ev.replyToken, 'REGISTER_WELCOME', { ชื่อร้าน: deps.shopName })
 }
 
 export async function handleRegisterText(ev: ParsedEvent, text: string, deps: Pick<WebhookDeps, 'store' | 'shopName'>, repliers: Pick<WebhookRepliers, 'reply'>): Promise<void> {
   if (!deps.store.selfRegister) return
   const { name, phone } = parseRegisterText(text)
   if (!name || !phone) {
+    if (deps.store.checkInteraction && !(await deps.store.checkInteraction(ev.lineUserId, 'REGISTER', 'invalid-registration')).allowed) return
     await repliers.reply(ev.replyToken, 'REGISTER_RETRY')
     return
   }
   const r = await deps.store.selfRegister(ev.lineUserId, name, phone)
-  if (r.result === 'LINKED_CUSTOMER') await repliers.reply(ev.replyToken, 'LINK_SUCCESS', { ชื่อ: ('name' in r && r.name) || name, ชื่อร้าน: deps.shopName })
-  else if (r.result === 'PHONE_TAKEN') await repliers.reply(ev.replyToken, 'REGISTER_PHONE_TAKEN')
-  else if (r.result === 'DUPLICATE') await repliers.reply(ev.replyToken, 'REGISTER_PENDING')
+  if (r.result === 'PENDING' && !r.duplicate) await repliers.reply(ev.replyToken, 'REGISTER_PENDING')
   else if (r.result === 'INVALID') await repliers.reply(ev.replyToken, 'REGISTER_RETRY')
-  // ALREADY_LINKED / REJECTED: ordinary chat, no reply
+  // ALREADY_LINKED / REJECTED: ordinary chat, no reply. A stranger's text never links or creates anyone.
 }
 
 const LINK_REPLY: Record<string, LineTemplateKey> = {
@@ -214,6 +261,8 @@ export function normalizeLinkCode(typed: string): string | null {
 export interface WebhookRepliers {
   reply: (token: string | null, key: LineTemplateKey, vars?: Record<string, string>) => Promise<void>
   replyStep: (token: string | null, taskId: string, text: string, next: string | null | undefined, type?: string | null) => Promise<void>
+  /** Any messages (the product list is built of cards, not of one template text) */
+  replyMessages: (token: string | null, messages: () => LineMessage[]) => Promise<void>
   render: (key: LineTemplateKey, vars?: Record<string, string>) => string
   progress: (taskId: string, stage: string, type?: string | null) => Promise<void>
 }
@@ -271,6 +320,7 @@ function createWebhookRepliers(deps: WebhookDeps): WebhookRepliers {
   }
   const reply = (token: string | null, key: LineTemplateKey, vars?: Record<string, string>) =>
     send(token, () => [textMessage(key, vars, deps.templates)])
+  const replyMessages = (token: string | null, messages: () => LineMessage[]) => send(token, messages)
   /** Driver job reply: the text, plus the button of the next step while one is left. */
   const replyStep = (token: string | null, taskId: string, text: string, next: string | null | undefined, type?: string | null) =>
     send(token, () => [next ? nextStepMessage(taskId, text, { key: next, label: stageLabel(next, type) }) : { type: 'text', text }])
@@ -287,7 +337,7 @@ function createWebhookRepliers(deps: WebhookDeps): WebhookRepliers {
       // the next cron round does not retry this; the step itself is safe in the database
     }
   }
-  return { reply, replyStep, render, progress }
+  return { reply, replyStep, replyMessages, render, progress }
 }
 
 /** Acts on one parsed event (already recorded once); the kinds we do not act on stay in the inbox. */
@@ -304,10 +354,55 @@ async function dispatchEvent(ev: ParsedEvent, rec: RecordedEvent, deps: WebhookD
     }
     // any other text stays in line_messages for the inbox / staff reports
   } else if (ev.kind === 'FOLLOW') {
+    if (deps.store.checkInteraction && !(await deps.store.checkInteraction(ev.lineUserId, 'GENERAL', 'follow')).allowed) return
     await handleFollowEvent(ev, deps, { reply: repliers.reply })
+    try {
+      await deps.afterFollow?.(ev.lineUserId)
+    } catch {
+      // the next cron round puts the menu right; the friend is already recorded and welcomed
+    }
   } else if (ev.kind === 'POSTBACK') {
+    const catalog = parseCatalogPostback(ev.postbackData)
+    if (catalog) return handleCatalogPostback(ev, catalog, deps, repliers)
     const task = parseTaskPostback(ev.postbackData)
-    if (task) await handleTaskPostbackEvent(ev, task, deps.store, repliers)
+    if (task && (!deps.store.checkInteraction || (await deps.store.checkInteraction(ev.lineUserId, 'WORK', ev.postbackData ?? 'task')).allowed)) await handleTaskPostbackEvent(ev, task, deps.store, repliers)
+  }
+}
+
+/**
+ * A press in the product list / chat menu (owner 2026-11-21). Open to anyone who added the OA: it shows only what the
+ * owner ticked, and answers a question about a product in the chat; it never orders, reserves or touches stock.
+ */
+export async function handleCatalogPostback(ev: ParsedEvent, action: CatalogAction, deps: WebhookDeps, repliers: Pick<WebhookRepliers, 'replyMessages'>): Promise<void> {
+  if (!ev.replyToken) return
+  const scope: LineInteractionScope = action.a === 'price' || action.a === 'preorder' ? 'INQUIRY' : action.a === 'home' || action.a === 'cat' ? 'CATALOG' : 'GENERAL'
+  if (deps.store.checkInteraction && !(await deps.store.checkInteraction(ev.lineUserId, scope, ev.postbackData ?? action.a)).allowed) return
+  const ctx: CatalogContext = { shopName: deps.shopName, phone: deps.shopPhone ?? null, templates: deps.templates, registerUrl: deps.registerUrl ?? null }
+  const send = (messages: () => LineMessage[]) => repliers.replyMessages(ev.replyToken, messages)
+  const home = async () => {
+    const categories = (await deps.store.catalogCategories?.()) ?? []
+    return send(() => categoriesMessages(categories, ctx))
+  }
+  switch (action.a) {
+    case 'main':
+      return send(() => mainMenuMessages(ctx))
+    case 'contact':
+      return send(() => [contactReply(ctx)])
+    case 'info':
+      return send(() => [shopInfoReply(ctx)])
+    case 'register':
+      return send(() => [registerHowtoReply(ctx)])
+    case 'home':
+      return home()
+    case 'cat': {
+      const page = await deps.store.catalogItems?.(action.c, action.pg)
+      return page ? send(() => itemsMessages(page, action.pg, ctx)) : home()
+    }
+    case 'price':
+    case 'preorder': {
+      const item = await deps.store.catalogItem?.(action.p)
+      return item ? send(() => [inquiryReply(action.a as 'price' | 'preorder', item.name, ctx)]) : home()
+    }
   }
 }
 
@@ -346,6 +441,7 @@ export async function handleLineWebhook(deps: WebhookDeps): Promise<WebhookRespo
         skipped++
         continue
       }
+      if (rec.replyAllowed === false) ev.replyToken = null
       processed++
       await dispatchEvent(ev, rec, deps, repliers)
     } catch (error) {

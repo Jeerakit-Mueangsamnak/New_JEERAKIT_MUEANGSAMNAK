@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React, { useEffect, useState } from 'react'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
@@ -66,6 +66,9 @@ export function PostSavePrintModal({
   const toggle = (name: string) => setSelected((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]))
   const toggleAll = () => setSelected(allSelected ? [] : printable.map((f) => f.name))
 
+  // Printed through the central print like ตั้งค่า › เทมเพลต › คลังแบบฟอร์ม: on the iPad Home Screen icon it shows
+  // "กำลังเตรียมเอกสาร..." then the share sheet, with the pages on the shop form exactly as printed
+  // (owner 2026-11-20: pictures made ahead here missed the form page and came out wrong).
   const print = () => {
     const pages = printable.filter((f) => selected.includes(f.name)).flatMap((f) => f.pages)
     if (!printFormPages(pages, printTitle)) {
@@ -144,7 +147,7 @@ export function PostSavePrintModal({
           <button
             type="button"
             onClick={onClose}
-            className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-[0.99] transition-all flex items-center justify-center cursor-pointer`}
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full border active:scale-[0.99] transition-all flex items-center justify-center cursor-pointer ${BUTTON_FUNCTION_COLOURS.cancel}`}
           >
             <X className="w-4 h-4" />
             <span>{closeButtonText}</span>

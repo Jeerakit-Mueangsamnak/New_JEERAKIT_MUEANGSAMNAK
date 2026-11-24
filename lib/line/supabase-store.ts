@@ -6,7 +6,13 @@ import { type ClaimedDelivery, type OutboxStore } from './outbox'
 import { type LinkResult, type RecordedEvent, type SelfRegisterResult, type TaskPostbackResult, type TaskStepResult, type WebhookStore } from './webhook'
 import { type CronStore, type ReminderRow } from './cron'
 import { customerNoticeMessages } from './templates'
+import { CATALOG_PAGE_SIZE, type CatalogCategory, type CatalogPage } from './catalog'
+import { type RichMenuKind } from './rich-menu'
+import { cachedPublicCatalog } from './catalog-cache'
+import type { InteractionDecision } from './webhook'
+import { type RichMenuPerson, type RichMenuSyncStore } from './rich-menu-sync'
 import { lineOaMessageUrl } from './oa-link'
+import { SHOP_LINE_ID_COLUMN, SHOP_LINE_TEMPLATES_COLUMN } from './policy'
 
 /**
  * Database side of the webhook and the outbox, through the service_role-only RPCs of
@@ -45,7 +51,7 @@ async function call<T>(db: SupabaseClient, fn: string, args: Record<string, unkn
 
 /** Driver job form (line_driver_job): the job as the driver's LINE may see it. */
 export interface LiffDriverJob {
-  result: 'OK' | 'NOT_ASSIGNEE' | 'NOT_FOUND'
+  result: 'OK' | 'NOT_ASSIGNEE' | 'NOT_FOUND' | 'SUSPENDED'
   task?: { id: string; title: string; detail: string | null; status: 'SENT' | 'ACCEPTED' | 'DONE' | 'CANCELLED' }
   holds?: boolean
   appointment?: { type: string | null; start: string | null; place: string | null; contact: string | null; phone: string | null; description: string | null }
@@ -73,15 +79,32 @@ export interface ShopProfile {
   phone: string | null
 }
 
-export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()): WebhookStore & OutboxStore & FanoutStore & CronStore & {
+export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()): WebhookStore & OutboxStore & FanoutStore & CronStore & RichMenuSyncStore & {
   credentials(): Promise<{ channelSecret: string | null; accessToken: string | null }>
   shopProfile(): Promise<ShopProfile>
   liffBind(input: LiffBindInput): Promise<LiffBindResult>
   driverJob(lineUserId: string, taskId: string): Promise<LiffDriverJob>
   uploadJobPhoto(path: string, bytes: Uint8Array, contentType: string): Promise<void>
   removeJobPhotos(paths: string[]): Promise<void>
-  ownerFinanceForm(lineUserId: string): Promise<{ result: 'OK' | 'NOT_OWNER'; name?: string; income_items?: string[] }>
-  financeEntry(lineUserId: string, entry: LiffFinanceEntry): Promise<{ result: 'OK' | 'NOT_OWNER' | 'INVALID_INPUT'; doc_no?: string; amount?: number }>
+  /** The menu ids the owner published (kept after LINE accepted the menu); the old id comes back so it can be deleted at LINE. */
+  richMenuSave(kind: RichMenuKind, richMenuId: string, actorId: string | null): Promise<string | null>
+  richMenuClear(kind: RichMenuKind, actorId: string | null): Promise<string | null>
+  /** The shop's answer to a request goes to that friend's chat, even before they are linked (never to a friend who blocked the OA). */
+  enqueueRegister(input: { contactId: string; templateKey: string; messages: unknown[]; dedupeKey: string }): Promise<{ duplicate: boolean }>
+  /** The registration form (LIFF): the same request as the chat, plus the address and the consent. */
+  registerSubmit(input: {
+    lineUserId: string
+    name: string
+    phone: string
+    address: Record<string, string>
+    consent: boolean
+    displayName: string | null
+    isFriend: boolean | null
+  }): Promise<{ result: 'PENDING' | 'INVALID' | 'MISSING' | 'CONSENT_REQUIRED' | 'ALREADY_LINKED' | 'REJECTED' | 'RATE_LIMITED' | 'DUPLICATE' | 'SUSPENDED'; fields?: string[] }>
+  /** What the registration form needs to know before it is sent: the must-fill fields and the privacy text (public, not secret). */
+  registerConfig(): Promise<{ required: Record<string, boolean>; privacy: string | null; shopName: string }>
+  ownerFinanceForm(lineUserId: string): Promise<{ result: 'OK' | 'SUSPENDED' | 'NOT_OWNER'; name?: string; income_items?: string[] }>
+  financeEntry(lineUserId: string, entry: LiffFinanceEntry): Promise<{ result: 'OK' | 'SUSPENDED' | 'NOT_OWNER' | 'INVALID_INPUT'; doc_no?: string; amount?: number }>
 } {
   /** Task title and its appointment's type code (step names), read after the RPC answered. */
   const taskInfo = async (taskId: string): Promise<{ title?: string; appointment_type?: string | null }> => {
@@ -91,20 +114,33 @@ export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()
     return { title: data.title ?? undefined, appointment_type: (apt?.appointment_type as string | undefined) ?? null }
   }
 
+  let catalogRevision: string | undefined
+  const recordedDecisions = new Map<string, InteractionDecision>()
+  const catalogRead = async <T extends CatalogCategory[] | CatalogPage | { id: string; name: string } | null>(key: string, load: () => Promise<T>) => {
+    const revision = catalogRevision ?? await call<string | null>(db, 'line_catalog_revision', {})
+    return revision ? cachedPublicCatalog(revision, key, load) : load()
+  }
   let profileCache: Promise<ShopProfile> | null = null
   async function shopProfile(): Promise<ShopProfile> {
     profileCache ??= (async () => {
-      const { data, error } = await db.from('store_settings').select('company_name, phone, policies').eq('singleton', true).maybeSingle()
+      // Only the LINE parts of policies: the whole column also carries the shop's images (~600 KB).
+      const { data: row, error } = await db
+        .from('store_settings')
+        .select(`company_name, phone, ${SHOP_LINE_ID_COLUMN}, ${SHOP_LINE_TEMPLATES_COLUMN}`)
+        .eq('singleton', true)
+        .maybeSingle()
       if (error) throw new LineStoreError('store_settings', error.code)
-      const policies = (data?.policies ?? {}) as {
-        line?: { templates?: Record<string, unknown> }
-        business_profile?: { lineId?: string }
-      }
+      const data = row as {
+        company_name?: string | null
+        phone?: string | null
+        line_id?: string | null
+        templates?: Record<string, unknown> | null
+      } | null
       return {
         shopName: (data?.company_name || '').trim() || 'ร้าน',
-        templates: policies.line?.templates ?? {},
-        lineId: policies.business_profile?.lineId?.trim() || null,
-        phone: (data?.phone as string | null | undefined)?.trim() || null,
+        templates: data?.templates ?? {},
+        lineId: data?.line_id?.trim() || null,
+        phone: data?.phone?.trim() || null,
       }
     })()
     return profileCache
@@ -178,6 +214,55 @@ export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()
       if (paths.length) await db.storage.from(JOB_PHOTO_BUCKET).remove(paths)
     },
 
+    enqueueRegister: async (input) => {
+      const r = await call<{ duplicate?: boolean; skipped?: string }>(db, 'line_outbox_enqueue_register', {
+        p_contact_id: input.contactId,
+        p_template_key: input.templateKey,
+        p_messages: input.messages,
+        p_dedupe_key: input.dedupeKey,
+      })
+      return { duplicate: Boolean(r?.duplicate || r?.skipped) }
+    },
+
+    richMenuPending: (limit) => call<RichMenuPerson[]>(db, 'line_rich_menu_pending', { p_limit: limit }).then((rows) => rows ?? []),
+    richMenuPublished: () => call<Partial<Record<RichMenuKind, string>>>(db, 'line_rich_menu_published', {}).then((m) => m ?? {}),
+    richMenuMark: async (contactId, kind, ok) => {
+      await call(db, 'line_rich_menu_mark', { p_contact_id: contactId, p_kind: kind, p_ok: ok })
+    },
+    richMenuForUser: (lineUserId) => call<RichMenuPerson | null>(db, 'line_rich_menu_for_user', { p_line_user_id: lineUserId }),
+    richMenuSave: (kind, richMenuId, actorId) => call<string | null>(db, 'line_rich_menu_save', { p_kind: kind, p_rich_menu_id: richMenuId, p_actor: actorId }),
+    richMenuClear: (kind, actorId) => call<string | null>(db, 'line_rich_menu_clear', { p_kind: kind, p_actor: actorId }),
+
+    catalogCategories: () => catalogRead('categories', () => call<CatalogCategory[]>(db, 'line_catalog_categories', {}).then((rows) => rows ?? [])),
+
+    catalogItems: (categoryId, page) =>
+      catalogRead(`items:${categoryId}:${page}`, () => call<CatalogPage | null>(db, 'line_catalog_items', { p_category: categoryId, p_offset: Math.max(0, page) * CATALOG_PAGE_SIZE })),
+
+    catalogItem: (productId) => catalogRead(`item:${productId}`, () => call<{ id: string; name: string } | null>(db, 'line_catalog_item', { p_product: productId })),
+
+    registerSubmit: (input) =>
+      call(db, 'line_register_submit', {
+        p_line_user_id: input.lineUserId,
+        p_name: input.name,
+        p_phone: input.phone,
+        p_address: input.address,
+        p_consent: input.consent,
+        p_display_name: input.displayName,
+        p_is_friend: input.isFriend,
+      }),
+
+    registerConfig: async () => {
+      const { data, error } = await db
+        .from('store_settings')
+        .select('company_name, required:policies->line->register->required, privacy:policies->line->register->>privacy')
+        .eq('singleton', true)
+        .maybeSingle()
+      if (error) throw new LineStoreError('store_settings', error.code)
+      const row = data as { company_name?: string | null; required?: Record<string, unknown> | null; privacy?: string | null } | null
+      const required = Object.fromEntries(Object.entries(row?.required ?? {}).filter(([, on]) => on === true)) as Record<string, boolean>
+      return { required, privacy: row?.privacy?.trim() || null, shopName: (row?.company_name || '').trim() || 'ร้าน' }
+    },
+
     ownerFinanceForm: (lineUserId) => call(db, 'line_owner_finance_form', { p_line_user_id: lineUserId }),
 
     financeEntry: (lineUserId, e) =>
@@ -199,7 +284,7 @@ export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()
     shopProfile,
 
     async recordEvent(e): Promise<RecordedEvent> {
-      const r = await call<{ duplicate: boolean; contact_id?: string; status?: RecordedEvent['status'] }>(db, 'line_webhook_event', {
+      const r = await call<{ duplicate: boolean; contact_id?: string; status?: RecordedEvent['status']; reply_allowed?: boolean; interaction?: InteractionDecision }>(db, 'line_webhook_event', {
         p_event_id: e.eventId,
         p_line_user_id: e.lineUserId,
         p_kind: e.kind,
@@ -207,15 +292,26 @@ export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()
         p_line_message_id: e.lineMessageId,
         p_event_at: e.eventAt.toISOString(),
       })
-      return { duplicate: Boolean(r?.duplicate), contactId: r?.contact_id, status: r?.status }
+      if (r?.interaction && e.text) recordedDecisions.set(`${e.lineUserId}:${e.text}`, r.interaction)
+      return { duplicate: Boolean(r?.duplicate), contactId: r?.contact_id, status: r?.status, replyAllowed: r?.reply_allowed }
     },
 
+    async checkInteraction(lineUserId, scope, key) {
+      const recordedKey = `${lineUserId}:${key}`
+      const recorded = recordedDecisions.get(recordedKey)
+      recordedDecisions.delete(recordedKey)
+      const result = recorded ?? await call<InteractionDecision>(db, 'line_interaction_check', { p_line_user_id: lineUserId, p_scope: scope, p_key: key.slice(0, 128) })
+      if (result.allowed) catalogRevision = result.catalog_revision
+      return result
+    },
     consumeLinkCode: (lineUserId, code) => call<LinkResult>(db, 'line_link_code_consume', { p_line_user_id: lineUserId, p_code: code }),
 
-    followContact: (lineUserId, displayName) =>
-      call<{ status: 'UNLINKED' | 'LINKED'; register_status: string | null }>(db, 'line_contact_follow', {
+    followContact: (lineUserId, displayName, pictureUrl, isUnblock) =>
+      call<{ status: 'UNLINKED' | 'LINKED'; register_status: string | null; is_new?: boolean; send_welcome: boolean }>(db, 'line_contact_follow', {
         p_line_user_id: lineUserId,
         p_display_name: displayName,
+        p_picture_url: pictureUrl,
+        p_is_unblock: isUnblock,
       }),
 
     selfRegister: (lineUserId, name, phone) =>
@@ -266,6 +362,7 @@ export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()
       return { duplicate: Boolean(r?.duplicate || r?.skipped) }
     },
 
+    canSend: (deliveryId) => call<boolean>(db, 'line_delivery_ready', { p_delivery_id: deliveryId }),
     claim: (limit, leaseSeconds) =>
       call<ClaimedDelivery[]>(db, 'line_outbox_claim', { p_limit: limit, p_lease_seconds: leaseSeconds }).then((rows) => rows ?? []),
 

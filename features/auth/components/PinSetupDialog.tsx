@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES, StepNavButton } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, StepNavButton, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React, { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, ShieldCheck } from 'lucide-react'
@@ -156,7 +156,7 @@ export function PinSetupDialog({ open, mode, onClose, onDone }: PinSetupDialogPr
               type="button"
               onClick={onClose}
               disabled={busy}
-              className={`${COMMAND_BUTTON_SIZE_CLASSES} mt-3 w-full border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50`}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} mt-3 w-full border disabled:opacity-50 ${BUTTON_FUNCTION_COLOURS.cancel}`}
             >
               ยกเลิก
             </button>

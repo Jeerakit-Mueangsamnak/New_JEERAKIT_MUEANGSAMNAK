@@ -8,6 +8,7 @@ import { hasMenu as userHasMenu, type MenuCode } from '@/features/auth/services/
 import { logout } from '@/app/actions/auth'
 import { clearFinanceCache } from '@/features/finance/services/finance-storage'
 import { clearAllCarts } from '@/features/pos/services/cart-storage'
+import { removeDeviceCache, SETTINGS_ROW_CACHE_KEY } from '@/lib/db/device-cache'
 import type { CurrentUser, UserRole } from '@/lib/types/rental-pos'
 
 export interface AuthContextType {
@@ -18,8 +19,12 @@ export interface AuthContextType {
   /** UI hint only; the database enforces the same rule through RLS/RPC (_require_menu) */
   hasMenu: (code: MenuCode) => boolean
   signOut: () => Promise<void>
-  refreshUser: () => Promise<void>
+  /** keepAvatar: re-read role/status/menus only and keep the picture already read (page changes). */
+  refreshUser: (opts?: { keepAvatar?: boolean }) => Promise<void>
 }
+
+/** Every profile column buildCurrentUser reads except the picture (avatar_url, an image of ~20 KB). */
+const PROFILE_ACCESS_COLUMNS = 'role, status, is_approved, first_name, last_name, username, email'
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
@@ -51,6 +56,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // so an older refresh cannot cancel or overwrite a newer account's pending profile.
   const refreshGenRef = useRef(0)
   const latestProfileLoadRef = useRef<Promise<void> | null>(null)
+  // Account whose full profile (with the picture) was last read successfully.
+  const avatarReadForRef = useRef<string | null>(null)
 
   const clearAuthState = useCallback(() => {
     authEpochRef.current += 1
@@ -58,16 +65,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshGenRef.current += 1
     profileRequestRef.current += 1
     latestProfileLoadRef.current = null
+    avatarReadForRef.current = null
     userRef.current = null
     setUser(null)
     setRole(null)
     setSession(null)
   }, [])
 
-  const readProfile = useCallback(async (authUser: User, currentSession: Session | null): Promise<void> => {
+  const readProfile = useCallback(async (authUser: User, currentSession: Session | null, keepAvatar = false): Promise<void> => {
     const requestId = ++profileRequestRef.current
     const isLatest = () => requestId === profileRequestRef.current
     const lastKnown = userRef.current?.id === authUser.id ? userRef.current : null
+    // Same account whose full profile was already read: the picture is kept, only the access fields are read again.
+    const reuseAvatar = keepAvatar && lastKnown !== null && avatarReadForRef.current === authUser.id
 
     const apply = (nextUser: CurrentUser) => {
       if (userRef.current && userRef.current.id !== nextUser.id) {
@@ -93,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const profilePromise = supabase
         .from('profiles')
-        .select('*')
+        .select(reuseAvatar ? PROFILE_ACCESS_COLUMNS : '*')
         .eq('id', authUser.id)
         .maybeSingle()
 
@@ -124,7 +134,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ? lastKnown?.menus ?? []
         : (grantsResult.data ?? []).map((row: { menu_code: string }) => row.menu_code)
 
-      apply(buildCurrentUser(authUser, result.data ?? null, menuCodes))
+      const next = buildCurrentUser(authUser, (result.data as Record<string, unknown> | null) ?? null, menuCodes)
+      if (!reuseAvatar) avatarReadForRef.current = authUser.id
+      apply(reuseAvatar && lastKnown ? { ...next, avatarUrl: lastKnown.avatarUrl } : next)
     } catch {
       if (isLatest()) keepLastKnown()
     } finally {
@@ -132,8 +144,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [supabase])
 
-  const loadUserProfile = useCallback((authUser: User, currentSession: Session | null): Promise<void> => {
-    const run = readProfile(authUser, currentSession)
+  const loadUserProfile = useCallback((authUser: User, currentSession: Session | null, keepAvatar = false): Promise<void> => {
+    const run = readProfile(authUser, currentSession, keepAvatar)
     latestProfileLoadRef.current = run
     // A superseded load resolves only once the newest one has set the user, so callers
     // (initAuth → loading=false) never see "no session" in between.
@@ -147,7 +159,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
   }, [readProfile])
 
-  const refreshUser = useCallback(async () => {
+  const refreshUser = useCallback(async (opts?: { keepAvatar?: boolean }) => {
+    const keepAvatar = opts?.keepAvatar === true
     // Any auth call that started before this run is stale, including one that answers
     // after a sign-out or an account switch: the run only applies its profile while the
     // epoch, the identity generation and its own refresh generation are unchanged.
@@ -175,7 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (isStale()) return
         const session = sessionData?.session ?? null
         if (!isPaired(userData.user.id, session?.user?.id)) return
-        await loadUserProfile(userData.user, session)
+        await loadUserProfile(userData.user, session, keepAvatar)
       } else {
         const { data: sessionData } = await supabase.auth.getSession()
         if (isStale()) return
@@ -183,7 +196,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // A user that is not the account this run started under belongs to someone else now
         if (isForeign(nextUser?.id)) return
         if (nextUser && sessionData.session) {
-          await loadUserProfile(nextUser, sessionData.session)
+          await loadUserProfile(nextUser, sessionData.session, keepAvatar)
         } else {
           clearAuthState()
         }
@@ -244,11 +257,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // A different account is signing in without a sign-out: invalidate any auth call
           // (e.g. a hung refreshUser) that started under the previous account, so it cannot
           // cancel or overwrite this account's pending profile.
-          if (userRef.current && userRef.current.id !== currentSession.user.id) {
+          const sameAccount = userRef.current?.id === currentSession.user.id
+          if (userRef.current && !sameAccount) {
             identityGenRef.current += 1
             refreshGenRef.current += 1
           }
-          await loadUserProfile(currentSession.user, currentSession)
+          // Token refresh / tab focus of the account already shown: its picture is kept.
+          await loadUserProfile(currentSession.user, currentSession, sameAccount)
         } else {
           clearAuthState()
         }
@@ -275,6 +290,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Ignore network errors during signout
     } finally {
       clearFinanceCache()
+      // The shop settings copy kept on this device for a fast start goes with the session.
+      void removeDeviceCache(SETTINGS_ROW_CACHE_KEY)
       // A held POS cart belongs to this user: the next person on the device starts empty.
       clearAllCarts()
       clearAuthState()

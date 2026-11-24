@@ -3,10 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 // Finance menu check 2026-10-18: money moved on the bills page must reach the finance cache,
 // server timestamps (UTC) are counted on the shop's local day, drafts are not bills.
 
-const fetchFinance = vi.fn(async () => [])
+const fetchFinance = vi.fn(async (_billId: string) => undefined)
 vi.mock('@/features/finance/services/finance-storage', async (orig) => ({
   ...(await orig<object>()),
-  fetchTransactionsFromSupabase: () => fetchFinance(),
+  refreshBillMoney: (billId: string) => fetchFinance(billId),
 }))
 vi.mock('@/features/bills/services/bill-storage', async (orig) => ({
   ...(await orig<object>()),
@@ -73,10 +73,11 @@ afterEach(() => {
 })
 
 describe('finance cache after bill money commands', () => {
-  it('reloads the finance statement together with the bills after a payment', async () => {
+  it('re-reads only the money rows of that bill together with the bill after a payment (not the whole statement)', async () => {
     const result = await receivePayment('bill-1', [{ method: 'CASH', amount: 95 }])
     expect(result.bill?.id).toBe('bill-1')
     expect(fetchFinance).toHaveBeenCalledTimes(1)
+    expect(fetchFinance).toHaveBeenCalledWith('bill-1')
   })
 
   it('keeps the payment result when the finance reload fails', async () => {

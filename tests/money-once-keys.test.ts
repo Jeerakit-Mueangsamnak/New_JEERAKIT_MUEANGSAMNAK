@@ -9,7 +9,7 @@ vi.mock('@/lib/db/rpc', async (importOriginal) => ({
   rpc: (...args: unknown[]) => rpcMock(...args),
 }))
 vi.mock('@/features/bills/services/bill-storage', () => ({ refreshBillsCache: async () => [], fetchBillByIdFromSupabase: async () => null }))
-vi.mock('@/features/products/services/product-storage', () => ({ syncProductsFromSupabase: async () => {} }))
+vi.mock('@/features/products/services/product-storage', () => ({ syncStockFromSupabase: async () => [] }))
 vi.mock('@/features/finance/services/finance-storage', () => ({ refreshFinanceCache: async () => [] }))
 
 // The damage cases of a return are read straight from the table.

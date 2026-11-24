@@ -17,6 +17,7 @@ import {
 } from '@/features/settings/utils/section-drafts'
 import { useLeaveGuard } from '@/features/settings/hooks/useLeaveGuard'
 import { LINE_SETTINGS_VIEWS, LineSettingsPanel, type LineSettingsView } from '@/features/settings/components/LineSettingsPanel'
+import type { LineTemplateCategory } from '@/lib/line/config'
 import { CardSaveButtons } from '@/features/settings/components/SettingsCards'
 import { SETTINGS_HELPER } from '@/features/settings/components/settings-ui'
 
@@ -25,7 +26,9 @@ import { SETTINGS_HELPER } from '@/features/settings/components/settings-ui'
  * with "บันทึกการตั้งค่า"; an unsaved change on one page survives a switch to another page or tab, because the LINE
  * menu keeps this mounted while hidden.
  */
-export function LineSettingsWorkspace({ view, hidden = false }: { view: LineSettingsView; hidden?: boolean }) {
+const CARD_VIEWS: readonly LineSettingsView[] = ['NOTIFY', 'FRIEND', 'REGISTER', 'CATALOG']
+
+export function LineSettingsWorkspace({ view, hidden = false, templateCategory }: { view: LineSettingsView; hidden?: boolean; templateCategory?: LineTemplateCategory }) {
   const { showToast } = useToast()
   const { settings, saveSection } = useSystemSettings()
   const [state, setState] = useState<SectionState>(() => ({ base: settings, draft: settings, conflict: false }))
@@ -74,9 +77,9 @@ export function LineSettingsWorkspace({ view, hidden = false }: { view: LineSett
 
   return (
     <div hidden={hidden} className={hidden ? undefined : 'flex-1 min-h-0 flex flex-col'}>
-      <LineSettingsPanel config={state.draft} setConfig={setDraft} view={view} footer={view === 'NOTIFY' ? buttons : undefined} />
-      {/* แจ้งพนักงาน has the buttons inside its card (owner 2026-11-17); the other pages keep the bottom bar */}
-      {view !== 'NOTIFY' && (
+      <LineSettingsPanel config={state.draft} setConfig={setDraft} view={view} templateCategory={templateCategory} footer={CARD_VIEWS.includes(view) ? buttons : undefined} />
+      {/* The pages made of one card have the buttons inside it (owner 2026-11-17); the other pages keep the bottom bar */}
+      {!CARD_VIEWS.includes(view) && (
         <div className={`${TABLE_FOOTER_CLASSES} flex items-center justify-between bg-white dark:bg-slate-800`}>
           <span className={SETTINGS_HELPER}>{dirty ? 'มีการแก้ไขที่ยังไม่บันทึก' : ''}</span>
           <div className="flex gap-2">{buttons}</div>

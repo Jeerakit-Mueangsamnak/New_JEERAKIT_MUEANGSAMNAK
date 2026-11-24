@@ -1,4 +1,5 @@
 import { fanOutNotification, type FanoutStore } from './notification-fanout'
+import { hasRichMenuStore, syncRichMenus, type RichMenuSyncResult, type RichMenuSyncStore } from './rich-menu-sync'
 import { processOutbox, type OutboxRunResult, type OutboxStore } from './outbox'
 import { LINE_REMINDER_RULES } from './config'
 import { cardMessage } from './flex'
@@ -58,6 +59,8 @@ export interface CronResult {
   acceptReminders: number
   errors: number
   outbox: OutboxRunResult | null
+  /** Chat menus told to LINE this round (only when the store has them and LINE is live) */
+  richMenus?: RichMenuSyncResult
 }
 
 const TZ = 'Asia/Bangkok'
@@ -91,7 +94,7 @@ export function reminderMessages(row: Omit<ReminderRow, 'contact_id' | 'dedupe_k
 }
 
 export async function runLineCron(opts: {
-  store: CronStore & FanoutStore & OutboxStore
+  store: CronStore & FanoutStore & OutboxStore & Partial<RichMenuSyncStore>
   shop: CronShop
   /** null = mock mode: queue only, nothing is pushed. */
   provider: LineProvider | null
@@ -164,6 +167,12 @@ export async function runLineCron(opts: {
     await safely(async () => {
       result.outbox = await processOutbox({ store, provider: opts.provider!, limit: 100 })
     })
+    // the chat menu each person should see (nothing to do while no menu is published and nobody changed kind)
+    if (hasRichMenuStore(store)) {
+      await safely(async () => {
+        result.richMenus = await syncRichMenus({ store, provider: opts.provider })
+      })
+    }
   }
   return result
 }

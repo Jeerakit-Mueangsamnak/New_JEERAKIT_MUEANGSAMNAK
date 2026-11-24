@@ -6,7 +6,9 @@ import { TABLE_LINE_COLOUR_CLASSES } from '@/components/common/ActionButton'
 
 /**
  * One layout for every LINE work page (owner 2026-11-17: the LINE menu fits the screen, no page scroll):
- * [list] | work area | LINE preview. Each column scrolls on its own on wide screens; narrow screens stack.
+ * [list] | work area | LINE preview. Each column scrolls on its own on wide screens; narrow screens stack
+ * and the whole page scrolls. min-h-0 only from lg: on a stacked (fixed-height) grid it let the rows shrink
+ * below their content, so the parts drew over each other (iPad portrait, owner 2026-11-20).
  */
 export function LineEditorLayout({
   list,
@@ -29,7 +31,7 @@ export function LineEditorLayout({
       }`}
     >
       {list && (
-        <aside className={`min-h-0 flex flex-col border-b lg:border-b-0 lg:border-r ${TABLE_LINE_COLOUR_CLASSES} bg-slate-50 dark:bg-slate-900/40`}>
+        <aside className={`lg:min-h-0 flex flex-col border-b lg:border-b-0 lg:border-r ${TABLE_LINE_COLOUR_CLASSES} bg-slate-50 dark:bg-slate-900/40`}>
           {(listTitle || listAction) && (
             <div className={`shrink-0 h-11 px-2 flex items-center justify-between gap-2 border-b ${TABLE_LINE_COLOUR_CLASSES}`}>
               <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">{listTitle}</span>
@@ -39,10 +41,10 @@ export function LineEditorLayout({
           <ul className="flex-1 min-h-0 overflow-y-auto p-1.5 space-y-0.5 max-h-48 lg:max-h-none">{list}</ul>
         </aside>
       )}
-      <div className="min-w-0 min-h-0 lg:overflow-y-auto p-3 flex flex-col gap-3">{children}</div>
+      <div className="min-w-0 lg:min-h-0 lg:overflow-y-auto p-3 flex flex-col gap-3">{children}</div>
       <aside
         aria-label="ตัวอย่างใน LINE"
-        className={`min-h-0 lg:overflow-y-auto border-t lg:border-t-0 lg:border-l ${TABLE_LINE_COLOUR_CLASSES} bg-slate-50 dark:bg-slate-900/40 p-3`}
+        className={`lg:min-h-0 lg:overflow-y-auto border-t lg:border-t-0 lg:border-l ${TABLE_LINE_COLOUR_CLASSES} bg-slate-50 dark:bg-slate-900/40 p-3`}
       >
         {preview}
       </aside>

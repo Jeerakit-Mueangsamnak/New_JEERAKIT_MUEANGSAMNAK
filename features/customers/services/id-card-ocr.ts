@@ -41,24 +41,46 @@ export async function scanIdCardPhoto(imageDataUrl: string, onProgress?: (percen
  * English) in the browser reads it instead. Both give OCR lines to the same parser, so the result
  * holds only values it could prove from the text (see thai-id-parser.ts).
  */
+interface ServerOcrResult {
+  parsed?: ParsedThaiIdCard
+  lines?: OcrLine[]
+}
+
+/**
+ * Reads the front of a Thai ID card.
+ * 1. Cloudflare Workers AI / OCR.space through our server (/api/ocr/id-card).
+ * 2. Tesseract (Thai + English) in browser as fallback.
+ */
 export async function readThaiIdCard(imageDataUrl: string, onProgress?: (percent: number) => void): Promise<ParsedThaiIdCard> {
-  const [{ THAI_ADDRESS_DATA }, lines] = await Promise.all([
+  const [{ THAI_ADDRESS_DATA }, serverResult] = await Promise.all([
     import('@/lib/thai-address-data'),
-    readWithServer(imageDataUrl).then((serverLines) => serverLines ?? readWithTesseract(imageDataUrl, onProgress)),
+    readWithServer(imageDataUrl),
   ])
+  if (serverResult?.parsed) {
+    return serverResult.parsed
+  }
+  const lines = serverResult?.lines ?? (await readWithTesseract(imageDataUrl, onProgress))
   return parseThaiIdCardLines(lines, THAI_ADDRESS_DATA)
 }
 
 /** null = use the fallback (not configured, quota reached, network or OCR error). */
-async function readWithServer(imageDataUrl: string): Promise<OcrLine[] | null> {
+async function readWithServer(imageDataUrl: string): Promise<ServerOcrResult | null> {
   try {
     const res = await fetch('/api/ocr/id-card', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image: await shrinkForUpload(imageDataUrl) }),
     })
-    const body = (await res.json().catch(() => null)) as { ok?: boolean; lines?: OcrLine[]; reason?: string } | null
-    if (res.ok && body?.ok && Array.isArray(body.lines)) return body.lines
+    const body = (await res.json().catch(() => null)) as {
+      ok?: boolean
+      parsed?: ParsedThaiIdCard
+      lines?: OcrLine[]
+      reason?: string
+    } | null
+    if (res.ok && body?.ok) {
+      if (body.parsed) return { parsed: body.parsed }
+      if (Array.isArray(body.lines)) return { lines: body.lines }
+    }
     logger.warn('Server OCR unavailable, using Tesseract:', body?.reason ?? res.status)
   } catch (err) {
     logger.warn('Server OCR request failed, using Tesseract:', err)

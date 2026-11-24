@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React, { useEffect, useState } from 'react'
 import { Truck } from 'lucide-react'
@@ -87,7 +87,7 @@ export function DeliveryModal({ isOpen, bill, onClose, onSaved }: DeliveryModalP
         )}
       </AppModalBody>
       <AppModalFooter>
-        <button type="button" onClick={onClose} disabled={saving} className={`${COMMAND_BUTTON_SIZE_CLASSES} border`}>ปิด</button>
+        <button type="button" onClick={onClose} disabled={saving} className={`${COMMAND_BUTTON_SIZE_CLASSES} border ${BUTTON_FUNCTION_COLOURS.cancel}`}>ปิด</button>
         {open.length > 0 && (
           <button type="button" onClick={() => void save()} disabled={saving} className={`${COMMAND_BUTTON_SIZE_CLASSES} bg-blue-600 text-white disabled:opacity-50`}>
             {saving ? 'กำลังบันทึก…' : 'บันทึกส่งของ'}

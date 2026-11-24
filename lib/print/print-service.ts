@@ -4,6 +4,7 @@
  * then window.print() runs, then the element is removed.
  */
 import { escapeDocumentHtml } from '@/features/documents/utils/document-html'
+import { askTapToPrint, shareDocumentImages } from '@/lib/print/print-share-images'
 
 const TARGET_ID = 'central-print-target'
 
@@ -12,6 +13,18 @@ export type PrintOrientation = 'portrait' | 'landscape'
 /** Cleanup returned by the last `fill` (e.g. unmounting a React root), run when that document is removed. */
 let pendingCleanup: (() => void) | null = null
 let pageHideHooked = false
+
+/** iPad (also iPadOS that reports itself as a Mac), iPhone, iPod. */
+function isAppleTouchDevice(): boolean {
+  const ua = navigator.userAgent
+  return /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
+}
+
+/** Running as a Home Screen web app (no Safari bar): iOS may give such apps no print window. */
+function isStandaloneWebApp(): boolean {
+  return (navigator as Navigator & { standalone?: boolean }).standalone === true
+    || window.matchMedia?.('(display-mode: standalone)').matches === true
+}
 
 function removeTarget(): void {
   pendingCleanup?.()
@@ -64,6 +77,30 @@ export function openPrint(
     window.removeEventListener('afterprint', done)
   }
   window.addEventListener('afterprint', done)
+
+  // iPad / iPhone (Safari) open the print window only while the tap is still "fresh": waiting for the images
+  // first made the print button do nothing on iPad (owner 2026-11-18). Safari builds its preview later
+  // anyway, so the images are in by then.
+  if (isAppleTouchDevice()) {
+    // The Home Screen icon (no Safari bar) gives no print window: the document goes to the share
+    // sheet as pictures, whose "พิมพ์" opens the iPad print window (owner 2026-11-19).
+    if (isStandaloneWebApp()) {
+      void shareDocumentImages(target, opts.title, () => {
+        done()
+        removeTarget()
+      })
+      return
+    }
+    void target.offsetHeight
+    // Safari opens the print window only while the tap is fresh; a print that came later (a form read
+    // from the server first) gets one "พิมพ์" tap instead of doing nothing.
+    if (navigator.userActivation?.isActive === false) {
+      askTapToPrint()
+      return
+    }
+    window.print()
+    return
+  }
 
   // Let the browser lay out (and load images) before the dialog takes its snapshot.
   const images = Array.from(target.querySelectorAll('img'))
@@ -141,14 +178,25 @@ export function printTable(opts: PrintTableOptions): boolean {
   return true
 }
 
+/** The printed markup of `pages`: one A4 page each. */
+function documentPagesHtml(pages: string[]): string {
+  return `<div class="print-multi-document-container">${pages
+    .map((p) => `<div class="print-document-wrapper" style="width:210mm;min-height:297mm;box-sizing:border-box;">${p}</div>`)
+    .join('')}</div>`
+}
+
+/**
+ * The page margin of a shop form on iPad / iPhone: there the print keeps the printer's own margins, so the
+ * form is printed inside 10mm margins, centred (globals.css), for 1cm of paper left and right (owner 2026-11-20).
+ * PCs print the full sheet to the paper's edge; the sheet itself has the 1cm margins.
+ */
+const APPLE_FORM_PAGE_MARGIN = '10mm'
+
 /** One A4 page per document (customer forms, bills); `pages` are already-rendered HTML. */
 export function printDocuments(pages: string[], title?: string): boolean {
   if (pages.length === 0) return false
-  printHtml(
-    `<div class="print-multi-document-container">${pages
-      .map((p) => `<div class="print-document-wrapper" style="width:210mm;min-height:297mm;box-sizing:border-box;">${p}</div>`)
-      .join('')}</div>`,
-    { orientation: 'portrait', margin: '0', title }
-  )
+  const formPages = pages.some((p) => p.includes('print-form-page'))
+  const margin = formPages && isAppleTouchDevice() ? APPLE_FORM_PAGE_MARGIN : '0'
+  printHtml(documentPagesHtml(pages), { orientation: 'portrait', margin, title })
   return true
 }

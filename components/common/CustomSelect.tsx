@@ -36,6 +36,11 @@ interface CustomSelectProps {
    * ใช้ "…"), and a value outside the options is shown as it is. Off by default.
    */
   allowCustom?: boolean
+  /**
+   * How the chosen option is marked in the open list: 'check' (default) shows a tick at its end;
+   * 'border' drops the tick and gives the option a green border instead, for narrow fields.
+   */
+  selectedMark?: 'check' | 'border'
 }
 
 export function CustomSelect({
@@ -54,6 +59,7 @@ export function CustomSelect({
   ariaLabel,
   onRemoveOption,
   allowCustom = false,
+  selectedMark = 'check',
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -252,10 +258,20 @@ export function CustomSelect({
                     onClick={() => handleSelect(opt.value)}
                     onMouseEnter={() => setHighlight(index)}
                     className={`w-full text-left px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-between gap-2 cursor-pointer ${
-                      isSelected
-                        ? 'bg-slate-100 dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-xs'
-                        : 'text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/80'
-                    } ${isHighlighted ? 'ring-2 ring-inset ring-emerald-500' : ''}`}
+                      selectedMark === 'border'
+                        ? `border-2 ${
+                            isSelected
+                              ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
+                              : `border-transparent text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/80 ${
+                                  isHighlighted ? 'bg-slate-100 dark:bg-slate-700/80' : ''
+                                }`
+                          }`
+                        : `${
+                            isSelected
+                              ? 'bg-slate-100 dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-xs'
+                              : 'text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/80'
+                          } ${isHighlighted ? 'ring-2 ring-inset ring-emerald-500' : ''}`
+                    }`}
                   >
                     <span className="truncate flex-1">{opt.label}</span>
                     {opt.sublabel && (
@@ -267,7 +283,7 @@ export function CustomSelect({
                         {opt.sublabel}
                       </span>
                     )}
-                    {isSelected && <Check className="w-3.5 h-3.5 shrink-0 ml-1" />}
+                    {isSelected && selectedMark === 'check' && <Check className="w-3.5 h-3.5 shrink-0 ml-1" />}
                   </button>
                 )
                 if (!onRemoveOption) return optionButton

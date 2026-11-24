@@ -38,8 +38,7 @@ export function BillRecordsModal({ bill, onClose }: { bill: FullBill | null; onC
               badge={<span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${status.className}`}>{status.label}</span>}
               customerName={bill.customerName}
               phone={bill.customerPhone}
-              // The POS keeps the delivery place in the bill's note as "ส่งที่: …"
-              location={bill.siteName || /(?:^|\n)ส่งที่:\s*(.+)/.exec(bill.remark || '')?.[1]?.trim()}
+              location={bill.siteName}
               date={bill.billDate}
               returnDate={getBillListReturnDate(bill) || bill.scheduledReturnDate || null}
             />

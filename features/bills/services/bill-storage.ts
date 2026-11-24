@@ -29,12 +29,40 @@ const _historyBills = new Map<string, FullBill>()
 
 const isFinished = (bill: FullBill): boolean => (FINISHED_BILL_STATUSES as readonly string[]).includes(bill.serverStatus ?? bill.rentalStatus)
 
+/**
+ * Reads can finish out of order (a slow list answer arriving after a bill read again after a payment). Every read
+ * takes the next number when it starts; the cache keeps, per bill, the copy from the newest read, so an older
+ * answer never brings back an old copy of a bill.
+ */
+let _readSeq = 0
+let _listSeq = 0
+const _billSeq = new Map<string, number>()
+
 /** Replaces the open bills (tests and sign-out); finished bills in the list go to the history set. */
 export function setCachedBills(bills: FullBill[]): void {
   _historyBills.clear()
+  _billSeq.clear()
+  _listSeq = ++_readSeq
   _lastAt = 0 // set from outside (sign-out clear, tests): the next page open reads the server
   _openBills = bills.filter((b) => !isFinished(b))
   for (const b of bills) if (isFinished(b)) _historyBills.set(b.id, b)
+}
+
+/**
+ * Copy age of one bill: the newest read that brought it in. A bill in work missing from the newest list was
+ * finished or deleted since, so for a bill in work that list counts too.
+ */
+function billSeqOf(id: string, inWork = true): number {
+  const own = _billSeq.get(id)
+  if (own !== undefined) return own
+  return inWork || _openBills.some((b) => b.id === id) ? _listSeq : 0
+}
+
+/** Puts bills of the read numbered `seq` into the cache, skipping bills the cache already has from a newer read. */
+function mergeBillsRead(seq: number, bills: FullBill[]): void {
+  const newer = bills.filter((b) => billSeqOf(b.id, !isFinished(b)) <= seq)
+  for (const b of newer) _billSeq.set(b.id, seq)
+  mergeBills(newer)
 }
 
 /** Puts freshly read bills into the right set, replacing older copies. */
@@ -143,49 +171,72 @@ export function loadRentalBills(): RentalBill[] {
 export const BILLS_TTL_MS = 60_000
 let _lastAt = 0
 
+/** True when the bills in work were read from the server within the last `ms`. */
+export function billsReadWithin(ms: number, now = Date.now()): boolean {
+  return _lastAt > 0 && now - _lastAt < ms
+}
+
 export async function fetchBillsFromSupabase(force = false): Promise<FullBill[]> {
   if (!force && _lastAt > 0 && Date.now() - _lastAt < BILLS_TTL_MS) return _openBills
+  const seq = ++_readSeq
   const bills = await fetchBillsFromRepository()
-  _openBills = bills
+  // A newer list is already in: this older answer is dropped.
+  if (seq < _listSeq) return _openBills
+  // Bills read one by one after this list was asked (a save, a payment) keep their newer copy.
+  const kept = [..._billSeq].filter(([, s]) => s > seq).map(([id]) => loadBillById(id)).filter((b): b is FullBill => Boolean(b))
+  _listSeq = seq
+  const listedIds = new Set(bills.map((b) => b.id))
+  // From here the list is the newest word on the bills in work (listed now or before); finished bills keep theirs.
+  const workIds = new Set([...listedIds, ..._openBills.map((b) => b.id)])
+  for (const [id, s] of _billSeq) if (s <= seq && workIds.has(id)) _billSeq.delete(id)
+  const keptById = new Map(kept.map((b) => [b.id, b]))
+  _openBills = bills.map((b) => keptById.get(b.id) ?? b).filter((b) => !isFinished(b))
+  for (const b of _openBills) _historyBills.delete(b.id)
+  mergeBills(kept.filter((b) => !listedIds.has(b.id) || isFinished(b)))
   _lastAt = Date.now()
-  for (const b of bills) _historyBills.delete(b.id)
   notifyBillsChanged()
-  return bills
+  return _openBills
 }
 
 /** Reload after a command (bill-service.ts): always reads the server. */
 export const refreshBillsCache = (): Promise<FullBill[]> => fetchBillsFromSupabase(true)
 
 export async function fetchBillByIdFromSupabase(id: string): Promise<FullBill | null> {
+  const seq = ++_readSeq
   const bill = await fetchBillByIdFromRepository(id)
   if (!bill) return null
-  mergeBills([bill])
+  // A newer copy came in while this one was read: keep the newer one.
+  if (billSeqOf(id, !isFinished(bill)) > seq) return loadBillById(id) ?? bill
+  mergeBillsRead(seq, [bill])
   notifyBillsChanged()
   return bill
 }
 
 /** Finished bills (closed / cancelled / void) of a period, newest first; search = bill no / customer name / phone. */
 export async function fetchClosedBills(query: Pick<BillQuery, 'from' | 'to' | 'search'>): Promise<FullBill[]> {
+  const seq = ++_readSeq
   const bills = await fetchBillsByQuery({ ...query, scope: 'HISTORY' })
-  mergeBills(bills)
+  mergeBillsRead(seq, bills)
   notifyBillsChanged()
   return bills
 }
 
 /** Every bill of one customer, open or finished, newest first. */
 export async function fetchBillsForCustomer(customerId: string): Promise<FullBill[]> {
+  const seq = ++_readSeq
   const bills = await fetchBillsByQuery({ customerId })
-  mergeBills(bills)
+  mergeBillsRead(seq, bills)
   notifyBillsChanged()
   return bills
 }
 
 /** Every bill with a line of this product, open or finished, newest first. */
 export async function fetchBillsForProduct(productId: string): Promise<FullBill[]> {
+  const seq = ++_readSeq
   const ids = await fetchBillIdsForProduct(productId)
   if (ids.length === 0) return []
   const bills = await fetchBillsByQuery({ ids })
-  mergeBills(bills)
+  mergeBillsRead(seq, bills)
   notifyBillsChanged()
   return bills
 }

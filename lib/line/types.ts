@@ -42,7 +42,17 @@ export interface LineProvider {
   push(input: { to: string; messages: LineMessage[]; retryKey: string }): Promise<ProviderResult>
   reply(input: { replyToken: string; messages: LineMessage[] }): Promise<ProviderResult>
   /** The LINE display name of a friend of the OA (null when LINE does not answer). */
-  profile?(userId: string): Promise<{ displayName: string } | null>
+  profile?(userId: string): Promise<{ displayName: string; pictureUrl?: string | null } | null>
+  /** Chat menus (rich menu). Optional: only the real provider and the mock have them. */
+  createRichMenu?(body: unknown): Promise<ProviderResult & { richMenuId?: string }>
+  uploadRichMenuImage?(richMenuId: string, image: Uint8Array, contentType: string): Promise<ProviderResult>
+  /** The menu everyone sees unless they have their own */
+  setDefaultRichMenu?(richMenuId: string): Promise<ProviderResult>
+  cancelDefaultRichMenu?(): Promise<ProviderResult>
+  /** One person's own menu (it wins over the default); unlink = back to the default */
+  linkRichMenu?(userId: string, richMenuId: string): Promise<ProviderResult>
+  unlinkRichMenu?(userId: string): Promise<ProviderResult>
+  deleteRichMenu?(richMenuId: string): Promise<ProviderResult>
 }
 
 export const LINE_USER_ID_PATTERN = /^U[0-9a-f]{32}$/

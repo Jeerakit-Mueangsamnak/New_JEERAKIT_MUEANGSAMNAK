@@ -9,8 +9,7 @@ import {
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
   TAB_BUTTON_INACTIVE_CLASSES,
-  TAB_BAR_SURFACE_CLASSES,
-} from '@/components/common/ActionButton'
+  TAB_BAR_SURFACE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React, { useState, useMemo, useEffect } from 'react'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
@@ -21,11 +20,8 @@ import { DataTableFrame } from '@/components/common/DataTableFrame'
 import { NumericInput } from '@/components/common/NumericInput'
 import { CustomDatePicker, getLocalDateString } from '@/components/common/CustomDatePicker'
 import { useToast } from '@/components/common/Toast'
-import { logger } from '@/lib/utils/logger'
+import { useFinanceRows } from '@/features/finance/hooks/useFinanceRows'
 import {
-  loadTransactions,
-  fetchTransactionsFromSupabase,
-  ensureTransactionsSince,
   addManualTransaction,
   voidManualTransaction,
   filterTransactionsByLocalDate,
@@ -63,7 +59,6 @@ export default function StatementPage() {
   const updateExpenseCategory = (_id: string, _label: string) => fixedExpense()
   const removeExpenseCategory = (_id: string) => fixedExpense()
 
-  const [transactions, setTransactions] = useState<StatementTransaction[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE'>('ALL')
   const [startDate, setStartDate] = useState<Date | null>(null)
@@ -73,36 +68,9 @@ export default function StatementPage() {
   const savingRef = React.useRef(false)
   const [saving, setSaving] = useState(false)
 
-  // Show the cached list at once, then the latest from the server (money may have moved on
-  // other pages or devices since the app loaded).
-  useEffect(() => {
-    let alive = true
-    setTransactions(loadTransactions())
-    const reload = () => {
-      fetchTransactionsFromSupabase()
-        .then((list) => alive && setTransactions(list))
-        .catch((err: unknown) => logger.error('Finance statement reload failed', err))
-    }
-    const fromCache = () => setTransactions(loadTransactions())
-    reload()
-    window.addEventListener('business_data_refreshed', fromCache)
-    return () => {
-      alive = false
-      window.removeEventListener('business_data_refreshed', fromCache)
-    }
-  }, [])
-
-  // The list holds the last 90 days; a start date older than that reads back to it (owner 2026-11-12)
-  useEffect(() => {
-    if (!startDate) return
-    let alive = true
-    ensureTransactionsSince(startDate)
-      .then((list) => alive && setTransactions(list))
-      .catch((err: unknown) => logger.error('Finance statement older range failed', err))
-    return () => {
-      alive = false
-    }
-  }, [startDate])
+  // Money rows are read when this page opens (owner 2026-11-20); the list reaches back to an older start date
+  // when one is chosen. While reading, no figures show.
+  const { rows: transactions, loading: moneyLoading } = useFinanceRows(startDate)
 
   // Form State for manual entry (Quick Item + Manual Description)
   const [modalView, setModalView] = useState<'FORM' | 'MANAGE_CATEGORIES'>('FORM')
@@ -226,14 +194,13 @@ export default function StatementPage() {
     savingRef.current = true
     setSaving(true)
     try {
-      const next = await addManualTransaction({
+      await addManualTransaction({
         type: manualType,
         category: categoryToSave,
         description: finalDescription,
         amount: manualAmount,
         channel: manualChannel,
       })
-      setTransactions(next)
       setShowAddModal(false)
       setManualAmount(0)
       setQuickItem('')
@@ -259,7 +226,7 @@ export default function StatementPage() {
     if (!ok) return
     setVoidingId(t.id)
     try {
-      setTransactions(await voidManualTransaction(t))
+      await voidManualTransaction(t)
       showToast('ยกเลิกรายการแล้ว', t.refNo, 'SUCCESS')
     } catch (err) {
       if (!isPinCancelled(err)) showToast('ยกเลิกไม่สำเร็จ', err instanceof Error ? err.message : '', 'ERROR')
@@ -315,7 +282,7 @@ export default function StatementPage() {
             <div>
               <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold block">รายรับรวม</span>
               <h3 className="text-lg sm:text-xl font-black text-emerald-700 dark:text-emerald-400 mt-0.5">
-                <CountUp value={totalIncome} format={(n) => n.toLocaleString('th-TH', { minimumFractionDigits: 2 })} />
+                {moneyLoading ? '…' : <CountUp value={totalIncome} format={(n) => n.toLocaleString('th-TH', { minimumFractionDigits: 2 })} />}
               </h3>
             </div>
             <div className="p-2 sm:p-2.5 bg-emerald-100 dark:bg-emerald-900/50 rounded-xl text-emerald-700 dark:text-emerald-300">
@@ -327,7 +294,7 @@ export default function StatementPage() {
             <div>
               <span className="text-[11px] text-red-700 dark:text-red-300 font-semibold block">เงินออกรวม (รายจ่าย + คืนเงิน)</span>
               <h3 className="text-lg sm:text-xl font-black text-red-700 dark:text-red-400 mt-0.5">
-                <CountUp value={totalExpense} format={(n) => n.toLocaleString('th-TH', { minimumFractionDigits: 2 })} />
+                {moneyLoading ? '…' : <CountUp value={totalExpense} format={(n) => n.toLocaleString('th-TH', { minimumFractionDigits: 2 })} />}
               </h3>
             </div>
             <div className="p-2 sm:p-2.5 bg-red-100 dark:bg-red-900/50 rounded-xl text-red-700 dark:text-red-300">
@@ -345,7 +312,7 @@ export default function StatementPage() {
                 คงเหลือสุทธิ
               </span>
               <h3 className={`text-lg sm:text-xl font-black mt-0.5 ${netBalance >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-red-700 dark:text-red-400'}`}>
-                <CountUp value={netBalance} format={(n) => n.toLocaleString('th-TH', { minimumFractionDigits: 2 })} />
+                {moneyLoading ? '…' : <CountUp value={netBalance} format={(n) => n.toLocaleString('th-TH', { minimumFractionDigits: 2 })} />}
               </h3>
             </div>
             <div className={`p-2 sm:p-2.5 rounded-xl ${netBalance >= 0 ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300' : 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300'}`}>
@@ -424,7 +391,7 @@ export default function StatementPage() {
             <button
               type="button"
               onClick={handleExportExcel}
-              className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center transition-colors cursor-pointer shadow-xs whitespace-nowrap`}
+              className={`${COMMAND_BUTTON_SIZE_CLASSES} border flex items-center transition-colors cursor-pointer shadow-xs whitespace-nowrap ${BUTTON_FUNCTION_COLOURS.export}`}
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
               <span>Excel</span>
@@ -567,7 +534,7 @@ export default function StatementPage() {
                         setCategoryManageType(manualType)
                         setModalView('MANAGE_CATEGORIES')
                       }}
-                      className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center border border-slate-200 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors shadow-xs shrink-0 cursor-pointer`}
+                      className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center border transition-colors shadow-xs shrink-0 cursor-pointer ${BUTTON_FUNCTION_COLOURS.edit}`}
                       title="จัดการรายการด่วน"
                     >
                       <Settings className="w-4 h-4" />
@@ -617,7 +584,7 @@ export default function StatementPage() {
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer flex items-center justify-center`}
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} border cursor-pointer flex items-center justify-center ${BUTTON_FUNCTION_COLOURS.cancel}`}
                 >
                   ยกเลิก
                 </button>
@@ -647,7 +614,7 @@ export default function StatementPage() {
                 <button
                   type="button"
                   onClick={() => setModalView('FORM')}
-                  className={`${COMMAND_BUTTON_SIZE_CLASSES} hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors flex items-center cursor-pointer border border-slate-200 dark:border-slate-700`}
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} transition-colors flex items-center cursor-pointer border ${BUTTON_FUNCTION_COLOURS.cancel}`}
                   title="กลับสู่ฟอร์ม"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />

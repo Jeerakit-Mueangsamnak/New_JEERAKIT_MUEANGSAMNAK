@@ -1,22 +1,24 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES, TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
+import { ActionButton, COMMAND_BUTTON_SIZE_CLASSES, TABLE_TOOLBAR_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 /**
  * Settings › LINE: the driver list (ทะเบียนคนขับ). Drivers are not app users; each gets a code
  * (D001, …) used when an appointment is dispatched. Changes save at once (OWNER).
  * LINE for drivers is optional: a driver without LINE is still dispatched and the office
  * contacts them by phone. To link, the shop makes a single-use link for one driver code (QR at the
- * shop, or the link sent to the driver); it opens the shop chat with the code typed in and one send
- * links that LINE (one driver code = one LINE). Shown on คนใน LINE (/line).
+ * shop, or the link sent to the driver) shown in a window (owner 2026-11-20); it opens the shop chat
+ * with the code typed in and one send links that LINE (one driver code = one LINE). Shown on คนใน LINE (/line).
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { qrDataUrl } from '@/lib/qr-code'
 import Image from 'next/image'
-import { Copy, Link2Off, Pencil, Plus, RefreshCw } from 'lucide-react'
+import { Copy, Link2Off, MessageCircle, Pencil, Plus, RefreshCw } from 'lucide-react'
+import { AppModal, AppModalBody, AppModalHeader } from '@/components/common/AppModal'
 import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { useDataActions } from '@/components/common/useDataActions'
 import { createClient } from '@/lib/supabase/client'
+import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { DbError } from '@/lib/db/rpc'
 import { fetchAppointmentsFromSupabase } from '@/features/appointments/services/appointment-storage'
 import { createDriverLineLinkCode, unlinkLineContact } from '@/app/actions/line'
@@ -51,6 +53,7 @@ const PILL = 'inline-flex items-center h-5 px-2 rounded-full text-[10px] font-bo
 
 /** `tabs`: the page tab bar, shown first in the toolbar row before the add-driver fields. */
 export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
+  const { user } = useAuth()
   const { showToast } = useToast()
   const confirm = useConfirm()
   const { confirmSuspend, deleteOrSuspend } = useDataActions()
@@ -59,6 +62,8 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
   const [lineReady, setLineReady] = useState(true)
   const [codes, setCodes] = useState<Record<string, IssuedCode>>({})
   const [lineBusy, setLineBusy] = useState<string | null>(null)
+  /** Driver whose link window is open */
+  const [linkFor, setLinkFor] = useState<string | null>(null)
   const [drivers, setDrivers] = useState<DeliveryDriver[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
@@ -85,12 +90,12 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
   // a driver who presses the link elsewhere shows up by itself (no รีเฟรช button)
   useAutoRefresh(loadContacts)
 
-  const hasCodes = Object.keys(codes).length > 0
+  // the time left ticks only while the link window is open
   useEffect(() => {
-    if (!hasCodes) return
+    if (!linkFor) return
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
-  }, [hasCodes])
+  }, [linkFor])
 
   const issueCode = async (driverId: string) => {
     setLineBusy(driverId)
@@ -103,6 +108,7 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
       const qr = r.data.oaUrl ? await qrDataUrl(r.data.oaUrl, { margin: 1, width: 160 }).catch(() => null) : null
       setNow(Date.now())
       setCodes((prev) => ({ ...prev, [driverId]: { code: r.data!.code, expiresAt: r.data!.expires_at, oaUrl: r.data!.oaUrl, qr } }))
+      setLinkFor(driverId)
     } finally {
       setLineBusy(null)
     }
@@ -150,7 +156,6 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
 
   const lineCell = (d: DeliveryDriver) => {
     const contact = contacts[d.id]
-    const code = codes[d.id]
     if (contact) {
       return (
         <span className="inline-flex flex-wrap items-center gap-1.5">
@@ -158,75 +163,21 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
           <LineContactInfo contact={contact} onChanged={() => void loadContacts()} />
           <button
             type="button"
-            disabled={lineBusy === d.id}
+            disabled={user?.role !== 'OWNER' || lineBusy === d.id}
             onClick={() => void unlink(d, contact)}
-            className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer`}
+            className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center cursor-pointer ${BUTTON_FUNCTION_COLOURS.remove}`}
           >
             <Link2Off className="w-3.5 h-3.5" /> ยกเลิกการผูก
           </button>
         </span>
       )
     }
-    if (code) {
-      const left = new Date(code.expiresAt).getTime() - now
-      return (
-        <span className="flex flex-wrap items-start gap-2" data-testid="driver-line-link">
-          {code.qr && (
-            <Image unoptimized width={88} height={88} src={code.qr} alt={`QR ลิงก์ผูก LINE ของ${d.name}`} className="w-[88px] h-[88px] rounded bg-white p-0.5" />
-          )}
-          <span className="min-w-0 space-y-1">
-            <span className="block text-[11px] text-slate-600 dark:text-slate-400">
-              ลิงก์ผูก LINE ของ{d.name} (รหัส{' '}
-              <span className="font-mono font-bold text-slate-900 dark:text-slate-100" data-testid="driver-line-code">
-                {code.code}
-              </span>
-              )
-            </span>
-            {code.oaUrl ? (
-              <span className="block font-mono text-[10px] text-slate-500 dark:text-slate-400 break-all">{code.oaUrl}</span>
-            ) : (
-              <span className="block text-[10px] text-amber-700 dark:text-amber-300">
-                ใส่ LINE ID ร้านที่ ตั้งค่า › กิจการ เพื่อให้มี QR และลิงก์ · ระหว่างนี้ให้พิมพ์รหัสในแชต LINE ร้าน
-              </span>
-            )}
-            <span className={`block text-[11px] ${left > 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-400'}`}>
-              {left > 0 ? (
-                <>
-                  รอกดลิงก์ ใช้ได้ครั้งเดียว หมดอายุใน <b className="tabular-nums">{leftText(left)}</b>
-                </>
-              ) : (
-                'ลิงก์หมดอายุแล้ว'
-              )}
-            </span>
-            <span className="flex flex-wrap gap-1">
-              {code.oaUrl && (
-                <button
-                  type="button"
-                  onClick={() => void copyLink(code.oaUrl as string)}
-                  className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer`}
-                >
-                  <Copy className="w-3 h-3" /> คัดลอกลิงก์
-                </button>
-              )}
-              <button
-                type="button"
-                disabled={lineBusy === d.id}
-                onClick={() => void issueCode(d.id)}
-                className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50`}
-              >
-                <RefreshCw className="w-3 h-3" /> สร้างลิงก์ใหม่
-              </button>
-            </span>
-          </span>
-        </span>
-      )
-    }
     return d.active && lineReady ? (
       <button
         type="button"
-        disabled={lineBusy === d.id}
+        disabled={user?.role !== 'OWNER' || lineBusy === d.id}
         onClick={() => void issueCode(d.id)}
-        className={`${COMMAND_BUTTON_SIZE_CLASSES} text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer disabled:opacity-50`}
+        className={`${COMMAND_BUTTON_SIZE_CLASSES} cursor-pointer disabled:opacity-50 ${BUTTON_FUNCTION_COLOURS.share}`}
       >
         สร้างลิงก์
       </button>
@@ -321,6 +272,10 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
     }
   }
 
+  const linkDriver = linkFor ? drivers.find((d) => d.id === linkFor) : undefined
+  const linkCode = linkFor ? codes[linkFor] : undefined
+  const linkLeft = linkCode ? new Date(linkCode.expiresAt).getTime() - now : 0
+
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       {/* Toolbar: the page tabs, then add / edit a driver in the same row */}
@@ -401,7 +356,7 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
                       setName(d.name)
                       setPhone(d.phone || '')
                     }}
-                    className={`${COMMAND_BUTTON_SIZE_CLASSES} text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 cursor-pointer`}
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} cursor-pointer ${BUTTON_FUNCTION_COLOURS.edit}`}
                   >
                     แก้ไข
                   </button>
@@ -409,7 +364,7 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
                     type="button"
                     disabled={saving}
                     onClick={() => void toggleActive(d)}
-                    className={`${COMMAND_BUTTON_SIZE_CLASSES} text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer`}
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} cursor-pointer ${BUTTON_FUNCTION_COLOURS[d.active ? 'clear' : 'save']}`}
                   >
                     {d.active ? 'ระงับ' : 'เปิดใช้งาน'}
                   </button>
@@ -417,7 +372,7 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
                     type="button"
                     disabled={saving}
                     onClick={() => void removeDriver(d)}
-                    className={`${COMMAND_BUTTON_SIZE_CLASSES} text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer`}
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} cursor-pointer ${BUTTON_FUNCTION_COLOURS.remove}`}
                   >
                     ลบ
                   </button>
@@ -427,6 +382,48 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
           </tbody>
         </table>
       </DataTableFrame>
+
+      {linkDriver && linkCode && (
+        <AppModal isOpen onClose={() => setLinkFor(null)} size="sm">
+          <AppModalHeader title={`ลิงก์ผูก LINE · ${linkDriver.name}`} icon={<MessageCircle />} onClose={() => setLinkFor(null)} />
+          <AppModalBody className="space-y-3 text-xs">
+            {linkCode.qr && (
+              <Image unoptimized width={176} height={176} src={linkCode.qr} alt={`QR ลิงก์ผูก LINE ของ${linkDriver.name}`} className="w-44 h-44 mx-auto rounded-lg bg-white p-1" />
+            )}
+            <p className="text-slate-600 dark:text-slate-300">
+              ลิงก์ผูก LINE ของ{linkDriver.name} (รหัส{' '}
+              <span className="font-mono font-bold text-slate-900 dark:text-slate-100" data-testid="driver-line-code">
+                {linkCode.code}
+              </span>
+              )
+            </p>
+            {linkCode.oaUrl ? (
+              <div className="flex gap-2">
+                <input readOnly value={linkCode.oaUrl} aria-label="ลิงก์ผูก LINE" className="flex-1 min-w-0 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono text-[11px] text-slate-700 dark:text-slate-300" />
+                <ActionButton variant="share" icon={<Copy />} onClick={() => void copyLink(linkCode.oaUrl as string)}>
+                  คัดลอกลิงก์
+                </ActionButton>
+              </div>
+            ) : (
+              <p className="rounded-lg px-2.5 py-1.5 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200">
+                ใส่ LINE ID ร้านที่ ตั้งค่า › กิจการ เพื่อให้มี QR และลิงก์ · ระหว่างนี้ให้พิมพ์รหัสในแชต LINE ร้าน
+              </p>
+            )}
+            <p className={linkLeft > 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-400'} aria-live="polite">
+              {linkLeft > 0 ? (
+                <>
+                  รอกดลิงก์ ใช้ได้ครั้งเดียว หมดอายุใน <b className="tabular-nums">{leftText(linkLeft)}</b>
+                </>
+              ) : (
+                'ลิงก์หมดอายุแล้ว'
+              )}
+            </p>
+            <ActionButton variant="share" icon={<RefreshCw />} disabled={lineBusy === linkDriver.id} onClick={() => void issueCode(linkDriver.id)}>
+              สร้างลิงก์ใหม่
+            </ActionButton>
+          </AppModalBody>
+        </AppModal>
+      )}
     </div>
   )
 }

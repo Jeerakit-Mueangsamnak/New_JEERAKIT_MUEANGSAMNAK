@@ -4,7 +4,7 @@ import {
   COMMAND_BUTTON_SIZE_CLASSES,
   SEARCH_INPUT_CLASSES,
   SEARCH_ICON_CLASSES,
-  TABLE_TOOLBAR_CLASSES, ROW_ICON_BUTTON_CLASSES } from '@/components/common/ActionButton'
+  TABLE_TOOLBAR_CLASSES, ROW_ICON_BUTTON_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 import { isQuotationFormTemplate, pickQuotationPrintTemplate, printQuotationA4, renderQuotationA4PagesHtml } from '@/features/documents/utils/transaction-print'
 import { QuotationPreviewOverlay } from '@/features/quotations/components/QuotationPreviewOverlay'
 import { loadTemplateLibrary, getSharedTemplates } from '@/features/documents/services/template-library-storage'
@@ -682,7 +682,7 @@ export default function QuotationsPage() {
                     type="button"
                     disabled={isProcessing}
                     onClick={() => handleOpenReleaseModal(selectedQuotationForConversion)}
-                    className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-rose-300 dark:border-rose-800 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 disabled:opacity-50 cursor-pointer`}
+                    className={`${COMMAND_BUTTON_SIZE_CLASSES} border disabled:opacity-50 cursor-pointer ${BUTTON_FUNCTION_COLOURS.remove}`}
                   >
                     ยกเลิกใบเสนอราคานี้
                   </button>
@@ -694,7 +694,7 @@ export default function QuotationsPage() {
                   type="button"
                   disabled={isProcessing}
                   onClick={closeActionModal}
-                  className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 disabled:opacity-50`}
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} border disabled:opacity-50 ${BUTTON_FUNCTION_COLOURS.cancel}`}
                 >
                   {reservationResult?.hasShortage ? 'ปิด' : 'ยกเลิก'}
                 </button>
@@ -763,7 +763,7 @@ export default function QuotationsPage() {
                 type="button"
                 disabled={isReleasing}
                 onClick={handleCloseReleaseModal}
-                className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 disabled:opacity-50 cursor-pointer`}
+                className={`${COMMAND_BUTTON_SIZE_CLASSES} border disabled:opacity-50 cursor-pointer ${BUTTON_FUNCTION_COLOURS.cancel}`}
               >
                 ยกเลิก
               </button>

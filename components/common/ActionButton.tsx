@@ -4,7 +4,9 @@ import React from 'react'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 
 export interface ActionButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  /** primary / info / danger and the function colours (BUTTON_FUNCTION_COLOURS) are coloured; the rest are on/off looks. */
   variant?: 'active' | 'primary' | 'neutral' | 'ghost' | 'dashed' | 'secondary' | 'outline' | 'utility' | 'danger' | 'info'
+    | 'edit' | 'cancel' | 'clear' | 'export' | 'share' | 'deliver'
   icon?: React.ReactNode
   badge?: React.ReactNode
 }
@@ -60,10 +62,37 @@ export const TABLE_TOOLBAR_CLASSES = `p-2 gap-2 border-b ${TABLE_LINE_COLOUR_CLA
 /** Bar under a table/form (same spacing as the toolbar, line on top). Add the layout (flex …). */
 export const TABLE_FOOTER_CLASSES = `p-2 gap-2 border-t ${TABLE_LINE_COLOUR_CLASSES} shrink-0`
 /**
- * ย้อนกลับ / ถัดไป of a step-by-step screen (owner 2026-11-17: the POS checkout look, black style removed):
- * white, 2px grey edge, grey bold text, the standard command height. Use StepNavButton.
+ * Every command button has the colour of what it does (owner 2026-11-20: "ปุ่มที่เป็นสีขาวทั้งหมด กำหนดสีตามหน้าที่ปุ่ม").
+ * Text on each colour meets WCAG AA (Master §39). On/off selectors (a tab, a filter, เงินสด | โอน) keep their own look:
+ * coloured when chosen.
  */
-export const STEP_NAV_BUTTON_CLASSES = `${COMMAND_BUTTON_SIZE_CLASSES} px-3 rounded-xl inline-flex items-center justify-center whitespace-nowrap bg-white text-slate-700 border-2 border-slate-200 hover:bg-slate-50 active:scale-[0.99] dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-700/50 transition-all cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed`
+export const BUTTON_FUNCTION_COLOURS = {
+  /** บันทึก / ยืนยัน / สร้าง / เพิ่ม / ถัดไป / ใช้งานต่อ */
+  save: 'bg-emerald-700 hover:bg-emerald-800 dark:bg-violet-600 dark:hover:bg-violet-700 text-white border-transparent shadow-xs',
+  /** เปิด / ดู / รีเฟรช / โหลดใหม่ / อัปโหลด / ถ่ายรูป */
+  open: 'bg-blue-600 hover:bg-blue-700 text-white border-transparent shadow-xs',
+  /** แก้ไข / ดัดแปลง / ตั้งค่า */
+  edit: 'bg-violet-600 hover:bg-violet-700 text-white border-transparent shadow-xs',
+  /** ลบ / ยกเลิกเอกสาร / ยกเลิกการผูก / คืนเงิน */
+  remove: 'bg-red-600 hover:bg-red-700 text-white border-transparent shadow-xs',
+  /** ยกเลิก / ปิด / ออก / ย้อนกลับ (closes, saves nothing) */
+  cancel: 'bg-slate-600 hover:bg-slate-700 dark:bg-slate-600 dark:hover:bg-slate-500 text-white border-transparent shadow-xs',
+  /** ล้างค่า / ล้างตัวกรอง / ล้างแบบร่าง / ระงับ */
+  clear: 'bg-amber-500 hover:bg-amber-600 text-slate-900 border-transparent shadow-xs',
+  /** ส่งออก / Excel / พิมพ์ */
+  export: 'bg-teal-700 hover:bg-teal-800 text-white border-transparent shadow-xs',
+  /** ส่ง / แชร์ / คัดลอกลิงก์ / สั่งงาน */
+  share: 'bg-indigo-600 hover:bg-indigo-700 text-white border-transparent shadow-xs',
+  /** ส่งของ */
+  deliver: 'bg-orange-700 hover:bg-orange-800 text-white border-transparent shadow-xs',
+} as const
+export type ButtonFunction = keyof typeof BUTTON_FUNCTION_COLOURS
+
+/**
+ * ย้อนกลับ / ถัดไป of a step-by-step screen (owner 2026-11-17: the POS checkout shape; 2026-11-20: the colour of its
+ * function — ย้อนกลับ like ยกเลิก, ถัดไป like บันทึก). The standard command height. Use StepNavButton.
+ */
+export const STEP_NAV_BUTTON_CLASSES = `${COMMAND_BUTTON_SIZE_CLASSES} px-3 rounded-xl inline-flex items-center justify-center whitespace-nowrap border-2 active:scale-[0.99] transition-all cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed`
 /** Icon-only action button inside a table row (the bills table style). Add the icon colour + hover colour. */
 export const ROW_ICON_BUTTON_CLASSES =
   'inline-flex h-[22px] w-[22px] sm:h-6 sm:w-6 lg:h-7 lg:w-7 items-center justify-center rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed'
@@ -143,6 +172,14 @@ export const ActionButton = React.forwardRef<HTMLButtonElement, ActionButtonProp
         variantClasses =
           'border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
         break
+      case 'edit':
+      case 'cancel':
+      case 'clear':
+      case 'export':
+      case 'share':
+      case 'deliver':
+        variantClasses = BUTTON_FUNCTION_COLOURS[variant]
+        break
     }
 
     return (
@@ -171,7 +208,11 @@ export interface StepNavButtonProps extends React.ButtonHTMLAttributes<HTMLButto
 export function StepNavButton({ direction, children, className = '', type = 'button', ...props }: StepNavButtonProps) {
   const label = children ?? (direction === 'back' ? 'ย้อนกลับ' : 'ถัดไป')
   return (
-    <button type={type} className={`${STEP_NAV_BUTTON_CLASSES} ${className}`.trim()} {...props}>
+    <button
+      type={type}
+      className={`${STEP_NAV_BUTTON_CLASSES} ${BUTTON_FUNCTION_COLOURS[direction === 'back' ? 'cancel' : 'save']} ${className}`.trim()}
+      {...props}
+    >
       {direction === 'back' && <ArrowLeft aria-hidden="true" />}
       <span className="truncate">{label}</span>
       {direction === 'next' && <ArrowRight aria-hidden="true" />}

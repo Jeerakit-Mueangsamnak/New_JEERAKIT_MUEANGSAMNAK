@@ -28,7 +28,18 @@ function button(b: FlexButton) {
   return { type: 'button', style: b.primary ? 'primary' : 'secondary', height: 'sm', ...(b.primary ? { color: BRAND } : {}), action }
 }
 
-export function cardMessage(input: { altText: string; title: string; text?: string; rows?: FlexRow[]; buttons?: FlexButton[] }): LineFlexMessage {
+export interface CardInput {
+  altText: string
+  title: string
+  text?: string
+  rows?: FlexRow[]
+  buttons?: FlexButton[]
+  /** buttons kept (the driver cards keep 4; a list of choices may ask for more) */
+  maxButtons?: number
+}
+
+/** One card (the bubble itself), so several can sit side by side in a carousel. */
+export function cardBubble(input: CardInput): LineFlexMessage['contents'] {
   const rows = (input.rows ?? []).filter((r) => r.value.trim() !== '')
   const body: unknown[] = [{ type: 'text', text: shorten(input.title, 200), weight: 'bold', size: 'md', wrap: true }]
   if (input.text) body.push({ type: 'text', text: shorten(input.text, 2000), size: 'sm', color: '#333333', wrap: true })
@@ -50,16 +61,21 @@ export function cardMessage(input: { altText: string; title: string; text?: stri
       })),
     })
   }
-  const buttons = (input.buttons ?? []).slice(0, 4)
+  const buttons = (input.buttons ?? []).slice(0, input.maxButtons ?? 4)
   return {
-    type: 'flex',
-    altText: shorten(input.altText, LINE_LIMITS.altTextLength),
-    contents: {
-      type: 'bubble',
-      body: { type: 'box', layout: 'vertical', spacing: 'sm', contents: body },
-      ...(buttons.length ? { footer: { type: 'box', layout: 'vertical', spacing: 'sm', contents: buttons.map(button) } } : {}),
-    },
+    type: 'bubble',
+    body: { type: 'box', layout: 'vertical', spacing: 'sm', contents: body },
+    ...(buttons.length ? { footer: { type: 'box', layout: 'vertical', spacing: 'sm', contents: buttons.map(button) } } : {}),
   }
+}
+
+export function cardMessage(input: CardInput): LineFlexMessage {
+  return { type: 'flex', altText: shorten(input.altText, LINE_LIMITS.altTextLength), contents: cardBubble(input) }
+}
+
+/** Cards side by side (LINE shows at most 12). */
+export function carouselMessage(altText: string, bubbles: Array<LineFlexMessage['contents']>): LineFlexMessage {
+  return { type: 'flex', altText: shorten(altText, LINE_LIMITS.altTextLength), contents: { type: 'carousel', contents: bubbles.slice(0, 12) } }
 }
 
 /**

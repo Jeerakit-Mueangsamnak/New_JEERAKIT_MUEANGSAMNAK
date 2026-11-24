@@ -1,7 +1,7 @@
 'use client'
 import React, { useEffect, useState } from 'react'
 import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 import { NumericInput } from '@/components/common/NumericInput'
 import { SETTINGS_INPUT, SETTINGS_LABEL } from '@/features/settings/components/settings-ui'
 import { EXPENSE_CATEGORIES } from '@/features/finance/expense-categories'
@@ -107,7 +107,7 @@ export default function LiffFinancePage() {
             บันทึกอีกรายการ
           </button>
           {opened.phase === 'ready' && opened.liff.isInClient() && (
-            <button type="button" onClick={() => opened.liff.closeWindow()} className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full !h-11 flex items-center gap-2 border border-slate-300 dark:border-slate-600 justify-center`}>
+            <button type="button" onClick={() => opened.liff.closeWindow()} className={`${COMMAND_BUTTON_SIZE_CLASSES} w-full !h-11 flex items-center gap-2 border justify-center ${BUTTON_FUNCTION_COLOURS.cancel}`}>
               ปิดหน้านี้
             </button>
           )}

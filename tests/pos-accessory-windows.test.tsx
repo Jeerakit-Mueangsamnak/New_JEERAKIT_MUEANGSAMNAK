@@ -46,14 +46,15 @@ describe('accessory formulas and set-up (owner 2026-11-09)', () => {
     expect(findScaffoldPart(products, 'CROSS')?.id).toBe('cross')
     expect(findScaffoldPart(products.filter((p) => p.id !== 'cross'), 'CROSS')).toBeNull()
   })
-  it('only รายการ น็อต of หมวด แบบเสา and อุปกรณ์นั่งร้าน of หมวด อื่นๆ open the windows', () => {
+  it('only รายการ น็อต (หมวด แบบเสา or อื่นๆ) and อุปกรณ์นั่งร้าน of หมวด อื่นๆ open the windows', () => {
     expect(accessoryWindowFor(products[0])).toBe('NUT')
     expect(accessoryWindowFor(products[2])).toBe('SCAFFOLD')
     expect(accessoryWindowFor(products[5])).toBeNull()
     expect(accessoryWindowFor(products[6])).toBeNull()
-    // Nuts belong to หมวด แบบเสา › รายการ น็อต (owner 2026-11-12); the same รายการ under อื่นๆ is an ordinary product
-    expect(accessoryWindowFor({ category: 'อื่นๆ', listItem: 'น็อต' })).toBeNull()
+    // Nuts: หมวด แบบเสา › รายการ น็อต (owner 2026-11-12), and also อื่นๆ › น็อต where the shop's nuts sit (2026-11-20)
+    expect(accessoryWindowFor({ category: 'อื่นๆ', listItem: 'น็อต' })).toBe('NUT')
     expect(accessoryWindowFor({ category: 'แบบเสา', listItem: 'น็อต' })).toBe('NUT')
+    expect(accessoryWindowFor({ category: 'แบบคาน', listItem: 'น็อต' })).toBeNull()
   })
 })
 

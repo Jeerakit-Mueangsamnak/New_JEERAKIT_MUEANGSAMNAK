@@ -1,5 +1,7 @@
 import { createClient } from '@/lib/supabase/client'
-import { rpc, selectRows } from '@/lib/db/rpc'
+import { readByIds, rpc, selectRows } from '@/lib/db/rpc'
+import { readDeviceCache, writeDeviceCache } from '@/lib/db/device-cache'
+import { moveInlineImagesToStorage } from '@/lib/storage/shop-images'
 import type { DocumentTemplate, TemplateTargetGroup } from '@/lib/types/document'
 
 interface DocumentTemplateRow {
@@ -70,18 +72,61 @@ function toRowData(template: NewDocumentTemplate) {
   }
 }
 
+/** Every column except template_schema (the form text; older forms still carry their page pictures inside). */
+const TEMPLATE_LIST_COLUMNS =
+  'id, name, category, target_group, source, file_type, file_name, paper_size, orientation, page_count, version, is_default, description, default_terms, status, status_reason, created_at, created_by, updated_at, updated_by'
+
+/** The page images already on this device, by form id; `stamp` says which saved form they belong to. */
+type SavedSchemas = Record<string, { stamp: string; schema: string }>
+const SAVED_SCHEMAS_KEY = 'document-template-schemas:v1'
+
+// Forms are only created or deleted (no edit RPC); version + updated_at still mark any change.
+const schemaStamp = (row: Omit<DocumentTemplateRow, 'template_schema'>) => `${row.version}|${row.updated_at}|${row.page_count}`
+
+/**
+ * The shop's active forms. The list is read without the page images; only forms whose images are
+ * not on this device yet are downloaded (2026-11-19 speed: was ~6 MB on every app start / print).
+ */
 export async function fetchDocumentTemplates(): Promise<DocumentTemplate[]> {
   const supabase = createClient()
-  const rows = await selectRows<DocumentTemplateRow>(
-    supabase.from('document_templates').select('*').eq('status', 'ACTIVE').order('created_at', { ascending: false })
+  const rows = await selectRows<Omit<DocumentTemplateRow, 'template_schema'>>(
+    supabase.from('document_templates').select(TEMPLATE_LIST_COLUMNS).eq('status', 'ACTIVE').order('created_at', { ascending: false })
   )
-  return rows.map(toDocumentTemplate)
+  const saved = (await readDeviceCache<SavedSchemas>(SAVED_SCHEMAS_KEY)) ?? {}
+  const missing = rows.filter((row) => saved[row.id]?.stamp !== schemaStamp(row)).map((row) => row.id)
+  const downloaded = new Map<string, string>()
+  if (missing.length > 0) {
+    const schemaRows = await readByIds(missing, (ids) =>
+      selectRows<{ id: string; template_schema: string }>(supabase.from('document_templates').select('id, template_schema').in('id', ids))
+    )
+    for (const row of schemaRows) downloaded.set(row.id, row.template_schema)
+  }
+
+  const templates: DocumentTemplate[] = []
+  const nextSaved: SavedSchemas = {}
+  for (const row of rows) {
+    const schema = downloaded.get(row.id) ?? (saved[row.id]?.stamp === schemaStamp(row) ? saved[row.id].schema : undefined)
+    // A form deleted between the two reads is left out, as the next full read would.
+    if (schema === undefined) continue
+    nextSaved[row.id] = { stamp: schemaStamp(row), schema }
+    templates.push(toDocumentTemplate({ ...row, template_schema: schema }))
+  }
+  // Deleted forms drop out of the saved images too.
+  if (missing.length > 0 || Object.keys(saved).length !== Object.keys(nextSaved).length) {
+    await writeDeviceCache(SAVED_SCHEMAS_KEY, nextSaved)
+  }
+  return templates
 }
 
+/**
+ * Saves a new form. Its page pictures (data:image/… inside the form text) go to Storage first and the form keeps
+ * only their addresses (owner 2026-11-20: 7 forms were 5.9 MB of pictures inside the database).
+ */
 export async function createDocumentTemplate(id: string, template: NewDocumentTemplate): Promise<DocumentTemplate> {
+  const templateSchema = await moveInlineImagesToStorage(template.templateSchema)
   const row = await rpc<DocumentTemplateRow>('document_template_create', {
     p_template_id: id,
-    p_data: toRowData(template),
+    p_data: toRowData({ ...template, templateSchema }),
   })
   return toDocumentTemplate(row)
 }

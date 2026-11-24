@@ -40,6 +40,7 @@
     "jspdf": "^4.2.1",
     "lucide-react": "^1.28.0",
     "mammoth": "^1.13.0",
+    "modern-screenshot": "^4.7.0",
     "next": "15.5.28",
     "pdfjs-dist": "^6.4.299",
     "qrcode": "^1.5.4",
@@ -51,6 +52,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.7",
     "@opennextjs/cloudflare": "1.20.15",
     "@playwright/test": "^1.62.1",
     "@testing-library/react": "^16.3.2",
@@ -59,7 +61,6 @@
     "@types/react-dom": "^18",
     "@vitejs/plugin-react": "^6.0.5",
     "@vitest/coverage-v8": "4.1.12",
-    "@eslint/eslintrc": "^3.3.7",
     "eslint": "^9.39.5",
     "eslint-config-next": "15.5.28",
     "jsdom": "^30.0.1",

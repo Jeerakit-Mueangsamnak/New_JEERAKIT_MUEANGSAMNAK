@@ -35,11 +35,51 @@ export class MockLineProvider implements LineProvider {
   }
 
   /** No LINE in mock mode: the display name stays unknown. */
-  async profile(): Promise<{ displayName: string } | null> {
+  async profile(): Promise<{ displayName: string; pictureUrl?: string | null } | null> {
     return null
   }
 
+  /** Chat menu calls, in order, so a test can see exactly what would have gone to LINE. */
+  readonly richMenu: Array<{ call: string; args: unknown[] }> = []
+  private menuSeq = 0
+  private scriptedMenu: ProviderResult[] = []
+  /** Next chat menu results, in order; when empty every call succeeds. */
+  queueMenu(...results: ProviderResult[]): this {
+    this.scriptedMenu.push(...results)
+    return this
+  }
+  private menu(call: string, args: unknown[]): ProviderResult {
+    this.richMenu.push({ call, args })
+    return this.scriptedMenu.shift() ?? { ok: true, status: 200, requestId: `mock-menu-${this.richMenu.length}` }
+  }
+  async createRichMenu(body: unknown): Promise<ProviderResult & { richMenuId?: string }> {
+    const r = this.menu('create', [body])
+    this.menuSeq++
+    return r.ok ? { ...r, richMenuId: `richmenu-${this.menuSeq.toString(16).padStart(32, '0')}` } : r
+  }
+  async uploadRichMenuImage(richMenuId: string, image: Uint8Array, contentType: string): Promise<ProviderResult> {
+    return this.menu('upload', [richMenuId, image.byteLength, contentType])
+  }
+  async setDefaultRichMenu(richMenuId: string): Promise<ProviderResult> {
+    return this.menu('setDefault', [richMenuId])
+  }
+  async cancelDefaultRichMenu(): Promise<ProviderResult> {
+    return this.menu('cancelDefault', [])
+  }
+  async linkRichMenu(userId: string, richMenuId: string): Promise<ProviderResult> {
+    return this.menu('link', [userId, richMenuId])
+  }
+  async unlinkRichMenu(userId: string): Promise<ProviderResult> {
+    return this.menu('unlink', [userId])
+  }
+  async deleteRichMenu(richMenuId: string): Promise<ProviderResult> {
+    return this.menu('delete', [richMenuId])
+  }
+
   reset(): void {
+    this.richMenu.length = 0
+    this.menuSeq = 0
+    this.scriptedMenu = []
     this.pushed.length = 0
     this.replied.length = 0
     this.accepted.clear()

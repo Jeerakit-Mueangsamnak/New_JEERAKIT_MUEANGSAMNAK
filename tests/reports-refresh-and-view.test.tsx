@@ -12,6 +12,13 @@ const mocks = vi.hoisted(() => ({
 vi.mock('next/navigation', () => ({ useSearchParams: () => ({ get: () => mocks.view }) }))
 vi.mock('@/components/common/MasterDataProvider', () => ({ loadAllBusinessData: mocks.load }))
 vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: mocks.showToast }) }))
+vi.mock('@/features/bills/services/bill-storage', () => ({ fetchClosedBills: vi.fn().mockResolvedValue([]) }))
+vi.mock('@/features/finance/services/finance-storage', () => ({
+  ensureTransactionsSince: vi.fn().mockResolvedValue([]),
+  ensureRevenueLedgerSince: vi.fn().mockResolvedValue([]),
+  fetchTransactionsFromSupabase: vi.fn().mockResolvedValue([]),
+}))
+vi.mock('@/features/quotations/services/quotation-storage', () => ({ fetchQuotationsFromSupabase: vi.fn().mockResolvedValue([]) }))
 vi.mock('@/features/reports/services/report-data', () => ({
   getFinanceReportData: () => ({}),
   getSalesRentalReportData: () => ({}),
@@ -41,6 +48,7 @@ describe('reports page (audit UX-16 / UX-17)', () => {
   it('a refresh that fails says so (the old data stays on screen)', async () => {
     mocks.load.mockRejectedValue(new Error('network'))
     render(<ReportsPage />)
+    await screen.findByText('รายงานการเงิน')
     await act(async () => {
       fireEvent.click(screen.getByText('รีเฟรช'))
     })
@@ -51,6 +59,7 @@ describe('reports page (audit UX-16 / UX-17)', () => {
   it('a refresh that works shows no error', async () => {
     mocks.load.mockResolvedValue(undefined)
     render(<ReportsPage />)
+    await screen.findByText('รายงานการเงิน')
     await act(async () => {
       fireEvent.click(screen.getByText('รีเฟรช'))
     })

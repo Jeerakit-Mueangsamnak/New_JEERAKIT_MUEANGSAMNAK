@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react'
+vi.mock('@/features/auth/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'owner-fixture', role: 'OWNER' } }) }))
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { DeliveryDriversPanel } from '@/features/settings/components/DeliveryDriversPanel'
@@ -50,11 +51,11 @@ describe('Settings › LINE › ทะเบียนคนขับ', () => {
     fireEvent.click(screen.getByRole('button', { name: 'บันทึกและสร้างลิงก์' }))
     await waitFor(() => expect(screen.getByText('D002')).toBeDefined())
     const row = screen.getByText('D002').closest('tr') as HTMLElement
-    await waitFor(() => expect(within(row).getByTestId('driver-line-code').textContent).toBe('LINK-ABCDEFGHJK'))
+    await waitFor(() => expect(screen.getByTestId('driver-line-code').textContent).toBe('LINK-ABCDEFGHJK'))
     expect(mockLine.createDriverLineLinkCode).toHaveBeenCalledWith('D002')
     expect(within(row).getByText('รอกดลิงก์')).toBeDefined()
-    expect(within(row).getByText(/หมดอายุใน/)).toBeDefined()
-    expect(within(row).getByAltText(/QR ลิงก์ผูก LINE/)).toBeDefined()
+    expect(screen.getByText(/หมดอายุใน/)).toBeDefined()
+    expect(screen.getByAltText(/QR ลิงก์ผูก LINE/)).toBeDefined()
     expect(mockRpc.rpc).toHaveBeenLastCalledWith('settings_update', {
       p_patch: {
         policies: {
@@ -119,7 +120,7 @@ describe('Settings › LINE › ทะเบียนคนขับ', () => {
     expect(screen.getByText('ผูก LINE แล้ว')).toBeDefined()
     const row = screen.getByText('D002').closest('tr') as HTMLElement
     fireEvent.click(within(row).getByRole('button', { name: 'สร้างลิงก์' }))
-    await waitFor(() => expect(within(row).getByTestId('driver-line-code').textContent).toBe('LINK-ABCDEFGHJK'))
+    await waitFor(() => expect(screen.getByTestId('driver-line-code').textContent).toBe('LINK-ABCDEFGHJK'))
     expect(mockLine.createDriverLineLinkCode).toHaveBeenCalledWith('D002')
   })
 

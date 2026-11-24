@@ -15,7 +15,7 @@ import {
   TAB_CONTAINER_CLASSES,
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
-  TAB_BUTTON_INACTIVE_CLASSES, COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+  TAB_BUTTON_INACTIVE_CLASSES, COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 import { useToast } from '@/components/common/Toast'
 import { logger } from '@/lib/utils/logger'
 import { JobSummaryCard } from '@/features/appointments/components/JobSummaryCard'
@@ -402,7 +402,7 @@ export default function AppointmentsPage() {
                 <>
                   <ActionButton
                     onClick={() => loadData(true)}
-                    variant="neutral"
+                    variant="info"
                     className="w-8 px-0"
                     title="รีเฟรชข้อมูล"
                     icon={<RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />}
@@ -509,7 +509,7 @@ export default function AppointmentsPage() {
                         <button
                           type="button"
                           onClick={() => setReasonStatus(null)}
-                          className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer`}
+                          className={`${COMMAND_BUTTON_SIZE_CLASSES} border cursor-pointer ${BUTTON_FUNCTION_COLOURS.cancel}`}
                         >
                           ไม่ใช่ตอนนี้
                         </button>
@@ -601,7 +601,7 @@ export default function AppointmentsPage() {
                                   <p className="font-mono font-bold text-emerald-700 dark:text-emerald-400 truncate">{panelApt.billNo}</p>
                                   {panelApt.billId && (
                                     <ActionButton
-                                      variant="outline"
+                                      variant="info"
                                       onClick={() => handleBillClick(panelApt)}
                                                                             title={`เปิดบิล ${panelApt.billNo}`}
                                     >

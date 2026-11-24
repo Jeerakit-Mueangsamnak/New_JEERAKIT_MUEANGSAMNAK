@@ -457,7 +457,7 @@ export function ProductCreateView({
               type="button"
               onClick={onClearDraft}
               disabled={isSubmitting}
-              variant="outline"
+              variant="clear"
             >
               ล้างแบบร่าง
             </ActionButton>

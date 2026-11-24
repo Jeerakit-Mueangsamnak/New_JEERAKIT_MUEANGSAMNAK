@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react'
+vi.mock('@/features/auth/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'owner-fixture', role: 'OWNER' } }) }))
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 

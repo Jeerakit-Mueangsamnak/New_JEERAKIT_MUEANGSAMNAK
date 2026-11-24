@@ -27,6 +27,7 @@ export const BILL_MOVEMENT_LABELS: Record<string, string> = {
   RENTAL_CONTINUATION_CREATE: 'เช่าต่อ',
   CARRY_FORWARD_REVERSE: 'ยกเลิกเช่าต่อ',
   BILL_CORRECT: 'แก้ไขรายละเอียดบิล',
+  BILL_SET_CUSTOMER: 'เปลี่ยนลูกค้าในบิล',
   BILL_ADJUST: 'ปรับยอดบิล',
   WRITE_OFF: 'ตัดหนี้สูญ',
   OVERDUE_REVIEW: 'ตรวจบิลเกินกำหนด',

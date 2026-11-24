@@ -15,6 +15,7 @@ vi.mock('@/features/finance/services/finance-storage', async (orig) => ({
   ...(await orig<object>()),
   loadTransactions: vi.fn(() => []),
   fetchTransactionsFromSupabase: vi.fn(async () => []),
+  ensureTransactionsSince: vi.fn(async () => []),
   // Each save stays pending until the test releases or fails it.
   addManualTransaction: vi.fn(
     () =>

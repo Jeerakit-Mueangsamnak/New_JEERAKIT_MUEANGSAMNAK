@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React from 'react'
 import { AppModal, AppModalHeader, AppModalBody, AppModalFooter } from '@/components/common/AppModal'
@@ -46,7 +46,7 @@ export function BatchDeleteModal({
         <button
           type="button"
           onClick={onClose}
-          className={`${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer`}
+          className={`${COMMAND_BUTTON_SIZE_CLASSES} border cursor-pointer ${BUTTON_FUNCTION_COLOURS.cancel}`}
         >
           ยกเลิก
         </button>

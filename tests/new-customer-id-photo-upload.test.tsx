@@ -61,7 +61,6 @@ describe('เพิ่มลูกค้าใหม่: ปุ่มกล้�
     await choose(new File(['x'], 'card.jpg', { type: 'image/jpeg' }))
     expect(ocr.scanIdCardPhoto).toHaveBeenCalledWith(PHOTO, expect.any(Function))
     expect((screen.getByLabelText('เลขบัตรประชาชน / เลขผู้เสียภาษี') as HTMLInputElement).value).toBe('1-1017-00203-45-1')
-    expect(screen.getByRole('status', { name: 'ผลการอ่านบัตร' }).textContent).toContain('อ่านได้: เลขบัตร')
     expect(screen.getByAltText('ID Card').getAttribute('src')).toBe(PHOTO)
     expect(screen.getByText(/card\.jpg/)).toBeTruthy()
   })

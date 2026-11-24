@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Delete, LogOut, AlertCircle, ShieldAlert } from 'lucide-react'
@@ -218,7 +218,7 @@ export function PinLockScreen({ onUnlockSuccess }: PinLockScreenProps) {
               onMouseDown={preventMouseFocus}
               onClick={(event) => activateKeypadButton(event, () => handleDigitPress(num.toString()))}
               aria-label={`ตัวเลข ${num}`}
-              className="aspect-square w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 active:bg-blue-600 active:text-white border border-slate-300 dark:border-slate-700/80 text-slate-900 dark:text-white font-black text-xl sm:text-2xl flex items-center justify-center mx-auto transition-all shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 dark:focus-visible:ring-blue-400 active:scale-95 disabled:opacity-40 disabled:pointer-events-none cursor-pointer select-none"
+              className="aspect-square w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700/80 text-slate-900 dark:text-white font-black text-xl sm:text-2xl flex items-center justify-center mx-auto shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 dark:focus-visible:ring-blue-400 [-webkit-tap-highlight-color:transparent] disabled:opacity-40 disabled:pointer-events-none cursor-pointer select-none"
             >
               {num}
             </button>
@@ -246,7 +246,7 @@ export function PinLockScreen({ onUnlockSuccess }: PinLockScreenProps) {
             onMouseDown={preventMouseFocus}
             onClick={(event) => activateKeypadButton(event, () => handleDigitPress('0'))}
             aria-label="ตัวเลข 0"
-            className="aspect-square w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 active:bg-blue-600 active:text-white border border-slate-300 dark:border-slate-700/80 text-slate-900 dark:text-white font-black text-xl sm:text-2xl flex items-center justify-center mx-auto transition-all shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 dark:focus-visible:ring-blue-400 active:scale-95 disabled:opacity-40 disabled:pointer-events-none cursor-pointer select-none"
+            className="aspect-square w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700/80 text-slate-900 dark:text-white font-black text-xl sm:text-2xl flex items-center justify-center mx-auto shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 dark:focus-visible:ring-blue-400 [-webkit-tap-highlight-color:transparent] disabled:opacity-40 disabled:pointer-events-none cursor-pointer select-none"
           >
             0
           </button>
@@ -270,7 +270,7 @@ export function PinLockScreen({ onUnlockSuccess }: PinLockScreenProps) {
       <button
         type="button"
         onClick={handleLogout}
-        className={`${COMMAND_BUTTON_SIZE_CLASSES} fixed bottom-3 right-3 sm:bottom-5 sm:right-5 z-[60] bg-slate-100 dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-950/60 text-slate-700 dark:text-slate-200 hover:text-red-700 dark:hover:text-red-400 border border-slate-300 dark:border-slate-700 flex items-center transition-colors cursor-pointer shadow-sm`}
+        className={`${COMMAND_BUTTON_SIZE_CLASSES} fixed bottom-3 right-3 sm:bottom-5 sm:right-5 z-[60] border flex items-center transition-colors cursor-pointer shadow-sm ${BUTTON_FUNCTION_COLOURS.cancel}`}
         title="ออกจากระบบ"
       >
         <LogOut className="w-4 h-4" />

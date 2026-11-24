@@ -1,4 +1,6 @@
-import { createLineProvider } from '@/lib/line/provider'
+import { liffUrl } from '@/lib/line/liff-links'
+import { createLineProvider, lineDeliveryMode } from '@/lib/line/provider'
+import { syncRichMenus } from '@/lib/line/rich-menu-sync'
 import { verifyLineSignature } from '@/lib/line/signature'
 import { createSupabaseLineStore } from '@/lib/line/supabase-store'
 import { handleLineWebhook, MAX_BODY_BYTES } from '@/lib/line/webhook'
@@ -41,14 +43,20 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ ok: false, error: 'BAD_SIGNATURE' }, { status: 401 })
     }
     const profile = await store.shopProfile()
+    const live = lineDeliveryMode() === 'live' && keys.accessToken !== ''
+    const provider = createLineProvider(keys.accessToken)
     // handleLineWebhook checks the size and the signature again (it is also used on its own).
     const result = await handleLineWebhook({
       rawBody,
       signature,
       channelSecret: keys.channelSecret,
       store,
-      provider: createLineProvider(keys.accessToken),
+      provider,
       shopName: profile.shopName,
+      shopPhone: profile.phone,
+      registerUrl: liffUrl('register'),
+      // a new friend gets their chat menu at once; only with real LINE (the mock must not mark anyone as done)
+      afterFollow: live ? async (lineUserId) => void (await syncRichMenus({ store, provider, lineUserId })) : undefined,
       templates: profile.templates,
     })
     return Response.json(result.body, { status: result.status })

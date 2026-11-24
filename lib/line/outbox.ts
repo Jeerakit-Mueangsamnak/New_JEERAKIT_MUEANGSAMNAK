@@ -19,6 +19,8 @@ export interface ClaimedDelivery {
 }
 
 export interface OutboxStore {
+  /** Re-check after leasing, so a newly unlinked/suspended recipient is cancelled before pushing. */
+  canSend?(deliveryId: string): Promise<boolean>
   claim(limit: number, leaseSeconds: number): Promise<ClaimedDelivery[]>
   complete(
     id: string,
@@ -28,6 +30,7 @@ export interface OutboxStore {
 }
 
 export interface OutboxRunResult {
+  cancelled?: number
   claimed: number
   sent: number
   retried: number
@@ -46,6 +49,10 @@ export async function processOutbox(opts: {
   const result: OutboxRunResult = { claimed: rows.length, sent: 0, retried: 0, dead: 0 }
 
   for (const row of rows) {
+    if (opts.store.canSend && !(await opts.store.canSend(row.id))) {
+      result.cancelled = (result.cancelled ?? 0) + 1
+      continue
+    }
     let messages: LineMessage[]
     try {
       assertValidMessages(row.messages)

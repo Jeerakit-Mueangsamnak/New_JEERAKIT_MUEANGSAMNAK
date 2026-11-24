@@ -8,19 +8,29 @@ import {
 import { StatusPill } from '@/features/settings/components/StatusPill'
 import { REF_BUTTON, REF_BUTTON_QUIET } from '@/features/settings/components/SettingsCards'
 import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
-import { BellRing, Copy, KeyRound, Link2, RotateCcw, Trash2 } from 'lucide-react'
+import { BellRing, ClipboardCheck, Copy, KeyRound, Link2, RotateCcw, Trash2, UserPlus } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { clearLineSecrets, getLineSecretStatus, saveLineSecrets, type LineSecretStatus } from '@/app/actions/system-secrets'
 import { LINE_TEMPLATES, type LineTemplateKey } from '@/lib/line/templates'
-import { LINE_EDITABLE_TEMPLATES, LINE_NOTIFY_EVENTS, type LineNotifyEventType } from '@/lib/line/config'
+import {
+  LINE_EDITABLE_TEMPLATES,
+  LINE_NOTIFY_EVENTS,
+  LINE_NUMBER_OPTIONS, LINE_ABUSE_NUMBER_KEYS,
+  LINE_REGISTER_FIELDS,
+  LINE_REGISTER_FIELD_LABELS,
+  type LineNotifyEventType,
+  type LineTemplateCategory,
+} from '@/lib/line/config'
+import { NumericInput } from '@/components/common/NumericInput'
 import type { SystemConfig } from '@/features/settings/services/settings-storage'
 import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 import { LineChatPreview, type LineChatBubble } from '@/features/settings/components/LineChatPreview'
 import { LineSchedulePanel } from '@/features/settings/components/LineSchedulePanel'
+import { LineCatalogSettings } from '@/features/settings/components/line/LineCatalogSettings'
 import { LineFormsRow } from '@/features/settings/components/LineFormsCard'
 import { LineBlockTitle, LineEditorLayout, LineListItem } from '@/features/settings/components/LineEditorLayout'
-import { SETTINGS_ROW_INPUT, SettingsRow, SettingsRowsCard, SettingsSwitch } from '@/features/settings/components/SettingsRows'
+import { SETTINGS_ROW_INPUT, SETTINGS_ROW_NUMBER, SettingsRow, SettingsRowsCard, SettingsSwitch } from '@/features/settings/components/SettingsRows'
 
 /**
  * LINE settings pages of the LINE menu (owner 2026-11-17: 4 groups, no page scroll):
@@ -34,11 +44,14 @@ import { SETTINGS_ROW_INPUT, SettingsRow, SettingsRowsCard, SettingsSwitch } fro
 export { LINE_NOTIFY_EVENTS, LINE_EDITABLE_TEMPLATES } from '@/lib/line/config'
 
 /** The LINE pages that edit the settings draft (each saved on its own). */
-export type LineSettingsView = 'NOTIFY' | 'TEMPLATES' | 'SCHEDULE'
+export type LineSettingsView = 'NOTIFY' | 'TEMPLATES' | 'SCHEDULE' | 'FRIEND' | 'REGISTER' | 'CATALOG'
 export const LINE_SETTINGS_VIEWS: ReadonlyArray<{ id: LineSettingsView; label: string }> = [
-  { id: 'TEMPLATES', label: 'ข้อความอัตโนมัติ' },
+  { id: 'TEMPLATES', label: 'แก้ไขข้อความ' },
   { id: 'NOTIFY', label: 'แจ้งพนักงาน' },
   { id: 'SCHEDULE', label: 'เตือนลูกค้า' },
+  { id: 'FRIEND', label: 'การเพิ่มเพื่อน' },
+  { id: 'REGISTER', label: 'การลงทะเบียน' },
+  { id: 'CATALOG', label: 'รายการสินค้า' },
 ]
 
 /** Sample values for the chat preview only (never real data). */
@@ -57,6 +70,10 @@ const SAMPLE_VARS: Record<string, string> = {
   วันครบ: '12 ต.ค. 2569',
   วันนัด: '12 ต.ค. 2569 10:00',
   ยอดค้าง: '1,500',
+  เบอร์โทรร้าน: '081-234-5678',
+  รายการ: 'แบบคาน 40x1.00',
+  หมวด: 'แบบคาน',
+  ข้อความจากร้าน: 'ขอที่อยู่ด้วยค่ะ',
 }
 
 /** Sample line per staff notice type, for the preview of แจ้งพนักงาน. */
@@ -99,10 +116,23 @@ function templateBubbles(key: LineTemplateKey, templates: Record<string, string>
       return [{ from: 'me', text: 'เสร็จแล้ว' }, { from: 'shop', text: text('TASK_DONE') }]
     case 'REGISTER_RETRY':
       return [{ from: 'shop', text: text('REGISTER_WELCOME') }, { from: 'me', text: 'สวัสดีค่ะ' }, { from: 'shop', text: text('REGISTER_RETRY') }]
-    case 'LINK_SUCCESS':
-    case 'REGISTER_PHONE_TAKEN':
     case 'REGISTER_PENDING':
-      return [{ from: 'shop', text: text('REGISTER_WELCOME') }, typed, { from: 'shop', text: text(key) }]
+      return [{ from: 'shop', text: text('REGISTER_WELCOME') }, typed, { from: 'shop', text: text('REGISTER_PENDING') }]
+    case 'REGISTER_NEED_INFO':
+    case 'REGISTER_APPROVED':
+    case 'REGISTER_REJECTED':
+      return [{ from: 'shop', text: text('REGISTER_WELCOME') }, typed, { from: 'shop', text: text('REGISTER_PENDING') }, { from: 'shop', text: text(key) }]
+    case 'LINK_SUCCESS':
+      return [{ from: 'me', text: 'LINK-ABCDEFGHJK' }, { from: 'shop', text: text('LINK_SUCCESS') }]
+    case 'LINK_INVALID':
+    case 'LINK_EXPIRED':
+    case 'LINK_LOCKED':
+    case 'LINK_TAKEN':
+      return [{ from: 'me', text: 'LINK-ABCDEFGHJK' }, { from: 'shop', text: text(key) }]
+    case 'PRICE_INQUIRY_REPLY':
+      return [{ from: 'me', text: 'สอบถามราคา: แบบคาน 40x1.00' }, { from: 'shop', text: text('PRICE_INQUIRY_REPLY') }]
+    case 'PREORDER_INQUIRY_REPLY':
+      return [{ from: 'me', text: 'สอบถามสั่งสินค้าล่วงหน้า: แบบคาน 40x1.00' }, { from: 'shop', text: text('PREORDER_INQUIRY_REPLY') }]
     default:
       return [{ from: 'shop', text: text(key) }]
   }
@@ -259,12 +289,15 @@ interface LineSettingsPanelProps {
   config: SystemConfig
   setConfig: Dispatch<SetStateAction<SystemConfig>>
   view: LineSettingsView
-  /** แจ้งพนักงาน: the page save buttons, shown in the last row of its card */
+  /** The pages made of one card (แจ้งพนักงาน, การเพิ่มเพื่อน, การลงทะเบียน): the page save buttons, in the last row of the card */
   footer?: ReactNode
+  /** แก้ไขข้อความ: which of the four groups of texts is open (all of them when left out) */
+  templateCategory?: LineTemplateCategory
 }
 
-export function LineSettingsPanel({ config, setConfig, view, footer }: LineSettingsPanelProps) {
+export function LineSettingsPanel({ config, setConfig, view, footer, templateCategory }: LineSettingsPanelProps) {
   const [focusEvent, setFocusEvent] = useState<LineNotifyEventType>(LINE_NOTIFY_EVENTS[0].type)
+  const templateList = LINE_EDITABLE_TEMPLATES.filter((t) => !templateCategory || t.category === templateCategory)
   const [tplKey, setTplKey] = useState<LineTemplateKey>(LINE_EDITABLE_TEMPLATES[0].key)
   const tplRef = useRef<HTMLTextAreaElement>(null)
   const line = config.line
@@ -274,7 +307,7 @@ export function LineSettingsPanel({ config, setConfig, view, footer }: LineSetti
   const onCount = LINE_NOTIFY_EVENTS.filter((ev) => line.notify[ev.type] === true).length
   const focusLabel = LINE_NOTIFY_EVENTS.find((e) => e.type === focusEvent)?.label ?? ''
 
-  const tpl = LINE_EDITABLE_TEMPLATES.find((t) => t.key === tplKey) ?? LINE_EDITABLE_TEMPLATES[0]
+  const tpl = templateList.find((t) => t.key === tplKey) ?? templateList[0] ?? LINE_EDITABLE_TEMPLATES[0]
   const tplDraft = line.templates[tpl.key] ?? ''
   const unknown = unknownVars(tpl.key, tplDraft)
   const setTemplate = (key: LineTemplateKey, value: string) => {
@@ -301,6 +334,135 @@ export function LineSettingsPanel({ config, setConfig, view, footer }: LineSetti
       <div className="flex-1 min-h-0 overflow-y-auto p-3">
         <LineSchedulePanel config={config} setConfig={setConfig} />
       </div>
+    )
+  }
+
+  if (view === 'CATALOG') return <LineCatalogSettings config={config} setConfig={setConfig} footer={footer} />
+
+  const welcomeOn = line.friend.welcome !== false
+  if (view === 'FRIEND') {
+    return (
+      <LineEditorLayout
+        preview={
+          <LineChatPreview
+            shopName={shopName}
+            caption={<b className="text-slate-800 dark:text-slate-200">เพื่อนใหม่จะเห็นแบบนี้</b>}
+            bubbles={[
+              welcomeOn
+                ? { from: 'shop', text: fill(effectiveText('REGISTER_WELCOME', line.templates.REGISTER_WELCOME), vars) }
+                : { from: 'shop', text: 'ปิดอยู่ ระบบไม่ส่งข้อความต้อนรับ', empty: true },
+            ]}
+          />
+        }
+      >
+        <SettingsRowsCard title="การเพิ่มเพื่อน" icon={UserPlus} footer={footer}>
+          <SettingsRow label="ส่งข้อความต้อนรับเมื่อมีเพื่อนใหม่">
+            <SettingsSwitch label="ส่งข้อความต้อนรับเมื่อมีเพื่อนใหม่" checked={welcomeOn} onChange={(on) => setLine({ friend: { ...line.friend, welcome: on } })} />
+          </SettingsRow>
+          <SettingsRow label="แจ้งเจ้าของเมื่อมีเพื่อนใหม่">
+            <SettingsSwitch label="แจ้งเจ้าของเมื่อมีเพื่อนใหม่" checked={line.friend.notifyOwner === true} onChange={(on) => setLine({ friend: { ...line.friend, notifyOwner: on } })} />
+          </SettingsRow>
+          <SettingsRow label="ข้อความทักทายของ LINE Official Account Manager" description="ต้องปิดที่ LINE OA Manager เอง ถ้าเปิดไว้เพื่อนใหม่จะได้รับข้อความต้อนรับซ้ำสองข้อความ" />
+          <SettingsRow label="เมื่อบล็อก" description="หยุดส่งข้อความหาคนนั้นเอง และแสดงในหน้า บล็อก LINE OA" />
+          <SettingsRow label="เมื่อปลดบล็อก" description="กลับมาส่งได้เอง ไม่ส่งข้อความต้อนรับซ้ำ และไม่เปลี่ยนสถานะลงทะเบียน" />
+          <SettingsRow label="เพื่อนเดิมที่กลับมาเพิ่มใหม่" description="ใช้ข้อมูลเดิม ไม่สร้างรายการซ้ำ และไม่ลบคำขอลงทะเบียนที่รออยู่" />
+        </SettingsRowsCard>
+      </LineEditorLayout>
+    )
+  }
+
+  if (view === 'REGISTER') {
+    const reg = line.register
+    const setReg = (patch: Partial<SystemConfig['line']['register']>) => setLine({ register: { ...reg, ...patch } })
+    const setRequired = (field: string, on: boolean) => {
+      const required = { ...(reg.required ?? {}) }
+      if (on) required[field] = true
+      else delete required[field]
+      const next: SystemConfig['line']['register'] = { ...reg, required }
+      if (Object.keys(required).length === 0) delete next.required
+      setLine({ register: next })
+    }
+    const setOtherNumber = (key: string, value: number | undefined) =>
+      setConfig((c) => {
+        const next = { ...c.line.other }
+        if (value === undefined) delete next[key]
+        else next[key] = value
+        return { ...c, line: { ...c.line, other: next } }
+      })
+    const ownerLine = reg.notifyOwner !== false
+    return (
+      <LineEditorLayout
+        preview={
+          <LineChatPreview
+            shopName={shopName}
+            caption={<b className="text-slate-800 dark:text-slate-200">ผู้ลงทะเบียนจะเห็นแบบนี้</b>}
+            bubbles={[
+              { from: 'me', text: 'สมชาย ใจดี 0812345678' },
+              { from: 'shop', text: fill(effectiveText('REGISTER_PENDING', line.templates.REGISTER_PENDING), vars) },
+              reg.notifyApproved !== false
+                ? { from: 'shop', text: fill(effectiveText('REGISTER_APPROVED', line.templates.REGISTER_APPROVED), vars) }
+                : { from: 'shop', text: 'ปิดอยู่ ระบบไม่แจ้งผลเมื่ออนุมัติ', empty: true },
+            ]}
+          />
+        }
+      >
+        <SettingsRowsCard title="การลงทะเบียน" icon={ClipboardCheck} footer={footer}>
+          <SettingsRow label="แจ้งเจ้าของเมื่อมีคำขอลงทะเบียน">
+            <SettingsSwitch label="แจ้งเจ้าของเมื่อมีคำขอลงทะเบียน" checked={ownerLine} onChange={(on) => setReg({ notifyOwner: on })} />
+          </SettingsRow>
+          <SettingsRow label="แจ้งผู้ลงทะเบียนเมื่ออนุมัติ">
+            <SettingsSwitch label="แจ้งผู้ลงทะเบียนเมื่ออนุมัติ" checked={reg.notifyApproved !== false} onChange={(on) => setReg({ notifyApproved: on })} />
+          </SettingsRow>
+          <SettingsRow label="แจ้งผู้ลงทะเบียนเมื่อปฏิเสธ">
+            <SettingsSwitch label="แจ้งผู้ลงทะเบียนเมื่อปฏิเสธ" checked={reg.notifyRejected !== false} onChange={(on) => setReg({ notifyRejected: on })} />
+          </SettingsRow>
+          {LINE_REGISTER_FIELDS.map((field) => (
+            <SettingsRow key={field} label={`ต้องกรอก${LINE_REGISTER_FIELD_LABELS[field]}`}>
+              <SettingsSwitch label={`ต้องกรอก${LINE_REGISTER_FIELD_LABELS[field]}`} checked={reg.required?.[field] === true} onChange={(on) => setRequired(field, on)} />
+            </SettingsRow>
+          ))}
+          {([...(['linkCodeTtlMinutes', 'linkMaxFailures'] as const), ...LINE_ABUSE_NUMBER_KEYS]).map((key) => {
+            const o = LINE_NUMBER_OPTIONS[key]
+            const value = typeof line.other[key] === 'number' ? (line.other[key] as number) : o.default
+            return (
+              <SettingsRow key={key} label={<label htmlFor={`line-opt-${key}`}>{o.label}</label>}>
+                <NumericInput
+                  id={`line-opt-${key}`}
+                  value={value}
+                  min={o.min}
+                  max={o.max}
+                  allowDecimals={false}
+                  defaultValueOnBlur={o.default}
+                  onChange={(v) => setOtherNumber(key, v === '' ? undefined : Math.min(Math.max(v, o.min), o.max))}
+                  className={SETTINGS_ROW_NUMBER}
+                />
+              </SettingsRow>
+            )
+          })}
+          <SettingsRow label="ระงับอัตโนมัติเมื่อพบการใช้งานผิดปกติ" description="ระงับเฉพาะประเภทที่ฝ่าฝืน เจ้าของยกเลิกการระงับรายคนได้">
+            <SettingsSwitch label="ระงับอัตโนมัติเมื่อพบการใช้งานผิดปกติ" checked={line.other.abuseAutoSuspend !== false} onChange={(on) => setLine({ other: { ...line.other, abuseAutoSuspend: on } })} />
+          </SettingsRow>
+          <SettingsRow label="ผู้ตรวจและอนุมัติ" description="เจ้าของร้านเท่านั้น ตรวจสิทธิ์ซ้ำที่ฐานข้อมูลทุกครั้ง" />
+          <SettingsRow label="ตรวจข้อมูลซ้ำ" description="เทียบเบอร์โทรกับลูกค้าเดิมทุกครั้ง แต่ไม่ผูกให้เอง ร้านเป็นผู้ตัดสิน" />
+        </SettingsRowsCard>
+        <SettingsRowsCard title="ประกาศความเป็นส่วนตัว (แสดงก่อนกดส่งฟอร์ม)" icon={ClipboardCheck}>
+          <div className="p-3">
+            <textarea
+              aria-label="ประกาศความเป็นส่วนตัว"
+              maxLength={1000}
+              value={reg.privacy ?? ''}
+              placeholder="ร้านเก็บชื่อ เบอร์โทร และที่อยู่ที่คุณกรอก เพื่อตรวจสอบการลงทะเบียน และส่งเอกสารหรือการแจ้งเตือนทาง LINE ให้คุณ"
+              onChange={(e) => {
+                const next = { ...reg }
+                if (e.target.value === '') delete next.privacy
+                else next.privacy = e.target.value
+                setLine({ register: next })
+              }}
+              className={`${SETTINGS_INPUT} min-h-[90px] h-auto py-2 leading-relaxed resize-none`}
+            />
+          </div>
+        </SettingsRowsCard>
+      </LineEditorLayout>
     )
   }
 
@@ -353,7 +515,7 @@ export function LineSettingsPanel({ config, setConfig, view, footer }: LineSetti
   // TEMPLATES: ข้อความ › ข้อความอัตโนมัติ
   return (
     <LineEditorLayout
-      list={LINE_EDITABLE_TEMPLATES.map((t) => {
+      list={templateList.map((t) => {
         const custom = (line.templates[t.key] ?? '').trim() !== ''
         return (
           <LineListItem

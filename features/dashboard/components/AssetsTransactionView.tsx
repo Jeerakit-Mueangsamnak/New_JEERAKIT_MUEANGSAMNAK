@@ -1,6 +1,6 @@
 'use client'
 import { CountUp } from '@/components/common/CountUp'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
 
 import React from 'react'
 import Link from 'next/link'
@@ -32,9 +32,11 @@ interface ViewProps {
   onRefresh?: () => void
   /** Money in/out cards need the finance menu (expenses / other income are finance-only data). */
   showFinance?: boolean
+  /** Money rows still being read: the money-in/out cards show no figure until then. */
+  moneyLoading?: boolean
 }
 
-export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }: ViewProps) {
+export function AssetsTransactionView({ metrics, onRefresh, showFinance = true, moneyLoading = false }: ViewProps) {
   const billStatusBarData = [
     { label: 'ชำระแล้ว', count: metrics.billStatusCounts.paid, color: '#10b981' },
     { label: 'กำลังดำเนินการ', count: metrics.billStatusCounts.inProgress, color: '#3b82f6' },
@@ -59,7 +61,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 font-mono">
-                <CountUp value={metrics.netCashReceived} />
+                {moneyLoading ? '…' : <CountUp value={metrics.netCashReceived} />}
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ยอดสะสมทั้งหมด รับจริงหักเงินคืน</span>
@@ -77,7 +79,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-rose-700 dark:text-rose-400 font-mono">
-                <CountUp value={metrics.totalExpense} />
+                {moneyLoading ? '…' : <CountUp value={metrics.totalExpense} />}
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ยอดสะสมทั้งหมด รายจ่ายและเงินคืนลูกค้า</span>
@@ -95,7 +97,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
           <div className="mt-1">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 font-mono">
-                <CountUp value={metrics.netIncome} />
+                {moneyLoading ? '…' : <CountUp value={metrics.netIncome} />}
               </span>
             </div>
             <span className="text-[9.5px] text-slate-600 dark:text-slate-400 block truncate mt-0.5">ยอดสะสมทั้งหมด หลังหักค่าใช้จ่าย</span>
@@ -130,7 +132,7 @@ export function AssetsTransactionView({ metrics, onRefresh, showFinance = true }
                 <button
                   type="button"
                   onClick={onRefresh}
-                  className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer`}
+                  className={`${COMMAND_BUTTON_SIZE_CLASSES} w-8 px-0 inline-flex items-center justify-center transition-colors cursor-pointer ${BUTTON_FUNCTION_COLOURS.open}`}
                   title="รีเฟรชข้อมูล"
                   aria-label="รีเฟรชข้อมูล"
                 >

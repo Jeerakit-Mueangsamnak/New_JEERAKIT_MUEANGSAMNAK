@@ -221,8 +221,24 @@ export function removeThaiAmountTextParentheses(template: string): string {
   )
 }
 
+/**
+ * The shop logo drawn in a form, on its own centre (owner 2026-11-20: "ขยายอีกนิด", then "ใช้หัวโลโก้และล่างโลโก้
+ * อิงจากเส้นขอบ"): its top and bottom come to the frame's own padding (8.3px) from the frame's top line and the
+ * line under the shop details — measured on the shop's form. The size is of the box the form drew; the app had
+ * printed the logo smaller than that (held to its frame's width), so this is about 20% larger than before.
+ */
+const FORM_LOGO_SCALE = 0.96
+
 function enlargeBusinessLogo(html: string): string {
   return html.replace(/<img\b[^>]*>/gi, (image) => {
+    // The logo stored in the form itself (alt "โลโก้..."): its box grows; the box is centred in its frame.
+    if (/\balt\s*=\s*(["'])[^"']*โลโก้/.test(image)) {
+      // max-width: the app's own picture rule (max-width:100%) held the logo to its frame's width, so it did not grow
+      return image.replace(/(\sstyle\s*=\s*")([^"]*)(")/i, (_m, open: string, style: string, close: string) =>
+        `${open}${style.replace(/((?:^|;)\s*(?:width|height):\s*)([\d.]+)px/g, (_d, prop: string, px: string) =>
+          `${prop}${Math.round(Number(px) * FORM_LOGO_SCALE * 1000) / 1000}px`)}; max-width:none; max-height:none${close}`
+      )
+    }
     if (!/\bsrc\s*=\s*(["'])\{\{\s*business\.logo_url\s*\}\}\1/i.test(image)) return image
     const style = /style\s*=\s*(["'])(.*?)\1/i
     if (style.test(image)) {
@@ -283,7 +299,7 @@ function splitTextToWidth(text: string, maxWidth: number, measure: (t: string) =
 
 // ที่อยู่: {{customer.address}} followed by the form's empty dotted line under it.
 const ADDRESS_WITH_NEXT_LINE =
-  /(<span\b[^>]*style="([^"]*)"[^>]*>)\{\{\s*customer\.address\s*\}\}(<\/span>\s*<\/div>\s*<div\b[^>]*>\s*<span\b[^>]*>\s*<\/span>\s*<span\b[^>]*>)\s*(<\/span>)/
+  /(<span\b[^>]*style="([^"]*)"[^>]*>)\{\{\s*customer\.address\s*\}\}​?(<\/span>\s*<\/div>\s*<div\b[^>]*>\s*<span\b[^>]*>\s*<\/span>\s*<span\b[^>]*>)\s*(<\/span>)/
 
 /**
  * A long customer address carries on to the empty dotted line below it instead of being cut to
@@ -407,6 +423,195 @@ function freeItemNumberWidth(html: string): string {
   })
 }
 
+const withoutFixedHeight = (style: string) => style.replace(/(^|;)\s*(?:height|max-height):\s*[^;]*/g, '$1').replace(/;\s*;/g, ';')
+const hasFixedHeight = (style: string) => /(?:^|;)\s*(?:height|max-height):/.test(style)
+
+/**
+ * Every field box (item rows, dates, totals, the amount in words, ...) keeps the fixed height it was drawn
+ * with (14–15 px for 12–13 px text) and hides what does not fit, so the bottom of Thai text (สระล่าง ุ ู as in
+ * "ศูนย์", ฤ) and of a wider font on another device was cut off (owner 2026-11-19 items, 2026-11-20 every field).
+ * Every field — item rows included — is placed like the form's own text in the VAT row (owner 2026-11-20:
+ * "ใช้การตั้งค่าตำแหน่งเหมือนแถวภาษีมูลค่าเพิ่ม สระอูไม่หายและไม่สูง"): it keeps the box it was drawn with, so
+ * it stays level with the text beside it (ยอดรวม | 0.00) and low in its row, and only stops cutting at the
+ * bottom; a text too long is still cut at the side.
+ * Shop details ({{business.*}}) keep their own rule (keepFormTextOnItsLine), underlined details theirs
+ * (clearUnderlines).
+ */
+function freeFieldHeight(html: string): string {
+  return html.replace(/(<span\b[^>]*?style=")([^"]*)("[^>]*>\s*\(?\{\{\s*(?!business\.)([\w.]+)\s*\}\})/g, (match, open: string, style: string, close: string, field: string) => {
+    if (!hasFixedHeight(style) || /border-bottom-style:/.test(style)) return match
+    // An item cell (ลำดับ too, made a block like the rest) takes the height its line needs, so nothing of it is
+    // cut, and sits 1px lower — as low in its row as the VAT row's text in its own (the cell still cuts a name
+    // that is too long at the side).
+    if (field.startsWith('items.')) {
+      return `${open}${withoutFixedHeight(style)}; height:auto; display:block; position:relative; top:${ITEM_TEXT_DROP_PX}px${close}`
+    }
+    // Any other field keeps its box like the form's text beside it and is never cut (iPad: cutting only the
+    // sides of a box is not reliable there, it cut the bottom too).
+    if (!/overflow(?:-[xy])?:\s*hidden/.test(style)) return match
+    return `${open}${style.replace(/(^|;)\s*overflow(?:-[xy])?:\s*hidden/g, '$1').replace(/;\s*;/g, ';')}; overflow:visible${close}`
+  })
+}
+
+/** How much lower an item row's text sits than centred (owner 2026-11-20: "สูงไปนิดนึง ปรับลงมา", VAT row as the example). */
+const ITEM_TEXT_DROP_PX = 1
+
+/** Room between an underlined detail's text line and its line. */
+const UNDERLINE_GAP_PX = 1
+
+/**
+ * An underlined detail (ชื่อลูกค้า, ที่อยู่, เบอร์โทร, ...): the line ran through the bottom of the text
+ * (owner 2026-11-20). The text keeps a line as tall as the box was drawn and the line goes just under it, so
+ * สระล่าง (ุ ู) sit right above the line like the VAT row's text above its line — not cut, not floating high.
+ */
+function clearUnderlines(html: string): string {
+  return html.replace(/(<span\b[^>]*?style=")([^"]*border-bottom-style:\s*(?:dotted|dashed|solid)[^"]*)("[^>]*>)(\s*\{\{[^}]*\}\})?/g, (_m, open: string, style: string, close: string, field?: string) => {
+    const height = Number(/(?:^|;)\s*height:\s*([\d.]+)px/.exec(style)?.[1])
+    // An invisible character after the value: an empty detail (no tax ID) still has a text line, so it stays
+    // level with its label like a filled one.
+    const content = field ? `${field}​` : ''
+    if (!(height > 0)) return `${open}${style}; padding-bottom:${UNDERLINE_GAP_PX}px${close}${content}`
+    return `${open}${withoutFixedHeight(style)}; height:${height + UNDERLINE_GAP_PX}px; line-height:${height}px${close}${content}`
+  })
+}
+
+/**
+ * Frames and cells are drawn with lines; a nudge of less than 1px on one of them (the first row of the
+ * totals moved 0.79px) put its line beside the next one, printed as a double / thicker line (owner
+ * 2026-11-20). Such nudges are dropped so the lines meet; larger moves stay as drawn.
+ */
+function alignLinedBoxes(html: string): string {
+  return html.replace(/(\sstyle=")([^"]*)"/g, (match, open: string, style: string) => {
+    if (!/translate:/.test(style) || !/border-(?:top|right|bottom|left)-width:\s*[1-9]/.test(style)) return match
+    const next = style.replace(/translate:\s*([^;]+)/, (_t, value: string) =>
+      `translate:${value.trim().split(/\s+/).map((part) => (Math.abs(Number.parseFloat(part)) < 1 ? '0px' : part)).join(' ')}`
+    )
+    return `${open}${next}"`
+  })
+}
+
+/**
+ * The totals box (ยอดรวม | 0.00) is as wide as its widest label needs, the VAT row "ภาษีมูลค่าเพิ่ม 7%(VAT)"
+ * (measured on the shop's form: 129.3px), and its amounts up to 9,999,999.00 — the same for every form,
+ * including those without a VAT row (owner 2026-11-20).
+ */
+const TOTALS_LABEL_TEXT_PX = 130
+const TOTALS_AMOUNT_TEXT_PX = 80
+
+const openTagAt = (html: string, start: number) => html.slice(start, html.indexOf('>', start) + 1)
+const styleOf = (tag: string) => /style="([^"]*)"/.exec(tag)?.[1] ?? ''
+const firstPx = (value: string) => [...value.matchAll(/(-?[\d.]+)px/g)].map((m) => Number(m[1]))
+
+/** `style` moved `dx` px to the right (its translate, or a new one). */
+function movedRight(style: string, dx: number): string {
+  const round = (n: number) => Math.round(n * 10000) / 10000
+  if (/translate:/.test(style)) {
+    return style.replace(/translate:\s*([^;]+)/, (_m, value: string) => {
+      const parts = value.trim().split(/\s+/)
+      parts[0] = `${round(Number.parseFloat(parts[0]) + dx)}px`
+      return `translate:${parts.join(' ')}`
+    })
+  }
+  return `${style}; translate:${round(dx)}px 0px`
+}
+
+/** The nearest `<div` at or before `from` whose opening tag passes `test`. */
+function divBefore(html: string, from: number, test: (tag: string) => boolean): number {
+  let start = html.lastIndexOf('<div', from)
+  while (start >= 0 && !test(openTagAt(html, start))) start = start === 0 ? -1 : html.lastIndexOf('<div', start - 1)
+  return start
+}
+
+/**
+ * Totals box, amount in words and หมายเหตุ (owner 2026-11-20): the totals box and the amount box below it
+ * keep their right edge and lose what the totals do not need (the label | amount line moves with it); the
+ * หมายเหตุ box beside them takes that room, keeping the row's own gap. Forms without these boxes stay as drawn.
+ */
+function fitTotalsBox(html: string): string {
+  const field = html.search(/\{\{\s*(?:bill\.subtotal|return\.rent|fine\.damage)\s*\}\}/)
+  if (field < 0) return html
+  const twoColumns = /grid-template-columns:\s*([\d.]+)px\s+([\d.]+)px/
+  const box = divBefore(html, field, (tag) => twoColumns.test(styleOf(tag)))
+  const boxEnd = box >= 0 ? divBlockEnd(html, box) : -1
+  if (boxEnd < 0) return html
+  const boxStyle = styleOf(openTagAt(html, box))
+  const [, aText, bText] = twoColumns.exec(boxStyle) as RegExpExecArray
+  const firstCell = /<div\b[^>]*style="([^"]*)"/.exec(html.slice(box + openTagAt(html, box).length, boxEnd))?.[1] ?? ''
+  const padding = stylePx(firstCell, 'padding-left') + stylePx(firstCell, 'padding-right')
+  const label = TOTALS_LABEL_TEXT_PX + padding + FITTED_COLUMN_SPARE_PX
+  const amount = TOTALS_AMOUNT_TEXT_PX + padding + FITTED_COLUMN_SPARE_PX
+  const delta = Number(aText) + Number(bText) - label - amount
+  const width = styleWidth(boxStyle)
+  if (!(delta > 0) || !Number.isFinite(width)) return html
+  const r = (n: number) => `${Math.round(n * 10000) / 10000}px`
+
+  // The amount in words below: same right edge, narrower by the same amount
+  const words = html.slice(boxEnd).search(/\{\{\s*(?:bill\.(?:grand_total_text|total_payable_text)|return\.total_payable_text|fine\.total_text)\s*\}\}/)
+  const wordsBox = words < 0 ? -1 : divBefore(html, boxEnd + words, (tag) => /border-top-width:\s*[1-9]/.test(styleOf(tag)) && Number.isFinite(styleWidth(styleOf(tag))))
+  if (wordsBox >= boxEnd) {
+    const tag = openTagAt(html, wordsBox)
+    const style = styleOf(tag)
+    html = html.slice(0, wordsBox) + tag.replace(style, movedRight(setStyleWidth(style, styleWidth(style) - delta), delta)) + html.slice(wordsBox + tag.length)
+  }
+
+  // The totals box: narrower, moved right, its columns and cells resized
+  const cellWidth = (text: string) => new RegExp(`((?:^|[;\\s"])width:\\s*)${text.replace('.', '\\.')}px`, 'g')
+  const block = html.slice(box, boxEnd)
+  const boxTag = openTagAt(html, box)
+  const resized = boxTag.replace(boxStyle, movedRight(setStyleWidth(boxStyle, width - delta), delta).replace(twoColumns, `grid-template-columns:${r(label)} ${r(amount)}`)) +
+    block.slice(boxTag.length).replace(cellWidth(aText), `$1${r(label)}`).replace(cellWidth(bText), `$1${r(amount)}`)
+  html = html.slice(0, box) + resized + html.slice(boxEnd)
+
+  // หมายเหตุ: the first box of the row the totals box sits in, widened up to the row's gap before the totals
+  const row = divBefore(html, box - 1, (tag) => twoColumns.test(styleOf(tag)))
+  if (row < 0) return html
+  const rowStyle = styleOf(openTagAt(html, row))
+  const firstColumn = Number(twoColumns.exec(rowStyle)?.[1])
+  const notes = html.indexOf('<div', row + openTagAt(html, row).length)
+  if (notes < 0 || notes >= box) return html
+  const notesTag = openTagAt(html, notes)
+  const notesStyle = styleOf(notesTag)
+  const notesX = firstPx(/translate:\s*([^;]+)/.exec(notesStyle)?.[1] ?? '0px')[0] ?? 0
+  const totalsX = firstPx(/translate:\s*([^;]+)/.exec(boxStyle)?.[1] ?? '0px')[0] ?? 0
+  const notesWidth = firstColumn + totalsX + delta - notesX
+  if (!Number.isFinite(notesWidth) || notesWidth <= styleWidth(notesStyle)) return html
+  return html.slice(0, notes) + notesTag.replace(notesStyle, setStyleWidth(notesStyle, notesWidth)) + html.slice(notes + notesTag.length)
+}
+
+/** The block (from `<div` at `start`) up to its own closing `</div>`. */
+function divBlockEnd(html: string, start: number): number {
+  const tag = /<\/?div\b[^>]*>/g
+  tag.lastIndex = start
+  let depth = 0
+  for (let m = tag.exec(html); m; m = tag.exec(html)) {
+    depth += m[0].startsWith('</') ? -1 : 1
+    if (depth === 0) return m.index + m[0].length
+  }
+  return -1
+}
+
+/**
+ * The shop's details beside the logo (ชื่อร้าน, English name, address, phone, tax ID) are centred lines in
+ * boxes as wide as the Thai name's. A line wider than its box (another device's font) ran off to the right
+ * and was cut by the frame (owner 2026-11-20). Each line is centred on the Thai name's centre even when it
+ * is wider, and nothing is cut.
+ */
+function centreShopDetailLines(html: string): string {
+  const heading = html.search(/<h1\b/)
+  if (heading < 0) return html
+  let start = html.lastIndexOf('<div', heading)
+  while (start >= 0 && !/^<div\b[^>]*style="[^"]*text-align:\s*center/.test(html.slice(start, html.indexOf('>', start) + 1))) {
+    start = start === 0 ? -1 : html.lastIndexOf('<div', start - 1)
+  }
+  const end = start >= 0 ? divBlockEnd(html, start) : -1
+  if (end < 0) return html
+  const block = html
+    .slice(start, end)
+    .replace(/^(<div\b[^>]*style="[^"]*)"/, (_m, open: string) => `${open.replace(/overflow(?:-[xy])?:\s*hidden;?\s*/g, '')}; overflow:visible"`)
+    .replace(/(<span\b[^>]*style="[^"]*white-space:\s*pre[^"]*display:\s*inline-block[^"]*)"/g, '$1; display:inline-flex; justify-content:center"')
+  return html.slice(0, start) + block + html.slice(end)
+}
+
 /** An image whose picture comes from Settings (e.g. {{business.qr_url}}) and is not set there prints nothing. */
 function hideEmptyImages(html: string): string {
   return html.replace(/<img\b[^>]*\ssrc\s*=\s*(["'])\s*\1[^>]*>/gi, '')
@@ -436,13 +641,13 @@ export function renderDocumentTemplate(
   const bill = billSnapshot || {}
 
   // Print fixes that keep the shop's form as drawn (the stored form is not changed)
-  let html = freeItemNumberWidth(
+  let html = fitTotalsBox(alignLinedBoxes(clearUnderlines(freeFieldHeight(freeItemNumberWidth(
     keepFormTextOnItsLine(
       centreEmptySignatureBrackets(
-        enlargeBusinessLogo(setFormSideMargins(standardizeFormFont(removeThaiAmountTextParentheses(templateSchema))))
+        centreShopDetailLines(enlargeBusinessLogo(setFormSideMargins(standardizeFormFont(removeThaiAmountTextParentheses(templateSchema)))))
       )
     )
-  )
+  )))))
 
   const replace = (pattern: RegExp, value: unknown) => {
     html = html.replace(pattern, escapeDocumentHtml(value))

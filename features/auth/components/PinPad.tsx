@@ -1,9 +1,7 @@
 'use client'
 
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { Delete } from 'lucide-react'
-
-const REVEAL_MS = 450
 
 interface PinPadProps {
   value: string
@@ -13,33 +11,17 @@ interface PinPadProps {
 }
 
 /**
- * Six PIN boxes centred above a phone-style keypad (1–9, ล้าง 0 ลบ). The newest digit shows
- * for ~450 ms and then turns into ●. No "show PIN" toggle. Number keys / Backspace / Escape
+ * Six PIN boxes centred above a phone-style keypad (1–9, ล้าง 0 ลบ). Every digit shows as ●
+ * at once (no reveal). No "show PIN" toggle. Number keys / Backspace / Escape
  * on a hardware keyboard work too.
  */
 export function PinPad({ value, onChange, disabled = false, length = 6 }: PinPadProps) {
-  const [revealIndex, setRevealIndex] = useState<number | null>(null)
-  const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const stopReveal = () => {
-    if (revealTimer.current) clearTimeout(revealTimer.current)
-    revealTimer.current = null
-    setRevealIndex(null)
-  }
-  useEffect(() => () => { if (revealTimer.current) clearTimeout(revealTimer.current) }, [])
-  // The parent may reset the value (wrong PIN, next step): never leave a digit showing.
-  useEffect(() => { if (revealIndex !== null && revealIndex >= value.length) setRevealIndex(null) }, [value, revealIndex])
-
   const press = (digit: string) => {
     if (disabled || value.length >= length) return
-    // Briefly reveal only the digit just added, then show it as ●.
-    if (revealTimer.current) clearTimeout(revealTimer.current)
-    setRevealIndex(value.length)
-    revealTimer.current = setTimeout(() => setRevealIndex(null), REVEAL_MS)
     onChange(value + digit)
   }
-  const back = () => { if (!disabled) { stopReveal(); onChange(value.slice(0, -1)) } }
-  const clear = () => { if (!disabled) { stopReveal(); onChange('') } }
+  const back = () => { if (!disabled) onChange(value.slice(0, -1)) }
+  const clear = () => { if (!disabled) onChange('') }
 
   // Hardware keyboard: digits, Backspace, Escape (latest handlers via ref, one listener).
   const handlers = useRef({ press, back, clear })
@@ -59,7 +41,7 @@ export function PinPad({ value, onChange, disabled = false, length = 6 }: PinPad
   }, [])
 
   const keyClass =
-    'w-16 h-16 rounded-full bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 active:bg-blue-600 active:text-white border border-slate-300 dark:border-slate-700/80 text-slate-900 dark:text-white font-black text-2xl flex items-center justify-center mx-auto transition-all active:scale-95 disabled:opacity-40 select-none'
+    'w-16 h-16 rounded-full bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700/80 text-slate-900 dark:text-white font-black text-2xl flex items-center justify-center mx-auto [-webkit-tap-highlight-color:transparent] disabled:opacity-40 select-none'
   const sideKeyClass =
     'w-16 h-16 rounded-full text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-bold flex items-center justify-center mx-auto transition-colors disabled:opacity-40 select-none'
 
@@ -77,7 +59,7 @@ export function PinPad({ value, onChange, disabled = false, length = 6 }: PinPad
                   : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60'
               }`}
             >
-              {filled ? (i === revealIndex ? value[i] : '●') : ''}
+              {filled ? '●' : ''}
             </div>
           )
         })}
