@@ -42,11 +42,8 @@ function removeTarget(): void {
  * browsers, window.print() returns and "afterprint" fires while the print window is still
  * building its preview; removing the document then left the preview empty.
  */
-export function openPrint(
-  fill: (target: HTMLDivElement) => (() => void) | void,
-  opts: { orientation?: PrintOrientation; margin?: string; title?: string } = {}
-): void {
-  if (typeof window === 'undefined') return
+/** Replaces the print target with a new, empty one (and its page size / margin) and returns it. */
+function mountTarget(opts: { orientation?: PrintOrientation; margin?: string }): HTMLDivElement {
   removeTarget()
   if (!pageHideHooked) {
     window.addEventListener('pagehide', removeTarget)
@@ -66,6 +63,15 @@ export function openPrint(
   target.style.top = '0'
   target.style.width = '210mm'
   document.body.appendChild(target)
+  return target
+}
+
+export function openPrint(
+  fill: (target: HTMLDivElement) => (() => void) | void,
+  opts: { orientation?: PrintOrientation; margin?: string; title?: string } = {}
+): void {
+  if (typeof window === 'undefined') return
+  const target = mountTarget(opts)
   pendingCleanup = fill(target) || null
 
   const previousTitle = document.title
@@ -199,4 +205,20 @@ export function printDocuments(pages: string[], title?: string): boolean {
   const margin = formPages && isAppleTouchDevice() ? APPLE_FORM_PAGE_MARGIN : '0'
   printHtml(documentPagesHtml(pages), { orientation: 'portrait', margin, title })
   return true
+}
+
+/**
+ * Puts `pages` in the print target without opening a print window, for a document shown on screen: the
+ * browser's / iPad's own print (Share › Print, Ctrl+P) then prints that document instead of a blank page
+ * (owner 2026-11-25, bill preview). Returns a cleanup that removes it, unless a later print replaced it.
+ */
+export function stagePrintDocuments(pages: string[]): () => void {
+  if (typeof window === 'undefined' || pages.length === 0) return () => {}
+  const formPages = pages.some((p) => p.includes('print-form-page'))
+  const margin = formPages && isAppleTouchDevice() ? APPLE_FORM_PAGE_MARGIN : '0'
+  const target = mountTarget({ orientation: 'portrait', margin })
+  target.innerHTML = documentPagesHtml(pages)
+  return () => {
+    if (document.getElementById(TARGET_ID) === target) removeTarget()
+  }
 }

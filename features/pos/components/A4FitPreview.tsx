@@ -243,6 +243,32 @@ export function A4FullPreviewOverlay({
     }
   }, [open, fitFullScreen, onClose])
 
+  // The browser's / iPad's back button closes the preview (owner 2026-11-25: back did nothing and the
+  // app had to be swiped away). Opening adds one history step at the same address; closing another way
+  // takes that step back. Pushed on the next tick so React's double effect run in development does not
+  // push and pop at once.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  useEffect(() => {
+    if (!open) return
+    let pushed = false
+    let poppedByBack = false
+    const onPop = () => {
+      poppedByBack = true
+      onCloseRef.current()
+    }
+    const timer = window.setTimeout(() => {
+      window.history.pushState({ ...(window.history.state ?? {}), a4Preview: true }, '')
+      pushed = true
+      window.addEventListener('popstate', onPop)
+    }, 0)
+    return () => {
+      window.clearTimeout(timer)
+      window.removeEventListener('popstate', onPop)
+      if (pushed && !poppedByBack && window.history.state?.a4Preview) window.history.back()
+    }
+  }, [open])
+
   if (!open) return null
 
   // Browsers send a click for a tap but not for a swipe, so only clicks are counted.
