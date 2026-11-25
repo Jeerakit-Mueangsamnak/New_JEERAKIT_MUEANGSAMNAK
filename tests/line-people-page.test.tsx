@@ -69,10 +69,11 @@ vi.mock('@/app/actions/line', () => ({
 vi.mock('@/features/settings/components/DeliveryDriversPanel', () => ({ DeliveryDriversPanel: () => <div>พนักงานส่งของ (stub)</div> }))
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/png;base64,AAA') } }))
 vi.mock('@/components/common/Toast', () => ({ useToast: () => ({ showToast: m.toast }) }))
-vi.mock('@/components/common/ConfirmDialogProvider', () => ({ useConfirm: () => m.confirm }))
+vi.mock('@/components/common/ConfirmDialogProvider', () => ({ useConfirm: () => m.confirm, useAskText: () => async () => null }))
 vi.mock('@/features/auth/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1', role: m.role, status: 'ACTIVE', menus: [] } }) }))
 vi.mock('@/features/settings/components/LineSettingsWorkspace', () => ({ LineSettingsWorkspace: () => <div>ตั้งค่า LINE (stub)</div> }))
 vi.mock('@/features/settings/components/LineBillCardDesigner', () => ({ LineBillCardDesigner: () => <div>การ์ดบิล (stub)</div> }))
+vi.mock('@/features/settings/components/line/LineTasksPanel', () => ({ LineTasksPanel: () => <div>สั่งงาน (stub)</div> }))
 vi.mock('@/features/settings/components/LineMessageComposer', () => ({ LineMessageComposer: () => <div>เขียนข้อความ (stub)</div> }))
 vi.mock('@/features/settings/components/LineSettingsPanel', () => ({ LineConnectionPanel: () => <div>เชื่อมต่อ LINE (stub)</div> }))
 vi.mock('@/features/settings/components/LineMembersPanel', () => ({ LineMembersPanel: () => <div>พนักงานร้าน (stub)</div> }))
@@ -205,28 +206,39 @@ describe('คนใน LINE', () => {
     expect(within(table).queryAllByRole('button', { name: 'ดูรายละเอียด' })).toHaveLength(0)
   })
 
-  it('the three pages and the owner-only menu items belong to the OWNER only', async () => {
+  it('the sections in the left bar, each page under its section; the OWNER-only ones for the OWNER only', async () => {
+    const sections = () =>
+      Array.from(screen.getByRole('tablist', { name: 'เมนู LINE' }).querySelectorAll('[data-line-group]')).map((t) => t.textContent?.replace(/\d+$/, ''))
     await showPage()
-    expect(screen.getByRole('tablist', { name: 'เมนู LINE' })).toBeTruthy()
-    expect(within(screen.getByRole('tablist', { name: 'เมนู LINE' })).queryAllByRole('tab')).toHaveLength(0)
-    expect(screen.queryByRole('tab', { name: 'พนักงาน' })).toBeNull()
+    expect(sections()).toEqual(['ภาพรวม', 'ลูกค้าใน LINE', 'การชำระเงิน', 'พนักงานและงาน'])
+    expect(within(screen.getByRole('tablist', { name: 'ลูกค้าใน LINE' })).getByRole('tab', { name: 'รอยืนยัน' })).toBeTruthy()
     expect(screen.queryByRole('tab', { name: 'จัดการรหัสเชิญ' })).toBeNull()
     expect(screen.queryByRole('tab', { name: 'ประวัติการตรวจสอบ' })).toBeNull()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('tab', { name: 'พนักงานและงาน' }))
+    })
+    const team = within(screen.getByRole('tablist', { name: 'พนักงานและงาน' }))
+    expect(team.getByRole('tab', { name: 'สั่งงานพนักงาน' })).toBeTruthy()
+    expect(team.queryByRole('tab', { name: 'พนักงาน' })).toBeNull()
     cleanup()
     m.role = 'OWNER'
     await showPage()
-    // the group tabs are drawn inside each page's own toolbar, so ask again after every move
-    const groups = () => within(screen.getByRole('tablist', { name: 'เมนู LINE' }))
-    expect(groups().getAllByRole('tab').map((t) => t.textContent?.replace(/\d+$/, ''))).toEqual(['ลูกค้า', 'แก้ไขข้อความ', 'ตั้งค่า'])
-    expect(within(screen.getByRole('tablist', { name: 'ลูกค้า' })).getByRole('tab', { name: 'รอยืนยัน' })).toBeTruthy()
+    expect(sections()).toEqual(['ภาพรวม', 'ลูกค้าใน LINE', 'การชำระเงิน', 'พนักงานและงาน', 'แก้ไขข้อความ', 'การแจ้งเตือน', 'ตั้งค่า'])
+    // only the open section shows its pages
+    expect(screen.queryByRole('tablist', { name: 'ตั้งค่า' })).toBeNull()
     await act(async () => {
-      fireEvent.click(groups().getByRole('tab', { name: /^ตั้งค่า/ }))
+      fireEvent.click(screen.getByRole('tab', { name: 'ตั้งค่า' }))
     })
     expect(screen.getByText('เชื่อมต่อ LINE (stub)')).toBeTruthy()
     const menu = within(screen.getByRole('tablist', { name: 'ตั้งค่า' }))
-    for (const name of ['การเชื่อมต่อ', 'การเพิ่มเพื่อน', 'การลงทะเบียน', 'แจ้งพนักงาน', 'เตือนลูกค้า', 'ส่งเตือนเอง', 'ประวัติการส่ง']) expect(menu.getByRole('tab', { name })).toBeTruthy()
+    for (const name of ['การเชื่อมต่อ', 'การเพิ่มเพื่อน', 'การลงทะเบียน', 'รายการสินค้า', 'เมนู LINE', 'จัดการรหัสเชิญ', 'ประวัติการตรวจสอบ']) expect(menu.getByRole('tab', { name })).toBeTruthy()
     await act(async () => {
-      fireEvent.click(groups().getByRole('tab', { name: /^แก้ไขข้อความ/ }))
+      fireEvent.click(screen.getByRole('tab', { name: 'การแจ้งเตือน' }))
+    })
+    const notices = within(screen.getByRole('tablist', { name: 'การแจ้งเตือน' }))
+    for (const name of ['แจ้งพนักงาน', 'เตือนลูกค้า', 'ส่งเตือนเอง', 'ประวัติการส่ง']) expect(notices.getByRole('tab', { name })).toBeTruthy()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('tab', { name: 'แก้ไขข้อความ' }))
     })
     const msgs = within(screen.getByRole('tablist', { name: 'แก้ไขข้อความ' }))
     for (const name of ['เพิ่มเพื่อนและลงทะเบียน', 'สินค้าและการติดต่อ', 'ลูกค้าและเอกสาร', 'พนักงานและคนขับ', 'แม่แบบของร้าน', 'การ์ดบิล']) expect(msgs.getByRole('tab', { name })).toBeTruthy()

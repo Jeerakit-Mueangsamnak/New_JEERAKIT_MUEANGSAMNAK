@@ -1,10 +1,8 @@
 'use client'
 
 /**
- * เมนู LINE (/line), owner 2026-11-21: three pages, each with its own menu on the left and the work on the right.
- *   เพิ่มเพื่อนและจัดการบัญชี LINE — who is in LINE: overview, every list of people, staff, drivers, link codes, audit
- *   แก้ไขข้อความ                  — every text the system sends (4 groups) + the shop's own templates + bill cards (OWNER)
- *   ตั้งค่า                       — connection, new friends, registration, staff / customer notices, history (OWNER)
+ * เมนู LINE (/line): sections by kind of work in a narrow left bar, each section's pages under it (owner 2026-11-25):
+ *   ภาพรวม · ลูกค้าใน LINE · การชำระเงิน · พนักงานและงาน · แก้ไขข้อความ (OWNER) · การแจ้งเตือน (OWNER) · ตั้งค่า (OWNER)
  * Summary cards on top. Lists come from the database a page at a time (never the whole table) and refresh by themselves
  * when the screen comes back into view (useAutoRefresh, no button; no realtime: line_contacts carries the LINE user id,
  * which never reaches a browser).
@@ -15,31 +13,16 @@ import Link from 'next/link'
 import { qrDataUrl } from '@/lib/qr-code'
 import {
   BellRing,
-  CalendarClock,
-  ClipboardCheck,
-  ClipboardList,
   Copy,
-  FileText,
-  HelpCircle,
-  History,
-  KeyRound,
   LayoutDashboard,
-  LayoutGrid,
-  Link2,
-  Link2Off,
   MessageSquare,
-  Package,
   QrCode,
   ReceiptText,
-  Send,
   Settings2,
-  Truck,
-  User,
   UserCog,
   UserPlus,
   Users,
   UserX,
-  Ban,
 } from 'lucide-react'
 import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
 import {
@@ -74,7 +57,7 @@ import { LineRichMenuSettings } from '@/features/settings/components/line/LineRi
 import { useAutoRefresh } from '@/features/settings/hooks/useAutoRefresh'
 import { SETTINGS_HELPER } from '@/features/settings/components/settings-ui'
 
-type LineGroup = 'FRIENDS' | 'MESSAGES' | 'SETTINGS'
+type LineGroup = 'OVERVIEW' | 'PEOPLE' | 'PAYMENTS' | 'TEAM' | 'MESSAGES' | 'NOTICES' | 'SETTINGS'
 type LineView =
   | 'OVERVIEW' | 'ALL' | 'UNREG' | 'PENDING' | 'NEEDINFO' | 'CUSTOMERS' | 'STAFF' | 'DRIVERS' | 'GENERAL' | 'REJECTED' | 'UNLINKED' | 'BLOCKED' | 'CODES' | 'AUDIT'
   | 'SLIPS' | 'TASKS'
@@ -83,35 +66,43 @@ type LineView =
 
 const icon = (Node: typeof Users) => <Node className="w-3.5 h-3.5" />
 
+/**
+ * The main sections by kind of work (owner 2026-11-25): each section's pages sit under it in the left bar.
+ * A section with one page has no list under it.
+ */
 const LINE_GROUPS: ReadonlyArray<{
   id: LineGroup
   label: string
   icon: ReactNode
   ownerOnly?: boolean
-  /** `divider`: a line above the page in the left menu (between kinds of pages) */
-  views: ReadonlyArray<{ id: LineView; label: string; ownerOnly?: boolean; icon: ReactNode; divider?: boolean }>
+  views: ReadonlyArray<{ id: LineView; label: string; ownerOnly?: boolean }>
 }> = [
+  { id: 'OVERVIEW', label: 'ภาพรวม', icon: icon(LayoutDashboard), views: [{ id: 'OVERVIEW', label: 'ภาพรวม' }] },
   {
-    id: 'FRIENDS',
-    label: 'ลูกค้า',
+    id: 'PEOPLE',
+    label: 'ลูกค้าใน LINE',
     icon: icon(UserPlus),
     views: [
-      { id: 'PENDING', label: 'รอยืนยัน', icon: icon(ClipboardList) },
-      { id: 'SLIPS', label: 'สลิปรอตรวจ', icon: icon(ReceiptText) },
-      { id: 'OVERVIEW', label: 'ภาพรวม', icon: icon(LayoutDashboard) },
-      { id: 'ALL', label: 'เพื่อนทั้งหมด', icon: icon(Users) },
-      { id: 'UNREG', label: 'ยังไม่ลงทะเบียน', icon: icon(User) },
-      { id: 'NEEDINFO', label: 'รอข้อมูลเพิ่มเติม', icon: icon(HelpCircle) },
-      { id: 'CUSTOMERS', label: 'ลูกค้า', icon: icon(Users), divider: true },
-      { id: 'STAFF', label: 'พนักงาน', ownerOnly: true, icon: icon(UserCog) },
-      { id: 'TASKS', label: 'สั่งงานพนักงาน', icon: icon(Send) },
-      { id: 'DRIVERS', label: 'คนขับรถ', icon: icon(Truck) },
-      { id: 'GENERAL', label: 'บุคคลทั่วไป', icon: icon(User) },
-      { id: 'REJECTED', label: 'ถูกปฏิเสธ', icon: icon(Ban), divider: true },
-      { id: 'UNLINKED', label: 'ยกเลิกผูกบัญชี', icon: icon(Link2Off) },
-      { id: 'BLOCKED', label: 'บล็อก LINE OA', icon: icon(UserX) },
-      { id: 'CODES', label: 'จัดการรหัสเชิญ', ownerOnly: true, icon: icon(KeyRound), divider: true },
-      { id: 'AUDIT', label: 'ประวัติการตรวจสอบ', ownerOnly: true, icon: icon(History) },
+      { id: 'PENDING', label: 'รอยืนยัน' },
+      { id: 'NEEDINFO', label: 'รอข้อมูลเพิ่มเติม' },
+      { id: 'CUSTOMERS', label: 'ลูกค้า' },
+      { id: 'UNREG', label: 'ยังไม่ลงทะเบียน' },
+      { id: 'GENERAL', label: 'บุคคลทั่วไป' },
+      { id: 'ALL', label: 'เพื่อนทั้งหมด' },
+      { id: 'REJECTED', label: 'ถูกปฏิเสธ' },
+      { id: 'UNLINKED', label: 'ยกเลิกผูกบัญชี' },
+      { id: 'BLOCKED', label: 'บล็อก LINE OA' },
+    ],
+  },
+  { id: 'PAYMENTS', label: 'การชำระเงิน', icon: icon(ReceiptText), views: [{ id: 'SLIPS', label: 'สลิปรอตรวจ' }] },
+  {
+    id: 'TEAM',
+    label: 'พนักงานและงาน',
+    icon: icon(UserCog),
+    views: [
+      { id: 'TASKS', label: 'สั่งงานพนักงาน' },
+      { id: 'STAFF', label: 'พนักงาน', ownerOnly: true },
+      { id: 'DRIVERS', label: 'คนขับรถ' },
     ],
   },
   {
@@ -120,12 +111,24 @@ const LINE_GROUPS: ReadonlyArray<{
     icon: icon(MessageSquare),
     ownerOnly: true,
     views: [
-      { id: 'MSG_FRIEND', label: 'เพิ่มเพื่อนและลงทะเบียน', icon: icon(UserPlus) },
-      { id: 'MSG_CATALOG', label: 'สินค้าและการติดต่อ', icon: icon(Package) },
-      { id: 'MSG_CUSTOMER', label: 'ลูกค้าและเอกสาร', icon: icon(ReceiptText) },
-      { id: 'MSG_STAFF', label: 'พนักงานและคนขับ', icon: icon(Truck) },
-      { id: 'OWN', label: 'แม่แบบของร้าน', icon: icon(FileText), divider: true },
-      { id: 'CARD', label: 'การ์ดบิล', icon: icon(ReceiptText) },
+      { id: 'MSG_FRIEND', label: 'เพิ่มเพื่อนและลงทะเบียน' },
+      { id: 'MSG_CATALOG', label: 'สินค้าและการติดต่อ' },
+      { id: 'MSG_CUSTOMER', label: 'ลูกค้าและเอกสาร' },
+      { id: 'MSG_STAFF', label: 'พนักงานและคนขับ' },
+      { id: 'OWN', label: 'แม่แบบของร้าน' },
+      { id: 'CARD', label: 'การ์ดบิล' },
+    ],
+  },
+  {
+    id: 'NOTICES',
+    label: 'การแจ้งเตือน',
+    icon: icon(BellRing),
+    ownerOnly: true,
+    views: [
+      { id: 'NOTIFY', label: 'แจ้งพนักงาน' },
+      { id: 'SCHEDULE', label: 'เตือนลูกค้า' },
+      { id: 'MANUAL', label: 'ส่งเตือนเอง' },
+      { id: 'HISTORY', label: 'ประวัติการส่ง' },
     ],
   },
   {
@@ -134,15 +137,13 @@ const LINE_GROUPS: ReadonlyArray<{
     icon: icon(Settings2),
     ownerOnly: true,
     views: [
-      { id: 'CONNECTION', label: 'การเชื่อมต่อ', icon: icon(Link2) },
-      { id: 'FRIEND', label: 'การเพิ่มเพื่อน', icon: icon(UserPlus) },
-      { id: 'REGISTER', label: 'การลงทะเบียน', icon: icon(ClipboardCheck) },
-      { id: 'CATALOG', label: 'รายการสินค้า', icon: icon(Package) },
-      { id: 'MENU', label: 'เมนู LINE', icon: icon(LayoutGrid) },
-      { id: 'NOTIFY', label: 'แจ้งพนักงาน', icon: icon(BellRing), divider: true },
-      { id: 'SCHEDULE', label: 'เตือนลูกค้า', icon: icon(CalendarClock) },
-      { id: 'MANUAL', label: 'ส่งเตือนเอง', icon: icon(Send) },
-      { id: 'HISTORY', label: 'ประวัติการส่ง', icon: icon(History) },
+      { id: 'CONNECTION', label: 'การเชื่อมต่อ' },
+      { id: 'FRIEND', label: 'การเพิ่มเพื่อน' },
+      { id: 'REGISTER', label: 'การลงทะเบียน' },
+      { id: 'CATALOG', label: 'รายการสินค้า' },
+      { id: 'MENU', label: 'เมนู LINE' },
+      { id: 'CODES', label: 'จัดการรหัสเชิญ' },
+      { id: 'AUDIT', label: 'ประวัติการตรวจสอบ' },
     ],
   },
 ]
@@ -171,9 +172,19 @@ export function LinePeoplePage() {
   const view: LineView = isOwnerView(tab) && !isOwner ? 'OVERVIEW' : tab
   const group = groupOf(view)
   // each group opens on the page last used in it
-  const [lastView, setLastView] = useState<Record<LineGroup, LineView>>({ FRIENDS: 'PENDING', MESSAGES: 'MSG_FRIEND', SETTINGS: 'CONNECTION' })
+  const [lastView, setLastView] = useState<Record<LineGroup, LineView>>({
+    OVERVIEW: 'OVERVIEW',
+    PEOPLE: 'PENDING',
+    PAYMENTS: 'SLIPS',
+    TEAM: 'TASKS',
+    MESSAGES: 'MSG_FRIEND',
+    NOTICES: 'NOTIFY',
+    SETTINGS: 'CONNECTION',
+  })
   const [draftView, setDraftView] = useState<LineSettingsView>('TEMPLATES')
   const [category, setCategory] = useState<LineTemplateCategory>('FRIEND')
+  const openView = (v: LineView) => open(v)
+  const openGroup = (g: LineGroup) => open(lastView[g])
   const open = (v: LineView) => {
     setTab(v)
     setLastView((prev) => ({ ...prev, [groupOf(v).id]: v }))
@@ -230,43 +241,58 @@ export function LinePeoplePage() {
     <span className="min-w-5 h-5 px-1.5 rounded-full grid place-items-center text-[10px] font-bold tabular-nums bg-amber-500 text-slate-900">{n}</span>
   )
   const tabClass = (on: boolean) => `${TAB_BUTTON_BASE_CLASSES} ${on ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`
-  // Main LINE sections use a compact app-native sidebar; each section's pages stay in the workspace tab row.
+  const groups = LINE_GROUPS.filter((g) => isOwner || !g.ownerOnly)
+  /**
+   * The left bar (owner 2026-11-25): the sections, and under the open one its pages (indented, smaller text).
+   * Narrow screens: one scrolling row with the open section's pages after it.
+   */
   const tabBar = (
-    <nav className="flex flex-row lg:flex-col items-stretch gap-1 min-w-0 max-w-full overflow-x-auto lg:overflow-x-visible no-scrollbar shrink-0" role="tablist" aria-label="เมนู LINE">
-      {isOwner && (
-        LINE_GROUPS.map((g) => (
-          <button key={g.id} type="button" role="tab" aria-selected={group.id === g.id} onClick={() => open(lastView[g.id])} className={`${tabClass(group.id === g.id)} justify-start whitespace-nowrap lg:whitespace-normal lg:w-full`}>
-            {g.icon}
-            {g.label}
-            {g.id === 'FRIENDS' && pending + needInfo > 0 && countBadge(pending + needInfo)}
-          </button>
-        ))
-      )}
-    </nav>
-  )
-  /** Pages within the selected section use the same tab components as the rest of the app. */
-  const sideBar = (
-    <div className="shrink-0 p-2 border-b border-slate-200 dark:border-slate-700 overflow-x-auto">
-      <nav className="flex min-w-max items-center gap-1" role="tablist" aria-label={group.label}>
-        {group.views
-          .filter((v) => isOwner || !v.ownerOnly)
-          .map((v) => (
-            <Fragment key={v.id}>
-              {v.divider && <span aria-hidden="true" className="h-px mx-2 my-0.5 bg-slate-300 dark:bg-slate-600" />}
-              <button
-                type="button"
-                role="tab"
-                aria-selected={view === v.id}
-                onClick={() => open(v.id)}
-                className={`${TAB_BUTTON_BASE_CLASSES} ${view === v.id ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`}
+    <nav
+      className="flex flex-row lg:flex-col items-stretch gap-0.5 min-w-0 max-w-full overflow-x-auto lg:overflow-x-visible no-scrollbar shrink-0"
+      role="tablist"
+      aria-label="เมนู LINE"
+    >
+      {groups.map((g) => {
+        const open = group.id === g.id
+        const pages = g.views.filter((v) => isOwner || !v.ownerOnly)
+        return (
+          <Fragment key={g.id}>
+            <button
+              type="button"
+              role="tab"
+              data-line-group={g.id}
+              aria-selected={open}
+              onClick={() => open || openGroup(g.id)}
+              className={`${tabClass(open && pages.length === 1)} justify-start whitespace-nowrap lg:w-full ${open && pages.length > 1 ? 'text-slate-900 dark:text-slate-100' : ''}`}
+            >
+              {g.icon}
+              {g.label}
+              {g.id === 'PEOPLE' && pending + needInfo > 0 && countBadge(pending + needInfo)}
+            </button>
+            {open && pages.length > 1 && (
+              <div
+                role="tablist"
+                aria-label={g.label}
+                className="flex flex-row lg:flex-col gap-0.5 lg:ml-3.5 lg:pl-2 lg:border-l lg:border-slate-300 dark:lg:border-slate-600 lg:mb-1"
               >
-                {v.icon}
-                {v.label}
-              </button>
-            </Fragment>
-          ))}
-      </nav>
-    </div>
+                {pages.map((v) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={view === v.id}
+                    onClick={() => open && openView(v.id)}
+                    className={`${tabClass(view === v.id)} !h-6 !px-2 !text-[11px] justify-start whitespace-nowrap lg:w-full`}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </Fragment>
+        )
+      })}
+    </nav>
   )
   const draft = draftViewOf(view)
 
@@ -298,11 +324,10 @@ export function LinePeoplePage() {
             own (the lists, พนักงาน, คนขับรถ, ส่งเตือนเอง, ประวัติการส่ง ...) draw the toolbar row themselves with the
             group tabs first; the others get a plain row. */}
         <div className="flex-1 min-h-0 min-w-0 flex flex-col lg:flex-row overflow-hidden">
-          <aside className="shrink-0 lg:w-52 lg:border-r border-b lg:border-b-0 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-2">
+          <aside className="shrink-0 lg:w-44 lg:overflow-y-auto lg:border-r border-b lg:border-b-0 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-1.5">
             {tabBar}
           </aside>
           <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
-            {sideBar}
             {view === 'OVERVIEW' && <LineOverviewPanel tabs={null} counts={counts} onOpen={(v) => open(v as LineView)} oa={oa} isOwner={isOwner} />}
             {PEOPLE_LIST_VIEWS.includes(view) && (
               <LinePeopleList
