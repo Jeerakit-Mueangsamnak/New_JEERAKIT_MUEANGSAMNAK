@@ -463,6 +463,10 @@ export default function CustomersPage() {
       const trimmedReason = reason?.trim() || undefined
       try {
         setCustomers(await updateCustomerAsync(updatedCustomer, trimmedReason))
+        // Bills still in work take the new name / phone / address on the server: re-read them now.
+        void fetchBillsForCustomer(updatedCustomer.id)
+          .then(() => setBills(loadRentalBills()))
+          .catch(() => undefined)
         showToast('แก้ไขข้อมูลลูกค้าสำเร็จ', `ปรับปรุงข้อมูลของ ${updatedCustomer.customerName} เรียบร้อยแล้ว`, 'SUCCESS')
         return true
       } catch (err: any) {
