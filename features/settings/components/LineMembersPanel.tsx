@@ -2,7 +2,7 @@
 import { COMMAND_BUTTON_SIZE_CLASSES, TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
 
 import { useCallback, useState, type ReactNode } from 'react'
-import { Copy, Link2Off } from 'lucide-react'
+import { Copy, Link2Off, QrCode } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_TH_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
 import { createClient } from '@/lib/supabase/client'
@@ -12,6 +12,7 @@ import { StatusPill } from '@/features/settings/components/StatusPill'
 import { LineContactInfo, LineInviteButton, type LineReviewContact } from '@/features/settings/components/LineInviteButton'
 import { useUnlinkLineContact } from '@/features/settings/hooks/useUnlinkLineContact'
 import { useAutoRefresh } from '@/features/settings/hooks/useAutoRefresh'
+import { StaffQrModal } from '@/features/settings/components/line/StaffQrModal'
 
 /**
  * LINE › คนใน LINE › พนักงานร้าน: which staff (app users) have linked LINE. The OWNER sends an invite
@@ -70,6 +71,8 @@ export function LineMembersPanel({ tabs }: { tabs?: ReactNode }) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [codes, setCodes] = useState<Record<string, IssuedCode>>({})
+  // QR พนักงาน (OWNER, owner 2026-11-25): made on press, 5 minutes
+  const [qrFor, setQrFor] = useState<{ id: string; name: string } | null>(null)
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -132,6 +135,7 @@ export function LineMembersPanel({ tabs }: { tabs?: ReactNode }) {
   }
 
   const unlinkContact = useUnlinkLineContact(() => load())
+  const onQrLinked = useCallback(() => void load(), [load])
 
   const unlink = async (rowKey: string, contact: Contact, name: string) => {
     setBusyId(rowKey)
@@ -208,7 +212,20 @@ export function LineMembersPanel({ tabs }: { tabs?: ReactNode }) {
                         ออกรหัสของฉัน
                       </button>
                     ) : (
-                      <LineInviteButton kind="STAFF" target={s.id} name={name} disabled={Boolean(loadError)} />
+                      <span className="inline-flex items-center gap-1">
+                        {user?.role === 'OWNER' && (
+                          <button
+                            type="button"
+                            disabled={Boolean(loadError)}
+                            onClick={() => setQrFor({ id: s.id, name })}
+                            className={`${BTN} gap-1 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40`}
+                          >
+                            <QrCode className="w-3.5 h-3.5" />
+                            แสดง QR
+                          </button>
+                        )}
+                        <LineInviteButton kind="STAFF" target={s.id} name={name} disabled={Boolean(loadError)} />
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -217,6 +234,7 @@ export function LineMembersPanel({ tabs }: { tabs?: ReactNode }) {
           </tbody>
         </table>
       </DataTableFrame>
+      {qrFor && <StaffQrModal profileId={qrFor.id} name={qrFor.name} onClose={() => setQrFor(null)} onLinked={onQrLinked} />}
     </div>
   )
 }

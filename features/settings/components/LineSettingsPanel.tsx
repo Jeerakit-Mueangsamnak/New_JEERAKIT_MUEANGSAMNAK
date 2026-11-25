@@ -29,7 +29,7 @@ import { LineChatPreview, type LineChatBubble } from '@/features/settings/compon
 import { LineSchedulePanel } from '@/features/settings/components/LineSchedulePanel'
 import { LineCatalogSettings } from '@/features/settings/components/line/LineCatalogSettings'
 import { LineFormsRow } from '@/features/settings/components/LineFormsCard'
-import { LineBlockTitle, LineEditorLayout, LineListItem } from '@/features/settings/components/LineEditorLayout'
+import { LineBlockTitle, LineEditorLayout, LineTemplateCard } from '@/features/settings/components/LineEditorLayout'
 import { SETTINGS_ROW_INPUT, SETTINGS_ROW_NUMBER, SettingsRow, SettingsRowsCard, SettingsSwitch } from '@/features/settings/components/SettingsRows'
 
 /**
@@ -74,6 +74,13 @@ const SAMPLE_VARS: Record<string, string> = {
   รายการ: 'แบบคาน 40x1.00',
   หมวด: 'แบบคาน',
   ข้อความจากร้าน: 'ขอที่อยู่ด้วยค่ะ',
+  ยอดเงิน: '1,500.00',
+  วันที่: '25 พ.ย. 2569',
+  รายรับรวม: '4,200.00',
+  รายรับแยกช่องทาง: 'เงินสด 1,200.00 · โอน 3,000.00',
+  บิลใหม่: '3',
+  ยอดค้างรวม: '12,500.00',
+  ชื่อพนักงาน: 'สมชาย',
 }
 
 /** Sample line per staff notice type, for the preview of แจ้งพนักงาน. */
@@ -507,6 +514,10 @@ export function LineSettingsPanel({ config, setConfig, view, footer, templateCat
               />
             </SettingsRow>
           ))}
+          {/* the linked OWNER's LINE only; off until switched on (owner 2026-11-25) */}
+          <SettingsRow label="เจ้าของพิมพ์สั่งในแชต LINE" description="#สรุปยอดวันนี้ · #สั่งงาน ชื่อพนักงาน รายละเอียดงาน">
+            <SettingsSwitch label="เจ้าของพิมพ์สั่งในแชต LINE" checked={line.other.ownerCommands === true} onChange={(on) => setLine({ other: { ...line.other, ownerCommands: on } })} />
+          </SettingsRow>
         </SettingsRowsCard>
       </LineEditorLayout>
     )
@@ -516,13 +527,14 @@ export function LineSettingsPanel({ config, setConfig, view, footer, templateCat
   return (
     <LineEditorLayout
       list={templateList.map((t) => {
-        const custom = (line.templates[t.key] ?? '').trim() !== ''
+        const own = (line.templates[t.key] ?? '').trim()
         return (
-          <LineListItem
+          <LineTemplateCard
             key={t.key}
             title={t.label}
-            sub={`${custom ? 'แก้แล้ว' : 'มาตรฐาน'} · ถึง${t.to}`}
-            subTone={custom ? 'accent' : 'muted'}
+            text={own || LINE_TEMPLATES[t.key].text}
+            to={t.to}
+            custom={own !== ''}
             active={t.key === tpl.key}
             onSelect={() => setTplKey(t.key)}
           />

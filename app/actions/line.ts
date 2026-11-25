@@ -10,7 +10,7 @@ import { lineOaAddFriendUrl, lineOaMessageUrl } from '@/lib/line/oa-link'
 import { createLineProvider, lineDeliveryMode } from '@/lib/line/provider'
 import { formatThaiDate, reminderMessages, type CronShop, type ReminderRow } from '@/lib/line/cron'
 import { type LineInviteKind } from '@/lib/line/config'
-import { billDesignMessage, cardMessage } from '@/lib/line/flex'
+import { billDesignMessage, cardMessage, type FlexButton } from '@/lib/line/flex'
 import { isLineCardColor, LINE_CARD_COLORS, LINE_CARD_LIMITS } from '@/lib/line/bill-card-design'
 import { SHOP_LINE_ID_COLUMN, SHOP_LINE_TEMPLATES_COLUMN } from '@/lib/line/policy'
 import { pngSize, richMenuBody, richMenuItems, richMenuLabel, richMenuSize, RICH_MENU_KINDS, validateRichMenuImage, type RichMenuKind } from '@/lib/line/rich-menu'
@@ -75,6 +75,13 @@ const ERRORS: Array<[RegExp, string]> = [
   [/^LINE_CODE_NOT_OPEN/, 'รหัสนี้ใช้ไปแล้ว หมดอายุ หรือยกเลิกไปแล้ว'],
   [/^LINE_CATALOG_INVALID/, 'คำขอไม่สมบูรณ์ กรุณาลองใหม่'],
   [/^LINE_CATALOG_NOT_FOUND/, 'ไม่พบหมวดหมู่หรือสินค้านี้ (สินค้าที่ไม่มีหมวดหมู่แสดงใน LINE ไม่ได้)'],
+  [/^LINE_SLIP_NOT_FOUND/, 'ไม่พบสลิปนี้'],
+  [/^LINE_SLIP_NOT_PENDING/, 'สลิปนี้ตรวจไปแล้ว กรุณารีเฟรช'],
+  [/^OVERPAYMENT/, 'ยอดที่อนุมัติมากกว่ายอดค้างของบิล'],
+  [/^BILL_NOT_PAYABLE/, 'บิลนี้ปิดหรือยกเลิกแล้ว รับชำระไม่ได้'],
+  [/^PAYMENT_DATE_IN_FUTURE/, 'วันที่รับเงินต้องไม่เกินวันนี้'],
+  [/^INVALID_AMOUNT/, 'จำนวนเงินไม่ถูกต้อง'],
+  [/^LINE_TASK_STATUS_INVALID/, 'สถานะไม่ถูกต้อง (หมายเหตุไม่เกิน 500 ตัวอักษร)'],
   [/PGRST202|Could not find the function/, 'ระบบ LINE ยังไม่พร้อมในฐานข้อมูลนี้'],
 ]
 
@@ -212,9 +219,10 @@ export async function sendBillViaLine(input: {
   if (!input || !UUID.test(input.billId || '')) return bad('ไม่พบบิลนี้')
   if (!KEY.test(input.idempotencyKey || '')) return bad('คำขอไม่สมบูรณ์ กรุณาลองใหม่')
   const text = (input.text ?? '').trim()
+  const buttons = input.card ? await payButtons(input.billId) : []
   let messages: LineMessage[]
   try {
-    messages = input.card ? [billCard(input.card, text)] : [{ type: 'text', text }]
+    messages = input.card ? [billCard(input.card, text, buttons)] : [{ type: 'text', text }]
     assertValidMessages(messages)
   } catch {
     return bad('ข้อความไม่ถูกต้องหรือยาวเกินกำหนด')
@@ -238,8 +246,25 @@ export async function sendBillViaLine(input: {
 /** Look of a card the shop designed in Settings › LINE (การ์ดบิล LINE, owner 2026-11-12). */
 type BillCardStyle = { color: string; badge?: string; footer?: string }
 
-/** The bill as a Flex Card: no buttons or links (the database refuses them from a screen). */
-function billCard(card: { title: string; rows: Array<{ label: string; value: string }>; style?: BillCardStyle }, text: string) {
+/**
+ * ชำระเงิน / แนบสลิป (owner 2026-11-25): two buttons to this bill's own pay form, only while money is owed and the
+ * LIFF form is set up. The database accepts no other action in a bill card.
+ */
+async function payButtons(billId: string): Promise<FlexButton[]> {
+  const pay = liffUrl('pay', { bill: billId })
+  const slip = liffUrl('pay', { bill: billId, tab: 'slip' })
+  if (!pay || !slip) return []
+  const supabase = await createServerSupabase()
+  const { data } = await supabase.from('bills').select('status, balance_due').eq('id', billId).maybeSingle()
+  if (!data || !['CONFIRMED', 'ACTIVE'].includes(data.status as string) || !(Number(data.balance_due) > 0)) return []
+  return [
+    { label: 'ชำระเงิน / ดู QR', uri: pay, primary: true },
+    { label: 'แนบสลิป', uri: slip },
+  ]
+}
+
+/** The bill as a Flex Card; the only buttons are the server's pay buttons. */
+function billCard(card: { title: string; rows: Array<{ label: string; value: string }>; style?: BillCardStyle }, text: string, buttons: FlexButton[] = []) {
   const title = typeof card?.title === 'string' ? card.title.trim() : ''
   const rows = Array.isArray(card?.rows) ? card.rows : []
   if (!title || rows.length > 10) throw new LineMessageError('LINE_MESSAGE_SHAPE')
@@ -261,9 +286,10 @@ function billCard(card: { title: string; rows: Array<{ label: string; value: str
       text: text || undefined,
       rows: clean,
       footer: (footer ?? '').trim().slice(0, LINE_CARD_LIMITS.footer),
+      buttons,
     })
   }
-  return cardMessage({ altText: title, title, text: text || undefined, rows: clean })
+  return cardMessage({ altText: title, title, text: text || undefined, rows: clean, buttons })
 }
 
 /**
@@ -1046,4 +1072,161 @@ export async function setLineRestriction(contactId: string, scope: import('@/lib
   if (!note || note.length > 500) return bad('กรุณาระบุเหตุผลไม่เกิน 500 ตัวอักษร')
   if (until !== null && (!Number.isFinite(Date.parse(until)) || Date.parse(until) <= Date.now())) return bad('เวลาสิ้นสุดต้องอยู่ในอนาคต')
   return callRpc('line_contact_restriction_set', { p_contact_id: contactId, p_scope: scope, p_until: until, p_reason: note, p_revoke: revoke })
+}
+// ── สลิปรอตรวจ (owner 2026-11-25): a customer's slip from the pay form, checked by the shop ──
+
+export type LineSlipStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+export interface LineSlipRow {
+  id: string
+  bill_id: string
+  bill_no: string | null
+  balance_due: number
+  bill_status: string
+  customer_name: string | null
+  line_name: string | null
+  amount: number
+  status: LineSlipStatus
+  approved_amount: number | null
+  reject_reason: string | null
+  image_path: string
+  created_at: string
+  decided_at: string | null
+  decided_by: string | null
+}
+
+const SLIP_STATUSES: readonly string[] = ['PENDING', 'APPROVED', 'REJECTED']
+const money = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+export async function listLineSlips(status: LineSlipStatus | 'ALL', offset: number) {
+  if (status !== 'ALL' && !SLIP_STATUSES.includes(status)) return bad('คำขอไม่สมบูรณ์ กรุณาลองใหม่')
+  return callRpc<{ counts: Record<LineSlipStatus, number>; rows: LineSlipRow[] }>('line_slips_list', {
+    p_status: status === 'ALL' ? null : status,
+    p_limit: 25,
+    p_offset: Math.max(0, Math.floor(Number(offset) || 0)),
+  })
+}
+
+/** A 5-minute link to the slip picture (the bucket lets members with the bills menu read it). */
+export async function getLineSlipImageUrl(path: string): Promise<LineActionResult<string>> {
+  if (!/^[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|png|webp)$/.test(path || '')) return bad('ไม่พบรูปสลิป')
+  const supabase = await createServerSupabase()
+  const { data, error } = await supabase.storage.from('payment-slips').createSignedUrl(path, 300)
+  if (error || !data?.signedUrl) return bad('เปิดรูปสลิปไม่สำเร็จ')
+  return { success: true, data: data.signedUrl }
+}
+
+async function billForAnswer(billId: string) {
+  const supabase = await createServerSupabase()
+  const { data } = await supabase.from('bills').select('bill_no, balance_due').eq('id', billId).maybeSingle()
+  return { billNo: (data?.bill_no as string | null) || '-', balance: Number(data?.balance_due ?? 0) }
+}
+
+/**
+ * อนุมัติ: the database takes the money once (payment_receive, TRANSFER, the slip's own key) and queues the answer to
+ * that customer's LINE in the same step. `amount` = what the shop read on the slip (at most what the bill owes).
+ */
+export async function approveLineSlip(input: { slipId: string; billId: string; amount: number; receivedOn?: string | null }) {
+  if (!input || !UUID.test(input.slipId || '') || !UUID.test(input.billId || '')) return bad('ไม่พบสลิปนี้')
+  const amount = Math.round(Number(input.amount) * 100) / 100
+  if (!Number.isFinite(amount) || amount <= 0) return bad('จำนวนเงินไม่ถูกต้อง')
+  if (input.receivedOn && !/^\d{4}-\d{2}-\d{2}$/.test(input.receivedOn)) return bad('วันที่รับเงินไม่ถูกต้อง')
+  const [shop, bill] = await Promise.all([cronShop(), billForAnswer(input.billId)])
+  let messages: LineMessage[] | null
+  try {
+    messages = [
+      textMessage(
+        'SLIP_APPROVED',
+        { เลขบิล: bill.billNo, ยอดเงิน: money(amount), ยอดค้าง: money(Math.max(0, bill.balance - amount)), ชื่อร้าน: shop.shopName },
+        shop.templates,
+      ),
+    ]
+  } catch {
+    messages = null
+  }
+  const r = await callRpc<{ slip_id: string; delivery_id: string | null; balance_due: number }>('line_slip_approve', {
+    p_slip_id: input.slipId,
+    p_amount: amount,
+    p_received_on: input.receivedOn || null,
+    p_messages: messages,
+  })
+  if (r.success && r.data?.delivery_id) await runOutboxOnce({ id: r.data.delivery_id })
+  return r
+}
+
+export async function rejectLineSlip(input: { slipId: string; billId: string; reason: string }) {
+  if (!input || !UUID.test(input.slipId || '') || !UUID.test(input.billId || '')) return bad('ไม่พบสลิปนี้')
+  const reason = (input.reason ?? '').trim()
+  if (!reason || reason.length > 300) return bad('กรุณาระบุเหตุผลไม่เกิน 300 ตัวอักษร')
+  const [shop, bill] = await Promise.all([cronShop(), billForAnswer(input.billId)])
+  let messages: LineMessage[] | null
+  try {
+    messages = [textMessage('SLIP_REJECTED', { เลขบิล: bill.billNo, เหตุผล: reason, ชื่อร้าน: shop.shopName }, shop.templates)]
+  } catch {
+    messages = null
+  }
+  const r = await callRpc<{ slip_id: string; delivery_id: string | null }>('line_slip_reject', { p_slip_id: input.slipId, p_reason: reason, p_messages: messages })
+  if (r.success && r.data?.delivery_id) await runOutboxOnce({ id: r.data.delivery_id })
+  return r
+}
+
+// ── สั่งงานพนักงาน (owner 2026-11-25): the staff tasks and their state ──
+
+export type LineTaskStatus = 'SENT' | 'ACCEPTED' | 'DONE' | 'ISSUE' | 'CANCELLED'
+export interface LineTaskRow {
+  id: string
+  title: string
+  detail: string | null
+  status: LineTaskStatus
+  issue_note: string | null
+  assignee: string | null
+  bill_id: string | null
+  bill_no: string | null
+  created_at: string
+  accepted_at: string | null
+  done_at: string | null
+  issue_at: string | null
+  cancelled_at: string | null
+  created_by: string | null
+  /** line_deliveries.status of the task message */
+  delivery: string | null
+}
+const TASK_STATUSES: readonly string[] = ['SENT', 'ACCEPTED', 'DONE', 'ISSUE', 'CANCELLED']
+
+export async function listLineTasks(status: LineTaskStatus | 'ALL', offset: number) {
+  if (status !== 'ALL' && !TASK_STATUSES.includes(status)) return bad('คำขอไม่สมบูรณ์ กรุณาลองใหม่')
+  return callRpc<{ counts: Record<LineTaskStatus | 'ALL', number>; rows: LineTaskRow[] }>('line_tasks_list', {
+    p_status: status === 'ALL' ? null : status,
+    p_limit: 25,
+    p_offset: Math.max(0, Math.floor(Number(offset) || 0)),
+  })
+}
+
+export async function setLineTaskStatus(taskId: string, status: Exclude<LineTaskStatus, 'CANCELLED'>, note?: string) {
+  if (!UUID.test(taskId || '') || !['SENT', 'ACCEPTED', 'DONE', 'ISSUE'].includes(status)) return bad('คำขอไม่สมบูรณ์ กรุณาลองใหม่')
+  if ((note ?? '').length > 500) return bad('หมายเหตุยาวได้ไม่เกิน 500 ตัวอักษร')
+  return callRpc<{ task_id: string; status: string; changed: boolean }>('line_task_set_status', { p_task_id: taskId, p_status: status, p_note: note?.trim() || null })
+}
+
+// ── QR พนักงาน (owner 2026-11-25): press to make, 5 minutes, dead at the first scan; no link to copy ──
+
+/**
+ * The QR text: the shop's own web address with a scan token (no code). The first scan (/api/line/staff-qr) kills
+ * the QR and opens the shop chat with the single-use code typed in. The screen draws it as a picture only.
+ */
+export async function createStaffLineQr(profileId: string): Promise<LineActionResult<{ codeId: string; expiresAt: string; qrText: string }>> {
+  if (!UUID.test(profileId || '')) return bad('ไม่พบพนักงาน')
+  const site = (process.env.NEXT_PUBLIC_SITE_URL ?? '').replace(/\/+$/, '')
+  if (!/^https?:\/\//.test(site)) return bad('ยังไม่ได้ตั้งที่อยู่เว็บของร้าน (NEXT_PUBLIC_SITE_URL)')
+  const supabase = await createServerSupabase()
+  const { data: shop } = await supabase.from('store_settings').select(SHOP_LINE_ID_COLUMN).eq('singleton', true).maybeSingle()
+  // without the shop's LINE ID the scan could not open the shop chat: no code is made
+  if (!lineOaMessageUrl((shop as ShopLineId | null)?.line_id ?? undefined, 'x')) return bad('ยังไม่ได้ใส่ LINE ID ของร้าน (ตั้งค่า › ข้อมูลกิจการ)')
+  const r = await callRpc<{ code_id: string; token: string; expires_at: string }>('line_staff_qr_create', { p_profile_id: profileId })
+  if (!r.success || !r.data) return { success: false, error: r.error }
+  return { success: true, data: { codeId: r.data.code_id, expiresAt: r.data.expires_at, qrText: `${site}/api/line/staff-qr?t=${encodeURIComponent(r.data.token)}` } }
+}
+
+export async function getLineCodeState(codeId: string) {
+  if (!UUID.test(codeId || '')) return bad('ไม่พบรหัสนี้')
+  return callRpc<{ state: LineCodeRow['state'] | 'SCANNED'; expires_at: string }>('line_link_code_state', { p_code_id: codeId })
 }

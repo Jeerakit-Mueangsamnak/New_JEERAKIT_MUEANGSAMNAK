@@ -1,5 +1,5 @@
 import { verifyLineSignature } from './signature'
-import { nextStepMessage, textMessage, type LineTemplateKey, type TemplateOverrides } from './templates'
+import { nextStepMessage, taskMessages, textMessage, type LineTemplateKey, type TemplateOverrides } from './templates'
 import { stageLabel } from '../work-order-stages'
 import { logger } from '../utils/logger'
 import { LINE_USER_ID_PATTERN, type LineMessage, type LineProvider } from './types'
@@ -94,6 +94,26 @@ export interface WebhookStore {
   catalogCategories?(): Promise<CatalogCategory[]>
   catalogItems?(categoryId: string, page: number): Promise<CatalogPage | null>
   catalogItem?(productId: string): Promise<{ id: string; name: string } | null>
+  /** Owner chat commands (owner 2026-11-25): the linked OWNER's LINE only, while policies.line.ownerCommands is on. */
+  ownerSummary?(lineUserId: string): Promise<OwnerSummary>
+  ownerTaskResolve?(lineUserId: string, text: string): Promise<OwnerTaskResolve>
+  ownerTaskCreate?(input: { lineUserId: string; eventId: string; taskId: string; assigneeId: string; title: string; messages: LineMessage[] }): Promise<{ result: string; task_id?: string; duplicate?: boolean }>
+}
+
+export interface OwnerSummary {
+  result: 'OK' | 'NOT_OWNER'
+  date?: string
+  by_method?: Array<{ method: string; amount: number }>
+  income?: number
+  new_bills?: number
+  owed?: number
+}
+export interface OwnerTaskResolve {
+  result: 'OK' | 'NOT_OWNER' | 'NO_MEMBER' | 'MANY_MEMBERS' | 'NO_DETAIL' | 'NOT_LINKED'
+  assignee_id?: string
+  assignee?: string
+  owner?: string
+  title?: string
 }
 
 export interface WebhookDeps {
@@ -109,6 +129,8 @@ export interface WebhookDeps {
   registerUrl?: string | null
   /** After a FOLLOW is recorded (live LINE only): the chat menu that person should see */
   afterFollow?: (lineUserId: string) => Promise<void>
+  /** After a message was queued for someone else (a task from the owner's chat): push it now (live LINE only) */
+  afterQueued?: () => Promise<void>
   templates?: TemplateOverrides
 }
 
@@ -351,6 +373,8 @@ async function dispatchEvent(ev: ParsedEvent, rec: RecordedEvent, deps: WebhookD
       } else if (LINK_REPLY[r.result]) await repliers.reply(ev.replyToken, LINK_REPLY[r.result], { ชื่อร้าน: deps.shopName })
     } else if (!code && rec.status !== 'LINKED') {
       await handleRegisterText(ev, ev.text, deps, { reply: repliers.reply })
+    } else if (rec.status === 'LINKED' && ev.text.trim().startsWith('#')) {
+      await handleOwnerCommand(ev, ev.text.trim(), deps, { reply: repliers.reply })
     }
     // any other text stays in line_messages for the inbox / staff reports
   } else if (ev.kind === 'FOLLOW') {
@@ -366,6 +390,77 @@ async function dispatchEvent(ev: ParsedEvent, rec: RecordedEvent, deps: WebhookD
     if (catalog) return handleCatalogPostback(ev, catalog, deps, repliers)
     const task = parseTaskPostback(ev.postbackData)
     if (task && (!deps.store.checkInteraction || (await deps.store.checkInteraction(ev.lineUserId, 'WORK', ev.postbackData ?? 'task')).allowed)) await handleTaskPostbackEvent(ev, task, deps.store, repliers)
+  }
+}
+
+const METHOD_LABEL: Record<string, string> = { CASH: 'เงินสด', TRANSFER: 'โอน', QR: 'QR พร้อมเพย์', CARD: 'บัตร', OTHER: 'อื่น ๆ' }
+const TASK_FAIL: Record<string, string> = {
+  NO_MEMBER: 'ไม่พบชื่อพนักงานนี้ (พิมพ์ #สั่งงาน ชื่อพนักงาน รายละเอียดงาน)',
+  MANY_MEMBERS: 'มีพนักงานชื่อนี้มากกว่า 1 คน ให้พิมพ์ชื่อผู้ใช้แทน',
+  NO_DETAIL: 'ยังไม่ได้พิมพ์รายละเอียดงาน',
+  NOT_LINKED: 'พนักงานคนนี้ยังไม่ได้ผูก LINE',
+  INVALID_INPUT: 'รายละเอียดงานยาวเกินกำหนด',
+}
+const money = (n: number | undefined) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/**
+ * Owner chat commands (owner 2026-11-25). Only the linked OWNER's LINE, and only while the switch is on: for anyone
+ * else a "#" line is an ordinary chat line and gets no answer (the database says who the owner is).
+ *   #สรุปยอดวันนี้                      money in today (as การเงิน counts it) by way of paying, new bills, what is owed
+ *   #สั่งงาน <ชื่อพนักงาน> <รายละเอียด>   a task to that staff member's LINE (once per LINE message)
+ */
+export async function handleOwnerCommand(ev: ParsedEvent, text: string, deps: Pick<WebhookDeps, 'store' | 'templates' | 'afterQueued'>, repliers: Pick<WebhookRepliers, 'reply'>): Promise<void> {
+  const { store } = deps
+  if (!store.ownerSummary || !store.ownerTaskResolve || !store.ownerTaskCreate) return
+  if (store.checkInteraction && !(await store.checkInteraction(ev.lineUserId, 'WORK', `owner:${text.slice(0, 80)}`)).allowed) return
+  const body = text.replace(/^#\s*/, '').trim()
+
+  if (/^สรุปยอด(วันนี้)?$/.test(body.replace(/\s+/g, ''))) {
+    const r = await store.ownerSummary(ev.lineUserId)
+    if (r.result !== 'OK') return
+    const byMethod = (r.by_method ?? []).map((m) => `${METHOD_LABEL[m.method] ?? m.method} ${money(m.amount)}`).join(' · ')
+    const date = r.date ? new Date(`${r.date}T00:00:00Z`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '-'
+    await repliers.reply(ev.replyToken, 'OWNER_SUMMARY', {
+      วันที่: date,
+      รายรับรวม: money(r.income),
+      รายรับแยกช่องทาง: byMethod || 'ยังไม่มีรายรับ',
+      บิลใหม่: String(r.new_bills ?? 0),
+      ยอดค้างรวม: money(r.owed),
+    })
+    return
+  }
+
+  const task = /^สั่งงาน\s+([\s\S]+)$/.exec(body)
+  if (!task) {
+    // anything else after "#": the list of commands, to the owner only (an empty name tells who is asking)
+    const who = await store.ownerTaskResolve(ev.lineUserId, '')
+    if (who.result !== 'NOT_OWNER') await repliers.reply(ev.replyToken, 'OWNER_COMMAND_HELP')
+    return
+  }
+  const r = await store.ownerTaskResolve(ev.lineUserId, task[1])
+  if (r.result === 'NOT_OWNER') return
+  if (r.result !== 'OK' || !r.assignee_id || !r.title) {
+    await repliers.reply(ev.replyToken, 'OWNER_COMMAND_FAILED', { เหตุผล: TASK_FAIL[r.result] ?? 'กรุณาลองใหม่' })
+    return
+  }
+  const taskId = crypto.randomUUID()
+  let messages: LineMessage[]
+  try {
+    messages = taskMessages(taskId, { ผู้สั่ง: r.owner || 'เจ้าของร้าน', เรื่อง: r.title }, deps.templates)
+  } catch {
+    await repliers.reply(ev.replyToken, 'OWNER_COMMAND_FAILED', { เหตุผล: TASK_FAIL.INVALID_INPUT })
+    return
+  }
+  const created = await store.ownerTaskCreate({ lineUserId: ev.lineUserId, eventId: ev.eventId, taskId, assigneeId: r.assignee_id, title: r.title, messages })
+  if (created.result !== 'OK') {
+    if (created.result !== 'NOT_OWNER') await repliers.reply(ev.replyToken, 'OWNER_COMMAND_FAILED', { เหตุผล: TASK_FAIL[created.result] ?? 'กรุณาลองใหม่' })
+    return
+  }
+  await repliers.reply(ev.replyToken, 'OWNER_TASK_SENT', { ชื่อพนักงาน: r.assignee || '-', เรื่อง: r.title })
+  try {
+    await deps.afterQueued?.()
+  } catch {
+    // the task is saved and queued; the next outbox round sends it
   }
 }
 

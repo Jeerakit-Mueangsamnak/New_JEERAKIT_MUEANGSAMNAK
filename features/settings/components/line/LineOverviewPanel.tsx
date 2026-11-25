@@ -5,10 +5,11 @@ import { CountUp } from '@/components/common/CountUp'
 import { TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
 import { type LinePeopleCounts, type LinePeopleView } from '@/app/actions/line'
 import { PEOPLE_VIEW_LABEL } from '@/features/settings/components/line/line-people-model'
+import { LineQrCards, type LineOaInfo } from '@/features/settings/components/line/LineQrCards'
 
 /**
  * ภาพรวม: how many people are in each list (one small answer from the database, never a download of the lists).
- * A tile opens its list.
+ * A tile opens its list. On top: the customer / staff QR cards (owner 2026-11-25, line.html).
  */
 const TILES: ReadonlyArray<{ view: LinePeopleView; key: keyof LinePeopleCounts; alert?: boolean }> = [
   { view: 'ALL', key: 'all' },
@@ -24,11 +25,12 @@ const TILES: ReadonlyArray<{ view: LinePeopleView; key: keyof LinePeopleCounts; 
   { view: 'BLOCKED', key: 'blocked' },
 ]
 
-export function LineOverviewPanel({ tabs, counts, onOpen }: { tabs: ReactNode; counts: LinePeopleCounts | null; onOpen: (view: LinePeopleView) => void }) {
+export function LineOverviewPanel({ tabs, counts, onOpen, oa = null, isOwner = false }: { tabs: ReactNode; counts: LinePeopleCounts | null; onOpen: (view: LinePeopleView) => void; oa?: LineOaInfo | null; isOwner?: boolean }) {
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className={`${TABLE_TOOLBAR_CLASSES} flex items-center`}>{tabs}</div>
-      <div className="flex-1 min-h-0 overflow-y-auto p-3">
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
+        <LineQrCards oa={oa} isOwner={isOwner} />
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2" data-testid="line-overview">
           {TILES.map((t) => {
             const n = counts?.[t.key] ?? 0

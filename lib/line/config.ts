@@ -60,6 +60,8 @@ export const LINE_EDITABLE_TEMPLATES: ReadonlyArray<{ key: LineTemplateKey; labe
   { key: 'CUSTOMER_PAYMENT_DUE', label: 'แจ้งเตือนชำระเงิน', to: 'ลูกค้า', category: 'CUSTOMER' },
   { key: 'CUSTOMER_APPOINTMENT', label: 'แจ้งเตือนนัดหมาย', to: 'ลูกค้า', category: 'CUSTOMER' },
   { key: 'CUSTOMER_JOB_STEP', label: 'แจ้งความคืบหน้าการจัดส่ง', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'SLIP_APPROVED', label: 'ร้านรับยอดจากสลิปแล้ว', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'SLIP_REJECTED', label: 'ร้านยืนยันสลิปไม่ได้', to: 'ลูกค้า', category: 'CUSTOMER' },
   { key: 'STAFF_NOTICE', label: 'แจ้งเตือนพนักงาน', to: 'พนักงาน', category: 'STAFF' },
   { key: 'TASK_NEW', label: 'มอบหมายงานคนขับ', to: 'คนขับ', category: 'STAFF' },
   { key: 'TASK_ACCEPTED', label: 'ตอบกลับเมื่อรับงาน', to: 'คนขับ', category: 'STAFF' },
@@ -68,6 +70,9 @@ export const LINE_EDITABLE_TEMPLATES: ReadonlyArray<{ key: LineTemplateKey; labe
   { key: 'DRIVER_ACCEPT_REMINDER', label: 'เตือนเมื่อยังไม่รับงาน', to: 'คนขับ', category: 'STAFF' },
   { key: 'TASK_WITHDRAWN', label: 'ถอนงาน', to: 'คนขับ', category: 'STAFF' },
   { key: 'TASK_CANCELLED', label: 'ยกเลิกงาน', to: 'คนขับ', category: 'STAFF' },
+  { key: 'SLIP_OWNER_NEW', label: 'แจ้งเจ้าของเมื่อลูกค้าแนบสลิป', to: 'พนักงาน', category: 'STAFF' },
+  { key: 'OWNER_SUMMARY', label: 'คำสั่ง #สรุปยอดวันนี้', to: 'พนักงาน', category: 'STAFF' },
+  { key: 'OWNER_TASK_SENT', label: 'คำสั่ง #สั่งงาน ส่งแล้ว', to: 'พนักงาน', category: 'STAFF' },
 ]
 
 /** Address parts the registration form can ask for (policies.line.register.required, OWNER decides which are a must). */

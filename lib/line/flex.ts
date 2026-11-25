@@ -80,9 +80,10 @@ export function carouselMessage(altText: string, bubbles: Array<LineFlexMessage[
 
 /**
  * การ์ดบิล the shop designed (Settings › LINE): coloured header with the heading and a status label, the bill's
- * rows, an optional text and a closing line. No buttons (a bill from a screen carries no actions).
+ * rows, an optional text and a closing line. `buttons`: only the server adds them (the pay form of that bill, which the
+ * database checks); a screen sends none.
  */
-export function billDesignMessage(input: { altText: string; title: string; badge?: string; color: string; text?: string; rows: FlexRow[]; footer?: string }): LineFlexMessage {
+export function billDesignMessage(input: { altText: string; title: string; badge?: string; color: string; text?: string; rows: FlexRow[]; footer?: string; buttons?: FlexButton[] }): LineFlexMessage {
   const rows = input.rows.filter((r) => r.value.trim() !== '')
   const header: unknown[] = [{ type: 'text', text: shorten(input.title, 200), weight: 'bold', size: 'lg', color: '#FFFFFF', wrap: true }]
   if (input.badge?.trim()) {
@@ -120,6 +121,11 @@ export function billDesignMessage(input: { altText: string; title: string; badge
     })
   })
   const footer = input.footer?.trim()
+  const buttons = (input.buttons ?? []).slice(0, 2).map(button)
+  const footerContents: unknown[] = [
+    ...(footer ? [{ type: 'text', text: shorten(footer, 300), size: 'xs', color: '#666666', wrap: true }] : []),
+    ...buttons,
+  ]
   return {
     type: 'flex',
     altText: shorten(input.altText, LINE_LIMITS.altTextLength),
@@ -127,8 +133,8 @@ export function billDesignMessage(input: { altText: string; title: string; badge
       type: 'bubble',
       header: { type: 'box', layout: 'vertical', spacing: 'md', backgroundColor: input.color, contents: header },
       body: { type: 'box', layout: 'vertical', spacing: 'md', contents: body.length ? body : [{ type: 'text', text: ' ', size: 'xs' }] },
-      ...(footer
-        ? { footer: { type: 'box', layout: 'vertical', backgroundColor: '#F8FAFC', contents: [{ type: 'text', text: shorten(footer, 300), size: 'xs', color: '#666666', wrap: true }] } }
+      ...(footerContents.length
+        ? { footer: { type: 'box', layout: 'vertical', ...(buttons.length ? { spacing: 'sm' } : {}), backgroundColor: '#F8FAFC', contents: footerContents } }
         : {}),
     },
   }

@@ -67,6 +67,8 @@ import { NewCustomerModal } from '@/features/customers/components/NewCustomerMod
 import { useCreateCustomer } from '@/features/customers/hooks/useCreateCustomer'
 import type { Customer } from '@/lib/types/rental-pos'
 import { LineCodesPanel } from '@/features/settings/components/line/LineCodesPanel'
+import { LineSlipsPanel } from '@/features/settings/components/line/LineSlipsPanel'
+import { LineTasksPanel } from '@/features/settings/components/line/LineTasksPanel'
 import { LineAuditPanel } from '@/features/settings/components/line/LineAuditPanel'
 import { LineRichMenuSettings } from '@/features/settings/components/line/LineRichMenuSettings'
 import { useAutoRefresh } from '@/features/settings/hooks/useAutoRefresh'
@@ -75,6 +77,7 @@ import { SETTINGS_HELPER } from '@/features/settings/components/settings-ui'
 type LineGroup = 'FRIENDS' | 'MESSAGES' | 'SETTINGS'
 type LineView =
   | 'OVERVIEW' | 'ALL' | 'UNREG' | 'PENDING' | 'NEEDINFO' | 'CUSTOMERS' | 'STAFF' | 'DRIVERS' | 'GENERAL' | 'REJECTED' | 'UNLINKED' | 'BLOCKED' | 'CODES' | 'AUDIT'
+  | 'SLIPS' | 'TASKS'
   | 'MSG_FRIEND' | 'MSG_CATALOG' | 'MSG_CUSTOMER' | 'MSG_STAFF' | 'OWN' | 'CARD'
   | 'CONNECTION' | 'FRIEND' | 'REGISTER' | 'CATALOG' | 'MENU' | 'NOTIFY' | 'SCHEDULE' | 'MANUAL' | 'HISTORY'
 
@@ -94,12 +97,14 @@ const LINE_GROUPS: ReadonlyArray<{
     icon: icon(UserPlus),
     views: [
       { id: 'PENDING', label: 'รอยืนยัน', icon: icon(ClipboardList) },
+      { id: 'SLIPS', label: 'สลิปรอตรวจ', icon: icon(ReceiptText) },
       { id: 'OVERVIEW', label: 'ภาพรวม', icon: icon(LayoutDashboard) },
       { id: 'ALL', label: 'เพื่อนทั้งหมด', icon: icon(Users) },
       { id: 'UNREG', label: 'ยังไม่ลงทะเบียน', icon: icon(User) },
       { id: 'NEEDINFO', label: 'รอข้อมูลเพิ่มเติม', icon: icon(HelpCircle) },
       { id: 'CUSTOMERS', label: 'ลูกค้า', icon: icon(Users), divider: true },
       { id: 'STAFF', label: 'พนักงาน', ownerOnly: true, icon: icon(UserCog) },
+      { id: 'TASKS', label: 'สั่งงานพนักงาน', icon: icon(Send) },
       { id: 'DRIVERS', label: 'คนขับรถ', icon: icon(Truck) },
       { id: 'GENERAL', label: 'บุคคลทั่วไป', icon: icon(User) },
       { id: 'REJECTED', label: 'ถูกปฏิเสธ', icon: icon(Ban), divider: true },
@@ -298,7 +303,7 @@ export function LinePeoplePage() {
           </aside>
           <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
             {sideBar}
-            {view === 'OVERVIEW' && <LineOverviewPanel tabs={null} counts={counts} onOpen={(v) => open(v as LineView)} />}
+            {view === 'OVERVIEW' && <LineOverviewPanel tabs={null} counts={counts} onOpen={(v) => open(v as LineView)} oa={oa} isOwner={isOwner} />}
             {PEOPLE_LIST_VIEWS.includes(view) && (
               <LinePeopleList
                 view={view as LinePeopleView}
@@ -314,6 +319,8 @@ export function LinePeoplePage() {
               />
             )}
             {view === 'STAFF' && <LineMembersPanel tabs={null} />}
+            {view === 'SLIPS' && <LineSlipsPanel tabs={null} />}
+            {view === 'TASKS' && <LineTasksPanel tabs={null} />}
             {view === 'DRIVERS' && <DeliveryDriversPanel tabs={null} />}
             {view === 'CODES' && <LineCodesPanel tabs={null} />}
             {view === 'AUDIT' && <LineAuditPanel tabs={null} />}

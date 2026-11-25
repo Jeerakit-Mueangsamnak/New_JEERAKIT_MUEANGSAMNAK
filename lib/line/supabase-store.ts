@@ -70,6 +70,17 @@ export interface LiffFinanceEntry {
 
 /** Private bucket of the driver's job photos (<task id>/<uuid>.<ext>). */
 export const JOB_PHOTO_BUCKET = 'job-photos'
+/** Private bucket of the customers' slips (<bill id>/<uuid>.<ext>, owner 2026-11-25). */
+export const SLIP_BUCKET = 'payment-slips'
+
+/** Pay form (line_pay_form): the bill as its own customer's LINE may see it. */
+export interface LiffPayForm {
+  result: 'OK' | 'NOT_FOUND' | 'SUSPENDED'
+  bill?: { id: string; bill_no: string | null; status: string; grand_total: number; balance_due: number; payable: boolean }
+  customer?: string | null
+  shop?: { name: string | null; promptpay: string | null; promptpay_type: string | null; bank: string | null; account_name: string | null; account_no: string | null }
+  slips?: Array<{ amount: number; status: 'PENDING' | 'APPROVED' | 'REJECTED'; created_at: string; approved_amount: number | null; reject_reason: string | null }>
+}
 
 export interface ShopProfile {
   shopName: string
@@ -86,6 +97,12 @@ export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()
   driverJob(lineUserId: string, taskId: string): Promise<LiffDriverJob>
   uploadJobPhoto(path: string, bytes: Uint8Array, contentType: string): Promise<void>
   removeJobPhotos(paths: string[]): Promise<void>
+  payForm(lineUserId: string, billId: string): Promise<LiffPayForm>
+  uploadSlip(path: string, bytes: Uint8Array, contentType: string): Promise<void>
+  removeSlip(path: string): Promise<void>
+  /** First scan of a staff QR: the QR dies, the chat code comes back once. */
+  staffQrScan(token: string): Promise<{ result: 'OK' | 'DEAD'; code?: string }>
+  slipSubmit(input: { lineUserId: string; billId: string; amount: number; path: string; ownerMessages: unknown[] | null }): Promise<{ result: 'OK' | 'NOT_FOUND' | 'SUSPENDED' | 'NOT_PAYABLE' | 'INVALID_INPUT' | 'TOO_MANY'; slip_id?: string }>
   /** The menu ids the owner published (kept after LINE accepted the menu); the old id comes back so it can be deleted at LINE. */
   richMenuSave(kind: RichMenuKind, richMenuId: string, actorId: string | null): Promise<string | null>
   richMenuClear(kind: RichMenuKind, actorId: string | null): Promise<string | null>
@@ -213,6 +230,42 @@ export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()
     async removeJobPhotos(paths) {
       if (paths.length) await db.storage.from(JOB_PHOTO_BUCKET).remove(paths)
     },
+
+    staffQrScan: (token) => call(db, 'line_staff_qr_scan', { p_token: token }),
+
+    payForm: (lineUserId, billId) => call<LiffPayForm>(db, 'line_pay_form', { p_line_user_id: lineUserId, p_bill_id: billId }),
+
+    async uploadSlip(path, bytes, contentType) {
+      const { error } = await db.storage.from(SLIP_BUCKET).upload(path, bytes, { contentType, upsert: false })
+      if (error) throw new LineStoreError('slip_upload')
+    },
+
+    async removeSlip(path) {
+      await db.storage.from(SLIP_BUCKET).remove([path])
+    },
+
+    slipSubmit: (input) =>
+      call(db, 'line_slip_submit', {
+        p_line_user_id: input.lineUserId,
+        p_bill_id: input.billId,
+        p_amount: input.amount,
+        p_path: input.path,
+        p_owner_messages: input.ownerMessages,
+      }),
+
+    ownerSummary: (lineUserId) => call(db, 'line_owner_summary', { p_line_user_id: lineUserId }),
+
+    ownerTaskResolve: (lineUserId, text) => call(db, 'line_owner_task_resolve', { p_line_user_id: lineUserId, p_text: text }),
+
+    ownerTaskCreate: (input) =>
+      call(db, 'line_owner_task_create', {
+        p_line_user_id: input.lineUserId,
+        p_event_id: input.eventId,
+        p_task_id: input.taskId,
+        p_assignee_id: input.assigneeId,
+        p_title: input.title,
+        p_messages: input.messages,
+      }),
 
     enqueueRegister: async (input) => {
       const r = await call<{ duplicate?: boolean; skipped?: string }>(db, 'line_outbox_enqueue_register', {

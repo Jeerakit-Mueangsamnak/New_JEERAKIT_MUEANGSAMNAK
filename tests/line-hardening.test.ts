@@ -225,8 +225,8 @@ describe('policies.line validation (TS and SQL agree)', () => {
   })
 
   it('SQL template placeholders match LINE_TEMPLATES exactly', () => {
-    // the newest definition counts (20261122125629 adds the registration answers and the product list texts)
-    const latest = readFileSync(join(process.cwd(), 'supabase/migrations/20261122125629_line_people_registration_v1.sql'), 'utf8')
+    // the newest definition counts (20261125100000 adds the slip answers and the owner chat commands)
+    const latest = readFileSync(join(process.cwd(), 'supabase/migrations/20261125100000_line_slips_tasks_staff_qr_v1.sql'), 'utf8')
     const at = latest.indexOf('CREATE OR REPLACE FUNCTION public._line_template_vars(')
     const body = latest.slice(at, latest.indexOf('$$', latest.indexOf('$$', at) + 2) + 2)
     const sqlMap: Record<string, string[]> = {}

@@ -1,4 +1,5 @@
 import { liffUrl } from '@/lib/line/liff-links'
+import { processOutbox } from '@/lib/line/outbox'
 import { createLineProvider, lineDeliveryMode } from '@/lib/line/provider'
 import { syncRichMenus } from '@/lib/line/rich-menu-sync'
 import { verifyLineSignature } from '@/lib/line/signature'
@@ -57,6 +58,8 @@ export async function POST(request: Request): Promise<Response> {
       registerUrl: liffUrl('register'),
       // a new friend gets their chat menu at once; only with real LINE (the mock must not mark anyone as done)
       afterFollow: live ? async (lineUserId) => void (await syncRichMenus({ store, provider, lineUserId })) : undefined,
+      // a task from the owner's chat goes out now, not at the next outbox round
+      afterQueued: live ? async () => void (await processOutbox({ store, provider, limit: 5 })) : undefined,
       templates: profile.templates,
     })
     return Response.json(result.body, { status: result.status })

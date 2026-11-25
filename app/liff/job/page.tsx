@@ -5,6 +5,7 @@ import { COMMAND_BUTTON_SIZE_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/componen
 import { SETTINGS_INPUT, SETTINGS_LABEL } from '@/features/settings/components/settings-ui'
 import { postLiff, useLiff } from '@/lib/line/use-liff'
 import { JOB_PHOTO_LIMIT } from '@/lib/line/job-photos'
+import { shrinkPhoto } from '@/lib/line/shrink-photo'
 import { currentRunEvents, stagesForType } from '@/lib/work-order-stages'
 
 /**
@@ -22,27 +23,6 @@ interface Job {
   next_stage: string | null
 }
 type Answer = { ok: boolean; message?: string; job?: Job }
-
-/** Phone photo → JPEG of at most 1280 px (a few hundred KB), as a data URL. */
-async function shrinkPhoto(file: File): Promise<string> {
-  const url = URL.createObjectURL(file)
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image()
-      el.onload = () => resolve(el)
-      el.onerror = reject
-      el.src = url
-    })
-    const scale = Math.min(1, 1280 / Math.max(img.width, img.height))
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.round(img.width * scale)
-    canvas.height = Math.round(img.height * scale)
-    canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL('image/jpeg', 0.7)
-  } finally {
-    URL.revokeObjectURL(url)
-  }
-}
 
 const showWhen = (iso: string) =>
   new Date(iso).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Bangkok' })
@@ -95,7 +75,7 @@ export default function LiffJobPage() {
   const addPhotos = async (files: FileList | null) => {
     if (!files) return
     const room = JOB_PHOTO_LIMIT - photos.length
-    const picked = await Promise.all(Array.from(files).slice(0, Math.max(0, room)).map(shrinkPhoto))
+    const picked = await Promise.all(Array.from(files).slice(0, Math.max(0, room)).map((f) => shrinkPhoto(f)))
     setPhotos((p) => [...p, ...picked].slice(0, JOB_PHOTO_LIMIT))
     if (fileRef.current) fileRef.current.value = ''
   }

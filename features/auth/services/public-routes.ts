@@ -25,6 +25,8 @@ export const PUBLIC_API_ROUTES = [
   '/api/line/liff-register', // GET: what the form asks (public); POST: LINE ID token verified with LINE
   '/api/line/liff-job', // LINE ID token verified with LINE
   '/api/line/liff-finance', // LINE ID token verified with LINE
+  '/api/line/liff-pay', // LINE ID token verified with LINE; the database answers only for the bill's own customer
+  '/api/line/staff-qr', // the scan token of a staff QR (single use, 5 minutes); answers only a redirect to the shop chat
 ]
 
 export function isPublicRoute(pathname: string | null | undefined): boolean {

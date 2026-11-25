@@ -106,6 +106,51 @@ export function LineListItem({
   )
 }
 
+/**
+ * A message of the library as a card (owner 2026-11-25, line.html "คลังข้อความ"): name, the start of the text that is
+ * sent, who gets it, and whether the shop changed it. The open one has the green edge and กำลังแสดงตัวอย่าง.
+ */
+export function LineTemplateCard({
+  title,
+  text,
+  to,
+  custom,
+  active,
+  onSelect,
+}: {
+  title: string
+  text: string
+  to: string
+  custom: boolean
+  active: boolean
+  onSelect: () => void
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        aria-current={active}
+        onClick={onSelect}
+        className={`w-full text-left rounded-xl border-2 p-2 transition-colors cursor-pointer ${
+          active
+            ? 'border-emerald-700 dark:border-emerald-400 bg-emerald-50/60 dark:bg-emerald-950/30'
+            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600'
+        }`}
+      >
+        <span className="flex items-start justify-between gap-1">
+          <span className={`text-xs leading-snug ${active ? 'font-bold text-slate-900 dark:text-slate-100' : 'font-semibold text-slate-800 dark:text-slate-200'}`}>{title}</span>
+          {active && <span className="shrink-0 h-4 px-1.5 rounded-full text-[9px] font-bold inline-flex items-center bg-emerald-700 text-white">กำลังแสดงตัวอย่าง</span>}
+        </span>
+        <span className="mt-1 block text-[10px] leading-relaxed text-slate-600 dark:text-slate-400 line-clamp-2 whitespace-pre-line">{text}</span>
+        <span className="mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between text-[10px] font-semibold">
+          <span className="text-slate-500 dark:text-slate-400">ถึง{to}</span>
+          <span className={custom ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}>{custom ? 'แก้แล้ว' : 'มาตรฐาน'}</span>
+        </span>
+      </button>
+    </li>
+  )
+}
+
 /** Empty left list. */
 export function LineListEmpty({ text }: { text: string }) {
   return <li className="px-2.5 py-6 text-center text-xs text-slate-500 dark:text-slate-400">{text}</li>

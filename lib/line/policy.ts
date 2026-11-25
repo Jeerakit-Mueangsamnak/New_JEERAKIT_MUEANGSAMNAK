@@ -40,8 +40,8 @@ export function validateLinePolicy(line: unknown): LinePolicyCheck {
       for (const [type, on] of Object.entries(value)) {
         if (!EVENT_TYPE.test(type) || typeof on !== 'boolean') return { ok: false, path: `line.${key}.${type.slice(0, 60)}` }
       }
-    } else if (key === 'abuseAutoSuspend') {
-      if (typeof value !== 'boolean') return { ok: false, path: 'line.abuseAutoSuspend' }
+    } else if (key === 'abuseAutoSuspend' || key === 'ownerCommands') {
+      if (typeof value !== 'boolean') return { ok: false, path: `line.${key}` }
     } else if (key === 'friend') {
       if (!isObject(value)) return { ok: false, path: 'line.friend' }
       for (const [f, on] of Object.entries(value)) {
