@@ -64,18 +64,21 @@ SELECT t.check('M-REPORT', 'refund ledger (not reversed) = paid refunds (amount 
                      AND NOT EXISTS (SELECT 1 FROM public.finance_ledger_entries e
                                       JOIN public.finance_ledger_entries r ON r.reverses_entry_id = e.id
                                      WHERE e.source_type = 'REFUND' AND e.source_id = f.id)));
+-- confirm-time revenue + VAT of a bill, net of the reversals แก้ไขบิล writes before it books the bill again
+CREATE FUNCTION t.confirm_net(p_bill uuid) RETURNS numeric LANGUAGE sql STABLE AS $$
+    SELECT COALESCE(sum(e.amount * e.direction), 0) FROM public.finance_ledger_entries e
+     WHERE e.bill_id = p_bill
+       AND ((e.source_type = 'BILL_CONFIRM' AND e.entry_type IN ('REVENUE', 'VAT'))
+            OR e.reverses_entry_id IN (SELECT x.id FROM public.finance_ledger_entries x
+                                        WHERE x.bill_id = p_bill AND x.source_type = 'BILL_CONFIRM'
+                                          AND x.entry_type IN ('REVENUE', 'VAT')));
+$$;
 SELECT t.check('M-REPORT', 'every open/closed bill: confirm-time revenue + VAT in the ledger = its grand total',
     NOT EXISTS (
         SELECT 1 FROM public.bills b
-         WHERE b.status NOT IN ('DRAFT', 'CANCELLED', 'VOID')
-           AND b.grand_total <> COALESCE((SELECT sum(e.amount * e.direction) FROM public.finance_ledger_entries e
-                                           WHERE e.bill_id = b.id AND e.source_type = 'BILL_CONFIRM'
-                                             AND e.entry_type IN ('REVENUE', 'VAT')), 0)),
+         WHERE b.status NOT IN ('DRAFT', 'CANCELLED', 'VOID') AND b.grand_total <> t.confirm_net(b.id)),
     (SELECT string_agg(COALESCE(b.bill_no, b.id::text) || ' grand=' || b.grand_total, ',') FROM public.bills b
-      WHERE b.status NOT IN ('DRAFT', 'CANCELLED', 'VOID')
-        AND b.grand_total <> COALESCE((SELECT sum(e.amount * e.direction) FROM public.finance_ledger_entries e
-                                        WHERE e.bill_id = b.id AND e.source_type = 'BILL_CONFIRM'
-                                          AND e.entry_type IN ('REVENUE', 'VAT')), 0)));
+      WHERE b.status NOT IN ('DRAFT', 'CANCELLED', 'VOID') AND b.grand_total <> t.confirm_net(b.id)));
 SELECT t.check('M-REPORT', 'VAT report: VAT ledger per bill = the bill''s VAT amount',
     NOT EXISTS (
         SELECT 1 FROM public.bills b

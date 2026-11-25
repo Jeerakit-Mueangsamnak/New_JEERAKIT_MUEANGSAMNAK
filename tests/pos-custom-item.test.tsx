@@ -27,7 +27,8 @@ describe('typed-in cart line', () => {
     expect(item.isCustom).toBe(true)
     expect(item.lineTotal).toBe(300)
     expect(item.usageCount).toBe(3)
-    expect(item.requiresReturn).toBe(false)
+    // a typed-in rental is checked back on return (owner 2026-11-25)
+    expect(item.requiresReturn).toBe(true)
     expect(item.product.name).toBe('ค้ำยันเหล็ก')
     expect(item.product.unit).toBe('ต้น')
     expect(cartLineUnitPriceForServer(item)).toBe(5)
@@ -40,6 +41,7 @@ describe('typed-in cart line', () => {
     const sale = customCartItem({ name: 'ตะปู', unit: 'กล่อง', quantity: 3, unitPrice: 15, count: 9, rentalType: 'SALE' })
     expect(sale.itemType).toBe('SALE')
     expect(sale.lineTotal).toBe(45)
+    expect(sale.requiresReturn).toBe(false)
   })
 })
 

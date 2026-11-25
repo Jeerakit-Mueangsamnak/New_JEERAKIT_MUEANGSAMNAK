@@ -94,7 +94,8 @@ export function customCartItem(
     usageCount: data.rentalType === 'NORMAL' ? count : 1,
     billableDays: data.rentalType === 'DAILY' ? count : 1,
     lineTotal: Math.round(data.quantity * data.unitPrice * count * 100) / 100,
-    requiresReturn: false,
+    // a typed-in rental is checked back on return (owner 2026-11-25); a sale has nothing to return
+    requiresReturn: !isSale,
     listUnitPrice: null,
     isCustom: true,
   }

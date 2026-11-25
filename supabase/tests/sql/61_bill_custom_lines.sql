@@ -1,7 +1,8 @@
 -- Rule tests for supabase/migrations/20261111150000_bill_custom_lines_v1.sql (owner 2026-11-11):
 -- รายการนอกร้าน — a line typed in at the counter (name, quantity, unit, price, rounds) with no shop
--- product: priced and counted as revenue like any line, takes no stock, never waits for a return,
--- and the bill closes on money alone. Runs after 40_money_stock.sql (customer 'c1', rental 'pr').
+-- product: priced and counted as revenue like any line and takes no stock. A rental one is with the customer
+-- until it is checked back (owner 2026-11-25, 20261125074619; more in 74_custom_line_return.sql).
+-- Runs after 40_money_stock.sql (customer 'c1', rental 'pr').
 \set ON_ERROR_STOP 1
 
 -- rental: 20 × 5.00 × 3 rounds = 300.00
@@ -33,9 +34,9 @@ SELECT t.ok('CUSTOM-LINE', 'issue it unpaid', 'cashier',
 SELECT t.check('CUSTOM-LINE', '... no stock moved at all',
     (SELECT count(*)::text FROM public.stock_movements) = t.v('moves_before')
     AND (SELECT COALESCE(sum(quantity), 0)::text FROM public.stock_balances) = t.v('stock_before'));
-SELECT t.check('CUSTOM-LINE', '... counts as handed over, nothing held, nothing to return',
-    (SELECT delivered_qty = 20 AND obligation_held_here = 0 AND return_status = 'RETURNED'
-            AND fulfillment_status = 'DELIVERED' AND rental_status = 'RESOLVED' AND allocated_qty = 0 AND backorder_qty = 0
+SELECT t.check('CUSTOM-LINE', '... counts as handed over and is with the customer until checked back (owner 2026-11-25)',
+    (SELECT delivered_qty = 20 AND obligation_held_here = 20 AND return_status = 'NOT_RETURNED'
+            AND fulfillment_status = 'RENTED_OUT' AND rental_status = 'ACTIVE' AND allocated_qty = 0 AND backorder_qty = 0
        FROM public.bill_lines WHERE bill_id = t.v('cx')::uuid));
 SELECT t.check('CUSTOM-LINE', '... rental revenue 300 is booked',
     (SELECT COALESCE(sum(amount * direction), 0) = 300 FROM public.finance_ledger_entries
@@ -45,9 +46,17 @@ SELECT t.check('CUSTOM-LINE', '... the bill is open, owes 300',
 SELECT t.err('CUSTOM-LINE', 'nothing can be delivered for it', 'cashier',
     format($q$select public.delivery_create(%L::uuid, jsonb_build_array(jsonb_build_object('bill_line_id', %L, 'quantity', 1)), 'key-cx-dlv')$q$,
         t.v('cx'), (SELECT id::text FROM public.bill_lines WHERE bill_id = t.v('cx')::uuid)), '');
-SELECT t.ok('CUSTOM-LINE', 'paying 300 closes the bill (no return to wait for)', 'cashier',
+SELECT t.ok('CUSTOM-LINE', 'pay 300', 'cashier',
     format($q$select public.payment_receive(%L::uuid, '[{"method":"CASH","amount":300}]'::jsonb, 'key-cx-pay')$q$, t.v('cx')));
-SELECT t.check('CUSTOM-LINE', '... CLOSED, line CLOSED',
+SELECT t.check('CUSTOM-LINE', '... paid, but the bill stays open: the 20 are not back yet',
+    (SELECT status = 'ACTIVE' AND balance_due = 0 FROM public.bills WHERE id = t.v('cx')::uuid));
+SELECT t.ok('CUSTOM-LINE', 'check the 20 back', 'cashier',
+    format($q$select public.return_receive(%L::uuid, jsonb_build_array(jsonb_build_object('bill_line_id', %L, 'quantity', 20,
+        'condition', 'NORMAL')), 'key-cx-ret')$q$, t.v('cx'), (SELECT id::text FROM public.bill_lines WHERE bill_id = t.v('cx')::uuid)));
+SELECT t.check('CUSTOM-LINE', '... still no stock moved (nothing goes into stock)',
+    (SELECT count(*)::text FROM public.stock_movements) = t.v('moves_before')
+    AND (SELECT COALESCE(sum(quantity), 0)::text FROM public.stock_balances) = t.v('stock_before'));
+SELECT t.check('CUSTOM-LINE', '... back: the bill closes, line CLOSED',
     (SELECT status = 'CLOSED' FROM public.bills WHERE id = t.v('cx')::uuid)
     AND (SELECT rental_status = 'CLOSED' FROM public.bill_lines WHERE bill_id = t.v('cx')::uuid));
 

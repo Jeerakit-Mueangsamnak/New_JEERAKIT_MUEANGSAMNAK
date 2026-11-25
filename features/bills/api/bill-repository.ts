@@ -222,7 +222,7 @@ export function mapBill(
   const items: FullBillItem[] = sorted.map((l) => {
     const p = l.product_id ? ctx.products.get(l.product_id) : undefined
     const isRental = l.line_mode === 'RENTAL'
-    // รายการนอกร้าน: no product, nothing to deliver or bring back
+    // รายการนอกร้าน: no product and nothing to deliver; a rental one is checked back like any rental (owner 2026-11-25)
     const isCustom = !l.product_id
     return {
       rentalBillItemId: l.id,
@@ -243,7 +243,7 @@ export function mapBill(
       unit: l.unit_name ?? ((p && ctx.units.get(p.unit_id)) || ''),
       defaultRepairFee: Number(p?.default_damage_fee ?? 0),
       defaultReplacementFee: Number(p?.default_loss_fee ?? 0),
-      requiresReturn: isRental && !isCustom,
+      requiresReturn: isRental,
       rentalStartDate: toDate(l.rental_start_at),
       scheduledReturnDate: toDate(l.rental_end_at),
       actualReturnDate: toDate(l.actual_return_at) || undefined,
