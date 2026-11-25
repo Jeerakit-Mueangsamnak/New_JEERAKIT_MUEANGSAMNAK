@@ -352,11 +352,13 @@ export const FORM_SIDE_MARGIN_MM = 10
 const PX_PER_MM = 96 / 25.4
 
 /**
- * The form's A4 sheet (width 210mm) keeps its drawing; only its side margins change. The sheet's left /
+ * The form's A4 sheet (width 210mm) keeps its drawing; only its margins change. The sheet's left /
  * right padding becomes FORM_SIDE_MARGIN_MM and the drawing inside is scaled to the narrower width
- * (CSS zoom, so it also takes less room) — text and lines keep their proportions. The room the smaller
- * drawing leaves is shared equally above and below (owner 2026-11-11: top and bottom alike). Forms
- * without that sheet are left as they are.
+ * (CSS zoom, so it also takes less room). The room the smaller drawing leaves is shared equally above
+ * and below (owner 2026-11-11: top and bottom alike). The paper left and right is then made the same as
+ * above and below (owner 2026-11-25: all four sides alike, top / bottom decide): the drawing is narrowed
+ * about its centre (scaleX); its box stays FORM_SIDE_MARGIN_MM from each side, so iPad printing, which
+ * centres that box, gives the same paper. Forms without that sheet are left as they are.
  */
 function setFormSideMargins(html: string): string {
   const m = /<div style="([^"]*\bwidth:\s*210mm\b[^"]*)">(\s*<div style=")/.exec(html)
@@ -372,9 +374,12 @@ function setFormSideMargins(html: string): string {
   const side = margin.toFixed(4)
   const sheetHeight = 297 * PX_PER_MM
   const innerHeight = sheetHeight - stylePx(style, 'padding-top') - stylePx(style, 'padding-bottom')
-  const vertical = Math.max(0, (sheetHeight - innerHeight * zoom) / 2).toFixed(4)
+  const verticalPx = Math.max(0, (sheetHeight - innerHeight * zoom) / 2)
+  const vertical = verticalPx.toFixed(4)
+  const narrow = Math.round(Math.min(1, (sheet - 2 * verticalPx) / (inner * zoom)) * 100000) / 100000
+  const narrowStyle = narrow < 1 ? `transform:scaleX(${narrow}); ` : ''
   const sheetStyle = `${style}; padding-left:${side}px; padding-right:${side}px; padding-top:${vertical}px; padding-bottom:${vertical}px`
-  return `${html.slice(0, m.index)}<div style="${sheetStyle}">${m[2]}zoom:${zoom}; ${html.slice(m.index + m[0].length)}`
+  return `${html.slice(0, m.index)}<div style="${sheetStyle}">${m[2]}zoom:${zoom}; ${narrowStyle}${html.slice(m.index + m[0].length)}`
 }
 
 /**

@@ -488,9 +488,10 @@ describe('form side margins 10 mm (owner 2026-11-11)', () => {
     expect(FORM_SIDE_MARGIN_MM).toBe(10)
     const out = renderDocumentTemplate(sheet(18.8976), {}, 'BL-1', '2026-11-11')
     expect(out).toContain('padding-left:37.7953px; padding-right:37.7953px')
-    expect(out).toMatch(/<div style="zoom:0\.95; width:755\.891px/)
     // 297 mm − 0.95 × 287 mm, shared equally: 12.18 mm above and below
     expect(out).toContain('padding-top:46.0157px; padding-bottom:46.0157px')
+    // left and right the same 12.18 mm (owner 2026-11-25): 185.65 mm of the 190 mm box, about its centre
+    expect(out).toMatch(/<div style="zoom:0\.95; transform:scaleX\(0\.97711\); width:755\.891px/)
   })
 
   it('a sheet already at 10 mm, or a form without an A4 sheet, is left as it is', () => {
