@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/client'
 import { FORM_NOTE_LINES, FORM_SERVICE_LABELS } from '@/features/documents/utils/form-notes'
 import { parseLineCardDesigns } from '@/lib/line/bill-card-design'
 import { parseLineMessageTemplates } from '@/lib/line/message-templates'
+import { isTemplateKey, templateCardOf, type TemplateCard } from '@/lib/line/templates'
+import { parseSlipCheck } from '@/lib/line/slip-check'
 import { rpc } from '@/lib/db/rpc'
 import { readDeviceCache, writeDeviceCache, SETTINGS_ROW_CACHE_KEY as SETTINGS_ROW_KEY } from '@/lib/db/device-cache'
 import { setCachedPolicies, type Policies } from '@/lib/db/policies'
@@ -183,7 +185,7 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
   ) as unknown as NotificationSettings
 
   const reorder = num(pol.default_reorder_point) ?? num(legacy.productStock?.defaultMinimumStock)
-  const { notify: lineNotify, templates: lineTemplates, friend: lineFriend, catalog: lineCatalog, register: lineRegister, ...lineOther } = obj(pol.line)
+  const { notify: lineNotify, templates: lineTemplates, templateCards: lineCards, slipCheck: lineSlipCheck, friend: lineFriend, catalog: lineCatalog, register: lineRegister, ...lineOther } = obj(pol.line)
 
   return {
     timezone: row.timezone || d.timezone,
@@ -220,12 +222,40 @@ export function rowToConfig(row: StoreSettingsRow): SystemConfig {
       friend: pickBooleans(obj(lineFriend), ['welcome', 'notifyOwner']),
       catalog: pickBooleans(obj(lineCatalog), ['showPrice']),
       register: parseLineRegister(obj(lineRegister)),
+      templateCards: Object.fromEntries(
+        Object.keys(obj(lineCards))
+          .filter(isTemplateKey)
+          .map((k) => [k, templateCardOf(k, lineCards)] as const)
+          .filter(([, c]) => Object.keys(c).length > 0),
+      ),
+      slipCheck: (() => {
+        const sc = parseSlipCheck(lineSlipCheck)
+        return lineSlipCheck === undefined ? {} : { enabled: sc.enabled, receiverNames: sc.receiverNames }
+      })(),
       other: lineOther,
     },
   }
 }
 
 const sortedEntries = <T,>(o: Record<string, T>) => Object.entries(o).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+
+/** Card / text per message: only the fields set, keys in order; null when no message has any. */
+function serializeTemplateCards(cards: Record<string, TemplateCard>): Record<string, TemplateCard> | null {
+  const out = Object.fromEntries(
+    sortedEntries(cards)
+      .filter(([k]) => isTemplateKey(k))
+      .map(([k, c]) => {
+        const card: TemplateCard = {}
+        if (c.format === 'FLEX' || c.format === 'TEXT') card.format = c.format
+        if (c.title?.trim()) card.title = c.title.trim()
+        if (c.color && /^#[0-9A-Fa-f]{6}$/.test(c.color)) card.color = c.color
+        if (c.footer?.trim()) card.footer = c.footer.trim()
+        return [k, card] as const
+      })
+      .filter(([, c]) => Object.keys(c).length > 0),
+  )
+  return Object.keys(out).length > 0 ? out : null
+}
 
 const clampDays = (v: unknown) => Math.max(0, Math.min(365, Math.floor(Number(v) || 0)))
 
@@ -353,6 +383,10 @@ export function sectionPatch(section: SettingsSection, cfg: SystemConfig): Recor
                 .map(([k, t]) => [k, (t ?? '').trim()] as const)
                 .filter(([, t]) => t !== '')
             ),
+            ...(serializeTemplateCards(l.templateCards) ? { templateCards: serializeTemplateCards(l.templateCards) } : {}),
+            ...(Object.keys(l.slipCheck).length > 0
+              ? { slipCheck: { enabled: l.slipCheck.enabled === true, receiverNames: (l.slipCheck.receiverNames ?? []).map((n) => n.trim()).filter(Boolean).slice(0, 5) } }
+              : {}),
           },
         },
       }

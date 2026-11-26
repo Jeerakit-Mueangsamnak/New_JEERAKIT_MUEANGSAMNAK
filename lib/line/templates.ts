@@ -1,6 +1,7 @@
 import { LINE_LIMITS, LineMessageError } from './messages'
-import { cardMessage, mapUrl, telUrl, type FlexButton, type FlexRow } from './flex'
+import { billDesignMessage, cardMessage, mapUrl, telUrl, type FlexButton, type FlexRow } from './flex'
 import { type LineMessage } from './types'
+import { LINE_EDITABLE_TEMPLATES } from './config'
 
 /**
  * Message templates (spec "ตัวอย่างข้อความที่ส่งออก"). Defaults live here; the OWNER may
@@ -84,6 +85,12 @@ export const LINE_TEMPLATES = {
   OWNER_TASK_SENT: { text: 'ส่งงานให้ {ชื่อพนักงาน} แล้ว: {เรื่อง}', vars: ['ชื่อพนักงาน', 'เรื่อง'] },
   OWNER_COMMAND_HELP: { text: 'คำสั่งที่ใช้ได้\n#สรุปยอดวันนี้\n#สั่งงาน ชื่อพนักงาน รายละเอียดงาน', vars: [] },
   OWNER_COMMAND_FAILED: { text: 'ทำคำสั่งไม่สำเร็จ: {เหตุผล}', vars: ['เหตุผล'] },
+  RETURN_REQUEST_REPLY: { text: 'ได้รับเรื่องแจ้งนัดส่งคืนสินค้าแล้ว กรุณาพิมพ์วันและเวลาที่สะดวกในแชตนี้ เจ้าหน้าที่จะยืนยันกลับ', vars: [] },
+  RETURN_REQUEST_OWNER: { text: 'ลูกค้าขอนัดส่งคืนสินค้าทาง LINE: {ชื่อลูกค้า} บิล {เลขบิล} ตอบนัดวันเวลาในแชตของลูกค้า', vars: ['ชื่อลูกค้า', 'เลขบิล'] },
+  RETURN_REQUEST_NO_BILL: { text: 'ไม่พบสินค้าที่ต้องส่งคืน หากมีข้อสงสัยติดต่อ {ชื่อร้าน} โทร {เบอร์โทรร้าน}', vars: ['ชื่อร้าน', 'เบอร์โทรร้าน'] },
+  OWNER_ORDER_HOWTO: { text: 'สั่งงานพนักงาน: พิมพ์ #สั่งงาน ชื่อพนักงาน รายละเอียดงาน หรือกดปุ่มด้านล่างเพื่อเปิดหน้าสั่งงานในแอป', vars: [] },
+  MENU_NOTHING: { text: 'ตอนนี้ไม่มีรายการ', vars: [] },
+  MENU_NOT_ALLOWED: { text: 'เมนูนี้ใช้ได้เฉพาะบัญชีที่ร้านยืนยันแล้ว หากต้องการผูกบัญชีติดต่อร้าน', vars: [] },
 } as const satisfies Record<string, { text: string; vars: readonly string[] }>
 
 export type LineTemplateKey = keyof typeof LINE_TEMPLATES
@@ -120,8 +127,77 @@ export function renderTemplate(key: LineTemplateKey, vars: TemplateVars = {}, ov
   return text
 }
 
+/**
+ * Card or plain text per message (owner 2026-11-26, Settings › LINE › แก้ไขข้อความ): policies.line.templateCards, read
+ * with the texts and carried in the overrides under TEMPLATE_CARDS_KEY (withTemplateCards). Only the messages below can
+ * switch: the others go through database steps that accept plain text only (registration answers, slip answers, the
+ * owner's slip / return notices, the shop's own screens) or carry the job buttons, so they stay as they are.
+ */
+export type TemplateFormat = 'FLEX' | 'TEXT'
+export interface TemplateCard {
+  format?: TemplateFormat
+  /** card heading (default: the message's name) */
+  title?: string
+  /** heading colour #RRGGBB (default LINE green) */
+  color?: string
+  /** small closing line under the text */
+  footer?: string
+}
+export const TEMPLATE_CARD_LIMITS = { title: 60, footer: 300 } as const
+export const TEMPLATE_CARD_COLOURS = ['#06C755', '#F59E0B', '#EF4444', '#2563EB', '#334155'] as const
+export const TEMPLATE_CARD_DEFAULT_COLOUR = '#06C755'
+export const TEMPLATE_CARDS_KEY = '__cards'
+
+const CARD_DEFAULT_KEYS: readonly LineTemplateKey[] = [
+  'CUSTOMER_RETURN_REMINDER', 'CUSTOMER_DUE_TODAY', 'CUSTOMER_OVERDUE', 'CUSTOMER_PAYMENT_DUE', 'CUSTOMER_APPOINTMENT', 'CUSTOMER_JOB_STEP',
+]
+export const SWITCHABLE_TEMPLATES: ReadonlySet<LineTemplateKey> = new Set<LineTemplateKey>([
+  ...CARD_DEFAULT_KEYS,
+  'LINK_SUCCESS', 'LINK_INVALID', 'LINK_EXPIRED', 'LINK_LOCKED', 'LINK_TAKEN',
+  'REGISTER_RETRY', 'REGISTER_PHONE_TAKEN', 'REGISTER_PENDING', 'REGISTER_HOWTO',
+  'SHOP_INFO', 'CONTACT_SHOP', 'PRICE_INQUIRY_REPLY', 'PREORDER_INQUIRY_REPLY', 'CATALOG_INTRO', 'CATALOG_ITEMS_INTRO', 'CATALOG_EMPTY',
+  'TASK_ACCEPTED', 'TASK_DONE', 'TASK_NOT_ALLOWED', 'TASK_ACCEPT_FIRST',
+  'OWNER_SUMMARY', 'OWNER_TASK_SENT', 'OWNER_COMMAND_HELP', 'OWNER_COMMAND_FAILED',
+  'RETURN_REQUEST_REPLY', 'RETURN_REQUEST_NO_BILL', 'MENU_NOTHING', 'MENU_NOT_ALLOWED',
+])
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** The saved card settings of one message (anything malformed is left out). */
+export function templateCardOf(key: LineTemplateKey, cards: unknown): TemplateCard {
+  const c = isObj(cards) && isObj(cards[key]) ? (cards[key] as Record<string, unknown>) : {}
+  const out: TemplateCard = {}
+  if (c.format === 'FLEX' || c.format === 'TEXT') out.format = c.format
+  if (typeof c.title === 'string' && c.title.trim()) out.title = c.title.slice(0, TEMPLATE_CARD_LIMITS.title)
+  if (typeof c.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(c.color)) out.color = c.color
+  if (typeof c.footer === 'string' && c.footer.trim()) out.footer = c.footer.slice(0, TEMPLATE_CARD_LIMITS.footer)
+  return out
+}
+
+/** How a message goes out: the shop's choice, else what it always was (customer notices = card, the rest = text). */
+export function templateFormat(key: LineTemplateKey, cards: unknown): TemplateFormat {
+  if (!SWITCHABLE_TEMPLATES.has(key)) return 'TEXT'
+  return templateCardOf(key, cards).format ?? (CARD_DEFAULT_KEYS.includes(key) ? 'FLEX' : 'TEXT')
+}
+
+export const templateLabel = (key: LineTemplateKey): string => LINE_EDITABLE_TEMPLATES.find((t) => t.key === key)?.label ?? ''
+
+/** The texts plus the card settings, as one overrides object for the senders. */
+export function withTemplateCards(templates: Record<string, unknown> | null | undefined, cards: unknown): TemplateOverrides {
+  return { ...(templates ?? {}), ...(isObj(cards) ? { [TEMPLATE_CARDS_KEY]: cards } : {}) }
+}
+
+/** The card of a message: heading colour, heading, the text, closing line and buttons the server made. */
+export function templateCardMessage(key: LineTemplateKey, text: string, cards: unknown, opts: { title?: string; buttons?: FlexButton[] } = {}): LineMessage {
+  const card = templateCardOf(key, cards)
+  const title = card.title || opts.title || templateLabel(key) || text.slice(0, 40)
+  return billDesignMessage({ altText: text, title, color: card.color ?? TEMPLATE_CARD_DEFAULT_COLOUR, text, rows: [], footer: card.footer, buttons: opts.buttons })
+}
+
 export function textMessage(key: LineTemplateKey, vars?: TemplateVars, overrides?: TemplateOverrides): LineMessage {
-  return { type: 'text', text: renderTemplate(key, vars, overrides) }
+  const text = renderTemplate(key, vars, overrides)
+  const cards = overrides?.[TEMPLATE_CARDS_KEY]
+  return templateFormat(key, cards) === 'FLEX' ? templateCardMessage(key, text, cards) : { type: 'text', text }
 }
 
 const shorten = (s: string, max: number) => (s.length <= max ? s : `${s.slice(0, max - 1)}…`)
@@ -222,9 +298,11 @@ export function customerNoticeMessages(
   contact?: { chatUrl?: string | null; phone?: string | null },
 ): LineMessage[] {
   const text = renderTemplate(key, vars, overrides)
+  const cards = overrides?.[TEMPLATE_CARDS_KEY]
+  if (templateFormat(key, cards) === 'TEXT') return [{ type: 'text', text }]
   const buttons: FlexButton[] = []
   if (contact?.chatUrl) buttons.push({ label: 'แชทกับร้าน', uri: contact.chatUrl, primary: true })
   const tel = telUrl(contact?.phone)
   if (tel) buttons.push({ label: 'โทรหาร้าน', uri: tel })
-  return [cardMessage({ altText: text, title, text, buttons })]
+  return [templateCardMessage(key, text, cards, { title, buttons })]
 }

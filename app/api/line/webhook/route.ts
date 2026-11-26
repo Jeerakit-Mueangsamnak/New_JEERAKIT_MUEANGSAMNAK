@@ -61,6 +61,13 @@ export async function POST(request: Request): Promise<Response> {
       // a task from the owner's chat goes out now, not at the next outbox round
       afterQueued: live ? async () => void (await processOutbox({ store, provider, limit: 5 })) : undefined,
       templates: profile.templates,
+      // chat menu by role: the LINE forms (when LIFF is set up) and the app pages the owner's buttons open
+      payUrl: (billId) => liffUrl('pay', { bill: billId }),
+      jobUrl: (taskId) => liffUrl('job', { task: taskId }),
+      appUrl: (path) => {
+        const site = (process.env.NEXT_PUBLIC_SITE_URL ?? '').trim().replace(/\/+$/, '')
+        return /^https:\/\//.test(site) ? `${site}${path}` : null
+      },
     })
     return Response.json(result.body, { status: result.status })
   } catch {

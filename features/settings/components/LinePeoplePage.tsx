@@ -39,6 +39,7 @@ import type { LineTemplateCategory } from '@/lib/line/config'
 import { DeliveryDriversPanel } from '@/features/settings/components/DeliveryDriversPanel'
 import { LineConnectionPanel, type LineSettingsView } from '@/features/settings/components/LineSettingsPanel'
 import { LineSettingsWorkspace } from '@/features/settings/components/LineSettingsWorkspace'
+import { LineTeamRemindersPanel } from '@/features/settings/components/line/LineTeamRemindersPanel'
 import { LineBillCardDesigner } from '@/features/settings/components/LineBillCardDesigner'
 import { LineMessageComposer } from '@/features/settings/components/LineMessageComposer'
 import { LineMembersPanel } from '@/features/settings/components/LineMembersPanel'
@@ -60,9 +61,9 @@ import { SETTINGS_HELPER } from '@/features/settings/components/settings-ui'
 type LineGroup = 'OVERVIEW' | 'PEOPLE' | 'PAYMENTS' | 'TEAM' | 'MESSAGES' | 'NOTICES' | 'SETTINGS'
 type LineView =
   | 'OVERVIEW' | 'ALL' | 'UNREG' | 'PENDING' | 'NEEDINFO' | 'CUSTOMERS' | 'STAFF' | 'DRIVERS' | 'GENERAL' | 'REJECTED' | 'UNLINKED' | 'BLOCKED' | 'CODES' | 'AUDIT'
-  | 'SLIPS' | 'TASKS'
-  | 'MSG_FRIEND' | 'MSG_CATALOG' | 'MSG_CUSTOMER' | 'MSG_STAFF' | 'OWN' | 'CARD'
-  | 'CONNECTION' | 'FRIEND' | 'REGISTER' | 'CATALOG' | 'MENU' | 'NOTIFY' | 'SCHEDULE' | 'MANUAL' | 'HISTORY'
+  | 'SLIPS' | 'SLIPCHECK' | 'TASKS'
+  | 'MSG_CUSTOMER' | 'MSG_STAFF' | 'MSG_OWNER' | 'OWN' | 'CARD'
+  | 'CONNECTION' | 'FRIEND' | 'REGISTER' | 'CATALOG' | 'MENU' | 'NOTIFY' | 'SCHEDULE' | 'MANUAL' | 'MANUAL_STAFF' | 'OWNER_ALERTS' | 'HISTORY'
 
 const icon = (Node: typeof Users) => <Node className="w-3.5 h-3.5" />
 
@@ -94,7 +95,15 @@ const LINE_GROUPS: ReadonlyArray<{
       { id: 'BLOCKED', label: 'บล็อก LINE OA' },
     ],
   },
-  { id: 'PAYMENTS', label: 'การชำระเงิน', icon: icon(ReceiptText), views: [{ id: 'SLIPS', label: 'สลิปรอตรวจ' }] },
+  {
+    id: 'PAYMENTS',
+    label: 'การชำระเงิน',
+    icon: icon(ReceiptText),
+    views: [
+      { id: 'SLIPS', label: 'สลิปรอตรวจ' },
+      { id: 'SLIPCHECK', label: 'ตั้งค่าตรวจสลิป', ownerOnly: true },
+    ],
+  },
   {
     id: 'TEAM',
     label: 'พนักงานและงาน',
@@ -111,10 +120,9 @@ const LINE_GROUPS: ReadonlyArray<{
     icon: icon(MessageSquare),
     ownerOnly: true,
     views: [
-      { id: 'MSG_FRIEND', label: 'เพิ่มเพื่อนและลงทะเบียน' },
-      { id: 'MSG_CATALOG', label: 'สินค้าและการติดต่อ' },
-      { id: 'MSG_CUSTOMER', label: 'ลูกค้าและเอกสาร' },
-      { id: 'MSG_STAFF', label: 'พนักงานและคนขับ' },
+      { id: 'MSG_CUSTOMER', label: 'ลูกค้า' },
+      { id: 'MSG_STAFF', label: 'พนักงาน' },
+      { id: 'MSG_OWNER', label: 'เจ้าของ' },
       { id: 'OWN', label: 'แม่แบบของร้าน' },
       { id: 'CARD', label: 'การ์ดบิล' },
     ],
@@ -125,9 +133,11 @@ const LINE_GROUPS: ReadonlyArray<{
     icon: icon(BellRing),
     ownerOnly: true,
     views: [
-      { id: 'NOTIFY', label: 'แจ้งพนักงาน' },
-      { id: 'SCHEDULE', label: 'เตือนลูกค้า' },
-      { id: 'MANUAL', label: 'ส่งเตือนเอง' },
+      { id: 'SCHEDULE', label: 'แจ้งเตือนลูกค้า' },
+      { id: 'MANUAL', label: 'ส่งเตือนลูกค้าเอง' },
+      { id: 'NOTIFY', label: 'แจ้งเตือนพนักงาน' },
+      { id: 'MANUAL_STAFF', label: 'ส่งเตือนพนักงานเอง' },
+      { id: 'OWNER_ALERTS', label: 'แจ้งเตือนเจ้าของ' },
       { id: 'HISTORY', label: 'ประวัติการส่ง' },
     ],
   },
@@ -154,13 +164,13 @@ const ALL_VIEWS = LINE_GROUPS.flatMap((g) => g.views.map((v) => v.id))
 
 /** Lists of people that are one LinePeopleList with a different view (staff and drivers have their own panels). */
 const PEOPLE_LIST_VIEWS: readonly LineView[] = ['ALL', 'UNREG', 'PENDING', 'NEEDINFO', 'CUSTOMERS', 'GENERAL', 'REJECTED', 'UNLINKED', 'BLOCKED']
-const MSG_CATEGORY: Partial<Record<LineView, LineTemplateCategory>> = { MSG_FRIEND: 'FRIEND', MSG_CATALOG: 'CATALOG', MSG_CUSTOMER: 'CUSTOMER', MSG_STAFF: 'STAFF' }
+const MSG_CATEGORY: Partial<Record<LineView, LineTemplateCategory>> = { MSG_CUSTOMER: 'CUSTOMER', MSG_STAFF: 'STAFF', MSG_OWNER: 'OWNER' }
 /** The pages kept in the settings draft (LineSettingsWorkspace): the four message groups share the TEMPLATES draft. */
 const draftViewOf = (v: LineView): LineSettingsView | null =>
-  MSG_CATEGORY[v] ? 'TEMPLATES' : v === 'NOTIFY' || v === 'SCHEDULE' || v === 'FRIEND' || v === 'REGISTER' || v === 'CATALOG' ? v : null
+  MSG_CATEGORY[v] ? 'TEMPLATES' : v === 'NOTIFY' || v === 'SCHEDULE' || v === 'FRIEND' || v === 'REGISTER' || v === 'CATALOG' || v === 'SLIPCHECK' || v === 'OWNER_ALERTS' ? v : null
 
 /** Old links /line?tab=settings&view=… (and TEMPLATES, which is now the four message groups) */
-const LEGACY_VIEW: Record<string, LineView> = { TEMPLATES: 'MSG_FRIEND', LINKED: 'CUSTOMERS' }
+const LEGACY_VIEW: Record<string, LineView> = { TEMPLATES: 'MSG_CUSTOMER', MSG_FRIEND: 'MSG_CUSTOMER', MSG_CATALOG: 'MSG_CUSTOMER', LINKED: 'CUSTOMERS' }
 
 export function LinePeoplePage() {
   const { showToast } = useToast()
@@ -177,12 +187,12 @@ export function LinePeoplePage() {
     PEOPLE: 'PENDING',
     PAYMENTS: 'SLIPS',
     TEAM: 'TASKS',
-    MESSAGES: 'MSG_FRIEND',
-    NOTICES: 'NOTIFY',
+    MESSAGES: 'MSG_CUSTOMER',
+    NOTICES: 'SCHEDULE',
     SETTINGS: 'CONNECTION',
   })
   const [draftView, setDraftView] = useState<LineSettingsView>('TEMPLATES')
-  const [category, setCategory] = useState<LineTemplateCategory>('FRIEND')
+  const [category, setCategory] = useState<LineTemplateCategory>('CUSTOMER')
   const openView = (v: LineView) => open(v)
   const openGroup = (g: LineGroup) => open(lastView[g])
   const open = (v: LineView) => {
@@ -351,6 +361,7 @@ export function LinePeoplePage() {
             {view === 'AUDIT' && <LineAuditPanel tabs={null} />}
             {view === 'MENU' && <LineRichMenuSettings tabs={null} />}
             {view === 'MANUAL' && <LineRemindersPanel tabs={null} />}
+            {view === 'MANUAL_STAFF' && <LineTeamRemindersPanel />}
             {view === 'HISTORY' && <LineDeliveryLogPanel tabs={null} />}
             {view === 'CONNECTION' && <LineConnectionPanel />}
 

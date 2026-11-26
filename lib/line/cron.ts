@@ -4,7 +4,7 @@ import { processOutbox, type OutboxRunResult, type OutboxStore } from './outbox'
 import { LINE_REMINDER_RULES } from './config'
 import { cardMessage } from './flex'
 import { lineOaMessageUrl } from './oa-link'
-import { customerNoticeMessages, renderTemplate, taskPostbackData, type TemplateOverrides } from './templates'
+import { customerNoticeMessages, renderTemplate, taskPostbackData, textMessage, type TemplateOverrides } from './templates'
 import { type LineMessage, type LineProvider } from './types'
 
 /**
@@ -31,6 +31,8 @@ export interface CronStore {
   scanDue(): Promise<number>
   claimNotifications(limit: number): Promise<string[]>
   remindersDue(): Promise<ReminderRow[]>
+  /** Due dates to linked staff (policies.line.staffReminders) and the owner (everything), owner 2026-11-26 */
+  teamRemindersDue?(): Promise<TeamReminderRow[]>
   acceptOverdue(): Promise<Array<{ task_id: string; contact_id: string; title: string; dedupe_key: string }>>
   enqueueServer(input: {
     contactId: string
@@ -93,6 +95,23 @@ export function reminderMessages(row: Omit<ReminderRow, 'contact_id' | 'dedupe_k
   return { templateKey: rule.template, messages }
 }
 
+/** A due-date notice for staff or the owner (one row per linked person). */
+export type TeamReminderRow = ReminderRow & { audience: 'STAFF' | 'OWNER' }
+
+/** The staff / owner notice of one due item: the staff notice text (แจ้งเตือนพนักงาน) with the rule and the details. */
+export function teamReminderMessages(row: Omit<ReminderRow, 'contact_id' | 'dedupe_key'>, shop: CronShop): LineMessage[] {
+  const rule = LINE_REMINDER_RULES.find((r) => r.key === row.rule)
+  if (!rule) throw new Error('LINE_REMINDER_RULE_UNKNOWN')
+  const who = row.customer_name ? ` คุณ${row.customer_name}` : ''
+  const detail =
+    row.source_type === 'APPOINTMENT'
+      ? `${row.ref_no || 'นัดหมาย'}${who} · ${formatThaiDate(row.due_at, true)}`
+      : row.rule === 'PAYMENT_DUE'
+        ? `บิล ${row.ref_no || '-'}${who} · ครบกำหนดชำระ ${formatThaiDate(row.due_at)} · ยอดค้าง ${formatBaht(row.amount)} บาท`
+        : `บิล ${row.ref_no || '-'}${who} · กำหนดคืน ${formatThaiDate(row.due_at, true)} · ยอดค้าง ${formatBaht(row.amount)} บาท`
+  return [textMessage('STAFF_NOTICE', { หัวข้อ: rule.label, รายละเอียด: detail }, shop.templates)]
+}
+
 export async function runLineCron(opts: {
   store: CronStore & FanoutStore & OutboxStore & Partial<RichMenuSyncStore>
   shop: CronShop
@@ -131,6 +150,22 @@ export async function runLineCron(opts: {
           sourceId: row.source_id,
           templateKey,
           messages,
+          dedupeKey: row.dedupe_key,
+        })
+        if (!r.duplicate) result.reminders++
+      })
+    }
+  })
+
+  await safely(async () => {
+    for (const row of (await store.teamRemindersDue?.()) ?? []) {
+      await safely(async () => {
+        const r = await store.enqueueServer({
+          contactId: row.contact_id,
+          sourceType: row.source_type,
+          sourceId: row.source_id,
+          templateKey: 'STAFF_NOTICE',
+          messages: teamReminderMessages(row, shop),
           dedupeKey: row.dedupe_key,
         })
         if (!r.duplicate) result.reminders++

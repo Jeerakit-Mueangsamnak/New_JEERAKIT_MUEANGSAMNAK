@@ -73,18 +73,21 @@ export function resetSection(drafts: SectionDrafts, section: SettingsSection, se
  * ตั้งค่า LINE (in คนใน LINE) has sub-pages; บันทึกการตั้งค่า saves only the sub-page that is open
  * (owner 2026-11-06: "บันทึกหน้าต่อหน้า"). Each saving sub-page owns one part of policies.line.
  */
-export type LinePart = 'notify' | 'friend' | 'catalog' | 'register' | 'templates' | 'other'
+export type LinePart = 'notify' | 'friend' | 'catalog' | 'register' | 'templates' | 'templateCards' | 'slipCheck' | 'other'
 /** One part, or the parts a page owns (การลงทะเบียน edits `register` and the code limits kept in `other`). */
 export type LineParts = LinePart | readonly LinePart[]
 export const LINE_VIEW_PART: Readonly<Record<string, LineParts>> = {
-  NOTIFY: 'notify',
+  // the staff notices and their due-date rules (policies.line.staffReminders, kept in `other`)
+  NOTIFY: ['notify', 'other'],
   FRIEND: 'friend',
   CATALOG: 'catalog',
   REGISTER: ['register', 'other'],
-  TEMPLATES: 'templates',
+  TEMPLATES: ['templates', 'templateCards'],
+  SLIPCHECK: 'slipCheck',
+  OWNER_ALERTS: 'other',
   SCHEDULE: 'other',
 }
-const LINE_PARTS: readonly LinePart[] = ['notify', 'friend', 'catalog', 'register', 'templates', 'other']
+const LINE_PARTS: readonly LinePart[] = ['notify', 'friend', 'catalog', 'register', 'templates', 'templateCards', 'slipCheck', 'other']
 const asParts = (part: LineParts): readonly LinePart[] => (typeof part === 'string' ? [part] : part)
 
 /** The config this sub-page's บันทึก sends: the saved LINE settings with only `part` taken from the draft. */

@@ -2,17 +2,17 @@
 
 import { createClient as createServerSupabase } from '@/lib/supabase/server'
 import { assertValidMessages, LineMessageError } from '@/lib/line/messages'
-import { driverTaskMessages, taskMessages, textMessage } from '@/lib/line/templates'
+import { driverTaskMessages, taskMessages, textMessage, withTemplateCards } from '@/lib/line/templates'
 import { liffUrl } from '@/lib/line/liff-links'
 import { type LineMessage } from '@/lib/line/types'
 import { processOutbox } from '@/lib/line/outbox'
 import { lineOaAddFriendUrl, lineOaMessageUrl } from '@/lib/line/oa-link'
 import { createLineProvider, lineDeliveryMode } from '@/lib/line/provider'
-import { formatThaiDate, reminderMessages, type CronShop, type ReminderRow } from '@/lib/line/cron'
+import { formatThaiDate, reminderMessages, teamReminderMessages, type CronShop, type ReminderRow } from '@/lib/line/cron'
 import { type LineInviteKind } from '@/lib/line/config'
 import { billDesignMessage, cardMessage, type FlexButton } from '@/lib/line/flex'
 import { isLineCardColor, LINE_CARD_COLORS, LINE_CARD_LIMITS } from '@/lib/line/bill-card-design'
-import { SHOP_LINE_ID_COLUMN, SHOP_LINE_TEMPLATES_COLUMN } from '@/lib/line/policy'
+import { SHOP_LINE_CARDS_COLUMN, SHOP_LINE_ID_COLUMN, SHOP_LINE_TEMPLATES_COLUMN } from '@/lib/line/policy'
 import { pngSize, richMenuBody, richMenuItems, richMenuLabel, richMenuSize, RICH_MENU_KINDS, validateRichMenuImage, type RichMenuKind } from '@/lib/line/rich-menu'
 
 /** store_settings read through SHOP_LINE_ID_COLUMN / SHOP_LINE_TEMPLATES_COLUMN (not the whole policies). */
@@ -623,13 +623,13 @@ async function cronShop(): Promise<CronShop> {
   const supabase = await createServerSupabase()
   const { data: row } = await supabase
     .from('store_settings')
-    .select(`company_name, phone, ${SHOP_LINE_ID_COLUMN}, ${SHOP_LINE_TEMPLATES_COLUMN}`)
+    .select(`company_name, phone, ${SHOP_LINE_ID_COLUMN}, ${SHOP_LINE_TEMPLATES_COLUMN}, ${SHOP_LINE_CARDS_COLUMN}`)
     .eq('singleton', true)
     .maybeSingle()
-  const data = row as ({ company_name?: string | null; phone?: string | null } & ShopLineId & ShopLineTemplates) | null
+  const data = row as ({ company_name?: string | null; phone?: string | null } & ShopLineId & ShopLineTemplates & { cards?: unknown }) | null
   return {
     shopName: data?.company_name?.trim() || 'ร้าน',
-    templates: data?.templates ?? {},
+    templates: withTemplateCards(data?.templates, data?.cards),
     lineId: data?.line_id?.trim() || null,
     phone: (data?.phone as string | null)?.trim() || null,
   }
@@ -666,6 +666,37 @@ export async function sendCustomerReminder(input: {
   if (!queued.success || !queued.data) return { success: false, error: queued.error }
   const status = await runOutboxOnce({ id: queued.data.delivery_id })
   return { success: true, data: { ...queued.data, status, mode: lineDeliveryMode() } }
+}
+
+export type TeamReminderCandidate = Omit<ReminderCandidate, 'last_status'> & { staff_count: number }
+
+/** ส่งเตือนพนักงานเอง (OWNER, owner 2026-11-26): what is due, with the last time it was sent to staff. */
+export async function getTeamReminderCandidates() {
+  return callRpc<TeamReminderCandidate[]>('line_team_reminder_candidates', {})
+}
+
+/** ส่งเตือนพนักงานเอง: the staff notice of one due item to every linked staff member, then the outbox once. */
+export async function sendTeamReminder(input: { rule: string; sourceId: string }): Promise<LineActionResult<{ queued: number; mode: 'mock' | 'live' }>> {
+  if (!input || !UUID.test(input.sourceId || '')) return bad('ไม่พบรายการนี้')
+  const list = await getTeamReminderCandidates()
+  if (!list.success || !list.data) return { success: false, error: list.error }
+  const row = list.data.find((c) => c.rule === input.rule && c.source_id === input.sourceId)
+  if (!row) return bad('รายการนี้ไม่อยู่ในรายการที่ต้องเตือนแล้ว กรุณารีเฟรช')
+  let messages: LineMessage[]
+  try {
+    messages = teamReminderMessages(row, await cronShop())
+  } catch {
+    return bad('ข้อความไม่ถูกต้องหรือยาวเกินกำหนด')
+  }
+  const queued = await callRpc<{ queued: number }>('line_team_reminder_send', {
+    p_rule: row.rule,
+    p_source_type: row.source_type,
+    p_source_id: row.source_id,
+    p_messages: messages,
+  })
+  if (!queued.success || !queued.data) return { success: false, error: queued.error }
+  if (queued.data.queued > 0) await runOutboxOnce(null)
+  return { success: true, data: { queued: queued.data.queued, mode: lineDeliveryMode() } }
 }
 
 /** ประวัติการส่ง: send a failed / cancelled row again (same retry key, so LINE delivers it once). */
@@ -1092,6 +1123,9 @@ export interface LineSlipRow {
   created_at: string
   decided_at: string | null
   decided_by: string | null
+  /** automatic slip check (owner 2026-11-26): null = not checked */
+  check_status?: 'PASS' | 'FAIL' | 'ERROR' | null
+  check_detail?: { reasons?: string[]; amount_slip?: number; receiver?: string; duplicate?: boolean } | null
 }
 
 const SLIP_STATUSES: readonly string[] = ['PENDING', 'APPROVED', 'REJECTED']

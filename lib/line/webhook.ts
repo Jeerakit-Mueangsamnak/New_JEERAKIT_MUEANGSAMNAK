@@ -1,5 +1,5 @@
 import { verifyLineSignature } from './signature'
-import { nextStepMessage, taskMessages, textMessage, type LineTemplateKey, type TemplateOverrides } from './templates'
+import { nextStepMessage, renderTemplate, taskMessages, textMessage, type LineTemplateKey, type TemplateOverrides } from './templates'
 import { stageLabel } from '../work-order-stages'
 import { logger } from '../utils/logger'
 import { LINE_USER_ID_PATTERN, type LineMessage, type LineProvider } from './types'
@@ -18,6 +18,20 @@ import {
   type CatalogContext,
   type CatalogPage,
 } from './catalog'
+import {
+  closeTasksMessages,
+  customerBillsMessages,
+  ownerOrderMessages,
+  ownerQueueMessages,
+  ownerSummaryMessages,
+  parseMenuPostback,
+  photoMessages,
+  staffTodayMessages,
+  stockMessages,
+  type MenuAction,
+  type MenuContext,
+  type MenuStore,
+} from './role-menu'
 
 /**
  * Webhook handling (spec F2/F3/F6). Order: signature on the raw body -> parse -> per event
@@ -68,7 +82,7 @@ export type SelfRegisterResult =
   | { result: 'LINKED_CUSTOMER'; name?: string; created?: boolean }
   | { result: 'PENDING' | 'PHONE_TAKEN' | 'DUPLICATE' | 'INVALID' | 'ALREADY_LINKED' | 'REJECTED' | 'RATE_LIMITED' | 'SUSPENDED'; duplicate?: boolean }
 
-export interface WebhookStore {
+export interface WebhookStore extends Partial<MenuStore> {
   checkInteraction?(lineUserId: string, scope: LineInteractionScope, key: string): Promise<InteractionDecision>
   recordEvent(e: { eventId: string; lineUserId: string; kind: EventKind; text: string | null; lineMessageId: string | null; eventAt: Date }): Promise<RecordedEvent>
   consumeLinkCode(lineUserId: string, code: string): Promise<LinkResult>
@@ -132,6 +146,10 @@ export interface WebhookDeps {
   /** After a message was queued for someone else (a task from the owner's chat): push it now (live LINE only) */
   afterQueued?: () => Promise<void>
   templates?: TemplateOverrides
+  /** Chat menu by role (owner 2026-11-26): the LIFF pay form of a bill, the LIFF job form of a task, a page of the app */
+  payUrl?: (billId: string) => string | null
+  jobUrl?: (taskId: string) => string | null
+  appUrl?: (path: string) => string | null
 }
 
 export interface WebhookResponse {
@@ -346,10 +364,8 @@ function createWebhookRepliers(deps: WebhookDeps): WebhookRepliers {
   /** Driver job reply: the text, plus the button of the next step while one is left. */
   const replyStep = (token: string | null, taskId: string, text: string, next: string | null | undefined, type?: string | null) =>
     send(token, () => [next ? nextStepMessage(taskId, text, { key: next, label: stageLabel(next, type) }) : { type: 'text', text }])
-  const render = (key: LineTemplateKey, vars?: Record<string, string>) => {
-    const m = textMessage(key, vars, deps.templates)
-    return m.type === 'text' ? m.text : ''
-  }
+  // the words alone (put inside another message), whatever the shop chose for the message on its own
+  const render = (key: LineTemplateKey, vars?: Record<string, string>) => renderTemplate(key, vars, deps.templates)
 
   /** Never lets a notice failure change the driver's reply (the step is already recorded). */
   const progress = async (taskId: string, stage: string, type?: string | null) => {
@@ -386,6 +402,8 @@ async function dispatchEvent(ev: ParsedEvent, rec: RecordedEvent, deps: WebhookD
       // the next cron round puts the menu right; the friend is already recorded and welcomed
     }
   } else if (ev.kind === 'POSTBACK') {
+    const menu = parseMenuPostback(ev.postbackData)
+    if (menu) return handleMenuPostback(ev, menu, deps, repliers)
     const catalog = parseCatalogPostback(ev.postbackData)
     if (catalog) return handleCatalogPostback(ev, catalog, deps, repliers)
     const task = parseTaskPostback(ev.postbackData)
@@ -497,6 +515,74 @@ export async function handleCatalogPostback(ev: ParsedEvent, action: CatalogActi
     case 'preorder': {
       const item = await deps.store.catalogItem?.(action.p)
       return item ? send(() => [inquiryReply(action.a as 'price' | 'preorder', item.name, ctx)]) : home()
+    }
+  }
+}
+
+/**
+ * A press on the chat menu by role (owner 2026-11-26). The database answers only for the person the shop confirmed
+ * for that menu; the customer presses count as general chat, the work presses as work (same limits as the rest).
+ */
+export async function handleMenuPostback(ev: ParsedEvent, action: MenuAction, deps: WebhookDeps, repliers: Pick<WebhookRepliers, 'replyMessages'>): Promise<void> {
+  if (!ev.replyToken) return
+  const customer = action.a === 'bills' || action.a === 'pay' || action.a === 'return'
+  const scope: LineInteractionScope = customer ? 'GENERAL' : 'WORK'
+  if (deps.store.checkInteraction && !(await deps.store.checkInteraction(ev.lineUserId, scope, ev.postbackData ?? action.a)).allowed) return
+  const s = deps.store
+  const ctx: MenuContext = {
+    shopName: deps.shopName,
+    phone: deps.shopPhone ?? null,
+    templates: deps.templates,
+    payUrl: deps.payUrl ?? (() => null),
+    jobUrl: deps.jobUrl ?? (() => null),
+    appUrl: deps.appUrl ?? (() => null),
+  }
+  const send = (messages: () => LineMessage[]) => repliers.replyMessages(ev.replyToken, messages)
+  const id = ev.lineUserId
+  switch (action.a) {
+    case 'bills':
+    case 'pay': {
+      if (!s.menuCustomerBills) return
+      const r = await s.menuCustomerBills(id)
+      return send(() => customerBillsMessages(r, action.a === 'pay', ctx))
+    }
+    case 'return': {
+      if (!s.menuReturnRequest) return
+      const r = await s.menuReturnRequest(id, (name, billNo) => [textMessage('RETURN_REQUEST_OWNER', { ชื่อลูกค้า: name || '-', เลขบิล: billNo || '-' }, deps.templates)])
+      if (r.result === 'NOT_ALLOWED') return send(() => [textMessage('MENU_NOT_ALLOWED', {}, deps.templates)])
+      if (r.result === 'NO_BILL') return send(() => [textMessage('RETURN_REQUEST_NO_BILL', { ชื่อร้าน: deps.shopName, เบอร์โทรร้าน: deps.shopPhone || '-' }, deps.templates)])
+      await deps.afterQueued?.().catch(() => undefined)
+      return send(() => [textMessage('RETURN_REQUEST_REPLY', {}, deps.templates)])
+    }
+    case 'today':
+    case 'photo':
+    case 'close': {
+      if (!s.menuStaffJobs) return
+      const r = await s.menuStaffJobs(id)
+      return send(() => (action.a === 'today' ? staffTodayMessages(r, ctx) : action.a === 'photo' ? photoMessages(r, ctx) : closeTasksMessages(r, ctx)))
+    }
+    case 'stock': {
+      if (!s.menuStock) return
+      const r = await s.menuStock(id, action.c ?? null)
+      return send(() => stockMessages(r, ctx))
+    }
+    case 'summary': {
+      if (!s.menuOwner) return
+      const r = await s.menuOwner(id, 'SUMMARY')
+      return send(() => ownerSummaryMessages(r, ctx))
+    }
+    case 'order': {
+      if (!s.menuOwner) return
+      // the how-to is the owner's only: the database still says who that is
+      const r = await s.menuOwner(id, 'SUMMARY')
+      return send(() => (r.result === 'OK' ? ownerOrderMessages(ctx) : [textMessage('MENU_NOT_ALLOWED', {}, deps.templates)]))
+    }
+    case 'slips':
+    case 'approve': {
+      if (!s.menuOwner) return
+      const what = action.a === 'slips' ? 'SLIPS' : 'REGISTER'
+      const r = await s.menuOwner(id, what)
+      return send(() => ownerQueueMessages(what, r, ctx))
     }
   }
 }

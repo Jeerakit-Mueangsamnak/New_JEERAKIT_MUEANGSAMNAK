@@ -4,6 +4,7 @@ import { decodeJobPhoto } from '@/lib/line/job-photos'
 import { textMessage } from '@/lib/line/templates'
 import { processOutbox } from '@/lib/line/outbox'
 import { createLineProvider, lineDeliveryMode } from '@/lib/line/provider'
+import { checkSlipWithEasySlip } from '@/lib/line/slip-check'
 
 /**
  * Pay form in LINE (LIFF, owner 2026-11-25), from the bill card's ชำระเงิน / แนบสลิป buttons. LOAD = the bill, the
@@ -25,6 +26,20 @@ const fail = (result: string, status: number) => Response.json({ ok: false, resu
 const answer = (form: LiffPayForm, extra: Record<string, unknown> = {}) =>
   Response.json({ ok: true, bill: form.bill, customer: form.customer ?? null, shop: form.shop, slips: form.slips ?? [], ...extra })
 const money = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/** Runs the slip check when the shop switched it on and set the service key. */
+async function checkSlip(store: ReturnType<typeof createSupabaseLineStore>, slipId: string, photo: { bytes: Uint8Array; type: string }, amount: number): Promise<void> {
+  try {
+    const settings = await store.slipCheckSettings()
+    if (!settings.enabled) return
+    const apiKey = await store.slipCheckKey()
+    if (!apiKey) return
+    const outcome = await checkSlipWithEasySlip({ apiKey, bytes: photo.bytes, type: photo.type, amount, receiverNames: settings.receiverNames })
+    await store.slipCheckSave(slipId, outcome)
+  } catch {
+    // the slip waits for the shop without a label
+  }
+}
 
 export async function POST(request: Request): Promise<Response> {
   const req = await readLiffRequest(request)
@@ -62,6 +77,8 @@ export async function POST(request: Request): Promise<Response> {
     }
     // saved: the picture belongs to the slip now, whatever happens below
     path = null
+    // automatic check (owner 2026-11-26): a label for the shop, never money by itself; a failure leaves the slip as it is
+    if (r.slip_id) await checkSlip(store, r.slip_id, photo, amount)
     // the owner's notice goes out now with real LINE (a failed push waits in the outbox)
     if (lineDeliveryMode() === 'live') {
       try {

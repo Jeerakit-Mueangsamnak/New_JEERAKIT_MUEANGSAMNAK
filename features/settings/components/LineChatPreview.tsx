@@ -14,6 +14,8 @@ export interface LineChatBubble {
   buttons?: string[]
   /** greyed note instead of a real message */
   empty?: boolean
+  /** shown as a card (Flex): coloured heading, the text, a small closing line (owner 2026-11-26) */
+  card?: { title: string; color: string; footer?: string }
 }
 
 export function LineChatPreview({
@@ -49,11 +51,18 @@ export function LineChatPreview({
               <div key={i} className="flex items-start gap-1.5">
                 <span className="w-7 h-7 rounded-full bg-[#06C755] grid place-items-center text-[9px] font-bold text-white shrink-0">ร้าน</span>
                 <div
-                  className={`max-w-[220px] rounded-[4px_16px_16px_16px] bg-white text-[11px] leading-relaxed whitespace-pre-wrap break-words overflow-hidden ${
-                    b.empty ? 'italic text-[#6b7078]' : 'text-[#111]'
-                  }`}
+                  className={`max-w-[220px] bg-white text-[11px] leading-relaxed whitespace-pre-wrap break-words overflow-hidden ${
+                    b.card ? 'w-[220px] rounded-[12px] shadow-sm' : 'rounded-[4px_16px_16px_16px]'
+                  } ${b.empty ? 'italic text-[#6b7078]' : 'text-[#111]'}`}
+                  data-testid={b.card ? 'line-chat-card' : undefined}
                 >
+                  {b.card && (
+                    <div className="px-3 py-2 text-[12px] font-bold text-white" style={{ backgroundColor: b.card.color }}>
+                      {b.card.title}
+                    </div>
+                  )}
                   <div className="px-3 py-2">{b.text}</div>
+                  {b.card?.footer && <div className="px-3 py-1.5 bg-[#F8FAFC] text-[10px] text-[#666]">{b.card.footer}</div>}
                   {b.buttons && b.buttons.length > 0 && (
                     <div className="border-t border-[#e3e6ea] divide-y divide-[#e3e6ea]">
                       {b.buttons.map((label) => (

@@ -87,3 +87,49 @@ export async function clearLineSecrets(reason?: string): Promise<LineSecretStatu
   if (error) throw new Error(thaiError(error.message))
   return toStatus(data)
 }
+
+/**
+ * The slip check service key (EasySlip, owner 2026-11-26): set / cleared by the OWNER into Vault, read only by the server
+ * (line_slip_check_key). The screen gets "set or not", never the value.
+ */
+export interface SlipCheckKeyStatus {
+  available: boolean
+  configured: boolean
+}
+
+const slipKeyStatus = (data: unknown): SlipCheckKeyStatus => {
+  const s = (data ?? {}) as { vault?: boolean; configured?: boolean }
+  return { available: Boolean(s.vault), configured: Boolean(s.configured) }
+}
+const slipKeyError = (raw: string | undefined) =>
+  /SLIP_CHECK_KEY_FORMAT/.test(raw || '')
+    ? 'รหัส API ไม่ถูกต้อง'
+    : /PGRST202|Could not find the function|LINE_VAULT_UNAVAILABLE/.test(raw || '')
+      ? 'การตรวจสลิปยังไม่พร้อมในฐานข้อมูลนี้ (ต้องรัน migration ก่อน)'
+      : thaiError(raw)
+
+export async function getSlipCheckKeyStatus(): Promise<SlipCheckKeyStatus> {
+  const supabase = await createServerSupabase()
+  const { data, error } = await supabase.rpc('line_slip_check_key_status')
+  if (error) {
+    if (/PGRST202|Could not find the function/.test(`${error.code} ${error.message}`)) return { available: false, configured: false }
+    throw new Error(slipKeyError(error.message))
+  }
+  return slipKeyStatus(data)
+}
+
+export async function saveSlipCheckKey(key: string): Promise<SlipCheckKeyStatus> {
+  const value = typeof key === 'string' ? key.trim() : ''
+  if (value.length < 20 || value.length > 200 || /\s/.test(value)) throw new Error('รหัส API ไม่ถูกต้อง')
+  const supabase = await createServerSupabase()
+  const { data, error } = await supabase.rpc('line_slip_check_key_set', { p_key: value })
+  if (error) throw new Error(slipKeyError(error.message))
+  return slipKeyStatus(data)
+}
+
+export async function clearSlipCheckKey(): Promise<SlipCheckKeyStatus> {
+  const supabase = await createServerSupabase()
+  const { data, error } = await supabase.rpc('line_slip_check_key_clear')
+  if (error) throw new Error(slipKeyError(error.message))
+  return slipKeyStatus(data)
+}

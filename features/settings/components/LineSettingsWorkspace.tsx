@@ -26,7 +26,7 @@ import { SETTINGS_HELPER } from '@/features/settings/components/settings-ui'
  * with "บันทึกการตั้งค่า"; an unsaved change on one page survives a switch to another page or tab, because the LINE
  * menu keeps this mounted while hidden.
  */
-const CARD_VIEWS: readonly LineSettingsView[] = ['NOTIFY', 'FRIEND', 'REGISTER', 'CATALOG']
+const CARD_VIEWS: readonly LineSettingsView[] = ['NOTIFY', 'FRIEND', 'REGISTER', 'CATALOG', 'SLIPCHECK', 'OWNER_ALERTS']
 
 export function LineSettingsWorkspace({ view, hidden = false, templateCategory }: { view: LineSettingsView; hidden?: boolean; templateCategory?: LineTemplateCategory }) {
   const { showToast } = useToast()

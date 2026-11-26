@@ -105,7 +105,7 @@ describe('policies.line in the settings model', () => {
   })
 
   it('sends only switched-on types and non-empty texts, in a stable order', () => {
-    const cfg = { ...DEFAULT_SYSTEM_CONFIG, line: { notify: { RENTAL_OVERDUE: true, APPOINTMENT_DUE: true, LOW_STOCK: false }, friend: {}, catalog: {}, register: {}, templates: { TASK_NEW: '  ', TASK_DONE: ' เสร็จ {เรื่อง} ' }, other: {} } }
+    const cfg = { ...DEFAULT_SYSTEM_CONFIG, line: { notify: { RENTAL_OVERDUE: true, APPOINTMENT_DUE: true, LOW_STOCK: false }, friend: {}, catalog: {}, register: {}, templates: { TASK_NEW: '  ', TASK_DONE: ' เสร็จ {เรื่อง} ' }, templateCards: {}, slipCheck: {}, other: {} } }
     expect(JSON.stringify(sectionPatch('line', cfg))).toBe(
       JSON.stringify({ policies: { line: { notify: { APPOINTMENT_DUE: true, RENTAL_OVERDUE: true }, templates: { TASK_DONE: 'เสร็จ {เรื่อง}' } } } }),
     )
@@ -134,9 +134,9 @@ describe('policies.line in the settings model', () => {
   })
 
   it('refuses a text that uses a placeholder its message does not have', () => {
-    const cfg = { ...DEFAULT_SYSTEM_CONFIG, line: { notify: {}, friend: {}, catalog: {}, register: {}, templates: { TASK_NEW: 'งาน {ชื่อลูกค้า}' }, other: {} } }
+    const cfg = { ...DEFAULT_SYSTEM_CONFIG, line: { notify: {}, friend: {}, catalog: {}, register: {}, templates: { TASK_NEW: 'งาน {ชื่อลูกค้า}' }, templateCards: {}, slipCheck: {}, other: {} } }
     expect(validateSection('line', cfg)).toMatch(/ตัวแปร/)
-    const ok = { ...DEFAULT_SYSTEM_CONFIG, line: { notify: {}, friend: {}, catalog: {}, register: {}, templates: { TASK_NEW: 'งานจาก {ผู้สั่ง}: {เรื่อง}' }, other: {} } }
+    const ok = { ...DEFAULT_SYSTEM_CONFIG, line: { notify: {}, friend: {}, catalog: {}, register: {}, templates: { TASK_NEW: 'งานจาก {ผู้สั่ง}: {เรื่อง}' }, templateCards: {}, slipCheck: {}, other: {} } }
     expect(validateSection('line', ok)).toBeNull()
   })
 })

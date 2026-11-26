@@ -9,6 +9,7 @@
  */
 import type { LineBillCardDesign } from '@/lib/line/bill-card-design'
 import type { LineMessageTemplate } from '@/lib/line/message-templates'
+import type { TemplateCard } from '@/lib/line/templates'
 
 export type VatCalculationMode = 'EXCLUSIVE' | 'INCLUSIVE'
 
@@ -211,6 +212,10 @@ export interface LineSettings {
   register: LineRegisterSettings
   /** Template key → the OWNER's own text; a missing key uses the built-in text. */
   templates: Record<string, string>
+  /** policies.line.templateCards: per message card (FLEX) or text and the card's heading / colour / footer (owner 2026-11-26) */
+  templateCards: Record<string, TemplateCard>
+  /** policies.line.slipCheck: automatic slip check switch and the shop's receiving account names (owner 2026-11-26) */
+  slipCheck: { enabled?: boolean; receiverNames?: string[] }
   /** Other policies.line keys (link limits) — not edited here, kept as they are on save. */
   other: Record<string, unknown>
 }
@@ -311,7 +316,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     appointmentReminder: { enabled: true, daysBefore: 3 },
   },
   // LINE notices are off until the OWNER switches a type on (spec F4).
-  line: { notify: {}, friend: {}, catalog: {}, register: {}, templates: {}, other: {} },
+  line: { notify: {}, friend: {}, catalog: {}, register: {}, templates: {}, templateCards: {}, slipCheck: {}, other: {} },
   documentNotes: {},
   documentServices: {},
   lineBillCards: [],

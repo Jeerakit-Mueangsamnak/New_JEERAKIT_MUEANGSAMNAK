@@ -10,7 +10,7 @@ import { PILL_TONE, thaiDateTime } from '@/features/settings/components/line/lin
 import { SettingsRow, SettingsRowsCard } from '@/features/settings/components/SettingsRows'
 
 /**
- * ตั้งค่า › เมนู LINE (OWNER): the four chat menus, each with its picture, its buttons and whether it is published.
+ * ตั้งค่า › เมนู LINE (OWNER): the chat menus (general, customer, staff, driver, owner), each with its picture, its buttons and whether it is published.
  * Nothing is published by looking, and not at all while the server is in the trial mode. Publishing creates the menu at
  * LINE; people see it once their kind matches (anyone who added the OA: the default menu; a confirmed customer / staff /
  * driver: their own). The buttons are the ones whose function exists (the list is in lib/line/rich-menu.labels.json).
@@ -20,6 +20,7 @@ const AUDIENCE: Record<string, string> = {
   CUSTOMER: 'ลูกค้าที่ร้านอนุมัติและผูกบัญชีแล้ว',
   STAFF: 'พนักงานที่ผูกบัญชีแล้ว',
   DRIVER: 'คนขับรถที่ผูกบัญชีแล้ว',
+  OWNER: 'เจ้าของร้านที่ผูกบัญชีแล้ว',
 }
 
 export function LineRichMenuSettings({ tabs }: { tabs: ReactNode }) {
@@ -117,7 +118,6 @@ export function LineRichMenuSettings({ tabs }: { tabs: ReactNode }) {
         ))}
         <SettingsRowsCard title="ที่ยังไม่มี" icon={LayoutGrid}>
           <SettingsRow label="เปิด–ปิดปุ่ม จัดลำดับ และบันทึกแบบร่าง" description="ปุ่มและรูปเมนูสร้างจากไฟล์ lib/line/rich-menu.labels.json แล้วรันสคริปต์สร้างรูปใหม่ ยังไม่มีหน้าจอแก้ในแอป" />
-          <SettingsRow label="ปุ่มของลูกค้า / พนักงาน / คนขับ ที่ยังไม่ได้สร้างฟังก์ชัน" description="ดูรายการเช่าของฉัน กำหนดคืน เอกสารของฉัน งานของฉัน รายงานปัญหา ประวัติงาน — จะเพิ่มเข้าเมนูเมื่อสร้างฟังก์ชันเสร็จ" />
         </SettingsRowsCard>
       </div>
     </div>

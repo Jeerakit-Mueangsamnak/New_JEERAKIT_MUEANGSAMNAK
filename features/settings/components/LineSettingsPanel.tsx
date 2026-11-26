@@ -8,11 +8,22 @@ import {
 import { StatusPill } from '@/features/settings/components/StatusPill'
 import { REF_BUTTON, REF_BUTTON_QUIET } from '@/features/settings/components/SettingsCards'
 import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
-import { BellRing, ClipboardCheck, Copy, KeyRound, Link2, RotateCcw, Trash2, UserPlus } from 'lucide-react'
+import { AlignLeft, BellRing, ClipboardCheck, Copy, KeyRound, LayoutTemplate, Link2, RotateCcw, Trash2, UserPlus } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { clearLineSecrets, getLineSecretStatus, saveLineSecrets, type LineSecretStatus } from '@/app/actions/system-secrets'
-import { LINE_TEMPLATES, type LineTemplateKey } from '@/lib/line/templates'
+import {
+  LINE_TEMPLATES,
+  SWITCHABLE_TEMPLATES,
+  TEMPLATE_CARD_COLOURS,
+  TEMPLATE_CARD_DEFAULT_COLOUR,
+  TEMPLATE_CARD_LIMITS,
+  templateCardOf,
+  templateFormat,
+  templateLabel,
+  type LineTemplateKey,
+  type TemplateCard,
+} from '@/lib/line/templates'
 import {
   LINE_EDITABLE_TEMPLATES,
   LINE_NOTIFY_EVENTS,
@@ -26,8 +37,9 @@ import { NumericInput } from '@/components/common/NumericInput'
 import type { SystemConfig } from '@/features/settings/services/settings-storage'
 import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 import { LineChatPreview, type LineChatBubble } from '@/features/settings/components/LineChatPreview'
-import { LineSchedulePanel } from '@/features/settings/components/LineSchedulePanel'
+import { LineReminderRulesCard, LineSchedulePanel } from '@/features/settings/components/LineSchedulePanel'
 import { LineCatalogSettings } from '@/features/settings/components/line/LineCatalogSettings'
+import { LineSlipCheckSettings } from '@/features/settings/components/line/LineSlipCheckSettings'
 import { LineFormsRow } from '@/features/settings/components/LineFormsCard'
 import { LineBlockTitle, LineEditorLayout, LineTemplateCard } from '@/features/settings/components/LineEditorLayout'
 import { SETTINGS_ROW_INPUT, SETTINGS_ROW_NUMBER, SettingsRow, SettingsRowsCard, SettingsSwitch } from '@/features/settings/components/SettingsRows'
@@ -44,14 +56,16 @@ import { SETTINGS_ROW_INPUT, SETTINGS_ROW_NUMBER, SettingsRow, SettingsRowsCard,
 export { LINE_NOTIFY_EVENTS, LINE_EDITABLE_TEMPLATES } from '@/lib/line/config'
 
 /** The LINE pages that edit the settings draft (each saved on its own). */
-export type LineSettingsView = 'NOTIFY' | 'TEMPLATES' | 'SCHEDULE' | 'FRIEND' | 'REGISTER' | 'CATALOG'
+export type LineSettingsView = 'NOTIFY' | 'TEMPLATES' | 'SCHEDULE' | 'FRIEND' | 'REGISTER' | 'CATALOG' | 'SLIPCHECK' | 'OWNER_ALERTS'
 export const LINE_SETTINGS_VIEWS: ReadonlyArray<{ id: LineSettingsView; label: string }> = [
   { id: 'TEMPLATES', label: 'แก้ไขข้อความ' },
-  { id: 'NOTIFY', label: 'แจ้งพนักงาน' },
-  { id: 'SCHEDULE', label: 'เตือนลูกค้า' },
+  { id: 'NOTIFY', label: 'แจ้งเตือนพนักงาน' },
+  { id: 'SCHEDULE', label: 'แจ้งเตือนลูกค้า' },
+  { id: 'OWNER_ALERTS', label: 'แจ้งเตือนเจ้าของ' },
   { id: 'FRIEND', label: 'การเพิ่มเพื่อน' },
   { id: 'REGISTER', label: 'การลงทะเบียน' },
   { id: 'CATALOG', label: 'รายการสินค้า' },
+  { id: 'SLIPCHECK', label: 'ตั้งค่าตรวจสลิป' },
 ]
 
 /** Sample values for the chat preview only (never real data). */
@@ -143,6 +157,27 @@ function templateBubbles(key: LineTemplateKey, templates: Record<string, string>
     default:
       return [{ from: 'shop', text: text(key) }]
   }
+}
+
+const CUSTOMER_NOTICE_KEYS: readonly LineTemplateKey[] = [
+  'CUSTOMER_RETURN_REMINDER', 'CUSTOMER_DUE_TODAY', 'CUSTOMER_OVERDUE', 'CUSTOMER_PAYMENT_DUE', 'CUSTOMER_APPOINTMENT', 'CUSTOMER_JOB_STEP',
+]
+
+/** The chat of a message, with the message itself drawn as the card the shop chose (owner 2026-11-26). */
+function previewBubbles(key: LineTemplateKey, templates: Record<string, string>, cards: Record<string, TemplateCard>, vars: Record<string, string>): LineChatBubble[] {
+  const bubbles = templateBubbles(key, templates, vars)
+  if (templateFormat(key, cards) !== 'FLEX') return bubbles
+  const card = templateCardOf(key, cards)
+  const last = bubbles.map((b) => b.from).lastIndexOf('shop')
+  return bubbles.map((b, i) =>
+    i === last
+      ? {
+          ...b,
+          card: { title: card.title || templateLabel(key), color: card.color ?? TEMPLATE_CARD_DEFAULT_COLOUR, footer: card.footer },
+          buttons: CUSTOMER_NOTICE_KEYS.includes(key) ? ['แชทกับร้าน', 'โทรหาร้าน'] : b.buttons,
+        }
+      : b,
+  )
 }
 
 /** Red outline button (clear the connection). */
@@ -323,6 +358,19 @@ export function LineSettingsPanel({ config, setConfig, view, footer, templateCat
     else templates[key] = value
     setLine({ templates })
   }
+  const tplFormat = templateFormat(tpl.key, line.templateCards)
+  const tplSwitchable = SWITCHABLE_TEMPLATES.has(tpl.key)
+  const tplCardDraft = line.templateCards[tpl.key] ?? {}
+  const tplColour = templateCardOf(tpl.key, line.templateCards).color ?? TEMPLATE_CARD_DEFAULT_COLOUR
+  /** Card / text and the card's heading, colour and closing line of one message (empty fields are left out). */
+  const setCard = (key: LineTemplateKey, patch: Partial<TemplateCard>) => {
+    const next: TemplateCard = { ...(line.templateCards[key] ?? {}), ...patch }
+    for (const f of Object.keys(next) as Array<keyof TemplateCard>) if (next[f] === undefined || next[f] === '') delete next[f]
+    const templateCards = { ...line.templateCards }
+    if (Object.keys(next).length > 0) templateCards[key] = next
+    else delete templateCards[key]
+    setLine({ templateCards })
+  }
   /** Puts {name} at the cursor (an empty text starts from the standard text). */
   const insertVar = (name: string) => {
     const el = tplRef.current
@@ -345,6 +393,7 @@ export function LineSettingsPanel({ config, setConfig, view, footer, templateCat
   }
 
   if (view === 'CATALOG') return <LineCatalogSettings config={config} setConfig={setConfig} footer={footer} />
+  if (view === 'SLIPCHECK') return <LineSlipCheckSettings config={config} setConfig={setConfig} footer={footer} />
 
   const welcomeOn = line.friend.welcome !== false
   if (view === 'FRIEND') {
@@ -514,8 +563,50 @@ export function LineSettingsPanel({ config, setConfig, view, footer, templateCat
               />
             </SettingsRow>
           ))}
+        </SettingsRowsCard>
+        {/* due dates to every linked staff member, with the lead time (owner 2026-11-26); saved by the same buttons */}
+        <LineReminderRulesCard config={config} setConfig={setConfig} policyKey="staffReminders" title="เตือนพนักงานก่อนครบกำหนด" />
+      </LineEditorLayout>
+    )
+  }
+
+  // OWNER_ALERTS: the owner gets everything automatically (owner 2026-11-26: ข); one switch for all of it
+  if (view === 'OWNER_ALERTS') {
+    const ownerOn = (line.other.ownerAlerts as { enabled?: boolean } | undefined)?.enabled !== false
+    return (
+      <LineEditorLayout
+        preview={
+          <LineChatPreview
+            shopName={shopName}
+            caption={<b className="text-slate-800 dark:text-slate-200">เจ้าของจะเห็นแบบนี้</b>}
+            bubbles={[
+              ownerOn
+                ? { from: 'shop', text: fill(effectiveText('STAFF_NOTICE', line.templates.STAFF_NOTICE), { หัวข้อ: 'ใกล้ครบกำหนดคืน', รายละเอียด: NOTICE_SAMPLE.RENTAL_DUE_SOON }) }
+                : { from: 'shop', text: 'ปิดอยู่ เจ้าของจะไม่ได้รับแจ้งเตือนทาง LINE', empty: true },
+            ]}
+          />
+        }
+      >
+        <SettingsRowsCard title="แจ้งเตือนเจ้าของทาง LINE" icon={BellRing} footer={footer}>
+          <SettingsRow label="รับแจ้งเตือนทุกเรื่องอัตโนมัติ">
+            <SettingsSwitch
+              label="รับแจ้งเตือนทุกเรื่องอัตโนมัติ"
+              checked={ownerOn}
+              onChange={(on) => setLine({ other: { ...line.other, ownerAlerts: { enabled: on } } })}
+            />
+          </SettingsRow>
+          {LINE_NOTIFY_EVENTS.map((ev) => (
+            <SettingsRow key={ev.type} label={ev.label}>
+              <span className={SETTINGS_HELPER}>{ownerOn ? 'ได้รับ' : 'ปิดอยู่'}</span>
+            </SettingsRow>
+          ))}
+          {['ลูกค้าแนบสลิป', 'ลูกค้าลงทะเบียนใหม่', 'ลูกค้าขอนัดส่งคืนสินค้า'].map((label) => (
+            <SettingsRow key={label} label={label}>
+              <span className={SETTINGS_HELPER}>ได้รับ</span>
+            </SettingsRow>
+          ))}
           {/* the linked OWNER's LINE only; off until switched on (owner 2026-11-25) */}
-          <SettingsRow label="เจ้าของพิมพ์สั่งในแชต LINE" description="#สรุปยอดวันนี้ · #สั่งงาน ชื่อพนักงาน รายละเอียดงาน">
+          <SettingsRow label="เจ้าของพิมพ์สั่งในแชต LINE">
             <SettingsSwitch label="เจ้าของพิมพ์สั่งในแชต LINE" checked={line.other.ownerCommands === true} onChange={(on) => setLine({ other: { ...line.other, ownerCommands: on } })} />
           </SettingsRow>
         </SettingsRowsCard>
@@ -534,7 +625,8 @@ export function LineSettingsPanel({ config, setConfig, view, footer, templateCat
             title={t.label}
             text={own || LINE_TEMPLATES[t.key].text}
             to={t.to}
-            custom={own !== ''}
+            format={templateFormat(t.key, line.templateCards) === 'FLEX' ? 'การ์ด' : 'ข้อความ'}
+            custom={own !== '' || Boolean(line.templateCards[t.key])}
             active={t.key === tpl.key}
             onSelect={() => setTplKey(t.key)}
           />
@@ -545,10 +637,13 @@ export function LineSettingsPanel({ config, setConfig, view, footer, templateCat
           shopName={shopName}
           caption={
             <>
-              <b className="text-slate-800 dark:text-slate-200">{tpl.to}จะเห็นแบบนี้</b> ({tpl.label})
+              <b className="text-slate-800 dark:text-slate-200">{tpl.to}จะเห็นแบบนี้</b> ({tpl.label}){' '}
+              <span className="ml-1 inline-flex items-center h-4 px-1.5 rounded bg-slate-800 text-white text-[9px] font-bold font-mono tracking-wider align-middle">
+                {tplFormat === 'FLEX' ? 'FLEX MESSAGE' : 'TEXT'}
+              </span>
             </>
           }
-          bubbles={templateBubbles(tpl.key, line.templates, vars)}
+          bubbles={previewBubbles(tpl.key, line.templates, line.templateCards, vars)}
         />
       }
     >
@@ -587,6 +682,74 @@ export function LineSettingsPanel({ config, setConfig, view, footer, templateCat
           </button>
         )}
       </div>
+      <div className="shrink-0 flex flex-wrap items-center gap-2">
+        <span className={SETTINGS_LABEL}>รูปแบบที่ส่ง:</span>
+        <div role="radiogroup" aria-label="รูปแบบที่ส่ง" className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-0.5">
+          {(['FLEX', 'TEXT'] as const).map((f) => (
+            <button
+              key={f}
+              type="button"
+              role="radio"
+              aria-checked={tplFormat === f}
+              disabled={!tplSwitchable}
+              title={tplSwitchable ? undefined : 'ข้อความนี้ส่งเป็นข้อความธรรมดาเท่านั้น'}
+              onClick={() => setCard(tpl.key, { format: f })}
+              className={`h-7 px-3 rounded-md text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed ${
+                tplFormat === f ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-400 shadow-sm' : 'text-slate-600 dark:text-slate-400'
+              } ${!tplSwitchable && tplFormat !== f ? 'opacity-40' : ''}`}
+            >
+              {f === 'FLEX' ? <LayoutTemplate className="w-3.5 h-3.5" /> : <AlignLeft className="w-3.5 h-3.5" />}
+              {f === 'FLEX' ? 'การ์ด (Flex)' : 'ข้อความ'}
+            </button>
+          ))}
+        </div>
+      </div>
+      {tplFormat === 'FLEX' && (
+        <div className="shrink-0 grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="line-template-card-fields">
+          <label className="space-y-1">
+            <span className={SETTINGS_LABEL}>หัวข้อการ์ด</span>
+            <input
+              className={SETTINGS_INPUT}
+              maxLength={TEMPLATE_CARD_LIMITS.title}
+              value={tplCardDraft.title ?? ''}
+              placeholder={templateLabel(tpl.key)}
+              onChange={(e) => setCard(tpl.key, { title: e.target.value })}
+            />
+          </label>
+          <div className="space-y-1">
+            <span className={SETTINGS_LABEL}>สีแถบหัวข้อ</span>
+            <div className="flex items-center gap-1.5 h-8">
+              {TEMPLATE_CARD_COLOURS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-label={`สีหัวข้อ ${c}`}
+                  aria-pressed={tplColour.toUpperCase() === c}
+                  onClick={() => setCard(tpl.key, { color: c })}
+                  className={`w-6 h-6 rounded-full border-2 shadow cursor-pointer ${tplColour.toUpperCase() === c ? 'border-slate-900 dark:border-white' : 'border-white dark:border-slate-700'}`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+              <input
+                type="color"
+                aria-label="เลือกสีหัวข้อเอง"
+                value={tplColour.toLowerCase()}
+                onChange={(e) => setCard(tpl.key, { color: e.target.value.toUpperCase() })}
+                className="h-7 w-10 rounded border border-slate-300 dark:border-slate-600 bg-transparent cursor-pointer"
+              />
+            </div>
+          </div>
+          <label className="space-y-1 sm:col-span-2">
+            <span className={SETTINGS_LABEL}>ข้อความท้ายการ์ด</span>
+            <input
+              className={SETTINGS_INPUT}
+              maxLength={TEMPLATE_CARD_LIMITS.footer}
+              value={tplCardDraft.footer ?? ''}
+              onChange={(e) => setCard(tpl.key, { footer: e.target.value })}
+            />
+          </label>
+        </div>
+      )}
       {unknown.length > 0 && (
         <p className="shrink-0 text-[11px] rounded-lg px-2.5 py-1.5 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200">
           ข้อความนี้ใช้ข้อมูลที่ระบบไม่รู้จัก: {unknown.map((v) => `{${v}}`).join(' ')} · แก้ก่อนบันทึก

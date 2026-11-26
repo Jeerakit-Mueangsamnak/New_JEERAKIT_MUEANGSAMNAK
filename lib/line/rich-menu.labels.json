@@ -1,5 +1,5 @@
 {
-  "_doc": "One source for the four chat menus (owner 2026-11-21): the names on the buttons and the grid. lib/line/rich-menu.ts turns it into what LINE needs; scripts/generate-rich-menu-images.mjs draws the picture from the same file, so the picture and the buttons can never disagree. Only buttons whose function exists are listed: customer 'my rentals / return dates / my documents' and staff / driver 'my jobs / report a problem / history' are not built yet (phase 5) and so are not here.",
+  "_doc": "One source for the chat menus (owner 2026-11-21; roles from line.html 2026-11-26): the names on the buttons and the grid. lib/line/rich-menu.ts turns it into what LINE needs; scripts/generate-rich-menu-images.mjs draws the picture from the same file, so the picture and the buttons can never disagree. Drivers have the staff buttons (owner 2026-11-26).",
   "menus": [
     {
       "kind": "GENERAL",
@@ -8,12 +8,30 @@
       "rows": 2,
       "colour": "#047857",
       "items": [
-        { "id": "catalog", "label": "ดูรายการสินค้า" },
-        { "id": "price", "label": "สอบถามราคา" },
-        { "id": "preorder", "label": "สอบถามสั่งสินค้าล่วงหน้า" },
-        { "id": "register", "label": "ลงทะเบียน / ผูกบัญชี" },
-        { "id": "contact", "label": "ติดต่อร้าน" },
-        { "id": "info", "label": "ข้อมูลร้านและเวลาทำการ" }
+        {
+          "id": "catalog",
+          "label": "ดูรายการสินค้า"
+        },
+        {
+          "id": "price",
+          "label": "สอบถามราคา"
+        },
+        {
+          "id": "preorder",
+          "label": "สอบถามสั่งสินค้าล่วงหน้า"
+        },
+        {
+          "id": "register",
+          "label": "ลงทะเบียน / ผูกบัญชี"
+        },
+        {
+          "id": "contact",
+          "label": "ติดต่อร้าน"
+        },
+        {
+          "id": "info",
+          "label": "ข้อมูลร้านและเวลาทำการ"
+        }
       ]
     },
     {
@@ -23,32 +41,97 @@
       "rows": 2,
       "colour": "#1d4ed8",
       "items": [
-        { "id": "catalog", "label": "ดูรายการสินค้า" },
-        { "id": "price", "label": "สอบถามราคา" },
-        { "id": "contact", "label": "ติดต่อร้าน" },
-        { "id": "info", "label": "ข้อมูลร้านและเวลาทำการ" }
+        {
+          "id": "bills",
+          "label": "ดูบิล / ยอดค้าง"
+        },
+        {
+          "id": "pay",
+          "label": "ชำระเงิน / แนบสลิป"
+        },
+        {
+          "id": "return",
+          "label": "แจ้งนัดส่งคืนสินค้า"
+        },
+        {
+          "id": "contact",
+          "label": "ติดต่อเจ้าหน้าที่"
+        }
       ]
     },
     {
       "kind": "STAFF",
       "label": "พนักงาน",
       "cols": 2,
-      "rows": 1,
+      "rows": 2,
       "colour": "#6d28d9",
       "items": [
-        { "id": "contact", "label": "ติดต่อร้าน" },
-        { "id": "info", "label": "ข้อมูลร้านและเวลาทำการ" }
+        {
+          "id": "today",
+          "label": "คิวส่งของ / รับคืนวันนี้"
+        },
+        {
+          "id": "photo",
+          "label": "ถ่ายรูปส่งมอบสินค้า"
+        },
+        {
+          "id": "stock",
+          "label": "เช็กสต็อกสินค้าว่าง"
+        },
+        {
+          "id": "close",
+          "label": "อัปเดตปิดงาน"
+        }
       ]
     },
     {
       "kind": "DRIVER",
       "label": "คนขับรถ",
       "cols": 2,
-      "rows": 1,
+      "rows": 2,
       "colour": "#b45309",
       "items": [
-        { "id": "contact", "label": "ติดต่อร้าน" },
-        { "id": "info", "label": "ข้อมูลร้านและเวลาทำการ" }
+        {
+          "id": "today",
+          "label": "คิวส่งของ / รับคืนวันนี้"
+        },
+        {
+          "id": "photo",
+          "label": "ถ่ายรูปส่งมอบสินค้า"
+        },
+        {
+          "id": "stock",
+          "label": "เช็กสต็อกสินค้าว่าง"
+        },
+        {
+          "id": "close",
+          "label": "อัปเดตปิดงาน"
+        }
+      ]
+    },
+    {
+      "kind": "OWNER",
+      "label": "เจ้าของร้าน",
+      "cols": 2,
+      "rows": 2,
+      "colour": "#0f172a",
+      "items": [
+        {
+          "id": "summary",
+          "label": "สรุปยอดรายรับวันนี้"
+        },
+        {
+          "id": "order",
+          "label": "สั่งงานด่วนพนักงาน"
+        },
+        {
+          "id": "slips",
+          "label": "ตรวจสลิปโอนเงิน"
+        },
+        {
+          "id": "approve",
+          "label": "อนุมัติลูกค้าใหม่"
+        }
       ]
     }
   ]

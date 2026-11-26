@@ -4,15 +4,17 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { type FanoutStore } from './notification-fanout'
 import { type ClaimedDelivery, type OutboxStore } from './outbox'
 import { type LinkResult, type RecordedEvent, type SelfRegisterResult, type TaskPostbackResult, type TaskStepResult, type WebhookStore } from './webhook'
-import { type CronStore, type ReminderRow } from './cron'
-import { customerNoticeMessages } from './templates'
+import { type CronStore, type ReminderRow, type TeamReminderRow } from './cron'
+import { customerNoticeMessages, withTemplateCards } from './templates'
 import { CATALOG_PAGE_SIZE, type CatalogCategory, type CatalogPage } from './catalog'
 import { type RichMenuKind } from './rich-menu'
 import { cachedPublicCatalog } from './catalog-cache'
 import type { InteractionDecision } from './webhook'
 import { type RichMenuPerson, type RichMenuSyncStore } from './rich-menu-sync'
 import { lineOaMessageUrl } from './oa-link'
-import { SHOP_LINE_ID_COLUMN, SHOP_LINE_TEMPLATES_COLUMN } from './policy'
+import { type MenuCustomerBills, type MenuOwner, type MenuReturnRequest, type MenuStaffJobs, type MenuStock } from './role-menu'
+import { SHOP_LINE_CARDS_COLUMN, SHOP_LINE_ID_COLUMN, SHOP_LINE_SLIP_CHECK_COLUMN, SHOP_LINE_TEMPLATES_COLUMN } from './policy'
+import { parseSlipCheck, type SlipCheckOutcome, type SlipCheckSettings } from './slip-check'
 
 /**
  * Database side of the webhook and the outbox, through the service_role-only RPCs of
@@ -103,6 +105,9 @@ export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()
   /** First scan of a staff QR: the QR dies, the chat code comes back once. */
   staffQrScan(token: string): Promise<{ result: 'OK' | 'DEAD'; code?: string }>
   slipSubmit(input: { lineUserId: string; billId: string; amount: number; path: string; ownerMessages: unknown[] | null }): Promise<{ result: 'OK' | 'NOT_FOUND' | 'SUSPENDED' | 'NOT_PAYABLE' | 'INVALID_INPUT' | 'TOO_MANY'; slip_id?: string }>
+  slipCheckSettings(): Promise<SlipCheckSettings>
+  slipCheckKey(): Promise<string | null>
+  slipCheckSave(slipId: string, outcome: SlipCheckOutcome): Promise<{ result: string; check_status?: string; duplicate?: boolean }>
   /** The menu ids the owner published (kept after LINE accepted the menu); the old id comes back so it can be deleted at LINE. */
   richMenuSave(kind: RichMenuKind, richMenuId: string, actorId: string | null): Promise<string | null>
   richMenuClear(kind: RichMenuKind, actorId: string | null): Promise<string | null>
@@ -143,7 +148,7 @@ export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()
       // Only the LINE parts of policies: the whole column also carries the shop's images (~600 KB).
       const { data: row, error } = await db
         .from('store_settings')
-        .select(`company_name, phone, ${SHOP_LINE_ID_COLUMN}, ${SHOP_LINE_TEMPLATES_COLUMN}`)
+        .select(`company_name, phone, ${SHOP_LINE_ID_COLUMN}, ${SHOP_LINE_TEMPLATES_COLUMN}, ${SHOP_LINE_CARDS_COLUMN}`)
         .eq('singleton', true)
         .maybeSingle()
       if (error) throw new LineStoreError('store_settings', error.code)
@@ -152,10 +157,11 @@ export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()
         phone?: string | null
         line_id?: string | null
         templates?: Record<string, unknown> | null
+        cards?: unknown
       } | null
       return {
         shopName: (data?.company_name || '').trim() || 'ร้าน',
-        templates: data?.templates ?? {},
+        templates: withTemplateCards(data?.templates, data?.cards),
         lineId: data?.line_id?.trim() || null,
         phone: data?.phone?.trim() || null,
       }
@@ -185,6 +191,7 @@ export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()
       call<Array<{ notification_id: string }>>(db, 'line_notifications_claim', { p_limit: limit }).then((rows) => (rows ?? []).map((r) => r.notification_id)),
 
     remindersDue: () => call<ReminderRow[]>(db, 'line_customer_reminders_due', {}).then((rows) => rows ?? []),
+    teamRemindersDue: () => call<TeamReminderRow[]>(db, 'line_team_reminders_due', {}).then((rows) => rows ?? []),
 
     acceptOverdue: () =>
       call<Array<{ task_id: string; contact_id: string; title: string; dedupe_key: string }>>(db, 'line_driver_accept_overdue', {}).then((rows) => rows ?? []),
@@ -265,6 +272,37 @@ export function createSupabaseLineStore(db: SupabaseClient = createAdminClient()
         p_assignee_id: input.assigneeId,
         p_title: input.title,
         p_messages: input.messages,
+      }),
+
+    // chat menu by role (owner 2026-11-26): the database decides from the LINE user id what may be shown
+    menuCustomerBills: (lineUserId) => call<MenuCustomerBills>(db, 'line_menu_customer_bills', { p_line_user_id: lineUserId }),
+    menuReturnRequest: async (lineUserId, ownerMessages) => {
+      // the owner's notice names the bill that is out (the newest open bill that still holds rented items)
+      const bills = await call<MenuCustomerBills>(db, 'line_menu_customer_bills', { p_line_user_id: lineUserId })
+      if (bills?.result !== 'OK') return { result: 'NOT_ALLOWED' }
+      const bill = (bills.rows ?? []).find((b) => b.return_at) ?? null
+      if (!bill) return { result: 'NO_BILL' }
+      return call<MenuReturnRequest>(db, 'line_menu_return_request', {
+        p_line_user_id: lineUserId,
+        p_owner_messages: ownerMessages(bills.customer_name || '-', bill.bill_no),
+      })
+    },
+    menuStaffJobs: (lineUserId) => call<MenuStaffJobs>(db, 'line_menu_staff_jobs', { p_line_user_id: lineUserId }),
+    menuStock: (lineUserId, categoryId) => call<MenuStock>(db, 'line_menu_stock', { p_line_user_id: lineUserId, p_category: categoryId }),
+    menuOwner: (lineUserId, what) => call<MenuOwner>(db, 'line_menu_owner', { p_line_user_id: lineUserId, p_what: what }),
+
+    // automatic slip check (owner 2026-11-26): the switch and account names, the service key (Vault), the result
+    async slipCheckSettings() {
+      const { data } = await db.from('store_settings').select(SHOP_LINE_SLIP_CHECK_COLUMN).eq('singleton', true).maybeSingle()
+      return parseSlipCheck((data as { slip_check?: unknown } | null)?.slip_check)
+    },
+    slipCheckKey: () => call<string | null>(db, 'line_slip_check_key', {}),
+    slipCheckSave: (slipId, outcome) =>
+      call<{ result: string; check_status?: string; duplicate?: boolean }>(db, 'line_slip_check_save', {
+        p_slip_id: slipId,
+        p_status: outcome.status,
+        p_ref: outcome.ref,
+        p_detail: outcome.detail,
       }),
 
     enqueueRegister: async (input) => {

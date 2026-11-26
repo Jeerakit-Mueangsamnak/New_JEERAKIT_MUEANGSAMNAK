@@ -22,38 +22,37 @@ export const LINE_NOTIFY_EVENTS: ReadonlyArray<{ type: LineNotifyEventType; labe
 ]
 
 /** Who receives a text (Settings › LINE › ข้อความ shows it and the chat preview). */
-export type LineTemplateAudience = 'พนักงาน' | 'คนขับ' | 'ลูกค้า'
+export type LineTemplateAudience = 'พนักงาน' | 'คนขับ' | 'ลูกค้า' | 'เจ้าของ'
 
-/** The four groups on the แก้ไขข้อความ page (owner 2026-11-21). */
-export type LineTemplateCategory = 'FRIEND' | 'CATALOG' | 'CUSTOMER' | 'STAFF'
+/** The groups on the แก้ไขข้อความ page, by who receives the message (owner 2026-11-26: ลูกค้า / พนักงาน / เจ้าของ). */
+export type LineTemplateCategory = 'CUSTOMER' | 'STAFF' | 'OWNER'
 export const LINE_TEMPLATE_CATEGORIES: ReadonlyArray<{ id: LineTemplateCategory; label: string }> = [
-  { id: 'FRIEND', label: 'เพิ่มเพื่อนและลงทะเบียน' },
-  { id: 'CATALOG', label: 'สินค้าและการติดต่อ' },
-  { id: 'CUSTOMER', label: 'ลูกค้าและเอกสาร' },
-  { id: 'STAFF', label: 'พนักงานและคนขับ' },
+  { id: 'CUSTOMER', label: 'ลูกค้า' },
+  { id: 'STAFF', label: 'พนักงาน' },
+  { id: 'OWNER', label: 'เจ้าของ' },
 ]
 
 /** Texts the OWNER may reword in Settings › LINE › แก้ไขข้อความ. Each one is sent by real code (see where it is used). */
 export const LINE_EDITABLE_TEMPLATES: ReadonlyArray<{ key: LineTemplateKey; label: string; to: LineTemplateAudience; category: LineTemplateCategory }> = [
-  { key: 'REGISTER_WELCOME', label: 'ข้อความต้อนรับเมื่อเพิ่มเพื่อน', to: 'ลูกค้า', category: 'FRIEND' },
-  { key: 'REGISTER_RETRY', label: 'ขอชื่อและเบอร์อีกครั้ง', to: 'ลูกค้า', category: 'FRIEND' },
-  { key: 'REGISTER_HOWTO', label: 'วิธีลงทะเบียน (ปุ่ม ลงทะเบียน เมื่อยังไม่มีฟอร์ม)', to: 'ลูกค้า', category: 'FRIEND' },
-  { key: 'REGISTER_PENDING', label: 'ลงทะเบียนสำเร็จ รอร้านตรวจสอบ', to: 'ลูกค้า', category: 'FRIEND' },
-  { key: 'REGISTER_NEED_INFO', label: 'ร้านขอข้อมูลเพิ่มเติม', to: 'ลูกค้า', category: 'FRIEND' },
-  { key: 'REGISTER_APPROVED', label: 'ร้านอนุมัติแล้ว', to: 'ลูกค้า', category: 'FRIEND' },
-  { key: 'REGISTER_REJECTED', label: 'ร้านปฏิเสธ', to: 'ลูกค้า', category: 'FRIEND' },
-  { key: 'LINK_SUCCESS', label: 'ผูกบัญชีสำเร็จ', to: 'ลูกค้า', category: 'FRIEND' },
-  { key: 'LINK_INVALID', label: 'ผูกบัญชีไม่สำเร็จ (รหัสไม่ถูกต้อง)', to: 'ลูกค้า', category: 'FRIEND' },
-  { key: 'LINK_EXPIRED', label: 'รหัสหมดอายุ', to: 'ลูกค้า', category: 'FRIEND' },
-  { key: 'LINK_LOCKED', label: 'ใส่รหัสผิดหลายครั้ง', to: 'ลูกค้า', category: 'FRIEND' },
-  { key: 'LINK_TAKEN', label: 'LINE นี้ผูกกับบัญชีอื่นแล้ว', to: 'ลูกค้า', category: 'FRIEND' },
-  { key: 'CATALOG_INTRO', label: 'แนะนำหมวดหมู่สินค้า', to: 'ลูกค้า', category: 'CATALOG' },
-  { key: 'CATALOG_ITEMS_INTRO', label: 'แสดงรายการสินค้าในหมวด', to: 'ลูกค้า', category: 'CATALOG' },
-  { key: 'CATALOG_EMPTY', label: 'ยังไม่มีรายการสินค้าให้แสดง', to: 'ลูกค้า', category: 'CATALOG' },
-  { key: 'PRICE_INQUIRY_REPLY', label: 'ตอบเมื่อสอบถามราคา', to: 'ลูกค้า', category: 'CATALOG' },
-  { key: 'PREORDER_INQUIRY_REPLY', label: 'ตอบเมื่อสอบถามสั่งสินค้าล่วงหน้า', to: 'ลูกค้า', category: 'CATALOG' },
-  { key: 'CONTACT_SHOP', label: 'ติดต่อร้าน', to: 'ลูกค้า', category: 'CATALOG' },
-  { key: 'SHOP_INFO', label: 'ข้อมูลร้านและเวลาทำการ', to: 'ลูกค้า', category: 'CATALOG' },
+  { key: 'REGISTER_WELCOME', label: 'ข้อความต้อนรับเมื่อเพิ่มเพื่อน', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'REGISTER_RETRY', label: 'ขอชื่อและเบอร์อีกครั้ง', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'REGISTER_HOWTO', label: 'วิธีลงทะเบียน (ปุ่ม ลงทะเบียน เมื่อยังไม่มีฟอร์ม)', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'REGISTER_PENDING', label: 'ลงทะเบียนสำเร็จ รอร้านตรวจสอบ', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'REGISTER_NEED_INFO', label: 'ร้านขอข้อมูลเพิ่มเติม', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'REGISTER_APPROVED', label: 'ร้านอนุมัติแล้ว', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'REGISTER_REJECTED', label: 'ร้านปฏิเสธ', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'LINK_SUCCESS', label: 'ผูกบัญชีสำเร็จ', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'LINK_INVALID', label: 'ผูกบัญชีไม่สำเร็จ (รหัสไม่ถูกต้อง)', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'LINK_EXPIRED', label: 'รหัสหมดอายุ', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'LINK_LOCKED', label: 'ใส่รหัสผิดหลายครั้ง', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'LINK_TAKEN', label: 'LINE นี้ผูกกับบัญชีอื่นแล้ว', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'CATALOG_INTRO', label: 'แนะนำหมวดหมู่สินค้า', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'CATALOG_ITEMS_INTRO', label: 'แสดงรายการสินค้าในหมวด', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'CATALOG_EMPTY', label: 'ยังไม่มีรายการสินค้าให้แสดง', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'PRICE_INQUIRY_REPLY', label: 'ตอบเมื่อสอบถามราคา', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'PREORDER_INQUIRY_REPLY', label: 'ตอบเมื่อสอบถามสั่งสินค้าล่วงหน้า', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'CONTACT_SHOP', label: 'ติดต่อร้าน', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'SHOP_INFO', label: 'ข้อมูลร้านและเวลาทำการ', to: 'ลูกค้า', category: 'CUSTOMER' },
   { key: 'CUSTOMER_RETURN_REMINDER', label: 'แจ้งเตือนกำหนดคืน', to: 'ลูกค้า', category: 'CUSTOMER' },
   { key: 'CUSTOMER_DUE_TODAY', label: 'แจ้งเตือนครบกำหนดคืนวันนี้', to: 'ลูกค้า', category: 'CUSTOMER' },
   { key: 'CUSTOMER_OVERDUE', label: 'แจ้งเตือนเกินกำหนดคืน', to: 'ลูกค้า', category: 'CUSTOMER' },
@@ -70,9 +69,15 @@ export const LINE_EDITABLE_TEMPLATES: ReadonlyArray<{ key: LineTemplateKey; labe
   { key: 'DRIVER_ACCEPT_REMINDER', label: 'เตือนเมื่อยังไม่รับงาน', to: 'คนขับ', category: 'STAFF' },
   { key: 'TASK_WITHDRAWN', label: 'ถอนงาน', to: 'คนขับ', category: 'STAFF' },
   { key: 'TASK_CANCELLED', label: 'ยกเลิกงาน', to: 'คนขับ', category: 'STAFF' },
-  { key: 'SLIP_OWNER_NEW', label: 'แจ้งเจ้าของเมื่อลูกค้าแนบสลิป', to: 'พนักงาน', category: 'STAFF' },
-  { key: 'OWNER_SUMMARY', label: 'คำสั่ง #สรุปยอดวันนี้', to: 'พนักงาน', category: 'STAFF' },
-  { key: 'OWNER_TASK_SENT', label: 'คำสั่ง #สั่งงาน ส่งแล้ว', to: 'พนักงาน', category: 'STAFF' },
+  { key: 'SLIP_OWNER_NEW', label: 'แจ้งเจ้าของเมื่อลูกค้าแนบสลิป', to: 'เจ้าของ', category: 'OWNER' },
+  { key: 'OWNER_SUMMARY', label: 'คำสั่ง #สรุปยอดวันนี้', to: 'เจ้าของ', category: 'OWNER' },
+  { key: 'OWNER_TASK_SENT', label: 'คำสั่ง #สั่งงาน ส่งแล้ว', to: 'เจ้าของ', category: 'OWNER' },
+  { key: 'RETURN_REQUEST_REPLY', label: 'ตอบเมื่อลูกค้าแจ้งนัดส่งคืนสินค้า', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'RETURN_REQUEST_NO_BILL', label: 'แจ้งนัดคืนแต่ไม่มีสินค้าต้องคืน', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'MENU_NOTHING', label: 'เมนูแชท: ไม่มีรายการ', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'MENU_NOT_ALLOWED', label: 'เมนูแชท: บัญชียังไม่ได้ยืนยัน', to: 'ลูกค้า', category: 'CUSTOMER' },
+  { key: 'RETURN_REQUEST_OWNER', label: 'แจ้งเจ้าของเมื่อลูกค้าขอนัดคืน', to: 'เจ้าของ', category: 'OWNER' },
+  { key: 'OWNER_ORDER_HOWTO', label: 'เมนู สั่งงานด่วนพนักงาน', to: 'เจ้าของ', category: 'OWNER' },
 ]
 
 /** Address parts the registration form can ask for (policies.line.register.required, OWNER decides which are a must). */
@@ -88,11 +93,38 @@ export const LINE_REGISTER_FIELD_LABELS: Record<LineRegisterField, string> = {
 
 /** Numeric field of a reminder rule shown in Settings. */
 export interface LineReminderField {
-  key: 'daysBefore' | 'repeatDays'
+  key: 'daysBefore' | 'repeatDays' | 'leadMinutes'
   label: string
   min: number
   max: number
   default: number
+}
+
+/**
+ * How long before the due time a notice goes (owner 2026-11-26): minutes, hours and days; policies.line.*.leadMinutes.
+ * Every rule that has a due time uses it (return, payment, appointment).
+ */
+export const LINE_LEAD_OPTIONS: ReadonlyArray<{ minutes: number; label: string }> = [
+  { minutes: 5, label: '5 นาที' },
+  { minutes: 10, label: '10 นาที' },
+  { minutes: 15, label: '15 นาที' },
+  { minutes: 20, label: '20 นาที' },
+  { minutes: 25, label: '25 นาที' },
+  { minutes: 30, label: '30 นาที' },
+  { minutes: 60, label: '1 ชั่วโมง' },
+  { minutes: 120, label: '2 ชั่วโมง' },
+  { minutes: 180, label: '3 ชั่วโมง' },
+  { minutes: 1440, label: '1 วัน' },
+  { minutes: 2880, label: '2 วัน' },
+  { minutes: 4320, label: '3 วัน' },
+]
+const LEAD_FIELD: LineReminderField = { key: 'leadMinutes', label: 'แจ้งล่วงหน้า', min: 5, max: 4320, default: 1440 }
+
+/** The lead time a rule uses: leadMinutes, else the older daysBefore, else 1 day. */
+export function ruleLeadMinutes(s: LineReminderRuleSetting | undefined): number {
+  if (typeof s?.leadMinutes === 'number') return s.leadMinutes
+  if (typeof s?.daysBefore === 'number' && s.daysBefore > 0) return Math.min(s.daysBefore * 1440, 4320)
+  return 1440
 }
 
 export type LineReminderRuleKey = 'RENTAL_DUE_SOON' | 'RENTAL_DUE_TODAY' | 'RENTAL_OVERDUE' | 'PAYMENT_DUE' | 'APPOINTMENT_DUE'
@@ -108,7 +140,7 @@ export const LINE_REMINDER_RULES: ReadonlyArray<{
     key: 'RENTAL_DUE_SOON',
     label: 'ใกล้ครบกำหนดคืน',
     template: 'CUSTOMER_RETURN_REMINDER',
-    fields: [{ key: 'daysBefore', label: 'ล่วงหน้า (วัน)', min: 1, max: 30, default: 1 }],
+    fields: [LEAD_FIELD],
   },
   {
     key: 'RENTAL_DUE_TODAY',
@@ -126,21 +158,20 @@ export const LINE_REMINDER_RULES: ReadonlyArray<{
     key: 'PAYMENT_DUE',
     label: 'ยอดค้างชำระ',
     template: 'CUSTOMER_PAYMENT_DUE',
-    fields: [
-      { key: 'daysBefore', label: 'ล่วงหน้า (วัน)', min: 0, max: 30, default: 1 },
-      { key: 'repeatDays', label: 'เลยกำหนดแล้วเตือนซ้ำทุก (วัน)', min: 0, max: 30, default: 0 },
-    ],
+    fields: [LEAD_FIELD, { key: 'repeatDays', label: 'เลยกำหนดแล้วเตือนซ้ำทุก (วัน)', min: 0, max: 30, default: 0 }],
   },
   {
     key: 'APPOINTMENT_DUE',
     label: 'นัดหมาย',
     template: 'CUSTOMER_APPOINTMENT',
-    fields: [{ key: 'daysBefore', label: 'ล่วงหน้า (วัน)', min: 0, max: 30, default: 1 }],
+    fields: [LEAD_FIELD],
   },
 ]
 
 export interface LineReminderRuleSetting {
   enabled?: boolean
+  /** minutes before the due time (LINE_LEAD_OPTIONS); wins over daysBefore */
+  leadMinutes?: number
   daysBefore?: number
   repeatDays?: number
 }

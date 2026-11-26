@@ -1,5 +1,6 @@
 import labels from './rich-menu.labels.json'
 import { catalogData } from './catalog'
+import { menuData } from './role-menu'
 
 /**
  * The chat menus (LINE "rich menu", owner 2026-11-21): four menus, one per kind of person. The names on the buttons and
@@ -10,8 +11,8 @@ import { catalogData } from './catalog'
  *   - at most 20 areas, chat bar text at most 14 characters, one menu per person (a personal menu wins over the default)
  */
 
-export type RichMenuKind = 'GENERAL' | 'CUSTOMER' | 'STAFF' | 'DRIVER'
-export const RICH_MENU_KINDS: readonly RichMenuKind[] = ['GENERAL', 'CUSTOMER', 'STAFF', 'DRIVER']
+export type RichMenuKind = 'GENERAL' | 'CUSTOMER' | 'STAFF' | 'DRIVER' | 'OWNER'
+export const RICH_MENU_KINDS: readonly RichMenuKind[] = ['GENERAL', 'CUSTOMER', 'STAFF', 'DRIVER', 'OWNER']
 
 export const RICH_MENU_WIDTH = 2500
 export const RICH_MENU_ROW_HEIGHT = 843
@@ -63,6 +64,19 @@ function actionOf(id: string, label: string, ctx: RichMenuContext): RichMenuActi
       return press({ a: 'contact' })
     case 'info':
       return press({ a: 'info' })
+    // the menus by role (owner 2026-11-26): lib/line/role-menu.ts answers them
+    case 'bills':
+    case 'pay':
+    case 'return':
+    case 'today':
+    case 'photo':
+    case 'stock':
+    case 'close':
+    case 'summary':
+    case 'order':
+    case 'slips':
+    case 'approve':
+      return { type: 'postback', data: menuData({ a: id }), displayText: label }
     default:
       throw new Error(`RICH_MENU_ITEM_UNKNOWN:${id}`)
   }
@@ -125,11 +139,11 @@ export function pngSize(bytes: Uint8Array): { width: number; height: number } | 
   return { width: v.getUint32(16), height: v.getUint32(20) }
 }
 
-/** Who a person is for the menu: only what the shop has confirmed (a linked customer / staff / driver), else general. */
-export function richMenuKindOf(c: { status: string; customer_id?: string | null; profile_id?: string | null; driver_code?: string | null }): RichMenuKind {
+/** Who a person is for the menu: only what the shop has confirmed (a linked customer / owner / staff / driver), else general. */
+export function richMenuKindOf(c: { status: string; customer_id?: string | null; profile_id?: string | null; driver_code?: string | null; role?: string | null }): RichMenuKind {
   if (c.status === 'LINKED') {
     if (c.customer_id) return 'CUSTOMER'
-    if (c.profile_id) return 'STAFF'
+    if (c.profile_id) return c.role === 'OWNER' ? 'OWNER' : 'STAFF'
     if (c.driver_code) return 'DRIVER'
   }
   return 'GENERAL'

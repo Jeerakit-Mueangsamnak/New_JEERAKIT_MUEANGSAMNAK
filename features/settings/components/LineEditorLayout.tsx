@@ -114,6 +114,7 @@ export function LineTemplateCard({
   title,
   text,
   to,
+  format,
   custom,
   active,
   onSelect,
@@ -121,6 +122,8 @@ export function LineTemplateCard({
   title: string
   text: string
   to: string
+  /** how it is sent: การ์ด / ข้อความ (owner 2026-11-26) */
+  format?: string
   custom: boolean
   active: boolean
   onSelect: () => void
@@ -143,7 +146,10 @@ export function LineTemplateCard({
         </span>
         <span className="mt-1 block text-[10px] leading-relaxed text-slate-600 dark:text-slate-400 line-clamp-2 whitespace-pre-line">{text}</span>
         <span className="mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between text-[10px] font-semibold">
-          <span className="text-slate-500 dark:text-slate-400">ถึง{to}</span>
+          <span className="text-slate-500 dark:text-slate-400">
+            ถึง{to}
+            {format && <span className="ml-1.5 px-1 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{format}</span>}
+          </span>
           <span className={custom ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}>{custom ? 'แก้แล้ว' : 'มาตรฐาน'}</span>
         </span>
       </button>

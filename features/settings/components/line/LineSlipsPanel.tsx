@@ -18,6 +18,7 @@ import { approveLineSlip, getLineSlipImageUrl, listLineSlips, rejectLineSlip, ty
 import { useAutoRefresh } from '@/features/settings/hooks/useAutoRefresh'
 import { PILL_TONE, thaiDateTime, type PillTone } from '@/features/settings/components/line/line-people-model'
 import { SETTINGS_INPUT, SETTINGS_LABEL } from '@/features/settings/components/settings-ui'
+import { SLIP_CHECK_REASON_LABEL, type SlipCheckReason } from '@/lib/line/slip-check'
 
 /**
  * สลิปรอตรวจ (owner 2026-11-25): slips customers sent from the pay form in LINE. อนุมัติ takes the money into the bill
@@ -34,6 +35,17 @@ const STATE: Record<LineSlipStatus, { text: string; tone: PillTone }> = {
   PENDING: { text: 'รอตรวจ', tone: 'amber' },
   APPROVED: { text: 'อนุมัติแล้ว', tone: 'emerald' },
   REJECTED: { text: 'ไม่ผ่าน', tone: 'red' },
+}
+const CHECK: Record<'PASS' | 'FAIL' | 'ERROR', { text: string; tone: PillTone }> = {
+  PASS: { text: 'ตรวจผ่าน', tone: 'emerald' },
+  FAIL: { text: 'ตรวจไม่ผ่าน', tone: 'red' },
+  ERROR: { text: 'ตรวจไม่ได้', tone: 'slate' },
+}
+/** Why the automatic check failed, in Thai (the database adds "duplicate" on its own). */
+const checkReasons = (s: LineSlipRow): string[] => {
+  const reasons = new Set(s.check_detail?.reasons ?? [])
+  if (s.check_detail?.duplicate) reasons.add('DUPLICATE')
+  return [...reasons].map((r) => SLIP_CHECK_REASON_LABEL[r as SlipCheckReason] ?? r)
 }
 const money = (n: number | null | undefined) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const TH = `px-2 ${DATA_TABLE_TH_CLASSES}`
@@ -130,6 +142,14 @@ export function LineSlipsPanel({ tabs, onChanged }: { tabs: ReactNode; onChanged
                 <td className="px-2 py-2 text-right tabular-nums">{money(s.balance_due)}</td>
                 <td className="px-2 py-2 text-center">
                   <span className={`inline-flex items-center h-5 px-2 rounded-full text-[10px] font-bold ${PILL_TONE[STATE[s.status].tone]}`}>{STATE[s.status].text}</span>
+                  {s.check_status && (
+                    <span
+                      title={checkReasons(s).join(' · ') || undefined}
+                      className={`ml-1 inline-flex items-center h-5 px-2 rounded-full text-[10px] font-bold ${PILL_TONE[CHECK[s.check_status].tone]}`}
+                    >
+                      {CHECK[s.check_status].text}
+                    </span>
+                  )}
                   {s.reject_reason && <span className="block mt-0.5 text-[10px] text-red-700 dark:text-red-400">{s.reject_reason}</span>}
                 </td>
                 <td className="pl-2 pr-3 py-2 text-right whitespace-nowrap">
@@ -165,6 +185,14 @@ export function LineSlipsPanel({ tabs, onChanged }: { tabs: ReactNode; onChanged
           {slip && (
             <p className="text-xs text-slate-700 dark:text-slate-300">
               {slip.customer_name || '-'} · ยอดในสลิป <b className="tabular-nums">{money(slip.amount)}</b> บาท · ยอดค้างบิล <b className="tabular-nums">{money(slip.balance_due)}</b> บาท
+            </p>
+          )}
+          {slip?.check_status && (
+            <p className={`text-xs rounded-lg px-2.5 py-1.5 ${PILL_TONE[CHECK[slip.check_status].tone]}`} data-testid="slip-check-result">
+              <b>{CHECK[slip.check_status].text}</b>
+              {slip.check_detail?.amount_slip !== undefined && <> · ยอดที่ธนาคารยืนยัน {money(slip.check_detail.amount_slip)} บาท</>}
+              {slip.check_detail?.receiver && <> · ผู้รับ {slip.check_detail.receiver}</>}
+              {checkReasons(slip).length > 0 && <> · {checkReasons(slip).join(' · ')}</>}
             </p>
           )}
           <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 min-h-40 grid place-items-center overflow-hidden">

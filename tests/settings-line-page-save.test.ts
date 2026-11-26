@@ -11,7 +11,7 @@ import {
 
 // Owner 2026-11-06: "บันทึกการตั้งค่า" saves only the page that is open — page by page.
 // คนใน LINE › ตั้งค่า LINE has sub-pages; each one is saved on its own.
-const saved: SystemConfig = { ...DEFAULT_SYSTEM_CONFIG, line: { notify: {}, friend: {}, catalog: {}, register: {}, templates: {}, other: {} } }
+const saved: SystemConfig = { ...DEFAULT_SYSTEM_CONFIG, line: { notify: {}, friend: {}, catalog: {}, register: {}, templates: {}, templateCards: {}, slipCheck: {}, other: {} } }
 
 function editBoth(): SectionState {
   const draft: SystemConfig = {
