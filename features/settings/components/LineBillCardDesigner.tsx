@@ -3,7 +3,7 @@
  * การ์ดบิล LINE (owner 2026-11-12, from the shop's reference screen): design a bill card (heading, status label,
  * colour, the bill's rows, closing line), see it as the customer will, and keep it for sending bills on LINE.
  */
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { ActionButton, COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 import React, { useState } from 'react'
 import { Check, Eraser, Save } from 'lucide-react'
 import { CustomSelect } from '@/components/common/CustomSelect'
@@ -11,7 +11,6 @@ import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { SETTINGS_INPUT, SETTINGS_LABEL } from '@/features/settings/components/settings-ui'
-import { REF_BUTTON, REF_BUTTON_QUIET } from '@/features/settings/components/SettingsCards'
 import { LineBlockTitle, LineEditorLayout, LineListEmpty, LineListItem } from '@/features/settings/components/LineEditorLayout'
 import { LineCardPreview } from '@/features/settings/components/LineCardPreview'
 import { validateSection } from '@/features/settings/utils/settings-validation'
@@ -92,10 +91,9 @@ export function LineBillCardDesigner() {
     <LineEditorLayout
       listTitle="การ์ดที่บันทึกไว้"
       listAction={
-        <button type="button" onClick={() => setDraft(newLineCardDesign())} disabled={saving} className={REF_BUTTON_QUIET}>
-          <Eraser className="w-3.5 h-3.5" />
-          <span>เริ่มใหม่</span>
-        </button>
+        <ActionButton variant="clear" icon={<Eraser />} onClick={() => setDraft(newLineCardDesign())} disabled={saving}>
+          เริ่มใหม่
+        </ActionButton>
       }
       list={
         cards.length === 0 ? (
@@ -133,10 +131,9 @@ export function LineBillCardDesigner() {
     >
       <LineBlockTitle
         action={
-          <button type="button" onClick={() => void save()} disabled={saving} className={`${REF_BUTTON} shrink-0`}>
-            <Save className="w-3.5 h-3.5" />
-            <span>บันทึกการ์ด</span>
-          </button>
+          <ActionButton variant="primary" icon={<Save />} onClick={() => void save()} disabled={saving} className="shrink-0">
+            บันทึกการ์ด
+          </ActionButton>
         }
       >
         {draft.id ? draft.name || 'การ์ด' : 'การ์ดใหม่'}

@@ -6,14 +6,13 @@
  */
 import React, { useEffect, useRef, useState } from 'react'
 import { Check, Copy, Eraser, Save, Send, Users } from 'lucide-react'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { ActionButton, COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 import { CustomSelect } from '@/components/common/CustomSelect'
 import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 import { createClient } from '@/lib/supabase/client'
 import { SETTINGS_INPUT, SETTINGS_LABEL } from '@/features/settings/components/settings-ui'
-import { REF_BUTTON, REF_BUTTON_QUIET } from '@/features/settings/components/SettingsCards'
 import { LineChatPreview } from '@/features/settings/components/LineChatPreview'
 import { LineBlockTitle, LineEditorLayout, LineListEmpty, LineListItem } from '@/features/settings/components/LineEditorLayout'
 import { validateSection } from '@/features/settings/utils/settings-validation'
@@ -144,10 +143,9 @@ export function LineMessageComposer() {
     <LineEditorLayout
       listTitle="แม่แบบที่บันทึกไว้"
       listAction={
-        <button type="button" onClick={() => setDraft(newLineMessageTemplate())} disabled={saving} className={REF_BUTTON_QUIET}>
-          <Eraser className="w-3.5 h-3.5" />
-          <span>เริ่มใหม่</span>
-        </button>
+        <ActionButton variant="clear" icon={<Eraser />} onClick={() => setDraft(newLineMessageTemplate())} disabled={saving}>
+          เริ่มใหม่
+        </ActionButton>
       }
       list={
         templates.length === 0 ? (
@@ -171,10 +169,9 @@ export function LineMessageComposer() {
         <div className="space-y-2">
           <LineBlockTitle
             action={
-              <button type="button" onClick={() => void copy()} className={`${REF_BUTTON_QUIET} shrink-0`}>
-                <Copy className="w-3.5 h-3.5" />
-                <span>คัดลอก</span>
-              </button>
+              <ActionButton variant="share" icon={<Copy />} onClick={() => void copy()} className="shrink-0">
+                คัดลอก
+              </ActionButton>
             }
           >
             ตัวอย่างก่อนส่ง
@@ -186,14 +183,12 @@ export function LineMessageComposer() {
       <LineBlockTitle
         action={
           <div className="flex gap-2 shrink-0">
-            <button type="button" onClick={() => void save()} disabled={saving} className={REF_BUTTON}>
-              <Save className="w-3.5 h-3.5" />
-              <span>บันทึกแม่แบบ</span>
-            </button>
-            <button type="button" disabled title="ยังส่งถึงทั้งกลุ่มไม่ได้" className={REF_BUTTON}>
-              <Send className="w-3.5 h-3.5" />
-              <span>ส่งเลย</span>
-            </button>
+            <ActionButton variant="primary" icon={<Save />} onClick={() => void save()} disabled={saving}>
+              บันทึกแม่แบบ
+            </ActionButton>
+            <ActionButton variant="share" icon={<Send />} disabled title="ยังส่งถึงทั้งกลุ่มไม่ได้">
+              ส่งเลย
+            </ActionButton>
           </div>
         }
       >

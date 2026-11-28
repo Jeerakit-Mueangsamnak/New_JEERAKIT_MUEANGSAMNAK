@@ -95,6 +95,31 @@ export function withLinePart(saved: SystemConfig, draft: SystemConfig, part: Lin
   return { ...saved, line: { ...saved.line, ...Object.fromEntries(asParts(part).map((p) => [p, draft.line[p]])) } }
 }
 
+/**
+ * What a sub-page's บันทึก sends, on top of the LATEST server settings: its parts from the draft, except `other`
+ * (shared by several pages and the สมาชิก switches, owner 2026-11-28), where only the keys changed in this draft
+ * are taken, so a switch saved elsewhere meanwhile is not put back.
+ */
+export function withLinePartOnLatest(latest: SystemConfig, state: SectionState, part: LineParts): SystemConfig {
+  const line = { ...latest.line }
+  for (const p of asParts(part)) {
+    if (p !== 'other') {
+      Object.assign(line, { [p]: state.draft.line[p] })
+      continue
+    }
+    const base = state.base.line.other
+    const draft = state.draft.line.other
+    const other = { ...latest.line.other }
+    for (const k of new Set([...Object.keys(base), ...Object.keys(draft)])) {
+      if (JSON.stringify(base[k]) === JSON.stringify(draft[k])) continue
+      if (draft[k] === undefined) delete other[k]
+      else other[k] = draft[k]
+    }
+    line.other = other
+  }
+  return { ...latest, line }
+}
+
 /** This sub-page has changes not saved yet. */
 export function isLinePartDirty(state: SectionState, part: LineParts): boolean {
   return sectionKey('line', withLinePart(state.base, state.draft, part)) !== sectionKey('line', state.base)

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type Dispatch, type ReactNode, type S
 import { ChevronDown, ChevronRight, Package } from 'lucide-react'
 import { NumericInput } from '@/components/common/NumericInput'
 import { useToast } from '@/components/common/Toast'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { ActionButton } from '@/components/common/ActionButton'
 import { getLineCatalogAdmin, setLineCatalog, type LineCatalogCategory } from '@/app/actions/line'
 import type { SystemConfig } from '@/features/settings/services/settings-storage'
 import { LineChatPreview } from '@/features/settings/components/LineChatPreview'
@@ -16,7 +16,6 @@ import { SETTINGS_ROW_NUMBER, SettingsRow, SettingsRowsCard, SettingsSwitch } fr
  * it is ticked here; a product the shop switched off never shows. Ticks are saved at once (the data lives in the product
  * rows, not in the settings draft); the price switch is a setting and goes with the page's บันทึก.
  */
-const SMALL = `${COMMAND_BUTTON_SIZE_CLASSES} border border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed`
 const baht = (n: number | null) => (n === null ? '-' : n.toLocaleString('th-TH', { maximumFractionDigits: 2 }))
 
 export function LineCatalogSettings({
@@ -133,8 +132,8 @@ export function LineCatalogSettings({
               {open && (
                 <div className="px-4 pb-2 space-y-1">
                   <div className="flex gap-2 py-1">
-                    <button type="button" disabled={busy} className={SMALL} onClick={() => void tick('CATEGORY_PRODUCTS', c.id, true)}>เลือกทั้งหมวด</button>
-                    <button type="button" disabled={busy} className={SMALL} onClick={() => void tick('CATEGORY_PRODUCTS', c.id, false)}>ล้างทั้งหมวด</button>
+                    <ActionButton variant="primary" disabled={busy} onClick={() => void tick('CATEGORY_PRODUCTS', c.id, true)}>เลือกทั้งหมวด</ActionButton>
+                    <ActionButton variant="clear" disabled={busy} onClick={() => void tick('CATEGORY_PRODUCTS', c.id, false)}>ล้างทั้งหมวด</ActionButton>
                   </div>
                   {c.products.map((p) => (
                     <label key={p.id} className={`flex items-center gap-2 text-xs ${p.active ? 'text-slate-900 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400'}`}>

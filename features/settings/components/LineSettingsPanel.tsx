@@ -6,7 +6,6 @@ import {
   SETTINGS_LABEL,
 } from '@/features/settings/components/settings-ui'
 import { StatusPill } from '@/features/settings/components/StatusPill'
-import { REF_BUTTON, REF_BUTTON_QUIET } from '@/features/settings/components/SettingsCards'
 import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { AlignLeft, BellRing, ClipboardCheck, Copy, KeyRound, LayoutTemplate, Link2, RotateCcw, Trash2, UserPlus } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
@@ -35,7 +34,7 @@ import {
 } from '@/lib/line/config'
 import { NumericInput } from '@/components/common/NumericInput'
 import type { SystemConfig } from '@/features/settings/services/settings-storage'
-import { COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
+import { ActionButton, COMMAND_BUTTON_SIZE_CLASSES } from '@/components/common/ActionButton'
 import { LineChatPreview, type LineChatBubble } from '@/features/settings/components/LineChatPreview'
 import { LineReminderRulesCard, LineSchedulePanel } from '@/features/settings/components/LineSchedulePanel'
 import { LineCatalogSettings } from '@/features/settings/components/line/LineCatalogSettings'
@@ -181,7 +180,6 @@ function previewBubbles(key: LineTemplateKey, templates: Record<string, string>,
 }
 
 /** Red outline button (clear the connection). */
-const DANGER_QUIET = `${COMMAND_BUTTON_SIZE_CLASSES} px-3 border border-red-200 dark:border-red-800 bg-white dark:bg-slate-800 text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-45 flex items-center`
 
 /** ตั้งค่า › เชื่อมต่อ LINE: the OA keys card, then the links card (Webhook URL, ฟอร์มใน LINE). */
 export function LineConnectionPanel() {
@@ -247,15 +245,13 @@ export function LineConnectionPanel() {
   const buttons = (
     <>
       {(status?.lineSecretConfigured || status?.lineTokenConfigured) && (
-        <button type="button" onClick={() => void clear()} disabled={busy} className={DANGER_QUIET}>
-          <Trash2 className="w-3.5 h-3.5" />
-          <span>ล้างการเชื่อมต่อ</span>
-        </button>
+        <ActionButton variant="danger" icon={<Trash2 />} onClick={() => void clear()} disabled={busy}>
+          ล้างการเชื่อมต่อ
+        </ActionButton>
       )}
-      <button type="button" onClick={() => void save()} disabled={busy || !status?.available || (!secret && !token)} className={REF_BUTTON}>
-        <KeyRound className="w-3.5 h-3.5" />
-        <span>บันทึกการเชื่อมต่อ</span>
-      </button>
+      <ActionButton variant="primary" icon={<KeyRound />} onClick={() => void save()} disabled={busy || !status?.available || (!secret && !token)}>
+        บันทึกการเชื่อมต่อ
+      </ActionButton>
     </>
   )
 
@@ -315,10 +311,9 @@ export function LineConnectionPanel() {
         <SettingsRowsCard title="ลิงก์" icon={Copy}>
           <SettingsRow label="Webhook URL (นำไปวางใน LINE Developers)">
             <input readOnly aria-label="Webhook URL" value={webhookUrl} className={`${SETTINGS_ROW_INPUT} font-mono`} />
-            <button type="button" onClick={() => void copyWebhook()} className={`${REF_BUTTON_QUIET} shrink-0`}>
-              <Copy className="w-3.5 h-3.5" />
-              <span>คัดลอก</span>
-            </button>
+            <ActionButton variant="share" icon={<Copy />} onClick={() => void copyWebhook()} className="shrink-0">
+              คัดลอก
+            </ActionButton>
           </SettingsRow>
           <LineFormsRow />
         </SettingsRowsCard>
@@ -676,10 +671,9 @@ export function LineSettingsPanel({ config, setConfig, view, footer, templateCat
           ))
         )}
         {tplDraft !== '' && (
-          <button type="button" onClick={() => setTemplate(tpl.key, '')} className={`${REF_BUTTON_QUIET} ml-auto`}>
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>กลับไปใช้ข้อความมาตรฐาน</span>
-          </button>
+          <ActionButton variant="clear" icon={<RotateCcw />} onClick={() => setTemplate(tpl.key, '')} className="ml-auto">
+            กลับไปใช้ข้อความมาตรฐาน
+          </ActionButton>
         )}
       </div>
       <div className="shrink-0 flex flex-wrap items-center gap-2">

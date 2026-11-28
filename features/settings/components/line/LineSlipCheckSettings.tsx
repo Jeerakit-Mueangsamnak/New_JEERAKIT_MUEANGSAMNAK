@@ -7,7 +7,7 @@ import { useConfirm } from '@/components/common/ConfirmDialogProvider'
 import { clearSlipCheckKey, getSlipCheckKeyStatus, saveSlipCheckKey, type SlipCheckKeyStatus } from '@/app/actions/system-secrets'
 import type { SystemConfig } from '@/features/settings/services/settings-storage'
 import { SETTINGS_ROW_INPUT, SettingsRow, SettingsRowsCard, SettingsSwitch } from '@/features/settings/components/SettingsRows'
-import { REF_BUTTON, REF_BUTTON_QUIET } from '@/features/settings/components/SettingsCards'
+import { ActionButton } from '@/components/common/ActionButton'
 import { StatusPill } from '@/features/settings/components/StatusPill'
 
 const NAME_SLOTS = 5
@@ -109,13 +109,13 @@ export function LineSlipCheckSettings({
         </SettingsRow>
         <div className="px-3 py-2 flex flex-wrap justify-end gap-2">
           {status?.configured && (
-            <button type="button" className={REF_BUTTON_QUIET} disabled={busy} onClick={() => void clearKey()}>
+            <ActionButton variant="danger" disabled={busy} onClick={() => void clearKey()}>
               ลบรหัส
-            </button>
+            </ActionButton>
           )}
-          <button type="button" className={REF_BUTTON} disabled={busy || key.trim().length < 20 || status?.available === false} onClick={() => void saveKey()}>
+          <ActionButton variant="primary" disabled={busy || key.trim().length < 20 || status?.available === false} onClick={() => void saveKey()}>
             บันทึกรหัส
-          </button>
+          </ActionButton>
         </div>
       </SettingsRowsCard>
     </div>

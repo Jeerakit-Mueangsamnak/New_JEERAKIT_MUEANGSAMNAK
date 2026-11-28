@@ -122,6 +122,7 @@ export const PEOPLE_VIEW_LABEL: Record<LinePeopleView, string> = {
   PENDING: 'รอร้านตรวจสอบ',
   NEEDINFO: 'รอข้อมูลเพิ่มเติม',
   CUSTOMERS: 'ลูกค้า',
+  MEMBERS: 'สมาชิก',
   STAFF: 'พนักงาน',
   DRIVERS: 'คนขับรถ',
   GENERAL: 'บุคคลทั่วไป',

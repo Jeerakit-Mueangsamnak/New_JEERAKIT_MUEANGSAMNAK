@@ -1,5 +1,5 @@
 'use client'
-import { COMMAND_BUTTON_SIZE_CLASSES, TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
+import { ActionButton, ROW_ICON_BUTTON_CLASSES, TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
 
 import { useCallback, useState, type ReactNode } from 'react'
 import { Copy, Link2Off, QrCode } from 'lucide-react'
@@ -34,7 +34,6 @@ interface IssuedCode {
   expiresAt: string
 }
 
-const BTN = `${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center justify-center cursor-pointer disabled:opacity-50 whitespace-nowrap`
 const TH = `px-2 ${DATA_TABLE_TH_CLASSES}`
 const TD = 'px-2 py-2'
 
@@ -52,7 +51,7 @@ function CodeCell({ code, onCopy }: { code: IssuedCode; onCopy: (code: string) =
       <span className="font-mono font-extrabold tracking-wider text-slate-900 dark:text-slate-100" data-testid="line-code">
         {code.code}
       </span>
-      <button type="button" onClick={() => onCopy(code.code)} aria-label="คัดลอกรหัส" className="p-1 rounded-lg text-slate-600 dark:text-slate-400 hover:text-blue-600 cursor-pointer">
+      <button type="button" onClick={() => onCopy(code.code)} aria-label="คัดลอกรหัส" className={`${ROW_ICON_BUTTON_CLASSES} text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700`}>
         <Copy className="w-3.5 h-3.5" />
       </button>
       <span className="text-[10px] text-slate-600 dark:text-slate-400">
@@ -151,15 +150,9 @@ export function LineMembersPanel({ tabs }: { tabs?: ReactNode }) {
   }
 
   const unlinkButton = (rowKey: string, contact: Contact, name: string) => (
-    <button
-      type="button"
-      disabled={user?.role !== 'OWNER' || busyId === rowKey}
-      onClick={() => void unlink(rowKey, contact, name)}
-      className={`${BTN} text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 inline-flex items-center gap-1`}
-    >
-      <Link2Off className="w-3.5 h-3.5" />
+    <ActionButton variant="danger" icon={<Link2Off />} disabled={user?.role !== 'OWNER' || busyId === rowKey} onClick={() => void unlink(rowKey, contact, name)}>
       ยกเลิกการเชื่อม
-    </button>
+    </ActionButton>
   )
 
   return (
@@ -203,26 +196,15 @@ export function LineMembersPanel({ tabs }: { tabs?: ReactNode }) {
                     ) : codes[key] ? (
                       <CodeCell code={codes[key]} onCopy={copy} />
                     ) : self ? (
-                      <button
-                        type="button"
-                        disabled={busyId === key || Boolean(loadError)}
-                        onClick={() => void issue(key, () => createMyLineLinkCode())}
-                        className={`${BTN} text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40`}
-                      >
+                      <ActionButton variant="share" disabled={busyId === key || Boolean(loadError)} onClick={() => void issue(key, () => createMyLineLinkCode())}>
                         ออกรหัสของฉัน
-                      </button>
+                      </ActionButton>
                     ) : (
                       <span className="inline-flex items-center gap-1">
                         {user?.role === 'OWNER' && (
-                          <button
-                            type="button"
-                            disabled={Boolean(loadError)}
-                            onClick={() => setQrFor({ id: s.id, name })}
-                            className={`${BTN} gap-1 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40`}
-                          >
-                            <QrCode className="w-3.5 h-3.5" />
+                          <ActionButton variant="info" icon={<QrCode />} disabled={Boolean(loadError)} onClick={() => setQrFor({ id: s.id, name })}>
                             แสดง QR
-                          </button>
+                          </ActionButton>
                         )}
                         <LineInviteButton kind="STAFF" target={s.id} name={name} disabled={Boolean(loadError)} />
                       </span>

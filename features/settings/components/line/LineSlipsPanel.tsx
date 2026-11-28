@@ -1,28 +1,39 @@
 'use client'
 
-import { useCallback, useState, type ReactNode } from 'react'
-import { CheckCircle2, Image as ImageIcon, ReceiptText, XCircle } from 'lucide-react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { CheckCircle2, XCircle } from 'lucide-react'
 import {
-  COMMAND_BUTTON_SIZE_CLASSES,
   TABLE_TOOLBAR_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_INACTIVE_CLASSES,
   TAB_CONTAINER_CLASSES,
+  ActionButton,
 } from '@/components/common/ActionButton'
 import { DATA_TABLE_CLASSES, DATA_TABLE_TH_CLASSES, DATA_TABLE_THEAD_CLASSES, DataTableFrame } from '@/components/common/DataTableFrame'
-import { AppModal, AppModalBody, AppModalFooter, AppModalHeader } from '@/components/common/AppModal'
+import { CustomSelect } from '@/components/common/CustomSelect'
 import { NumericInput } from '@/components/common/NumericInput'
 import { useToast } from '@/components/common/Toast'
-import { approveLineSlip, getLineSlipImageUrl, listLineSlips, rejectLineSlip, type LineSlipRow, type LineSlipStatus } from '@/app/actions/line'
+import {
+  approveLineSlip,
+  getLineSlipImageUrl,
+  listLineSlipBills,
+  listLineSlips,
+  rejectLineSlip,
+  type LineSlipBillChoice,
+  type LineSlipRow,
+  type LineSlipStatus,
+} from '@/app/actions/line'
 import { useAutoRefresh } from '@/features/settings/hooks/useAutoRefresh'
 import { PILL_TONE, thaiDateTime, type PillTone } from '@/features/settings/components/line/line-people-model'
 import { SETTINGS_INPUT, SETTINGS_LABEL } from '@/features/settings/components/settings-ui'
 import { SLIP_CHECK_REASON_LABEL, type SlipCheckReason } from '@/lib/line/slip-check'
 
 /**
- * สลิปรอตรวจ (owner 2026-11-25): slips customers sent from the pay form in LINE. อนุมัติ takes the money into the bill
- * (once: the database locks the slip and uses its own key) and tells the customer; ไม่ผ่าน sends the reason.
+ * สลิปรอตรวจ (owner 2026-11-25; 2026-11-28 one window): the slips on the left, the picked slip's picture on the right.
+ * A pending slip gets its bill from a dropdown of the customer's open bills (several bills, several slips), then
+ * อนุมัติ takes the money into that bill (once: the database locks the slip and uses its own key) and tells the
+ * customer; ไม่ผ่าน sends the reason.
  */
 type Filter = LineSlipStatus | 'ALL'
 const FILTERS: ReadonlyArray<{ id: Filter; label: string }> = [
@@ -49,6 +60,7 @@ const checkReasons = (s: LineSlipRow): string[] => {
 }
 const money = (n: number | null | undefined) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const TH = `px-2 ${DATA_TABLE_TH_CLASSES}`
+const PILL = 'inline-flex items-center h-5 px-2 rounded-full text-[10px] font-bold whitespace-nowrap'
 
 export function LineSlipsPanel({ tabs, onChanged }: { tabs: ReactNode; onChanged?: () => void }) {
   const { showToast } = useToast()
@@ -56,8 +68,12 @@ export function LineSlipsPanel({ tabs, onChanged }: { tabs: ReactNode; onChanged
   const [rows, setRows] = useState<LineSlipRow[]>([])
   const [counts, setCounts] = useState<Record<LineSlipStatus, number> | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [open, setOpen] = useState<{ slip: LineSlipRow; mode: 'VIEW' | 'APPROVE' | 'REJECT'; image: string | null } | null>(null)
+  const [pickedId, setPickedId] = useState<string | null>(null)
+  const [image, setImage] = useState<{ id: string; url: string | null } | null>(null)
+  const [bills, setBills] = useState<{ id: string; list: LineSlipBillChoice[] } | null>(null)
+  const [billId, setBillId] = useState('')
   const [amount, setAmount] = useState<number | ''>('')
+  const [rejecting, setRejecting] = useState(false)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -70,29 +86,69 @@ export function LineSlipsPanel({ tabs, onChanged }: { tabs: ReactNode; onChanged
   }, [filter])
   useAutoRefresh(load, 60_000)
 
-  const show = async (slip: LineSlipRow, mode: 'VIEW' | 'APPROVE' | 'REJECT') => {
-    setAmount(Math.min(slip.amount, slip.balance_due) || '')
+  // the first slip is shown at once; a slip gone from the list (decided, other filter) gives way to the first one
+  const slip = rows.find((s) => s.id === pickedId) ?? rows[0] ?? null
+  const slipId = slip?.id ?? null
+  const pending = slip?.status === 'PENDING'
+
+  useEffect(() => {
+    if (!slip) return
+    let live = true
+    setRejecting(false)
     setReason('')
-    setOpen({ slip, mode, image: null })
-    const r = await getLineSlipImageUrl(slip.image_path)
-    setOpen((o) => (o && o.slip.id === slip.id ? { ...o, image: r.success ? (r.data ?? null) : null } : o))
-    if (!r.success) showToast('เปิดรูปสลิปไม่สำเร็จ', r.error, 'ERROR')
+    setBillId(slip.bill_id)
+    setAmount(Math.min(slip.amount, slip.balance_due) || '')
+    getLineSlipImageUrl(slip.image_path).then((r) => {
+      if (!live) return
+      setImage({ id: slip.id, url: r.success ? (r.data ?? null) : null })
+      if (!r.success) showToast('เปิดรูปสลิปไม่สำเร็จ', r.error, 'ERROR')
+    })
+    if (slip.status === 'PENDING') {
+      listLineSlipBills(slip.id).then((r) => {
+        if (!live) return
+        if (r.success && r.data) setBills({ id: slip.id, list: r.data })
+        else showToast('โหลดบิลของลูกค้าไม่สำเร็จ', r.error, 'ERROR')
+      })
+    }
+    return () => {
+      live = false
+    }
+    // only when another slip is shown, not on every refresh of the list
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slipId])
+
+  const choices = bills && bills.id === slipId ? bills.list : []
+  const chosen = choices.find((b) => b.id === billId)
+  const pickBill = (id: string) => {
+    setBillId(id)
+    const b = choices.find((x) => x.id === id)
+    if (slip && b) setAmount(Math.min(slip.amount, b.balance_due) || '')
   }
 
-  const decide = async () => {
-    if (!open || busy) return
-    const { slip, mode } = open
-    if (mode === 'APPROVE' && (amount === '' || amount <= 0)) return showToast('กรุณาใส่ยอดที่ได้รับ', undefined, 'ERROR')
-    if (mode === 'REJECT' && !reason.trim()) return showToast('กรุณาระบุเหตุผล', undefined, 'ERROR')
+  const approve = async () => {
+    if (!slip || busy) return
+    if (!billId) return showToast('กรุณาเลือกบิลของสลิปนี้', undefined, 'ERROR')
+    if (amount === '' || amount <= 0) return showToast('กรุณาใส่ยอดที่ได้รับ', undefined, 'ERROR')
     setBusy(true)
     try {
-      const r =
-        mode === 'APPROVE'
-          ? await approveLineSlip({ slipId: slip.id, billId: slip.bill_id, amount: Number(amount) })
-          : await rejectLineSlip({ slipId: slip.id, billId: slip.bill_id, reason })
-      if (!r.success) return showToast(mode === 'APPROVE' ? 'อนุมัติไม่สำเร็จ' : 'บันทึกไม่สำเร็จ', r.error, 'ERROR')
-      showToast(mode === 'APPROVE' ? 'รับยอดเข้าบิลแล้ว' : 'แจ้งลูกค้าว่าสลิปไม่ผ่านแล้ว', `บิล ${slip.bill_no || '-'}`, 'SUCCESS')
-      setOpen(null)
+      const r = await approveLineSlip({ slipId: slip.id, billId, amount: Number(amount) })
+      if (!r.success) return showToast('อนุมัติไม่สำเร็จ', r.error, 'ERROR')
+      showToast('รับยอดเข้าบิลแล้ว', `บิล ${chosen?.bill_no || slip.bill_no || '-'}`, 'SUCCESS')
+      await load()
+      onChanged?.()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const reject = async () => {
+    if (!slip || busy) return
+    if (!reason.trim()) return showToast('กรุณาระบุเหตุผล', undefined, 'ERROR')
+    setBusy(true)
+    try {
+      const r = await rejectLineSlip({ slipId: slip.id, billId: slip.bill_id, reason })
+      if (!r.success) return showToast('บันทึกไม่สำเร็จ', r.error, 'ERROR')
+      showToast('แจ้งลูกค้าว่าสลิปไม่ผ่านแล้ว', `บิล ${slip.bill_no || '-'}`, 'SUCCESS')
       await load()
       onChanged?.()
     } finally {
@@ -101,7 +157,6 @@ export function LineSlipsPanel({ tabs, onChanged }: { tabs: ReactNode; onChanged
   }
 
   const tabClass = (on: boolean) => `${TAB_BUTTON_BASE_CLASSES} ${on ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`
-  const slip = open?.slip
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className={`${TABLE_TOOLBAR_CLASSES} flex flex-wrap items-center`}>
@@ -116,119 +171,123 @@ export function LineSlipsPanel({ tabs, onChanged }: { tabs: ReactNode; onChanged
         </div>
       </div>
       {error && <p className="m-3 rounded-lg px-3 py-2 bg-amber-50 dark:bg-amber-950/40 text-[11px] text-amber-800 dark:text-amber-200">{error}</p>}
-      <DataTableFrame fill rowCount={rows.length} className="flex-1 min-h-0 min-w-0 rounded-none bg-transparent">
-        <table className={`${DATA_TABLE_CLASSES} text-[11px] leading-tight`} aria-label="ตารางสลิปจาก LINE">
-          <thead className={`${DATA_TABLE_THEAD_CLASSES} text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 text-xs`}>
-            <tr>
-              <th className={`${TH} pl-3`}>ส่งเมื่อ</th>
-              <th className={TH}>ลูกค้า</th>
-              <th className={TH}>บิล</th>
-              <th className={`${TH} text-right`}>ยอดในสลิป</th>
-              <th className={`${TH} text-right`}>ยอดค้างบิล</th>
-              <th className={`${TH} text-center`}>สถานะ</th>
-              <th className={`${TH} pr-3 text-right`}>จัดการ</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-            {rows.map((s) => (
-              <tr key={s.id}>
-                <td className="pl-3 pr-2 py-2 tabular-nums text-slate-700 dark:text-slate-300">{thaiDateTime(s.created_at)}</td>
-                <td className="px-2 py-2 font-semibold text-slate-900 dark:text-slate-100">
-                  {s.customer_name || '-'}
-                  {s.line_name && <span className="block text-[10px] font-normal text-slate-500 dark:text-slate-400">LINE {s.line_name}</span>}
-                </td>
-                <td className="px-2 py-2 font-mono text-slate-800 dark:text-slate-200">{s.bill_no || '-'}</td>
-                <td className="px-2 py-2 text-right tabular-nums font-bold">{money(s.approved_amount ?? s.amount)}</td>
-                <td className="px-2 py-2 text-right tabular-nums">{money(s.balance_due)}</td>
-                <td className="px-2 py-2 text-center">
-                  <span className={`inline-flex items-center h-5 px-2 rounded-full text-[10px] font-bold ${PILL_TONE[STATE[s.status].tone]}`}>{STATE[s.status].text}</span>
-                  {s.check_status && (
-                    <span
-                      title={checkReasons(s).join(' · ') || undefined}
-                      className={`ml-1 inline-flex items-center h-5 px-2 rounded-full text-[10px] font-bold ${PILL_TONE[CHECK[s.check_status].tone]}`}
-                    >
-                      {CHECK[s.check_status].text}
-                    </span>
-                  )}
-                  {s.reject_reason && <span className="block mt-0.5 text-[10px] text-red-700 dark:text-red-400">{s.reject_reason}</span>}
-                </td>
-                <td className="pl-2 pr-3 py-2 text-right whitespace-nowrap">
-                  <span className="inline-flex items-center gap-1">
-                    <button type="button" onClick={() => void show(s, 'VIEW')} className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 cursor-pointer`}>
-                      <ImageIcon /> ดูสลิป
-                    </button>
-                    {s.status === 'PENDING' && (
-                      <>
-                        <button type="button" onClick={() => void show(s, 'APPROVE')} className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer`}>
-                          <CheckCircle2 /> อนุมัติ
-                        </button>
-                        <button type="button" onClick={() => void show(s, 'REJECT')} className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer`}>
-                          <XCircle /> ไม่ผ่าน
-                        </button>
-                      </>
-                    )}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </DataTableFrame>
+      <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
+        {/* the slips: tap one to see it on the right */}
+        <div className="md:w-[45%] min-h-48 md:min-h-0 flex flex-col border-b md:border-b-0 md:border-r border-slate-200 dark:border-slate-700">
+          <DataTableFrame fill rowCount={rows.length} className="flex-1 min-h-0 min-w-0 rounded-none bg-transparent">
+            <table className={`${DATA_TABLE_CLASSES} text-[11px] leading-tight`} aria-label="ตารางสลิปจาก LINE">
+              <thead className={`${DATA_TABLE_THEAD_CLASSES} text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 text-xs`}>
+                <tr>
+                  <th className={`${TH} pl-3`}>ส่งเมื่อ</th>
+                  <th className={TH}>ลูกค้า</th>
+                  <th className={`${TH} text-right`}>ยอดในสลิป</th>
+                  <th className={`${TH} pr-3 text-center`}>สถานะ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                {rows.map((s) => (
+                  <tr
+                    key={s.id}
+                    onClick={() => setPickedId(s.id)}
+                    aria-selected={s.id === slipId}
+                    className={`cursor-pointer transition-colors ${s.id === slipId ? 'bg-emerald-50/50 dark:bg-emerald-950/20' : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'}`}
+                  >
+                    <td className="pl-3 pr-2 py-2 tabular-nums text-slate-700 dark:text-slate-300">{thaiDateTime(s.created_at)}</td>
+                    <td className="px-2 py-2 font-semibold text-slate-900 dark:text-slate-100">
+                      {s.customer_name || '-'}
+                      <span className="block text-[10px] font-normal font-mono text-slate-500 dark:text-slate-400">บิล {s.bill_no || '-'}</span>
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums font-bold">{money(s.approved_amount ?? s.amount)}</td>
+                    <td className="pl-2 pr-3 py-2 text-center">
+                      <span className={`${PILL} ${PILL_TONE[STATE[s.status].tone]}`}>{STATE[s.status].text}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </DataTableFrame>
+        </div>
 
-      <AppModal isOpen={Boolean(open)} onClose={() => !busy && setOpen(null)} size="md">
-        <AppModalHeader onClose={() => !busy && setOpen(null)} icon={<ReceiptText className="w-5 h-5 text-emerald-700 dark:text-emerald-400" />}>
-          <h3 className="font-extrabold text-base text-slate-900 dark:text-slate-100">
-            {open?.mode === 'APPROVE' ? 'อนุมัติสลิป' : open?.mode === 'REJECT' ? 'สลิปไม่ผ่าน' : 'สลิปจาก LINE'} · บิล {slip?.bill_no || '-'}
-          </h3>
-        </AppModalHeader>
-        <AppModalBody className="space-y-3">
-          {slip && (
+        {/* the picked slip: picture, check result, which bill, and the decision */}
+        {slip && (
+          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto p-3 space-y-3" data-testid="line-slip-view">
             <p className="text-xs text-slate-700 dark:text-slate-300">
-              {slip.customer_name || '-'} · ยอดในสลิป <b className="tabular-nums">{money(slip.amount)}</b> บาท · ยอดค้างบิล <b className="tabular-nums">{money(slip.balance_due)}</b> บาท
+              {slip.customer_name || '-'}
+              {slip.line_name && <> · LINE {slip.line_name}</>} · ยอดในสลิป <b className="tabular-nums">{money(slip.amount)}</b> บาท
             </p>
-          )}
-          {slip?.check_status && (
-            <p className={`text-xs rounded-lg px-2.5 py-1.5 ${PILL_TONE[CHECK[slip.check_status].tone]}`} data-testid="slip-check-result">
-              <b>{CHECK[slip.check_status].text}</b>
-              {slip.check_detail?.amount_slip !== undefined && <> · ยอดที่ธนาคารยืนยัน {money(slip.check_detail.amount_slip)} บาท</>}
-              {slip.check_detail?.receiver && <> · ผู้รับ {slip.check_detail.receiver}</>}
-              {checkReasons(slip).length > 0 && <> · {checkReasons(slip).join(' · ')}</>}
-            </p>
-          )}
-          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 min-h-40 grid place-items-center overflow-hidden">
-            {open?.image ? (
-              // eslint-disable-next-line @next/next/no-img-element -- a short signed link to a private slip picture
-              <img src={open.image} alt="รูปสลิป" className="max-h-[50vh] w-auto object-contain" />
+            {slip.check_status && (
+              <p className={`text-xs rounded-lg px-2.5 py-1.5 ${PILL_TONE[CHECK[slip.check_status].tone]}`} data-testid="slip-check-result">
+                <b>{CHECK[slip.check_status].text}</b>
+                {slip.check_detail?.amount_slip !== undefined && <> · ยอดที่ธนาคารยืนยัน {money(slip.check_detail.amount_slip)} บาท</>}
+                {slip.check_detail?.receiver && <> · ผู้รับ {slip.check_detail.receiver}</>}
+                {checkReasons(slip).length > 0 && <> · {checkReasons(slip).join(' · ')}</>}
+              </p>
+            )}
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 min-h-40 grid place-items-center overflow-hidden">
+              {image?.id === slip.id && image.url ? (
+                // eslint-disable-next-line @next/next/no-img-element -- a short signed link to a private slip picture
+                <img src={image.url} alt="รูปสลิป" className="max-h-[45vh] w-auto object-contain" />
+              ) : (
+                <span className="text-xs text-slate-500 dark:text-slate-400">กำลังเปิดรูปสลิป…</span>
+              )}
+            </div>
+
+            {pending ? (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <span className={SETTINGS_LABEL}>สลิปนี้ของบิล</span>
+                    <CustomSelect
+                      value={billId}
+                      ariaLabel="สลิปนี้ของบิล"
+                      onChange={(v) => pickBill(String(v))}
+                      options={choices.map((b) => ({ value: b.id, label: b.bill_no || '-', sublabel: `ค้าง ${money(b.balance_due)}` }))}
+                    />
+                  </div>
+                  <div>
+                    <label className={SETTINGS_LABEL} htmlFor="slip-amount">ยอดที่ได้รับจริง (บาท)</label>
+                    <NumericInput id="slip-amount" value={amount} onChange={(v) => setAmount(v === '' ? '' : Number(v))} min={0} allowDecimals className={SETTINGS_INPUT} />
+                  </div>
+                </div>
+                {rejecting && (
+                  <div>
+                    <label className={SETTINGS_LABEL} htmlFor="slip-reason">เหตุผล (ส่งให้ลูกค้าทาง LINE)</label>
+                    <textarea id="slip-reason" rows={3} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} className={`${SETTINGS_INPUT} h-auto py-2`} />
+                  </div>
+                )}
+                <div className="flex flex-wrap justify-end gap-2">
+                  {rejecting ? (
+                    <>
+                      <ActionButton variant="cancel" disabled={busy} onClick={() => setRejecting(false)}>
+                        ยกเลิก
+                      </ActionButton>
+                      <ActionButton variant="danger" icon={<XCircle />} disabled={busy} onClick={() => void reject()}>
+                        ยืนยันไม่ผ่าน
+                      </ActionButton>
+                    </>
+                  ) : (
+                    <>
+                      <ActionButton variant="danger" icon={<XCircle />} disabled={busy} onClick={() => setRejecting(true)}>
+                        ไม่ผ่าน
+                      </ActionButton>
+                      <ActionButton variant="primary" icon={<CheckCircle2 />} disabled={busy || !billId} onClick={() => void approve()}>
+                        อนุมัติและรับยอด
+                      </ActionButton>
+                    </>
+                  )}
+                </div>
+              </>
             ) : (
-              <span className="text-xs text-slate-500 dark:text-slate-400">กำลังเปิดรูปสลิป…</span>
+              <p className="text-xs text-slate-700 dark:text-slate-300">
+                บิล <b className="font-mono">{slip.bill_no || '-'}</b> · <span className={`${PILL} ${PILL_TONE[STATE[slip.status].tone]}`}>{STATE[slip.status].text}</span>
+                {slip.decided_at && <> · {thaiDateTime(slip.decided_at)}</>}
+                {slip.decided_by && <> · {slip.decided_by}</>}
+                {slip.reject_reason && <span className="block mt-1 text-red-700 dark:text-red-400">{slip.reject_reason}</span>}
+              </p>
             )}
           </div>
-          {open?.mode === 'APPROVE' && (
-            <div>
-              <label className={SETTINGS_LABEL} htmlFor="slip-amount">ยอดที่ได้รับจริง (บาท) · รับเข้าบิลเป็นเงินโอน</label>
-              <NumericInput id="slip-amount" value={amount} onChange={(v) => setAmount(v === '' ? '' : Number(v))} min={0} allowDecimals className={SETTINGS_INPUT} />
-            </div>
-          )}
-          {open?.mode === 'REJECT' && (
-            <div>
-              <label className={SETTINGS_LABEL} htmlFor="slip-reason">เหตุผล (ส่งให้ลูกค้าทาง LINE)</label>
-              <textarea id="slip-reason" rows={3} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} className={`${SETTINGS_INPUT} h-auto py-2`} />
-            </div>
-          )}
-        </AppModalBody>
-        {open?.mode === 'VIEW' ? (
-          <AppModalFooter onCancel={() => setOpen(null)} cancelText="ปิด" />
-        ) : (
-          <AppModalFooter
-            onCancel={() => setOpen(null)}
-            onConfirm={() => void decide()}
-            confirmText={open?.mode === 'APPROVE' ? 'อนุมัติและรับยอด' : 'ยืนยันไม่ผ่าน'}
-            confirmButtonColor={open?.mode === 'APPROVE' ? 'emerald' : 'red'}
-            isConfirmLoading={busy}
-            isConfirmDisabled={busy}
-          />
         )}
-      </AppModal>
+      </div>
     </div>
   )
 }

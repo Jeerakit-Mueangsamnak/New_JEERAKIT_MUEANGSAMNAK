@@ -73,8 +73,9 @@ export function validateLinePolicy(line: unknown): LinePolicyCheck {
           return { ok: false, path }
         }
       }
-    } else if (key === 'ownerAlerts') {
-      if (!isObject(value) || Object.entries(value).some(([f, v]) => f !== 'enabled' || typeof v !== 'boolean')) return { ok: false, path: 'line.ownerAlerts' }
+    } else if (key === 'ownerAlerts' || key === 'customerAlerts' || key === 'staffAlerts') {
+      // { enabled } per audience, missing = on (customer / staff: owner 2026-11-28, migration 20261128163604)
+      if (!isObject(value) || Object.entries(value).some(([f, v]) => f !== 'enabled' || typeof v !== 'boolean')) return { ok: false, path: `line.${key}` }
     } else if (key === 'reminders' || key === 'staffReminders') {
       if (!isObject(value)) return { ok: false, path: `line.${key}` }
       for (const [rule, setting] of Object.entries(value)) {

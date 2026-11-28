@@ -8,7 +8,7 @@ import { type LineMessage } from '@/lib/line/types'
 import { processOutbox } from '@/lib/line/outbox'
 import { lineOaAddFriendUrl, lineOaMessageUrl } from '@/lib/line/oa-link'
 import { createLineProvider, lineDeliveryMode } from '@/lib/line/provider'
-import { formatThaiDate, reminderMessages, teamReminderMessages, type CronShop, type ReminderRow } from '@/lib/line/cron'
+import { formatThaiDate, reminderMessages, type CronShop, type ReminderRow } from '@/lib/line/cron'
 import { type LineInviteKind } from '@/lib/line/config'
 import { billDesignMessage, cardMessage, type FlexButton } from '@/lib/line/flex'
 import { isLineCardColor, LINE_CARD_COLORS, LINE_CARD_LIMITS } from '@/lib/line/bill-card-design'
@@ -77,6 +77,7 @@ const ERRORS: Array<[RegExp, string]> = [
   [/^LINE_CATALOG_NOT_FOUND/, 'ไม่พบหมวดหมู่หรือสินค้านี้ (สินค้าที่ไม่มีหมวดหมู่แสดงใน LINE ไม่ได้)'],
   [/^LINE_SLIP_NOT_FOUND/, 'ไม่พบสลิปนี้'],
   [/^LINE_SLIP_NOT_PENDING/, 'สลิปนี้ตรวจไปแล้ว กรุณารีเฟรช'],
+  [/^LINE_SLIP_BILL_INVALID/, 'บิลนี้ไม่ใช่บิลที่ยังไม่ปิดของลูกค้าคนนี้'],
   [/^OVERPAYMENT/, 'ยอดที่อนุมัติมากกว่ายอดค้างของบิล'],
   [/^BILL_NOT_PAYABLE/, 'บิลนี้ปิดหรือยกเลิกแล้ว รับชำระไม่ได้'],
   [/^PAYMENT_DATE_IN_FUTURE/, 'วันที่รับเงินต้องไม่เกินวันนี้'],
@@ -619,6 +620,12 @@ export async function getReminderCandidates() {
   return callRpc<ReminderCandidate[]>('line_customer_reminder_candidates', {})
 }
 
+/** สมาชิก (owner 2026-11-28): today's reminders of one LINE customer, to pick the bill for one topic. */
+export async function getMemberReminders(contactId: string) {
+  if (!UUID.test(contactId || '')) return bad('ไม่พบลูกค้าคนนี้')
+  return callRpc<ReminderCandidate[]>('line_member_reminders', { p_contact_id: contactId })
+}
+
 async function cronShop(): Promise<CronShop> {
   const supabase = await createServerSupabase()
   const { data: row } = await supabase
@@ -668,37 +675,6 @@ export async function sendCustomerReminder(input: {
   return { success: true, data: { ...queued.data, status, mode: lineDeliveryMode() } }
 }
 
-export type TeamReminderCandidate = Omit<ReminderCandidate, 'last_status'> & { staff_count: number }
-
-/** ส่งเตือนพนักงานเอง (OWNER, owner 2026-11-26): what is due, with the last time it was sent to staff. */
-export async function getTeamReminderCandidates() {
-  return callRpc<TeamReminderCandidate[]>('line_team_reminder_candidates', {})
-}
-
-/** ส่งเตือนพนักงานเอง: the staff notice of one due item to every linked staff member, then the outbox once. */
-export async function sendTeamReminder(input: { rule: string; sourceId: string }): Promise<LineActionResult<{ queued: number; mode: 'mock' | 'live' }>> {
-  if (!input || !UUID.test(input.sourceId || '')) return bad('ไม่พบรายการนี้')
-  const list = await getTeamReminderCandidates()
-  if (!list.success || !list.data) return { success: false, error: list.error }
-  const row = list.data.find((c) => c.rule === input.rule && c.source_id === input.sourceId)
-  if (!row) return bad('รายการนี้ไม่อยู่ในรายการที่ต้องเตือนแล้ว กรุณารีเฟรช')
-  let messages: LineMessage[]
-  try {
-    messages = teamReminderMessages(row, await cronShop())
-  } catch {
-    return bad('ข้อความไม่ถูกต้องหรือยาวเกินกำหนด')
-  }
-  const queued = await callRpc<{ queued: number }>('line_team_reminder_send', {
-    p_rule: row.rule,
-    p_source_type: row.source_type,
-    p_source_id: row.source_id,
-    p_messages: messages,
-  })
-  if (!queued.success || !queued.data) return { success: false, error: queued.error }
-  if (queued.data.queued > 0) await runOutboxOnce(null)
-  return { success: true, data: { queued: queued.data.queued, mode: lineDeliveryMode() } }
-}
-
 /** ประวัติการส่ง: send a failed / cancelled row again (same retry key, so LINE delivers it once). */
 export async function retryLineDelivery(deliveryId: string): Promise<LineActionResult<{ delivery_id: string; status: string; mode: 'mock' | 'live' }>> {
   if (!UUID.test(deliveryId || '')) return bad('ไม่พบรายการนี้')
@@ -739,8 +715,8 @@ export async function rejectLineContact(contactId: string, reason?: string) {
 
 // ── คนใน LINE: lists, checking a request, a word to one person (owner 2026-11-21) ──
 
-export type LinePeopleView = 'ALL' | 'UNREG' | 'PENDING' | 'NEEDINFO' | 'CUSTOMERS' | 'STAFF' | 'DRIVERS' | 'GENERAL' | 'REJECTED' | 'UNLINKED' | 'BLOCKED'
-const PEOPLE_VIEWS: readonly string[] = ['ALL', 'UNREG', 'PENDING', 'NEEDINFO', 'CUSTOMERS', 'STAFF', 'DRIVERS', 'GENERAL', 'REJECTED', 'UNLINKED', 'BLOCKED']
+export type LinePeopleView = 'ALL' | 'UNREG' | 'PENDING' | 'NEEDINFO' | 'CUSTOMERS' | 'MEMBERS' | 'STAFF' | 'DRIVERS' | 'GENERAL' | 'REJECTED' | 'UNLINKED' | 'BLOCKED'
+const PEOPLE_VIEWS: readonly string[] = ['ALL', 'UNREG', 'PENDING', 'NEEDINFO', 'CUSTOMERS', 'MEMBERS', 'STAFF', 'DRIVERS', 'GENERAL', 'REJECTED', 'UNLINKED', 'BLOCKED']
 export type LinePeopleCounts = Record<'all' | 'unreg' | 'pending' | 'needinfo' | 'customers' | 'staff' | 'drivers' | 'general' | 'rejected' | 'unlinked' | 'blocked', number>
 
 /** One person as a screen sees them. line_user_id is never part of it. */
@@ -778,13 +754,13 @@ export async function getLinePeopleCounts() {
   return callRpc<LinePeopleCounts>('line_people_counts', {})
 }
 
-/** One page (25) of a list, searched by the database. */
-export async function listLinePeople(view: LinePeopleView, search: string, offset: number) {
+/** One page of a list (25 unless asked, at most 50: the database's own cap), searched by the database. */
+export async function listLinePeople(view: LinePeopleView, search: string, offset: number, limit = 25) {
   if (!PEOPLE_VIEWS.includes(view)) return bad('คำขอไม่สมบูรณ์ กรุณาลองใหม่')
   return callRpc<{ total: number; rows: LinePerson[] }>('line_people_list', {
     p_view: view,
     p_search: (search ?? '').trim().slice(0, 100) || null,
-    p_limit: 25,
+    p_limit: Math.min(50, Math.max(1, Math.floor(Number(limit) || 25))),
     p_offset: Math.max(0, Math.floor(Number(offset) || 0)),
   })
 }
@@ -1159,11 +1135,22 @@ async function billForAnswer(billId: string) {
  * อนุมัติ: the database takes the money once (payment_receive, TRANSFER, the slip's own key) and queues the answer to
  * that customer's LINE in the same step. `amount` = what the shop read on the slip (at most what the bill owes).
  */
+export type LineSlipBillChoice = { id: string; bill_no: string | null; balance_due: number; status: string }
+
+/** The open bills of a pending slip's customer, the bill it was sent for first (owner 2026-11-28). */
+export async function listLineSlipBills(slipId: string) {
+  if (!UUID.test(slipId || '')) return bad('ไม่พบสลิปนี้')
+  return callRpc<LineSlipBillChoice[]>('line_slip_bill_choices', { p_slip_id: slipId })
+}
+
+/** `billId` = the bill the shop chose for this slip; it is moved there first when it is another open bill of the customer. */
 export async function approveLineSlip(input: { slipId: string; billId: string; amount: number; receivedOn?: string | null }) {
   if (!input || !UUID.test(input.slipId || '') || !UUID.test(input.billId || '')) return bad('ไม่พบสลิปนี้')
   const amount = Math.round(Number(input.amount) * 100) / 100
   if (!Number.isFinite(amount) || amount <= 0) return bad('จำนวนเงินไม่ถูกต้อง')
   if (input.receivedOn && !/^\d{4}-\d{2}-\d{2}$/.test(input.receivedOn)) return bad('วันที่รับเงินไม่ถูกต้อง')
+  const moved = await callRpc<{ bill_id: string; changed: boolean }>('line_slip_set_bill', { p_slip_id: input.slipId, p_bill_id: input.billId })
+  if (!moved.success) return { success: false, error: moved.error }
   const [shop, bill] = await Promise.all([cronShop(), billForAnswer(input.billId)])
   let messages: LineMessage[] | null
   try {

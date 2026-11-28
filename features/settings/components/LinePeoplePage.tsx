@@ -1,24 +1,28 @@
 'use client'
 
 /**
- * เมนู LINE (/line): sections by kind of work in a narrow left bar, each section's pages under it (owner 2026-11-25):
- *   ภาพรวม · ลูกค้าใน LINE · การชำระเงิน · พนักงานและงาน · แก้ไขข้อความ (OWNER) · การแจ้งเตือน (OWNER) · ตั้งค่า (OWNER)
- * Summary cards on top. Lists come from the database a page at a time (never the whole table) and refresh by themselves
- * when the screen comes back into view (useAutoRefresh, no button; no realtime: line_contacts carries the LINE user id,
- * which never reaches a browser).
+ * เมนู LINE (/line), owner 2026-11-26: four tabs in one row across the top, no bar on the left.
+ *   สมาชิก          · one table, ลูกค้า or พนักงาน picked from the tab's dropdown (owner 2026-11-28); on the right the
+ *                     buttons that send for that group (each opens its list in a window)
+ *   ยืนยัน & จัดการ · the requests to check and making a link for a customer or a staff member
+ *   แก้ไขข้อความ (OWNER) · first choose whose messages (ลูกค้า / พนักงาน / เจ้าของ), then edit them with the variables
+ *   ตั้งค่า LINE (OWNER) · everything else, as a second row of tabs
+ * Summary cards on top. Lists have no ย้อนกลับ / ถัดไป: they scroll, read more from the database near the bottom, and refresh by themselves.
  */
 import { CountUp } from '@/components/common/CountUp'
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { qrDataUrl } from '@/lib/qr-code'
 import {
   BellRing,
+  ClipboardList,
   Copy,
-  LayoutDashboard,
   MessageSquare,
   QrCode,
   ReceiptText,
   Settings2,
+  Truck,
+  UserCheck,
   UserCog,
   UserPlus,
   Users,
@@ -30,184 +34,209 @@ import {
   TAB_BUTTON_ACTIVE_CLASSES,
   TAB_BUTTON_BASE_CLASSES,
   TAB_BUTTON_INACTIVE_CLASSES,
-  COMMAND_BUTTON_SIZE_CLASSES,
+  TAB_CONTAINER_CLASSES,
 } from '@/components/common/ActionButton'
+import { CustomSelect } from '@/components/common/CustomSelect'
 import { useAuth } from '@/features/auth/contexts/AuthContext'
 import { useToast } from '@/components/common/Toast'
-import { getLineOaInfo, getLinePeopleCounts, type LinePeopleCounts, type LinePeopleView } from '@/app/actions/line'
+import { getLineOaInfo, getLinePeopleCounts, type LinePeopleCounts, type LinePeopleView, type LinePerson } from '@/app/actions/line'
 import type { LineTemplateCategory } from '@/lib/line/config'
 import { DeliveryDriversPanel } from '@/features/settings/components/DeliveryDriversPanel'
 import { LineConnectionPanel, type LineSettingsView } from '@/features/settings/components/LineSettingsPanel'
 import { LineSettingsWorkspace } from '@/features/settings/components/LineSettingsWorkspace'
-import { LineTeamRemindersPanel } from '@/features/settings/components/line/LineTeamRemindersPanel'
 import { LineBillCardDesigner } from '@/features/settings/components/LineBillCardDesigner'
 import { LineMessageComposer } from '@/features/settings/components/LineMessageComposer'
 import { LineMembersPanel } from '@/features/settings/components/LineMembersPanel'
-import { LineRemindersPanel } from '@/features/settings/components/LineRemindersPanel'
 import { LineDeliveryLogPanel } from '@/features/settings/components/LineDeliveryLogPanel'
 import { LinePeopleList } from '@/features/settings/components/line/LinePeopleList'
-import { LineOverviewPanel } from '@/features/settings/components/line/LineOverviewPanel'
+import { LineInviteArea } from '@/features/settings/components/line/LineInviteArea'
+import { PEOPLE_VIEW_LABEL } from '@/features/settings/components/line/line-people-model'
 import { NewCustomerModal } from '@/features/customers/components/NewCustomerModal'
 import { useCreateCustomer } from '@/features/customers/hooks/useCreateCustomer'
 import type { Customer } from '@/lib/types/rental-pos'
 import { LineCodesPanel } from '@/features/settings/components/line/LineCodesPanel'
 import { LineSlipsPanel } from '@/features/settings/components/line/LineSlipsPanel'
+import { LineMemberRemind, type MemberRemindRequest } from '@/features/settings/components/line/LineMemberRemind'
+import { LINE_REMINDER_RULES } from '@/lib/line/config'
 import { LineTasksPanel } from '@/features/settings/components/line/LineTasksPanel'
 import { LineAuditPanel } from '@/features/settings/components/line/LineAuditPanel'
 import { LineRichMenuSettings } from '@/features/settings/components/line/LineRichMenuSettings'
 import { useAutoRefresh } from '@/features/settings/hooks/useAutoRefresh'
 import { SETTINGS_HELPER } from '@/features/settings/components/settings-ui'
+import { SettingsSwitch } from '@/features/settings/components/SettingsRows'
+import { useSystemSettings } from '@/lib/contexts/SystemSettingsContext'
 
-type LineGroup = 'OVERVIEW' | 'PEOPLE' | 'PAYMENTS' | 'TEAM' | 'MESSAGES' | 'NOTICES' | 'SETTINGS'
-type LineView =
-  | 'OVERVIEW' | 'ALL' | 'UNREG' | 'PENDING' | 'NEEDINFO' | 'CUSTOMERS' | 'STAFF' | 'DRIVERS' | 'GENERAL' | 'REJECTED' | 'UNLINKED' | 'BLOCKED' | 'CODES' | 'AUDIT'
-  | 'SLIPS' | 'SLIPCHECK' | 'TASKS'
-  | 'MSG_CUSTOMER' | 'MSG_STAFF' | 'MSG_OWNER' | 'OWN' | 'CARD'
-  | 'CONNECTION' | 'FRIEND' | 'REGISTER' | 'CATALOG' | 'MENU' | 'NOTIFY' | 'SCHEDULE' | 'MANUAL' | 'MANUAL_STAFF' | 'OWNER_ALERTS' | 'HISTORY'
+type MainTab = 'PEOPLE' | 'MANAGE' | 'MESSAGES' | 'SETTINGS'
 
-const icon = (Node: typeof Users) => <Node className="w-3.5 h-3.5" />
+/** แจ้งเตือนอัตโนมัติ on / off per audience (owner 2026-11-28), policies.line.<key>.enabled, missing = on.
+ *  Off stops the automatic due-date round only; the per-rule switches and sending by hand stay. */
+type AutoAlertKey = 'customerAlerts' | 'staffAlerts' | 'ownerAlerts'
+const AUTO_ALERTS: ReadonlyArray<{ key: AutoAlertKey; label: string; group: 'CUSTOMERS' | 'TEAM' }> = [
+  { key: 'customerAlerts', label: 'ลูกค้า', group: 'CUSTOMERS' },
+  { key: 'staffAlerts', label: 'พนักงาน', group: 'TEAM' },
+  { key: 'ownerAlerts', label: 'เจ้าของระบบ', group: 'TEAM' },
+]
+type IconType = typeof Users
+const icon = (Node: IconType) => <Node className="w-3.5 h-3.5" />
 
-/**
- * The main sections by kind of work (owner 2026-11-25): each section's pages sit under it in the left bar.
- * A section with one page has no list under it.
- */
-const LINE_GROUPS: ReadonlyArray<{
-  id: LineGroup
-  label: string
-  icon: ReactNode
-  ownerOnly?: boolean
-  views: ReadonlyArray<{ id: LineView; label: string; ownerOnly?: boolean }>
-}> = [
-  { id: 'OVERVIEW', label: 'ภาพรวม', icon: icon(LayoutDashboard), views: [{ id: 'OVERVIEW', label: 'ภาพรวม' }] },
+const MAIN_TABS: ReadonlyArray<{ id: MainTab; label: string; icon: ReactNode; ownerOnly?: boolean }> = [
+  { id: 'PEOPLE', label: 'สมาชิก', icon: icon(Users) },
+  { id: 'MANAGE', label: 'ยืนยัน & จัดการ', icon: icon(UserCheck) },
+  { id: 'MESSAGES', label: 'แก้ไขข้อความ', icon: icon(MessageSquare), ownerOnly: true },
+  { id: 'SETTINGS', label: 'ตั้งค่า LINE', icon: icon(Settings2), ownerOnly: true },
+]
+
+/** ยืนยัน & จัดการ: the request lists, one filter over the same 10-row table. */
+type ConfirmView = Exclude<LinePeopleView, 'CUSTOMERS' | 'STAFF' | 'DRIVERS'>
+const CONFIRM_VIEWS: readonly ConfirmView[] = ['PENDING', 'NEEDINFO', 'UNREG', 'GENERAL', 'REJECTED', 'UNLINKED', 'BLOCKED', 'ALL']
+
+/** สมาชิก (owner 2026-11-28): one table, ลูกค้า or พนักงาน picked from the tab's own dropdown. */
+type MemberGroup = 'CUSTOMERS' | 'TEAM'
+const MEMBER_GROUPS: ReadonlyArray<{ value: MemberGroup; label: string }> = [
+  { value: 'CUSTOMERS', label: 'สมาชิก · ลูกค้า' },
+  { value: 'TEAM', label: 'สมาชิก · พนักงาน' },
+]
+
+/** The buttons on the right of สมาชิก: shown for the group picked; each opens its list in a window. Customer reminders
+ *  are the topic buttons under แจ้งเตือนลูกค้า (LINE_REMINDER_RULES), sent to the customer picked in the table. */
+type SendAction = 'SLIPS' | 'TASKS' | 'DRIVERS'
+const SEND_GROUPS: ReadonlyArray<{ group: MemberGroup; actions: ReadonlyArray<{ id: SendAction; label: string; icon: ReactNode; variant: 'share' | 'info'; ownerOnly?: boolean }> }> = [
   {
-    id: 'PEOPLE',
-    label: 'ลูกค้าใน LINE',
-    icon: icon(UserPlus),
-    views: [
-      { id: 'PENDING', label: 'รอยืนยัน' },
-      { id: 'NEEDINFO', label: 'รอข้อมูลเพิ่มเติม' },
-      { id: 'CUSTOMERS', label: 'ลูกค้า' },
-      { id: 'UNREG', label: 'ยังไม่ลงทะเบียน' },
-      { id: 'GENERAL', label: 'บุคคลทั่วไป' },
-      { id: 'ALL', label: 'เพื่อนทั้งหมด' },
-      { id: 'REJECTED', label: 'ถูกปฏิเสธ' },
-      { id: 'UNLINKED', label: 'ยกเลิกผูกบัญชี' },
-      { id: 'BLOCKED', label: 'บล็อก LINE OA' },
+    group: 'CUSTOMERS',
+    actions: [
+      { id: 'SLIPS', label: 'สลิปรอตรวจ', icon: icon(ReceiptText), variant: 'info' },
     ],
   },
   {
-    id: 'PAYMENTS',
-    label: 'การชำระเงิน',
-    icon: icon(ReceiptText),
-    views: [
-      { id: 'SLIPS', label: 'สลิปรอตรวจ' },
-      { id: 'SLIPCHECK', label: 'ตั้งค่าตรวจสลิป', ownerOnly: true },
-    ],
-  },
-  {
-    id: 'TEAM',
-    label: 'พนักงานและงาน',
-    icon: icon(UserCog),
-    views: [
-      { id: 'TASKS', label: 'สั่งงานพนักงาน' },
-      { id: 'STAFF', label: 'พนักงาน', ownerOnly: true },
-      { id: 'DRIVERS', label: 'คนขับรถ' },
-    ],
-  },
-  {
-    id: 'MESSAGES',
-    label: 'แก้ไขข้อความ',
-    icon: icon(MessageSquare),
-    ownerOnly: true,
-    views: [
-      { id: 'MSG_CUSTOMER', label: 'ลูกค้า' },
-      { id: 'MSG_STAFF', label: 'พนักงาน' },
-      { id: 'MSG_OWNER', label: 'เจ้าของ' },
-      { id: 'OWN', label: 'แม่แบบของร้าน' },
-      { id: 'CARD', label: 'การ์ดบิล' },
-    ],
-  },
-  {
-    id: 'NOTICES',
-    label: 'การแจ้งเตือน',
-    icon: icon(BellRing),
-    ownerOnly: true,
-    views: [
-      { id: 'SCHEDULE', label: 'แจ้งเตือนลูกค้า' },
-      { id: 'MANUAL', label: 'ส่งเตือนลูกค้าเอง' },
-      { id: 'NOTIFY', label: 'แจ้งเตือนพนักงาน' },
-      { id: 'MANUAL_STAFF', label: 'ส่งเตือนพนักงานเอง' },
-      { id: 'OWNER_ALERTS', label: 'แจ้งเตือนเจ้าของ' },
-      { id: 'HISTORY', label: 'ประวัติการส่ง' },
-    ],
-  },
-  {
-    id: 'SETTINGS',
-    label: 'ตั้งค่า',
-    icon: icon(Settings2),
-    ownerOnly: true,
-    views: [
-      { id: 'CONNECTION', label: 'การเชื่อมต่อ' },
-      { id: 'FRIEND', label: 'การเพิ่มเพื่อน' },
-      { id: 'REGISTER', label: 'การลงทะเบียน' },
-      { id: 'CATALOG', label: 'รายการสินค้า' },
-      { id: 'MENU', label: 'เมนู LINE' },
-      { id: 'CODES', label: 'จัดการรหัสเชิญ' },
-      { id: 'AUDIT', label: 'ประวัติการตรวจสอบ' },
+    group: 'TEAM',
+    actions: [
+      { id: 'TASKS', label: 'สั่งงานด่วน', icon: icon(ClipboardList), variant: 'share' },
+      { id: 'DRIVERS', label: 'คนขับรถ', icon: icon(Truck), variant: 'info' },
     ],
   },
 ]
+const SEND_ACTIONS = SEND_GROUPS.flatMap((g) => g.actions)
 
-const groupOf = (v: LineView) => LINE_GROUPS.find((g) => g.views.some((x) => x.id === v)) ?? LINE_GROUPS[0]
-const isOwnerView = (v: LineView) => Boolean(groupOf(v).ownerOnly || groupOf(v).views.find((x) => x.id === v)?.ownerOnly)
-const ALL_VIEWS = LINE_GROUPS.flatMap((g) => g.views.map((v) => v.id))
+/** แก้ไขข้อความ: whose messages first; the shop's own templates and the bill card after them. */
+type MessagePick = LineTemplateCategory | 'OWN' | 'CARD'
+const MESSAGE_PICKS: ReadonlyArray<{ id: MessagePick; label: string; Icon: IconType }> = [
+  { id: 'CUSTOMER', label: 'ลูกค้า', Icon: Users },
+  { id: 'STAFF', label: 'พนักงาน', Icon: UserCog },
+  { id: 'OWNER', label: 'เจ้าของ', Icon: UserCheck },
+  { id: 'OWN', label: 'แม่แบบของร้าน', Icon: MessageSquare },
+  { id: 'CARD', label: 'การ์ดบิล', Icon: ReceiptText },
+]
+const isCategory = (p: MessagePick | null): p is LineTemplateCategory => p === 'CUSTOMER' || p === 'STAFF' || p === 'OWNER'
 
-/** Lists of people that are one LinePeopleList with a different view (staff and drivers have their own panels). */
-const PEOPLE_LIST_VIEWS: readonly LineView[] = ['ALL', 'UNREG', 'PENDING', 'NEEDINFO', 'CUSTOMERS', 'GENERAL', 'REJECTED', 'UNLINKED', 'BLOCKED']
-const MSG_CATEGORY: Partial<Record<LineView, LineTemplateCategory>> = { MSG_CUSTOMER: 'CUSTOMER', MSG_STAFF: 'STAFF', MSG_OWNER: 'OWNER' }
-/** The pages kept in the settings draft (LineSettingsWorkspace): the four message groups share the TEMPLATES draft. */
-const draftViewOf = (v: LineView): LineSettingsView | null =>
-  MSG_CATEGORY[v] ? 'TEMPLATES' : v === 'NOTIFY' || v === 'SCHEDULE' || v === 'FRIEND' || v === 'REGISTER' || v === 'CATALOG' || v === 'SLIPCHECK' || v === 'OWNER_ALERTS' ? v : null
+/** ตั้งค่า LINE: the second row of tabs; การแจ้งเตือน and ประวัติ have a small choice of their own after it. */
+type SettingsPage = 'CONNECTION' | 'FRIEND' | 'REGISTER' | 'CATALOG' | 'MENU' | 'NOTICES' | 'SLIPCHECK' | 'STAFF' | 'HISTORY'
+type NoticePage = 'SCHEDULE' | 'NOTIFY' | 'OWNER_ALERTS'
+type HistoryPage = 'HISTORY' | 'AUDIT' | 'CODES'
+const SETTINGS_PAGES: ReadonlyArray<{ id: SettingsPage; label: string }> = [
+  { id: 'CONNECTION', label: 'การเชื่อมต่อ' },
+  { id: 'FRIEND', label: 'การเพิ่มเพื่อน' },
+  { id: 'REGISTER', label: 'การลงทะเบียน' },
+  { id: 'CATALOG', label: 'รายการสินค้า' },
+  { id: 'MENU', label: 'เมนู LINE' },
+  { id: 'NOTICES', label: 'การแจ้งเตือน' },
+  { id: 'SLIPCHECK', label: 'ตรวจสลิป' },
+  { id: 'STAFF', label: 'พนักงานที่ผูก LINE' },
+  { id: 'HISTORY', label: 'ประวัติ' },
+]
+const NOTICE_PAGES: ReadonlyArray<{ id: NoticePage; label: string }> = [
+  { id: 'SCHEDULE', label: 'ลูกค้า' },
+  { id: 'NOTIFY', label: 'พนักงาน' },
+  { id: 'OWNER_ALERTS', label: 'เจ้าของ' },
+]
+const HISTORY_PAGES: ReadonlyArray<{ id: HistoryPage; label: string }> = [
+  { id: 'HISTORY', label: 'การส่ง' },
+  { id: 'AUDIT', label: 'การตรวจสอบ' },
+  { id: 'CODES', label: 'รหัสเชิญ' },
+]
+/** The settings pages kept in the LINE settings draft (LineSettingsWorkspace). */
+const DRAFT_SETTINGS: ReadonlySet<SettingsPage> = new Set<SettingsPage>(['FRIEND', 'REGISTER', 'CATALOG', 'SLIPCHECK'])
 
-/** Old links /line?tab=settings&view=… (and TEMPLATES, which is now the four message groups) */
-const LEGACY_VIEW: Record<string, LineView> = { TEMPLATES: 'MSG_CUSTOMER', MSG_FRIEND: 'MSG_CUSTOMER', MSG_CATALOG: 'MSG_CUSTOMER', LINKED: 'CUSTOMERS' }
+/** Old links /line?tab=settings&view=… (chat menu buttons, the bell, older pages) to where that page is now. */
+type Place =
+  | { tab: 'PEOPLE'; send?: SendAction }
+  | { tab: 'MANAGE'; confirm?: ConfirmView }
+  | { tab: 'MESSAGES'; pick: MessagePick }
+  | { tab: 'SETTINGS'; page: SettingsPage; notice?: NoticePage; history?: HistoryPage }
+function placeOf(view: string): Place {
+  if ((CONFIRM_VIEWS as readonly string[]).includes(view)) return { tab: 'MANAGE', confirm: view as ConfirmView }
+  if (view === 'CUSTOMERS' || view === 'LINKED' || view === 'OVERVIEW') return { tab: 'PEOPLE' }
+  if (view === 'SLIPS' || view === 'TASKS' || view === 'DRIVERS') return { tab: 'PEOPLE', send: view }
+  if (view === 'MANUAL') return { tab: 'PEOPLE' }
+  if (view === 'MSG_STAFF') return { tab: 'MESSAGES', pick: 'STAFF' }
+  if (view === 'MSG_OWNER') return { tab: 'MESSAGES', pick: 'OWNER' }
+  if (view === 'OWN' || view === 'CARD') return { tab: 'MESSAGES', pick: view }
+  if (view.startsWith('MSG_') || view === 'TEMPLATES') return { tab: 'MESSAGES', pick: 'CUSTOMER' }
+  if (view === 'SCHEDULE' || view === 'NOTIFY' || view === 'OWNER_ALERTS') return { tab: 'SETTINGS', page: 'NOTICES', notice: view }
+  if (view === 'HISTORY' || view === 'AUDIT' || view === 'CODES') return { tab: 'SETTINGS', page: 'HISTORY', history: view }
+  if (SETTINGS_PAGES.some((p) => p.id === view)) return { tab: 'SETTINGS', page: view as SettingsPage }
+  return { tab: 'SETTINGS', page: 'CONNECTION' }
+}
 
 export function LinePeoplePage() {
   const { showToast } = useToast()
   const { user } = useAuth()
-  // everything but the people pages is the OWNER's (staff see คนใน LINE only)
+  // แก้ไขข้อความ and ตั้งค่า LINE are the OWNER's; staff see ลูกค้าในระบบ and ยืนยัน & จัดการ
   const isOwner = user?.role === 'OWNER'
-  const [tab, setTab] = useState<LineView>('PENDING')
-  // staff never see the OWNER's pages, even from a ?tab=settings link
-  const view: LineView = isOwnerView(tab) && !isOwner ? 'OVERVIEW' : tab
-  const group = groupOf(view)
-  // each group opens on the page last used in it
-  const [lastView, setLastView] = useState<Record<LineGroup, LineView>>({
-    OVERVIEW: 'OVERVIEW',
-    PEOPLE: 'PENDING',
-    PAYMENTS: 'SLIPS',
-    TEAM: 'TASKS',
-    MESSAGES: 'MSG_CUSTOMER',
-    NOTICES: 'SCHEDULE',
-    SETTINGS: 'CONNECTION',
-  })
-  const [draftView, setDraftView] = useState<LineSettingsView>('TEMPLATES')
-  const [category, setCategory] = useState<LineTemplateCategory>('CUSTOMER')
-  const openView = (v: LineView) => open(v)
-  const openGroup = (g: LineGroup) => open(lastView[g])
-  const open = (v: LineView) => {
-    setTab(v)
-    setLastView((prev) => ({ ...prev, [groupOf(v).id]: v }))
-    const d = draftViewOf(v)
-    if (d) setDraftView(d)
-    const c = MSG_CATEGORY[v]
-    if (c) setCategory(c)
+  const [mainTab, setMainTab] = useState<MainTab>('PEOPLE')
+  const tab: MainTab = MAIN_TABS.find((t) => t.id === mainTab)?.ownerOnly && !isOwner ? 'PEOPLE' : mainTab
+  const [confirmView, setConfirmView] = useState<ConfirmView>('PENDING')
+  const [memberGroup, setMemberGroup] = useState<MemberGroup>('CUSTOMERS')
+  const [picked, setPicked] = useState<LinePerson | null>(null)
+  const [remind, setRemind] = useState<MemberRemindRequest | null>(null)
+  useEffect(() => setPicked(null), [memberGroup])
+  const { settings, saveSection } = useSystemSettings()
+  const [alertSaving, setAlertSaving] = useState(false)
+  const alertOn = (key: AutoAlertKey) => (settings.line.other[key] as { enabled?: boolean } | undefined)?.enabled !== false
+  // saved at once, no บันทึก button
+  const setAlert = async (a: (typeof AUTO_ALERTS)[number], on: boolean) => {
+    setAlertSaving(true)
+    try {
+      await saveSection('line', { ...settings, line: { ...settings.line, other: { ...settings.line.other, [a.key]: { enabled: on } } } })
+      showToast(on ? 'เปิดแจ้งเตือนอัตโนมัติแล้ว' : 'ปิดแจ้งเตือนอัตโนมัติแล้ว', a.label, 'SUCCESS')
+    } catch (err: unknown) {
+      showToast('บันทึกไม่สำเร็จ', err instanceof Error ? err.message : 'เกิดข้อผิดพลาด', 'ERROR')
+    } finally {
+      setAlertSaving(false)
+    }
   }
+  const [sendOpen, setSendOpen] = useState<SendAction | null>(null)
+  const [pick, setPick] = useState<MessagePick | null>(null)
+  const [settingsPage, setSettingsPage] = useState<SettingsPage>('CONNECTION')
+  const [noticePage, setNoticePage] = useState<NoticePage>('SCHEDULE')
+  const [historyPage, setHistoryPage] = useState<HistoryPage>('HISTORY')
   const [qrOpen, setQrOpen] = useState(false)
   const [newCustomerOpen, setNewCustomerOpen] = useState(false)
   const createCustomer = useCreateCustomer()
   const [counts, setCounts] = useState<LinePeopleCounts | null>(null)
   const [oa, setOa] = useState<{ lineId: string | null; addFriendUrl: string | null; qr: string | null } | null>(null)
+
+  // The settings draft page on screen (null = none). The draft stays mounted while hidden, on the page last shown,
+  // so an unsaved change survives a tab switch.
+  const activeDraft: LineSettingsView | null =
+    tab === 'MESSAGES'
+      ? isCategory(pick)
+        ? 'TEMPLATES'
+        : null
+      : tab === 'SETTINGS'
+        ? settingsPage === 'NOTICES'
+          ? noticePage
+          : DRAFT_SETTINGS.has(settingsPage)
+            ? (settingsPage as LineSettingsView)
+            : null
+        : null
+  const [lastDraft, setLastDraft] = useState<LineSettingsView>('TEMPLATES')
+  const [lastCategory, setLastCategory] = useState<LineTemplateCategory>('CUSTOMER')
+  useEffect(() => {
+    if (activeDraft) setLastDraft(activeDraft)
+  }, [activeDraft])
+  useEffect(() => {
+    if (isCategory(pick)) setLastCategory(pick)
+  }, [pick])
 
   const loadCounts = useCallback(async () => {
     const r = await getLinePeopleCounts()
@@ -226,14 +255,25 @@ export function LinePeoplePage() {
       .catch(() => setOa({ lineId: null, addFriendUrl: null, qr: null }))
   }, [])
 
-  // Links: /line?tab=settings[&view=TEMPLATES] (old ตั้งค่า › LINE links land here)
+  // Links /line?tab=settings[&view=…] (chat menu buttons, older pages) open the page where that view is now
   useEffect(() => {
     const q = new URLSearchParams(window.location.search)
     if (q.get('tab') !== 'settings') return
-    const raw = q.get('view') ?? ''
-    const v = (LEGACY_VIEW[raw] ?? raw) as LineView
-    open(ALL_VIEWS.includes(v) ? v : 'CONNECTION')
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- read the link once on arrival
+    const place = placeOf(q.get('view') ?? '')
+    setMainTab(place.tab)
+    if (place.tab === 'PEOPLE' && place.send) {
+      const send = place.send
+      setMemberGroup(SEND_GROUPS.find((g) => g.actions.some((a) => a.id === send))?.group ?? 'CUSTOMERS')
+      setSendOpen(send)
+    } else if (place.tab === 'MANAGE') {
+      if (place.confirm) setConfirmView(place.confirm)
+    } else if (place.tab === 'MESSAGES') {
+      setPick(place.pick)
+    } else if (place.tab === 'SETTINGS') {
+      setSettingsPage(place.page)
+      if (place.notice) setNoticePage(place.notice)
+      if (place.history) setHistoryPage(place.history)
+    }
   }, [])
 
   const copy = async (text: string, title: string, body: string) => {
@@ -251,135 +291,224 @@ export function LinePeoplePage() {
     <span className="min-w-5 h-5 px-1.5 rounded-full grid place-items-center text-[10px] font-bold tabular-nums bg-amber-500 text-slate-900">{n}</span>
   )
   const tabClass = (on: boolean) => `${TAB_BUTTON_BASE_CLASSES} ${on ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES}`
-  const groups = LINE_GROUPS.filter((g) => isOwner || !g.ownerOnly)
-  /**
-   * The left bar (owner 2026-11-25): the sections, and under the open one its pages (indented, smaller text).
-   * Narrow screens: one scrolling row with the open section's pages after it.
-   */
-  const tabBar = (
-    <nav
-      className="flex flex-row lg:flex-col items-stretch gap-0.5 min-w-0 max-w-full overflow-x-auto lg:overflow-x-visible no-scrollbar shrink-0"
-      role="tablist"
-      aria-label="เมนู LINE"
-    >
-      {groups.map((g) => {
-        const open = group.id === g.id
-        const pages = g.views.filter((v) => isOwner || !v.ownerOnly)
-        return (
-          <Fragment key={g.id}>
-            <button
-              type="button"
-              role="tab"
-              data-line-group={g.id}
-              aria-selected={open}
-              onClick={() => open || openGroup(g.id)}
-              className={`${tabClass(open && pages.length === 1)} justify-start whitespace-nowrap lg:w-full ${open && pages.length > 1 ? 'text-slate-900 dark:text-slate-100' : ''}`}
-            >
-              {g.icon}
-              {g.label}
-              {g.id === 'PEOPLE' && pending + needInfo > 0 && countBadge(pending + needInfo)}
-            </button>
-            {open && pages.length > 1 && (
-              <div
-                role="tablist"
-                aria-label={g.label}
-                className="flex flex-row lg:flex-col gap-0.5 lg:ml-3.5 lg:pl-2 lg:border-l lg:border-slate-300 dark:lg:border-slate-600 lg:mb-1"
-              >
-                {pages.map((v) => (
-                  <button
-                    key={v.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={view === v.id}
-                    onClick={() => open && openView(v.id)}
-                    className={`${tabClass(view === v.id)} !h-6 !px-2 !text-[11px] justify-start whitespace-nowrap lg:w-full`}
-                  >
-                    {v.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </Fragment>
-        )
-      })}
-    </nav>
-  )
-  const draft = draftViewOf(view)
+  function tabRow<T extends string>(label: string, items: ReadonlyArray<{ id: T; label: string; icon?: ReactNode }>, value: T | null, onPick: (id: T) => void) {
+    return (
+      <div role="tablist" aria-label={label} className={TAB_CONTAINER_CLASSES}>
+        {items.map((it) => (
+          <button key={it.id} type="button" role="tab" aria-selected={value === it.id} onClick={() => onPick(it.id)} className={tabClass(value === it.id)}>
+            {it.icon}
+            {it.label}
+          </button>
+        ))}
+      </div>
+    )
+  }
+  const send = SEND_ACTIONS.find((a) => a.id === sendOpen && (isOwner || !a.ownerOnly)) ?? null
+  const subRow =
+    tab === 'SETTINGS' ? (
+      <>
+        {tabRow('ตั้งค่า LINE', SETTINGS_PAGES, settingsPage, setSettingsPage)}
+        {settingsPage === 'NOTICES' && tabRow('การแจ้งเตือน', NOTICE_PAGES, noticePage, setNoticePage)}
+        {settingsPage === 'HISTORY' && tabRow('ประวัติ', HISTORY_PAGES, historyPage, setHistoryPage)}
+      </>
+    ) : tab === 'MESSAGES' && pick ? (
+      tabRow('แก้ไขข้อความของ', MESSAGE_PICKS.map((p) => ({ id: p.id, label: p.label, icon: icon(p.Icon) })), pick, setPick)
+    ) : null
 
   return (
     <div className="h-full min-h-0 flex flex-col overflow-hidden gap-2 p-2 bg-slate-100 dark:bg-black text-xs">
       <div className="settings-ref flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
         {/* Summary cards inside the white box (owner 2026-11-17) */}
-        <div className="card-lift-row grid grid-cols-2 lg:grid-cols-4 gap-1.5 sm:gap-2 shrink-0 p-2">
+        <div className="card-lift-row grid grid-cols-4 gap-1.5 sm:gap-2 shrink-0 p-2">
           <StatCard tone="amber" label="รอร้านตรวจสอบ" value={<><CountUp value={pending} /> คน</>} icon={<UserPlus className="w-3.5 h-3.5" />} />
           <StatCard tone="emerald" label="ลูกค้าที่ผูก LINE" value={<><CountUp value={counts?.customers ?? 0} /> คน</>} icon={<Users className="w-3.5 h-3.5" />} />
           <StatCard tone="red" label="บล็อก / ลบ LINE ร้าน" value={<><CountUp value={counts?.blocked ?? 0} /> คน</>} icon={<UserX className="w-3.5 h-3.5" />} />
-          <div className="bg-blue-50/60 dark:bg-blue-950/40 p-2 sm:p-2.5 rounded-xl border border-blue-200 dark:border-blue-800 flex items-center justify-between gap-2">
+          <div className="min-w-0 bg-blue-50/60 dark:bg-blue-950/40 p-2 sm:p-2.5 rounded-xl border border-blue-200 dark:border-blue-800 flex items-center justify-between gap-2">
             <div className="min-w-0">
               <span className="text-[10px] sm:text-[11px] text-blue-700 dark:text-blue-300 font-semibold">LINE ID ของร้าน</span>
               <h3 className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5 truncate">{oa?.lineId || 'ยังไม่ได้ตั้ง'}</h3>
             </div>
-            <button
-              type="button"
-              onClick={() => setQrOpen(true)}
-              className={`${COMMAND_BUTTON_SIZE_CLASSES} shrink-0 bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs flex items-center cursor-pointer`}
-            >
-              <QrCode className="w-3.5 h-3.5" />
+            <ActionButton variant="info" icon={<QrCode />} className="shrink-0" onClick={() => setQrOpen(true)}>
               QR เพิ่มเพื่อน
-            </button>
+            </ActionButton>
           </div>
         </div>
 
-        {/* The work area: the pages of the open group on the left, the page on the right. Pages with controls of their
-            own (the lists, พนักงาน, คนขับรถ, ส่งเตือนเอง, ประวัติการส่ง ...) draw the toolbar row themselves with the
-            group tabs first; the others get a plain row. */}
-        <div className="flex-1 min-h-0 min-w-0 flex flex-col lg:flex-row overflow-hidden">
-          <aside className="shrink-0 lg:w-44 lg:overflow-y-auto lg:border-r border-b lg:border-b-0 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-1.5">
-            {tabBar}
-          </aside>
-          <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
-            {view === 'OVERVIEW' && <LineOverviewPanel tabs={null} counts={counts} onOpen={(v) => open(v as LineView)} oa={oa} isOwner={isOwner} />}
-            {PEOPLE_LIST_VIEWS.includes(view) && (
-              <LinePeopleList
-                view={view as LinePeopleView}
-                tabs={null}
-                isOwner={isOwner}
-                onChanged={() => void loadCounts()}
-                actions={view === 'PENDING' && isOwner ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <ActionButton variant="primary" icon={<UserPlus />} onClick={() => setNewCustomerOpen(true)}>เพิ่มลูกค้า</ActionButton>
-                    <ActionButton variant="secondary" icon={<UserCog />} onClick={() => open('STAFF')}>พนักงานที่ผูก LINE</ActionButton>
-                  </div>
-                ) : undefined}
-              />
-            )}
-            {view === 'STAFF' && <LineMembersPanel tabs={null} />}
-            {view === 'SLIPS' && <LineSlipsPanel tabs={null} />}
-            {view === 'TASKS' && <LineTasksPanel tabs={null} />}
-            {view === 'DRIVERS' && <DeliveryDriversPanel tabs={null} />}
-            {view === 'CODES' && <LineCodesPanel tabs={null} />}
-            {view === 'AUDIT' && <LineAuditPanel tabs={null} />}
-            {view === 'MENU' && <LineRichMenuSettings tabs={null} />}
-            {view === 'MANUAL' && <LineRemindersPanel tabs={null} />}
-            {view === 'MANUAL_STAFF' && <LineTeamRemindersPanel />}
-            {view === 'HISTORY' && <LineDeliveryLogPanel tabs={null} />}
-            {view === 'CONNECTION' && <LineConnectionPanel />}
-
-            {/* Kept mounted while hidden, so an unsaved setting, card or message survives a page switch */}
-            {isOwner && (
-              <>
-                <LineSettingsWorkspace view={draftView} templateCategory={category} hidden={draft === null} />
-                <div hidden={view !== 'OWN'} className={view === 'OWN' ? 'flex-1 min-h-0 flex flex-col' : undefined}>
-                  <LineMessageComposer />
+        {/* The four tabs in one row (owner 2026-11-26); ตั้งค่า LINE and แก้ไขข้อความ add their own row under it */}
+        <div className="shrink-0 px-2 pb-2 flex flex-col gap-1.5 min-w-0 border-b border-slate-200 dark:border-slate-700">
+          <div role="tablist" aria-label="เมนู LINE" className={`${TAB_CONTAINER_CLASSES} max-w-full`}>
+            {MAIN_TABS.filter((t) => isOwner || !t.ownerOnly).map((t) =>
+              t.id === 'PEOPLE' && tab === 'PEOPLE' ? (
+                <div key={t.id} role="tab" aria-selected data-line-tab={t.id} className="w-40 shrink-0">
+                  <CustomSelect
+                    value={memberGroup}
+                    ariaLabel="สมาชิก"
+                    buttonClassName={TAB_BUTTON_BASE_CLASSES}
+                    onChange={(v) => setMemberGroup(v as MemberGroup)}
+                    options={MEMBER_GROUPS.map((g) => ({ value: g.value, label: g.label }))}
+                  />
                 </div>
-                <div hidden={view !== 'CARD'} className={view === 'CARD' ? 'flex-1 min-h-0 flex flex-col' : undefined}>
-                  <LineBillCardDesigner />
-                </div>
-              </>
+              ) : (
+              <button key={t.id} type="button" role="tab" data-line-tab={t.id} aria-selected={tab === t.id} onClick={() => setMainTab(t.id)} className={tabClass(tab === t.id)}>
+                {t.icon}
+                {t.label}
+                {t.id === 'MANAGE' && pending + needInfo > 0 && countBadge(pending + needInfo)}
+              </button>
+              ),
             )}
           </div>
+          {subRow && <div className="flex items-center gap-2 min-w-0 overflow-x-auto no-scrollbar">{subRow}</div>}
+        </div>
+
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
+          {/* สมาชิก: one table of the group picked in the tab, its send buttons on the right */}
+          {tab === 'PEOPLE' && (
+            <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
+              <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-y-auto">
+                <LinePeopleList
+                  key={memberGroup}
+                  view={memberGroup === 'CUSTOMERS' ? 'MEMBERS' : 'TEAM'}
+                  tabs={null}
+                  searchable={false}
+                  pickedId={memberGroup === 'CUSTOMERS' ? (picked?.id ?? null) : undefined}
+                  onPick={memberGroup === 'CUSTOMERS' ? setPicked : undefined}
+                  isOwner={isOwner}
+                  onChanged={() => void loadCounts()}
+                />
+              </div>
+              <aside
+                aria-label="ส่งกำหนดและแจ้งเตือน"
+                className="shrink-0 lg:w-48 border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-2 flex flex-row flex-wrap lg:flex-col lg:flex-nowrap gap-1.5 lg:overflow-y-auto"
+              >
+                {isOwner && (
+                  <div className="flex flex-col gap-1 lg:w-full">
+                    <span className="px-1 text-[11px] font-bold text-slate-700 dark:text-slate-300">แจ้งเตือนอัตโนมัติ</span>
+                    {AUTO_ALERTS.filter((a) => a.group === memberGroup).map((a) => (
+                      <div key={a.key} className="flex items-center justify-between gap-2 px-1 py-0.5 text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                        <span>{a.label}</span>
+                        <SettingsSwitch label={`แจ้งเตือนอัตโนมัติ ${a.label}`} checked={alertOn(a.key)} disabled={alertSaving} onChange={(on) => void setAlert(a, on)} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {memberGroup === 'CUSTOMERS' && isOwner && (
+                  <div className="flex flex-row flex-wrap lg:flex-col gap-1.5 lg:w-full">
+                    <span className="px-1 text-[11px] font-bold text-slate-700 dark:text-slate-300 lg:w-full">แจ้งเตือนลูกค้า</span>
+                    {LINE_REMINDER_RULES.map((r) => (
+                      <ActionButton
+                        key={r.key}
+                        variant="share"
+                        icon={icon(BellRing)}
+                        className="lg:w-full justify-start"
+                        onClick={() =>
+                          picked
+                            ? setRemind({ contact: picked, rule: { key: r.key, label: r.label } })
+                            : showToast('กรุณาเลือกลูกค้าก่อน', 'ดับเบิลคลิกแถวลูกค้าในตาราง', 'INFO')
+                        }
+                      >
+                        {r.label}
+                      </ActionButton>
+                    ))}
+                  </div>
+                )}
+                {SEND_GROUPS.filter((g) => g.group === memberGroup)
+                  .flatMap((g) => g.actions)
+                  .filter((a) => isOwner || !a.ownerOnly)
+                  .map((a) => (
+                    <ActionButton key={a.id} variant={a.variant} icon={a.icon} className="lg:w-full justify-start" onClick={() => setSendOpen(a.id)}>
+                      {a.label}
+                    </ActionButton>
+                  ))}
+              </aside>
+            </div>
+          )}
+
+          {/* ยืนยัน & จัดการ: requests and the link maker */}
+          {tab === 'MANAGE' && (
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-y-auto">
+                <div className="flex-1 min-h-[420px] flex flex-col">
+                  <LinePeopleList
+                    view={confirmView}
+                    isOwner={isOwner}
+                    onChanged={() => void loadCounts()}
+                    tabs={
+                      <div className="w-44 shrink-0">
+                        <CustomSelect
+                          value={confirmView}
+                          ariaLabel="รายการที่ต้องยืนยัน"
+                          onChange={(v) => setConfirmView(v as ConfirmView)}
+                          options={CONFIRM_VIEWS.map((v) => ({ value: v, label: PEOPLE_VIEW_LABEL[v] }))}
+                        />
+                      </div>
+                    }
+                    actions={
+                      isOwner ? (
+                        <ActionButton variant="primary" icon={<UserPlus />} onClick={() => setNewCustomerOpen(true)}>
+                          เพิ่มลูกค้า
+                        </ActionButton>
+                      ) : undefined
+                    }
+                  />
+                </div>
+                {isOwner && <LineInviteArea />}
+              </div>
+            </div>
+          )}
+
+          {/* แก้ไขข้อความ: choose whose messages before anything can be edited */}
+          {tab === 'MESSAGES' && !pick && (
+            <div className="flex-1 min-h-0 grid place-items-center p-4 overflow-y-auto">
+              <div role="tablist" aria-label="แก้ไขข้อความของ" className="grid grid-cols-3 sm:grid-cols-5 gap-3 w-full max-w-3xl">
+                {MESSAGE_PICKS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={false}
+                    onClick={() => setPick(p.id)}
+                    className="h-24 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 flex flex-col items-center justify-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100 cursor-pointer transition-colors"
+                  >
+                    <p.Icon className="w-6 h-6" />
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {tab === 'SETTINGS' && settingsPage === 'CONNECTION' && <LineConnectionPanel />}
+          {tab === 'SETTINGS' && settingsPage === 'MENU' && <LineRichMenuSettings tabs={null} />}
+          {tab === 'SETTINGS' && settingsPage === 'STAFF' && <LineMembersPanel tabs={null} />}
+          {tab === 'SETTINGS' && settingsPage === 'HISTORY' && historyPage === 'HISTORY' && <LineDeliveryLogPanel tabs={null} />}
+          {tab === 'SETTINGS' && settingsPage === 'HISTORY' && historyPage === 'AUDIT' && <LineAuditPanel tabs={null} />}
+          {tab === 'SETTINGS' && settingsPage === 'HISTORY' && historyPage === 'CODES' && <LineCodesPanel tabs={null} />}
+
+          {/* Kept mounted while hidden, so an unsaved setting, card or message survives a page switch */}
+          {isOwner && (
+            <>
+              <LineSettingsWorkspace view={activeDraft ?? lastDraft} templateCategory={isCategory(pick) ? pick : lastCategory} hidden={activeDraft === null} />
+              <div hidden={!(tab === 'MESSAGES' && pick === 'OWN')} className={tab === 'MESSAGES' && pick === 'OWN' ? 'flex-1 min-h-0 flex flex-col' : undefined}>
+                <LineMessageComposer />
+              </div>
+              <div hidden={!(tab === 'MESSAGES' && pick === 'CARD')} className={tab === 'MESSAGES' && pick === 'CARD' ? 'flex-1 min-h-0 flex flex-col' : undefined}>
+                <LineBillCardDesigner />
+              </div>
+            </>
+          )}
         </div>
       </div>
+
+      {/* The send buttons of ยืนยัน & จัดการ: each list in its own window */}
+      <LineMemberRemind request={remind} onDone={() => setRemind(null)} />
+      <AppModal isOpen={Boolean(send)} onClose={() => setSendOpen(null)} size="full">
+        <AppModalHeader title={send?.label ?? ''} icon={send?.icon} onClose={() => setSendOpen(null)} />
+        <AppModalBody noPadding className="h-[75vh] flex flex-col">
+          {send?.id === 'SLIPS' && <LineSlipsPanel tabs={null} />}
+          {send?.id === 'TASKS' && <LineTasksPanel tabs={null} />}
+          {send?.id === 'DRIVERS' && <DeliveryDriversPanel tabs={null} />}
+        </AppModalBody>
+      </AppModal>
 
       {/* QR to add the shop LINE as a friend (adding a friend links nobody) */}
       <NewCustomerModal

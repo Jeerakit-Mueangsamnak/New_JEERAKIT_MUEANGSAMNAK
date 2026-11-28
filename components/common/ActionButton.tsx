@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight } from 'lucide-react'
 
 export interface ActionButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   /** primary / info / danger and the function colours (BUTTON_FUNCTION_COLOURS) are coloured; the rest are on/off looks. */
-  variant?: 'active' | 'primary' | 'neutral' | 'ghost' | 'dashed' | 'secondary' | 'outline' | 'utility' | 'danger' | 'info'
+  variant?: 'active' | 'primary' | 'neutral' | 'ghost' | 'outline' | 'utility' | 'danger' | 'info'
     | 'edit' | 'cancel' | 'clear' | 'export' | 'share' | 'deliver'
   icon?: React.ReactNode
   badge?: React.ReactNode
@@ -162,11 +162,6 @@ export const ActionButton = React.forwardRef<HTMLButtonElement, ActionButtonProp
       case 'utility':
         variantClasses =
           'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/80'
-        break
-      case 'dashed':
-      case 'secondary':
-        variantClasses =
-          'border border-dashed border-slate-300 dark:border-slate-600 hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400'
         break
       case 'outline':
         variantClasses =

@@ -77,7 +77,6 @@ vi.mock('@/features/settings/components/line/LineTasksPanel', () => ({ LineTasks
 vi.mock('@/features/settings/components/LineMessageComposer', () => ({ LineMessageComposer: () => <div>เขียนข้อความ (stub)</div> }))
 vi.mock('@/features/settings/components/LineSettingsPanel', () => ({ LineConnectionPanel: () => <div>เชื่อมต่อ LINE (stub)</div> }))
 vi.mock('@/features/settings/components/LineMembersPanel', () => ({ LineMembersPanel: () => <div>พนักงานร้าน (stub)</div> }))
-vi.mock('@/features/settings/components/LineRemindersPanel', () => ({ LineRemindersPanel: () => <div>ส่งเตือนเอง (stub)</div> }))
 vi.mock('@/features/settings/components/LineDeliveryLogPanel', () => ({ LineDeliveryLogPanel: () => <div>ประวัติการส่ง (stub)</div> }))
 vi.mock('@/features/settings/components/line/LineCodesPanel', () => ({ LineCodesPanel: () => <div>รหัสเชิญ (stub)</div> }))
 vi.mock('@/features/settings/components/line/LineAuditPanel', () => ({ LineAuditPanel: () => <div>ประวัติการตรวจสอบ (stub)</div> }))

@@ -2,7 +2,7 @@
 
 import { useCallback, useState, type ReactNode } from 'react'
 import { Ban } from 'lucide-react'
-import { COMMAND_BUTTON_SIZE_CLASSES, TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
+import { ActionButton, TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
 import { DATA_TABLE_CLASSES, DATA_TABLE_TH_CLASSES, DATA_TABLE_THEAD_CLASSES, DataTableFrame } from '@/components/common/DataTableFrame'
 import { useToast } from '@/components/common/Toast'
 import { useConfirm } from '@/components/common/ConfirmDialogProvider'
@@ -82,14 +82,9 @@ export function LineCodesPanel({ tabs }: { tabs: ReactNode }) {
                 </td>
                 <td className="px-3 py-2 text-right whitespace-nowrap">
                   {c.state === 'OPEN' && (
-                    <button
-                      type="button"
-                      disabled={busy === c.id}
-                      onClick={() => void revoke(c)}
-                      className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-50 cursor-pointer`}
-                    >
-                      <Ban className="w-3.5 h-3.5" /> ยกเลิกรหัส
-                    </button>
+                    <ActionButton variant="danger" icon={<Ban />} disabled={busy === c.id} onClick={() => void revoke(c)}>
+                      ยกเลิกรหัส
+                    </ActionButton>
                   )}
                 </td>
               </tr>

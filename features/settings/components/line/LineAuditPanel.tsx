@@ -1,14 +1,14 @@
 'use client'
 
 import { useCallback, useState, type ReactNode } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { COMMAND_BUTTON_SIZE_CLASSES, TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
+import { TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
 import { DATA_TABLE_CLASSES, DATA_TABLE_TH_CLASSES, DATA_TABLE_THEAD_CLASSES, DataTableFrame } from '@/components/common/DataTableFrame'
 import { listLineAudit, type LineAuditRow } from '@/app/actions/line'
 import { useAutoRefresh } from '@/features/settings/hooks/useAutoRefresh'
+import { useAutoFitPageSize } from '@/lib/hooks/useAutoFitPageSize'
 import { thaiDateTime } from '@/features/settings/components/line/line-people-model'
 
-/** ประวัติการตรวจสอบ (OWNER): who did what in LINE, newest first, 50 at a time. */
+/** ประวัติการตรวจสอบ (OWNER): who did what in LINE, newest first; no ย้อนกลับ / ถัดไป, 50 more are read as it scrolls down. */
 const PAGE = 50
 const ACTION: Record<string, string> = {
   LINE_REGISTER: 'ส่งคำขอลงทะเบียน',
@@ -24,38 +24,37 @@ const ACTION: Record<string, string> = {
 }
 
 export function LineAuditPanel({ tabs }: { tabs: ReactNode }) {
-  const [offset, setOffset] = useState(0)
   const [rows, setRows] = useState<LineAuditRow[]>([])
   const [error, setError] = useState<string | null>(null)
   const [more, setMore] = useState(false)
+  // one more than what is read while the database has more, so scrolling to the bottom asks for the next 50
+  const autoFit = useAutoFitPageSize({ totalItems: rows.length + (more ? 1 : 0), step: PAGE })
+  const want = autoFit.pageSize
 
   const load = useCallback(async () => {
-    const r = await listLineAudit(offset)
-    if (!r.success || !r.data) return setError(r.error || 'โหลดประวัติไม่สำเร็จ')
+    const got: LineAuditRow[] = []
+    let full = false
+    for (let from = 0; from < want; from += PAGE) {
+      const r = await listLineAudit(from)
+      if (!r.success || !r.data) return setError(r.error || 'โหลดประวัติไม่สำเร็จ')
+      got.push(...r.data)
+      full = r.data.length === PAGE
+      if (!full) break
+    }
     setError(null)
-    setRows(r.data)
-    setMore(r.data.length === PAGE)
-  }, [offset])
+    setRows(got)
+    setMore(full)
+  }, [want])
   useAutoRefresh(load, 120_000)
 
-  const btn = `${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center border border-slate-300 dark:border-slate-600 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed`
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className={`${TABLE_TOOLBAR_CLASSES} flex items-center`}>{tabs}</div>
       {error && <p className="m-3 rounded-lg px-3 py-2 bg-amber-50 dark:bg-amber-950/40 text-[11px] text-amber-800 dark:text-amber-200">{error}</p>}
       <DataTableFrame
         fill
+        scrollRef={autoFit.containerRef}
         rowCount={rows.length}
-        countBarStart={
-          <button type="button" disabled={offset === 0} onClick={() => setOffset((o) => Math.max(0, o - PAGE))} className={btn}>
-            <ChevronLeft className="w-3.5 h-3.5" /> ย้อนกลับ
-          </button>
-        }
-        countBarEnd={
-          <button type="button" disabled={!more} onClick={() => setOffset((o) => o + PAGE)} className={btn}>
-            ถัดไป <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        }
         className="flex-1 min-h-0 min-w-0 rounded-none bg-transparent"
       >
         <table className={`${DATA_TABLE_CLASSES} text-[11px] leading-tight`} data-testid="line-audit">

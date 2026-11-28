@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Ban, ClipboardList, Send } from 'lucide-react'
 import {
   ActionButton,
-  COMMAND_BUTTON_SIZE_CLASSES,
+  ROW_ICON_BUTTON_CLASSES,
   TABLE_TOOLBAR_CLASSES,
   TAB_BUTTON_ACTIVE_CLASSES,
   TAB_BUTTON_BASE_CLASSES,
@@ -256,7 +256,7 @@ export function LineTasksPanel({ tabs }: { tabs: ReactNode }) {
                             disabled={busy === t.id}
                             onClick={() => void cancel(t)}
                             aria-label="ยกเลิกงาน"
-                            className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-50 cursor-pointer`}
+                            className={`${ROW_ICON_BUTTON_CLASSES} text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40`}
                           >
                             <Ban />
                           </button>

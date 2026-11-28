@@ -3,7 +3,7 @@ import React from 'react'
 import { Copy } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { liffUrl } from '@/lib/line/liff-links'
-import { REF_BUTTON_QUIET } from './SettingsCards'
+import { ActionButton } from '@/components/common/ActionButton'
 import { SETTINGS_ROW_INPUT, SettingsRow } from './SettingsRows'
 
 /**
@@ -30,10 +30,9 @@ export function LineFormsRow() {
         value={finance ?? 'ยังไม่ได้ตั้งค่า LIFF'}
         className={`${SETTINGS_ROW_INPUT} font-mono`}
       />
-      <button type="button" disabled={!finance} onClick={() => finance && void copy(finance)} className={`${REF_BUTTON_QUIET} shrink-0`}>
-        <Copy className="w-3.5 h-3.5" />
-        <span>คัดลอก</span>
-      </button>
+      <ActionButton variant="share" icon={<Copy />} disabled={!finance} onClick={() => finance && void copy(finance)} className="shrink-0">
+        คัดลอก
+      </ActionButton>
     </SettingsRow>
   )
 }

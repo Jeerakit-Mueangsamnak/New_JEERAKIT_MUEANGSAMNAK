@@ -1,5 +1,5 @@
 'use client'
-import { ActionButton, COMMAND_BUTTON_SIZE_CLASSES, TABLE_TOOLBAR_CLASSES, BUTTON_FUNCTION_COLOURS } from '@/components/common/ActionButton'
+import { ActionButton, TABLE_TOOLBAR_CLASSES } from '@/components/common/ActionButton'
 
 /**
  * Settings › LINE: the driver list (ทะเบียนคนขับ). Drivers are not app users; each gets a code
@@ -30,7 +30,6 @@ import {
   type DeliveryDriver,
 } from '@/features/appointments/services/driver-registry'
 import { SETTINGS_INPUT } from '@/features/settings/components/settings-ui'
-import { REF_BUTTON, REF_BUTTON_QUIET } from '@/features/settings/components/SettingsCards'
 import { useAutoRefresh } from '@/features/settings/hooks/useAutoRefresh'
 import { DataTableFrame, DATA_TABLE_CLASSES, DATA_TABLE_TH_CLASSES, DATA_TABLE_THEAD_CLASSES } from '@/components/common/DataTableFrame'
 
@@ -161,26 +160,16 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
         <span className="inline-flex flex-wrap items-center gap-1.5">
           {contact.display_name && <span className="text-slate-700 dark:text-slate-300">LINE &quot;{contact.display_name}&quot;</span>}
           <LineContactInfo contact={contact} onChanged={() => void loadContacts()} />
-          <button
-            type="button"
-            disabled={user?.role !== 'OWNER' || lineBusy === d.id}
-            onClick={() => void unlink(d, contact)}
-            className={`${COMMAND_BUTTON_SIZE_CLASSES} inline-flex items-center cursor-pointer ${BUTTON_FUNCTION_COLOURS.remove}`}
-          >
-            <Link2Off className="w-3.5 h-3.5" /> ยกเลิกการผูก
-          </button>
+          <ActionButton variant="danger" icon={<Link2Off />} disabled={user?.role !== 'OWNER' || lineBusy === d.id} onClick={() => void unlink(d, contact)}>
+            ยกเลิกการผูก
+          </ActionButton>
         </span>
       )
     }
     return d.active && lineReady ? (
-      <button
-        type="button"
-        disabled={user?.role !== 'OWNER' || lineBusy === d.id}
-        onClick={() => void issueCode(d.id)}
-        className={`${COMMAND_BUTTON_SIZE_CLASSES} cursor-pointer disabled:opacity-50 ${BUTTON_FUNCTION_COLOURS.share}`}
-      >
+      <ActionButton variant="share" disabled={user?.role !== 'OWNER' || lineBusy === d.id} onClick={() => void issueCode(d.id)}>
         สร้างลิงก์
-      </button>
+      </ActionButton>
     ) : (
       <span className="text-slate-600 dark:text-slate-400">-</span>
     )
@@ -301,14 +290,13 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
             onChange={(e) => setPhone(e.target.value)}
             placeholder="เบอร์โทร (ไม่บังคับ)"
           />
-          <button type="submit" disabled={saving} className={`${REF_BUTTON} shrink-0`}>
-            {editingId ? <Pencil className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+          <ActionButton type="submit" variant="primary" icon={editingId ? <Pencil /> : <Plus />} disabled={saving} className="shrink-0">
             {editingId ? 'บันทึกการแก้ไข' : lineReady ? 'บันทึกและสร้างลิงก์' : 'เพิ่มพนักงานส่งของ'}
-          </button>
+          </ActionButton>
           {editingId && (
-            <button type="button" onClick={resetForm} className={`${REF_BUTTON_QUIET} shrink-0`}>
+            <ActionButton variant="cancel" onClick={resetForm} className="shrink-0">
               ยกเลิก
-            </button>
+            </ActionButton>
           )}
         </form>
         {!lineReady && <p className="basis-full text-[11px] text-amber-700 dark:text-amber-300">ระบบ LINE ยังไม่พร้อมในฐานข้อมูลนี้ จึงยังผูก LINE คนขับไม่ได้</p>}
@@ -348,34 +336,23 @@ export function DeliveryDriversPanel({ tabs }: { tabs?: ReactNode }) {
                   </span>
                 </td>
                 <td className="px-3 py-2 text-right whitespace-nowrap">
-                  <button
-                    type="button"
+                  <ActionButton
+                    variant="edit"
                     disabled={saving}
                     onClick={() => {
                       setEditingId(d.id)
                       setName(d.name)
                       setPhone(d.phone || '')
                     }}
-                    className={`${COMMAND_BUTTON_SIZE_CLASSES} cursor-pointer ${BUTTON_FUNCTION_COLOURS.edit}`}
                   >
                     แก้ไข
-                  </button>
-                  <button
-                    type="button"
-                    disabled={saving}
-                    onClick={() => void toggleActive(d)}
-                    className={`${COMMAND_BUTTON_SIZE_CLASSES} cursor-pointer ${BUTTON_FUNCTION_COLOURS[d.active ? 'clear' : 'save']}`}
-                  >
+                  </ActionButton>
+                  <ActionButton variant={d.active ? 'clear' : 'primary'} disabled={saving} onClick={() => void toggleActive(d)}>
                     {d.active ? 'ระงับ' : 'เปิดใช้งาน'}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={saving}
-                    onClick={() => void removeDriver(d)}
-                    className={`${COMMAND_BUTTON_SIZE_CLASSES} cursor-pointer ${BUTTON_FUNCTION_COLOURS.remove}`}
-                  >
+                  </ActionButton>
+                  <ActionButton variant="danger" disabled={saving} onClick={() => void removeDriver(d)}>
                     ลบ
-                  </button>
+                  </ActionButton>
                 </td>
               </tr>
             ))}

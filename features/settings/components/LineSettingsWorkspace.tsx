@@ -12,7 +12,7 @@ import {
   isSectionDirty,
   LINE_VIEW_PART,
   resetLinePart,
-  withLinePart,
+  withLinePartOnLatest,
   type SectionState,
 } from '@/features/settings/utils/section-drafts'
 import { useLeaveGuard } from '@/features/settings/hooks/useLeaveGuard'
@@ -47,7 +47,7 @@ export function LineSettingsWorkspace({ view, hidden = false, templateCategory }
     setState((st) => ({ ...st, draft: typeof action === 'function' ? action(st.draft) : action }))
 
   const save = async () => {
-    const pageDraft = withLinePart(state.base, state.draft, part)
+    const pageDraft = withLinePartOnLatest(settings, state, part)
     const error = validateSection('line', pageDraft)
     if (error) {
       showToast('บันทึกไม่สำเร็จ', error, 'ERROR')
